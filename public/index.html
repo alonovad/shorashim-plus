@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>שורשים פלוס — ניהול מטעים וריסוס</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<link rel="stylesheet" href="css/style.css"/>
+</head>
+</head>
+<body>
+
+<!-- Login Screen -->
+<div id="loginScreen" style="position: fixed; inset: 0; background: linear-gradient(168deg, #0d1f0d 0%, #1a3c1a 30%, #245a28 60%, #2a6830 100%); display: none; align-items: center; justify-content: center; z-index: 99999;">
+  <div style="background: white; border-radius: 24px; padding: 40px 32px; width: 90%; max-width: 400px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+    <div style="text-align: center; margin-bottom: 32px;">
+      <svg width="60" height="60" viewBox="0 0 100 100" style="margin: 0 auto 16px;">
+        <polygon points="50,8 92,82 8,82" fill="#a5d6a7" opacity="0.7"/>
+        <polygon points="50,18 82,78 18,78" fill="#66bb6a" opacity="0.8"/>
+        <polygon points="50,28 72,74 28,74" fill="#43a047"/>
+        <polygon points="50,38 62,70 38,70" fill="#2e7d32"/>
+      </svg>
+      <h1 style="font-size: 2rem; font-weight: 900; color: #1b5e20; margin-bottom: 8px;">שורשים פלוס</h1>
+      <p style="font-size: 0.95rem; color: #5a7a5a;">פלטפורמה לניהול חקלאי</p>
+    </div>
+    
+    <div style="display: flex; flex-direction: column; gap: 16px;">
+      <div>
+        <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #1b2e1b; margin-bottom: 6px;">שם משתמש</label>
+        <input type="text" id="loginUsername" placeholder="הזן שם משתמש" style="width: 100%; padding: 12px 16px; border: 2px solid #a5d6a7; border-radius: 12px; font-family: Heebo, sans-serif; font-size: 1rem; direction: rtl; outline: none;">
+      </div>
+      <div>
+        <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #1b2e1b; margin-bottom: 6px;">סיסמה (4 ספרות)</label>
+        <input type="password" id="loginPin" placeholder="****" maxlength="4" inputmode="numeric" style="width: 100%; padding: 12px 16px; border: 2px solid #a5d6a7; border-radius: 12px; font-family: Heebo, sans-serif; font-size: 1rem; direction: rtl; outline: none;">
+      </div>
+      <button id="loginBtn" style="width: 100%; padding: 14px; background: linear-gradient(135deg, #245a28, #2e7d32); color: white; border: none; border-radius: 12px; font-family: Heebo, sans-serif; font-size: 1rem; font-weight: 700; cursor: pointer; margin-top: 8px; box-shadow: 0 4px 16px rgba(15,31,15,0.4);">התחבר</button>
+      <div id="loginError" style="color: #c62828; font-size: 0.85rem; font-weight: 600; text-align: center; min-height: 20px;"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Main App (hidden until login) -->
+<div id="mainApp" style="display: none; flex: 1; flex-direction: column;">
+
+<!-- Header -->
+<div class="header">
+  <div class="header-brand">
+    <div class="header-logo">
+      <svg width="34" height="34" viewBox="0 0 100 100" fill="none">
+        <polygon points="50,8 92,82 8,82" fill="#a5d6a7" opacity="0.7"/>
+        <polygon points="50,18 82,78 18,78" fill="#66bb6a" opacity="0.8"/>
+        <polygon points="50,28 72,74 28,74" fill="#43a047"/>
+        <polygon points="50,38 62,70 38,70" fill="#2e7d32"/>
+      </svg>
+    </div>
+    <div>
+      <h1>שורשים פלוס</h1>
+      <div class="subtitle">פלטפורמה לניהול חקלאי</div>
+    </div>
+  </div>
+  <div class="header-actions">
+    <button class="hdr-btn" id="undoActionBtn" title="בטל פעולה" style="display:none;">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
+      </svg>
+    </button>
+    <button class="hdr-btn" id="gpsBtn" title="המיקום שלי">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/>
+      </svg>
+    </button>
+    <button class="hdr-btn" id="langBtn" title="שפה" style="font-size: 0.85rem; font-weight: 700;">עב</button>
+  </div>
+</div>
+
+<!-- Tab Bar -->
+<div class="tab-bar">
+  <div class="tab active" data-tab="map" data-t-key="מפה">🗺️ מפה</div>
+  <div class="tab" data-tab="spray" data-t-key="ריסוס">💧 ריסוס</div>
+  <div class="tab" data-tab="worklog" data-t-key="יומן">📝 יומן</div>
+  <div class="tab" data-tab="history" data-t-key="היסטוריה">📋 היסטוריה</div>
+  <div class="tab" data-tab="irrigation" data-t-key="השקיה">💧 השקיה</div>
+  <div class="tab" data-tab="profile" data-t-key="אישי">👤 אישי</div>
+  <div class="tab admin-only" data-tab="farms" data-t-key="מטעים" style="display: none;">🌳 מטעים</div>
+  <div class="tab admin-only" data-tab="users" data-t-key="משתמשים" style="display: none;">👥 משתמשים</div>
+  <div class="tab admin-only" data-tab="admin" data-t-key="חומרים" style="display: none;">🧪 חומרים</div>
+  <div class="tab" data-tab="pestsearch" data-t-key="חיפוש חומרים">🔍 חיפוש חומרים</div>
+</div>
+
+<!-- Tabs Wrapper -->
+<div class="tabs-wrapper">
+
+<!-- Map Tab -->
+<div class="tab-content active" id="tabMap">
+  <button class="layer-toggle" id="layerBtn">
+    <span id="layerIcon">🛰️</span>
+    <span id="layerText">לוויין</span>
+  </button>
+
+  <div id="map"></div>
+
+  <button class="fab-main" id="fabMain">+</button>
+  <div class="fab-options" id="fabOptions">
+    <button class="fab-option" id="btnPolygon">
+      <div class="fab-option-icon polygon">⬠</div>
+      <div>
+        <div class="fab-option-text">פוליגון חופשי</div>
+        <div class="fab-option-sub">סימון נקודה-נקודה</div>
+      </div>
+    </button>
+    <button class="fab-option" id="btnRect">
+      <div class="fab-option-icon rect">▬</div>
+      <div>
+        <div class="fab-option-text">מלבן</div>
+        <div class="fab-option-sub">לחץ שתי פינות נגדיות</div>
+      </div>
+    </button>
+  </div>
+  <div class="draw-banner" id="drawBanner"></div>
+  <button class="undo-point-btn" id="undoPointBtn">↩ בטל נקודה</button>
+
+  <div class="undo-bar" id="undoBar">
+    <span id="undoBarText"></span>
+    <button class="undo-bar-btn" id="undoBarBtn">↩ בטל</button>
+  </div>
+
+  <div class="panel collapsed" id="panel">
+    <div class="panel-handle" id="panelHandle">
+      <span class="panel-title">חלקות מסומנות</span>
+      <span class="plot-count" id="plotCount">0</span>
+    </div>
+    <div class="panel-body" id="plotList">
+      <div class="empty-state">
+        <div class="icon">📐</div>
+        <p>עדיין אין חלקות מסומנות.<br>לחץ על ➕ כדי להתחיל.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Spray Tab -->
+<div class="tab-content" id="tabSpray">
+  <div class="spray-container">
+    <div class="section-card">
+      <div class="section-title" data-t-key="פרטי ריסוס">📅 פרטי ריסוס</div>
+      <div class="form-group">
+        <label class="form-label" data-t-key="תאריך">תאריך</label>
+        <input type="date" class="form-input" id="sprayDate">
+      </div>
+      <div class="form-group">
+        <label class="form-label" data-t-key="שם המפעיל">שם המפעיל</label>
+        <input type="text" class="form-input" id="operatorName" placeholder="">
+      </div>
+    </div>
+
+    <div class="section-card">
+      <div class="section-title" data-t-key="בחירת חלקות">🌳 בחירת חלקות</div>
+      <div id="plotCheckboxList" class="plot-checkbox-list"></div>
+    </div>
+
+    <div class="section-card">
+      <div class="section-title">🚜 הגדרות נפח</div>
+      <div class="form-group">
+        <label class="form-label">נפח לעץ (ליטר)</label>
+        <input type="number" class="form-input" id="volumePerTree" value="15" step="0.1" min="0">
+      </div>
+      <div class="form-group">
+        <label class="form-label">קיבולת מרסס (ליטר)</label>
+        <input type="number" class="form-input" id="sprayerCapacity" value="1000" step="1" min="0">
+      </div>
+    </div>
+
+    <div class="section-card">
+      <div class="section-title">🧪 בחירת חומרי הדברה</div>
+      <div id="pesticideList" class="pesticide-list"></div>
+    </div>
+
+    <div id="calcResults"></div>
+
+    <button class="btn-submit" id="submitSpray">שמור יומן ריסוס</button>
+  </div>
+</div>
+
+<!-- History Tab -->
+<div class="tab-content" id="tabHistory">
+  <div class="history-container">
+    <div class="section-card" style="margin-bottom: 16px;">
+      <button class="btn-admin" id="exportPdfBtn" style="width: 100%;">📄 ייצא PDF</button>
+    </div>
+    <div id="historyList"></div>
+  </div>
+</div>
+
+<!-- Worklog Tab -->
+<div class="tab-content" id="tabWorklog">
+  <div class="spray-container">
+    <!-- Sub-view toggle -->
+    <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+      <button class="btn-admin wl-view-btn active" data-wl-view="form" style="flex: 1; padding: 10px; font-size: 0.85rem; border-radius: 12px;">📝 <span data-t-key="דו״ח עבודה">דו״ח עבודה</span></button>
+      <button class="btn-admin wl-view-btn" data-wl-view="summary" style="flex: 1; padding: 10px; font-size: 0.85rem; border-radius: 12px;">📊 <span data-t-key="סיכום והיסטוריה">סיכום והיסטוריה</span></button>
+    </div>
+    
+    <!-- Farm selector (always visible) -->
+    <div class="section-card">
+      <div class="form-group" style="margin-bottom: 0;">
+        <label class="form-label" data-t-key="בחר מטע">בחר מטע</label>
+        <select class="form-input" id="wlFarmSelect" style="cursor: pointer;">
+          <option value="">— בחר מטע —</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- FORM VIEW -->
+    <div id="wlViewForm">
+    <!-- New entry form -->
+    <div class="section-card" id="wlEntryForm" style="display: none;">
+      <div class="section-title" data-t-key="רשומה חדשה">➕ רשומה חדשה</div>
+      <div class="form-group">
+        <label class="form-label" data-t-key="תאריך">תאריך</label>
+        <input type="date" class="form-input" id="wlDate">
+      </div>
+      <div class="form-group">
+        <label class="form-label" data-t-key="חלקה">חלקה</label>
+        <select class="form-input" id="wlPlotSelect" style="cursor: pointer;"></select>
+      </div>
+      <div class="form-group">
+        <label class="form-label" data-t-key="סעיף תקציבי">סעיף תקציבי</label>
+        <select class="form-input" id="wlBudgetCategory" style="cursor: pointer;"></select>
+      </div>
+      <div class="form-group">
+        <label class="form-label" data-t-key="פעולה">פעולה</label>
+        <div style="display: flex; gap: 8px;">
+          <select class="form-input" id="wlType" style="flex: 1; cursor: pointer;"></select>
+          <button class="btn-admin" id="wlAddTypeBtn" style="flex: 0 0 auto; padding: 8px 12px;" title="הוסף פעולה">➕</button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label" data-t-key="קבוצת עובדים">קבוצת עובדים / לאום</label>
+        <div style="display: flex; gap: 8px;">
+          <select class="form-input" id="wlWorkerGroup" style="flex: 1; cursor: pointer;"></select>
+          <button class="btn-admin" id="wlAddWorkerGroupBtn" style="flex: 0 0 auto; padding: 8px 12px;" title="הוסף קבוצה">➕</button>
+        </div>
+      </div>
+      <div style="display: flex; gap: 10px;">
+        <div class="form-group" style="flex: 1;">
+          <label class="form-label" data-t-key="מספר עובדים">מספר עובדים</label>
+          <input type="number" class="form-input" id="wlWorkerCount" min="1" step="1" placeholder="1">
+        </div>
+        <div class="form-group" style="flex: 1;">
+          <label class="form-label" data-t-key="שעות עבודה">שעות יומית</label>
+          <input type="number" class="form-input" id="wlHours" min="0" step="0.5" placeholder="0">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label" data-t-key="עצים שטופלו">עצים שטופלו</label>
+        <input type="number" class="form-input" id="wlTreesCompleted" min="0" step="1" placeholder="0">
+      </div>
+      <div id="wlProductivityPreview" style="display: none; background: linear-gradient(135deg, var(--g1), var(--g2)); border-radius: 10px; padding: 12px; color: white; margin-bottom: 14px;">
+        <div style="font-size: 0.78rem; opacity: 0.8; margin-bottom: 4px;" data-t-key="הספק מחושב">הספק מחושב</div>
+        <div style="display: flex; gap: 16px; flex-wrap: wrap;">
+          <div><span style="font-size: 1.1rem; font-weight: 700;" id="wlProdTreesPerHour">—</span> <span style="font-size: 0.75rem; opacity: 0.8;" data-t-key="עצים/שעה">עצים/שעה</span></div>
+          <div><span style="font-size: 1.1rem; font-weight: 700;" id="wlProdTreesPerWorker">—</span> <span style="font-size: 0.75rem; opacity: 0.8;" data-t-key="עצים/עובד">עצים/עובד</span></div>
+          <div><span style="font-size: 1.1rem; font-weight: 700;" id="wlProdTreesPerWorkerHour">—</span> <span style="font-size: 0.75rem; opacity: 0.8;" data-t-key="עצים/עובד×שעה">עצים/עובד×שעה</span></div>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label" data-t-key="עובדים (שמות)">עובדים (שמות — אופציונלי)</label>
+        <input type="text" class="form-input" id="wlWorkers" placeholder="" list="workerSuggestions">
+        <datalist id="workerSuggestions"></datalist>
+      </div>
+      <div class="form-group">
+        <label class="form-label" data-t-key="הערות">הערות</label>
+        <input type="text" class="form-input" id="wlNotes" placeholder="">
+      </div>
+      <button class="btn-submit" id="wlSubmitLocal">💾 שמור מקומית</button>
+      <button class="btn-submit" id="wlSubmitSheet" style="background: linear-gradient(135deg, #1565c0, #1e88e5); margin-top: 8px;">
+        <span id="wlSheetBtnText">📊 שמור ושלח ל-Google Sheet</span>
+      </button>
+      <div id="wlSheetStatus" style="font-size: 0.8rem; text-align: center; margin-top: 8px; min-height: 20px;"></div>
+    </div>
+    </div><!-- End wlViewForm -->
+
+    <!-- SUMMARY VIEW -->
+    <div id="wlViewSummary" style="display: none;">
+    <!-- Summary chart -->
+    <div class="section-card" id="wlChartSection" style="display: none;">
+      <div class="section-title" data-t-key="סיכום הספק">📊 סיכום הספק</div>
+      <div style="display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap;">
+        <button class="btn-admin wl-chart-filter active" data-chart-mode="type" style="padding: 6px 12px; font-size: 0.78rem;">סוג עבודה</button>
+        <button class="btn-admin wl-chart-filter" data-chart-mode="worker" style="padding: 6px 12px; font-size: 0.78rem;">לפי עובד</button>
+        <button class="btn-admin wl-chart-filter" data-chart-mode="plot" style="padding: 6px 12px; font-size: 0.78rem;">לפי חלקה</button>
+      </div>
+      <div id="wlChart"></div>
+      <div id="wlChartLegend" style="margin-top: 8px; font-size: 0.75rem; color: var(--text-muted);"></div>
+    </div>
+
+    <!-- Sheet data display -->
+    <div class="section-card" id="wlSheetSection" style="display: none;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <div class="section-title" style="margin-bottom: 0;">📊 נתוני גיליון</div>
+        <button class="btn-admin" id="wlRefreshSheet" style="flex: 0 0 auto; padding: 8px 14px; font-size: 0.8rem;">🔄 רענן</button>
+      </div>
+      <div id="wlSheetTable" style="overflow-x: auto; -webkit-overflow-scrolling: touch;"></div>
+      <div id="wlSheetLoading" style="display: none; text-align: center; padding: 20px; color: var(--text-muted);">
+        <div style="font-size: 1.5rem; margin-bottom: 8px;">⏳</div>
+        <div>טוען נתונים מהגיליון...</div>
+      </div>
+      <div id="wlSheetEmpty" style="display: none; text-align: center; padding: 20px; color: var(--text-muted);">
+        <div style="font-size: 1.5rem; margin-bottom: 8px;">📭</div>
+        <div>אין נתונים בגיליון</div>
+      </div>
+    </div>
+
+    <!-- Local worklog history -->
+    <div class="section-card">
+      <div class="section-title" data-t-key="רשומות אחרונות">📋 רשומות אחרונות</div>
+      <div id="wlLocalHistory"></div>
+    </div>
+    </div><!-- End wlViewSummary -->
+  </div>
+</div>
+
+<!-- Profile Tab -->
+<div class="tab-content" id="tabProfile">
+  <div class="admin-container">
+    <div class="section-card" id="profileCard">
+      <div style="text-align: center; padding: 8px 0 16px;">
+        <div style="width: 64px; height: 64px; border-radius: 50%; background: linear-gradient(135deg, var(--g2), var(--g3)); color: white; font-size: 1.8rem; font-weight: 700; display: flex; align-items: center; justify-content: center; margin: 0 auto 12px;">
+          <span id="profileInitial">?</span>
+        </div>
+        <div id="profileName" style="font-size: 1.2rem; font-weight: 700; color: var(--g1);"></div>
+        <div id="profileRole" style="font-size: 0.85rem; color: var(--text-muted); margin-top: 4px;"></div>
+      </div>
+    </div>
+
+    <!-- Email settings -->
+    <div class="section-card">
+      <div class="section-title">📧 חשבון Google</div>
+      <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 12px;">נדרש לחיבור עם Google Sheets ליומן העבודה</p>
+      <div class="form-group" style="margin-bottom: 8px;">
+        <input type="email" class="form-input" id="profileEmail" placeholder="your@gmail.com" dir="ltr" style="text-align: left;">
+      </div>
+      <div id="profileEmailStatus" style="font-size: 0.78rem; min-height: 18px; margin-bottom: 8px;"></div>
+      <button class="btn-admin" id="profileEmailSave" style="width: 100%;">💾 שמור אימייל</button>
+    </div>
+
+    <!-- Google Sheet ID per farm (admin) -->
+    <div class="section-card admin-only" id="profileSheetConfig" style="display: none;">
+      <div class="section-title" data-t-key="הגדרות Google Sheets">📊 הגדרות Google Sheets</div>
+      
+      <div class="form-group" style="margin-bottom: 16px;">
+        <label class="form-label" data-t-key="כתובת Apps Script">כתובת Apps Script (Web App URL)</label>
+        <input type="text" class="form-input" id="profileAppsScriptUrl" dir="ltr" style="text-align: left; font-size: 0.82rem;" placeholder="https://script.google.com/macros/s/.../exec">
+        <p style="font-size: 0.72rem; color: var(--text-muted); margin-top: 4px;" data-t-key="הכתובת מתקבלת אחרי פריסת הסקריפט">הכתובת מתקבלת אחרי פריסת הסקריפט בגוגל</p>
+      </div>
+      <button class="btn-admin" id="saveAppsScriptUrl" style="width: 100%; margin-bottom: 16px;">💾 שמור כתובת</button>
+      <div id="profileAppsScriptStatus" style="font-size: 0.78rem; min-height: 18px; margin-bottom: 16px;"></div>
+      
+      <div style="border-top: 1px solid var(--g5); padding-top: 14px;">
+        <label class="form-label" data-t-key="מזהה גיליון לכל מטע">מזהה גיליון (Sheet ID) לכל מטע</label>
+        <p style="font-size: 0.72rem; color: var(--text-muted); margin-bottom: 12px;" data-t-key="המזהה נמצא בכתובת URL של הגיליון">המזהה נמצא בכתובת URL של הגיליון בין /d/ ל-/edit</p>
+        <div id="profileSheetIds"></div>
+      </div>
+    </div>
+
+    <div class="section-card">
+      <div class="section-title">🌳 המטעים שלי</div>
+      <div id="profileFarmsList"></div>
+    </div>
+    
+    <div class="section-card">
+      <div class="section-title">📍 חלקה ראשית (תצוגת פתיחה)</div>
+      <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 12px;">המפה תיפתח בזום על החלקה שתבחר</p>
+      <div id="primaryPlotList"></div>
+    </div>
+
+    <div class="section-card">
+      <button class="btn-submit" id="logoutBtn" style="background: linear-gradient(135deg, var(--danger), #e53935); margin-bottom: 0;">🚪 התנתק</button>
+    </div>
+  </div>
+</div>
+
+<!-- Farms Tab (Admin Only) -->
+<div class="tab-content" id="tabFarms">
+  <div class="admin-container">
+    <div class="section-card">
+      <div class="admin-actions">
+        <button class="btn-admin" id="addFarmBtn" onclick="window.showFarmModalGlobal()">➕ הוסף מטע חדש</button>
+      </div>
+      <div id="farmsAdminList"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Users Tab (Admin Only) -->
+<div class="tab-content" id="tabUsers">
+  <div class="admin-container">
+    <div class="section-card">
+      <div id="usersSummary" style="padding: 16px; background: var(--g6); border-radius: 8px; margin-bottom: 16px;"></div>
+      <div class="admin-actions">
+        <button class="btn-admin" id="addUserBtn" onclick="window.showUserModalGlobal()">➕ הוסף משתמש</button>
+      </div>
+      <div id="usersAdminList"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Admin Tab -->
+<div class="tab-content" id="tabAdmin">
+  <div class="admin-container">
+    <div class="section-card">
+      <div class="admin-actions">
+        <button class="btn-admin" id="addPesticideBtn">➕ הוסף חומר</button>
+      </div>
+      <div id="pesticideAdminList"></div>
+    </div>
+  </div>
+</div><!-- End tabAdmin -->
+
+<!-- Pesticide Search Tab -->
+<div class="tab-content" id="tabPestsearch">
+  <div class="spray-container">
+    <div class="section-card">
+      <div class="section-title" data-t-key="חיפוש חומרי הדברה">🔍 חיפוש חומרי הדברה</div>
+      <p style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 10px;" data-t-key="מאגר משרד החקלאות">מאגר משרד החקלאות — data.gov.il</p>
+      
+      <div style="display: flex; gap: 6px; margin-bottom: 10px;">
+        <button class="btn-admin pest-mode-btn active" data-pest-mode="all" style="flex: 1; padding: 8px; font-size: 0.78rem; border-radius: 10px;">🔎 <span data-t-key="חיפוש חופשי">חיפוש חופשי</span></button>
+        <button class="btn-admin pest-mode-btn" data-pest-mode="product" style="flex: 1; padding: 8px; font-size: 0.78rem; border-radius: 10px;">🧪 <span data-t-key="שם תכשיר">שם תכשיר</span></button>
+        <button class="btn-admin pest-mode-btn" data-pest-mode="crop" style="flex: 1; padding: 8px; font-size: 0.78rem; border-radius: 10px;">🌱 <span data-t-key="שם גידול">שם גידול</span></button>
+      </div>
+      
+      <div class="form-group" style="margin-bottom: 0; position: relative;">
+        <div style="display: flex; gap: 8px;">
+          <input type="text" class="form-input" id="pestSearchInput" autocomplete="off" placeholder="" style="flex: 1;" dir="rtl">
+          <button class="btn-admin" id="pestSearchBtn" style="flex: 0 0 auto; padding: 10px 18px;">🔍</button>
+        </div>
+        <div id="pestAutoComplete" style="display: none; position: absolute; top: 100%; left: 0; right: 0; z-index: 10; margin-top: 4px; background: var(--card); border-radius: 12px; box-shadow: var(--shadow-lg); max-height: 45vh; overflow-y: auto; border: 1px solid var(--g5);"></div>
+      </div>
+      <div id="pestSearchMeta" style="font-size: 0.7rem; color: var(--text-muted); margin-top: 6px; min-height: 16px;"></div>
+    </div>
+
+    <div id="pestSearchLoading" style="display: none; text-align: center; padding: 24px; color: var(--text-muted);">
+      <div style="font-size: 1.5rem; margin-bottom: 8px;">⏳</div>
+      <div data-t-key="מחפש">מחפש...</div>
+    </div>
+
+    <div id="pestSearchResults"></div>
+
+    <div id="pestSearchEmpty" style="display: none; text-align: center; padding: 24px; color: var(--text-muted);">
+      <div style="font-size: 2rem; margin-bottom: 8px;">🧪</div>
+      <div data-t-key="לא נמצאו תוצאות">לא נמצאו תוצאות</div>
+    </div>
+  </div>
+</div><!-- End tabPestsearch -->
+
+<!-- Irrigation Tab -->
+<div class="tab-content" id="tabIrrigation">
+  <div class="admin-container">
+    <!-- Admin: Talgil Connection Settings -->
+    <div class="section-card admin-only" id="talgilSettingsCard" style="display: none;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+        <h3 style="font-weight: 700; font-size: 1.1rem;">⚙️ חיבור תלגיל</h3>
+        <button id="talgilConnectBtn" onclick="talgilConnect()" style="padding: 6px 16px; border-radius: 8px; border: none; background: var(--g3); color: white; font-family: inherit; font-weight: 600; cursor: pointer;">התחבר</button>
+      </div>
+      <div style="display: grid; gap: 8px;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+          <input id="talgilHost" placeholder="שרת (dev.talgil.com)" style="padding: 8px 12px; border-radius: 8px; border: 1px solid #ddd; font-family: inherit; direction: ltr; text-align: left;" />
+          <input id="talgilControllerId" placeholder="Controller ID" style="padding: 8px 12px; border-radius: 8px; border: 1px solid #ddd; font-family: inherit; direction: ltr; text-align: left;" />
+        </div>
+        <input id="talgilUser" placeholder="Username" style="padding: 8px 12px; border-radius: 8px; border: 1px solid #ddd; font-family: inherit; direction: ltr; text-align: left;" />
+        <input id="talgilPass" type="password" placeholder="Password" style="padding: 8px 12px; border-radius: 8px; border: 1px solid #ddd; font-family: inherit; direction: ltr; text-align: left;" />
+        <input id="talgilApiKey" placeholder="API Key" style="padding: 8px 12px; border-radius: 8px; border: 1px solid #ddd; font-family: inherit; direction: ltr; text-align: left; font-size: 0.75rem;" />
+      </div>
+      <div id="talgilStatus" style="margin-top: 8px; font-size: 0.85rem; color: var(--text-muted);"></div>
+    </div>
+
+    <!-- Admin: Valve-to-Plot Mapping -->
+    <div class="section-card admin-only" id="mappingCard" style="display: none;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+        <h3 style="font-weight: 700; font-size: 1.1rem;">🗺️ שיוך מגופים לחלקות</h3>
+        <button onclick="talgilRefreshValves()" style="padding: 4px 12px; border-radius: 8px; border: 1px solid var(--g4); background: transparent; color: var(--g3); font-family: inherit; font-size: 0.8rem; cursor: pointer;">🔄 רענן</button>
+      </div>
+      <div id="mappingList"></div>
+      <button onclick="saveValvePlotMapping()" style="margin-top: 12px; padding: 8px 20px; border-radius: 8px; border: none; background: var(--g3); color: white; font-family: inherit; font-weight: 600; cursor: pointer; width: 100%;">💾 שמור שיוך</button>
+    </div>
+
+    <!-- All Users: Per-Plot Irrigation View -->
+    <div class="section-card" id="plotIrrigationView">
+      <h3 style="font-weight: 700; font-size: 1.1rem; margin-bottom: 12px;">💧 השקיה לפי חלקה</h3>
+      <div id="plotIrrigationList"></div>
+    </div>
+
+    <!-- All Users: Programs Overview -->
+    <div class="section-card" id="programsCard" style="display: none;">
+      <h3 style="font-weight: 700; font-size: 1.1rem; margin-bottom: 12px;">📋 תוכניות השקיה</h3>
+      <div id="programsList"></div>
+    </div>
+  </div>
+</div>
+
+</div><!-- End tabs-wrapper -->
+
+<!-- Draggable Farms FAB -->
+<button class="fab-farms" id="fabFarms" style="bottom: 140px; right: 16px;">🌳 <span data-t-key="המטעים שלי">המטעים שלי</span></button>
+<div class="fab-farms-menu" id="fabFarmsMenu"></div>
+
+<!-- Quick Actions FAB -->
+<button class="fab-quick" id="fabQuick" style="bottom: 82px; right: 16px;">+</button>
+<div class="fab-quick-options" id="fabQuickOptions">
+  <button class="fab-quick-option" id="qaCaptureReceipt">
+    <div class="fab-option-icon" style="background: #fff3e0; color: var(--accent);">📸</div>
+    <div>
+      <div class="fab-option-text" data-t-key="צלם תעודת משלוח">צלם תעודת משלוח</div>
+      <div class="fab-option-sub" data-t-key="חשבונית או תעודה">חשבונית או תעודה</div>
+    </div>
+  </button>
+  <button class="fab-quick-option" id="qaQuickWorklog">
+    <div class="fab-option-icon" style="background: #e8f5e9; color: var(--g2);">📝</div>
+    <div>
+      <div class="fab-option-text" data-t-key="רשומת יומן מהירה">רשומת יומן מהירה</div>
+      <div class="fab-option-sub" data-t-key="דיווח עבודה">דיווח עבודה</div>
+    </div>
+  </button>
+</div>
+
+<!-- Hidden file input for camera -->
+<input type="file" id="receiptFileInput" accept="image/*" capture="environment" style="display: none;">
+
+<div id="modalContainer"></div>
+<div class="toast" id="toast"></div>
+
+</div><!-- End mainApp -->
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
