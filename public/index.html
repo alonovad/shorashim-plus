@@ -3,11 +3,22 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>שורשים פלוס — פלטפורמה לניהול חקלאי</title>
-<meta property="og:image" content="https://shorashim-plus.web.app/icon.png">
+<title>שורשים פלוס — ניהול מטעים וריסוס</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
 <link rel="stylesheet" href="css/style.css"/>
-</head>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+  firebase.initializeApp({
+    apiKey: "AIzaSyDVDEQIy_UW2oFuhSRsnmQZ7SQ1QMD5x5E",
+    authDomain: "shorashim-plus.firebaseapp.com",
+    projectId: "shorashim-plus",
+    storageBucket: "shorashim-plus.firebasestorage.app",
+    messagingSenderId: "627757175361",
+    appId: "1:627757175361:web:ff61437630a88da23a6cc0"
+  });
+  var db = firebase.firestore();
+</script>
 </head>
 <body>
 
@@ -534,6 +545,7 @@
 </div><!-- End mainApp -->
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="js/db.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

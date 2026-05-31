@@ -26,19 +26,33 @@
           farm_permissions: [] // admin has access to all farms
         } 
       };
-      localStorage.setItem('shorashim-users', JSON.stringify(users));
+      DB.save('shorashim-users', users);
       return users;
     });
   }
 
   function loadUsers() {
+    // Try localStorage first for instant load
     try {
       var saved = localStorage.getItem('shorashim-users');
       if (saved) {
         users = JSON.parse(saved);
-        return Promise.resolve(users);
       }
     } catch(e) {}
+
+    // Then try Firestore for latest
+    if (typeof DB !== 'undefined') {
+      return DB.loadAsync('shorashim-users').then(function(data) {
+        if (data && Object.keys(data).length > 0) {
+          users = data;
+          return users;
+        }
+        if (Object.keys(users).length > 0) return users;
+        return initDefaultAdmin();
+      });
+    }
+
+    if (Object.keys(users).length > 0) return Promise.resolve(users);
     return initDefaultAdmin();
   }
 
@@ -221,7 +235,19 @@
   function loadData() {
     var saved = localStorage.getItem('plotMapperSprayData');
     if (saved) {
-      var data = JSON.parse(saved);
+      _applyPlotData(JSON.parse(saved));
+    }
+    // Also fetch from Firestore for latest
+    if (typeof DB !== 'undefined') {
+      DB.loadAsync('plotMapperSprayData').then(function(data) {
+        if (data) {
+          _applyPlotData(data);
+        }
+      });
+    }
+  }
+
+  function _applyPlotData(data) {
       plots = data.plots || [];
       sprayEvents = data.sprayEvents || [];
       pesticides = data.pesticides || getDefaultPesticides();
@@ -229,6 +255,7 @@
       worklogEntries = data.worklogEntries || [];
       
       // Only display accessible plots on map
+      drawnItems.clearLayers();
       var accessiblePlots = getAccessiblePlots();
       accessiblePlots.forEach(function(p) {
         var latlngs = p.latlngs.map(function(c) { return L.latLng(c[0], c[1]); });
@@ -252,13 +279,10 @@
         });
       });
       colorIdx = plots.length;
-    } else {
-      pesticides = getDefaultPesticides();
-    }
-    renderPlotList();
-    renderPesticideList();
-    renderPesticideAdminList();
-    renderHistoryList();
+      renderPlotList();
+      renderPesticideList();
+      renderPesticideAdminList();
+      renderHistoryList();
   }
 
   function getDefaultPesticides() {
@@ -285,7 +309,7 @@
       farms: farms,
       worklogEntries: worklogEntries
     };
-    localStorage.setItem('plotMapperSprayData', JSON.stringify(data));
+    DB.save('plotMapperSprayData', data);
   }
 
   function initMapAndData() {
@@ -1821,7 +1845,7 @@
         
         if (confirm('למחוק את המשתמש ' + user.name + '?')) {
           delete users[user.username];
-          localStorage.setItem('shorashim-users', JSON.stringify(users));
+          DB.save('shorashim-users', users);
           renderUsersAdminList();
           showToast('🗑️ משתמש נמחק');
         }
@@ -1902,7 +1926,7 @@
           usersData[user.username].name = name;
           usersData[user.username].role = role;
           usersData[user.username].farm_permissions = selectedFarms;
-          localStorage.setItem('shorashim-users', JSON.stringify(usersData));
+          DB.save('shorashim-users', usersData);
           // Also update in-memory users
           users = usersData;
           renderUsersAdminList();
@@ -1939,7 +1963,7 @@
           created_at: Date.now()
         };
         
-        localStorage.setItem('shorashim-users', JSON.stringify(usersData));
+        DB.save('shorashim-users', usersData);
         // Also update in-memory users
         users = usersData;
         renderUsersAdminList();
@@ -2062,7 +2086,7 @@
         var usersData = JSON.parse(localStorage.getItem('shorashim-users') || '{}');
         if (usersData[currentUser.username]) {
           usersData[currentUser.username].primary_plot_id = plotId;
-          localStorage.setItem('shorashim-users', JSON.stringify(usersData));
+          DB.save('shorashim-users', usersData);
           users = usersData;
           currentUser = usersData[currentUser.username];
           showToast('✅ ' + t('חלקה ראשית עודכנה'));
@@ -2144,7 +2168,7 @@
     var usersData = JSON.parse(localStorage.getItem('shorashim-users') || '{}');
     if (usersData[currentUser.username]) {
       usersData[currentUser.username].email = email || null;
-      localStorage.setItem('shorashim-users', JSON.stringify(usersData));
+      DB.save('shorashim-users', usersData);
       users = usersData;
       currentUser = usersData[currentUser.username];
       // Update session with email
@@ -2163,7 +2187,7 @@
       showToast('❌ כתובת לא תקינה — צריכה להתחיל ב-https://script.google.com/');
       return;
     }
-    localStorage.setItem('shorashim-apps-script-url', url);
+    DB.save('shorashim-apps-script-url', url);
     APPS_SCRIPT_URL = url;
     showToast(url ? '✅ כתובת Apps Script נשמרה' : '✅ כתובת הוסרה');
     renderProfileTab();
@@ -2470,7 +2494,7 @@
       if (WL_ACTIONS.indexOf(name) === -1) {
         customActions.push(name);
         WL_ACTIONS.push(name);
-        localStorage.setItem('shorashim-custom-actions', JSON.stringify(customActions));
+        DB.save('shorashim-custom-actions', customActions);
       }
       container.innerHTML = '';
       renderWorklogTab();
@@ -2501,7 +2525,7 @@
       if (WL_WORKER_GROUPS.indexOf(name) === -1) {
         customWorkerGroups.push(name);
         WL_WORKER_GROUPS.push(name);
-        localStorage.setItem('shorashim-custom-worker-groups', JSON.stringify(customWorkerGroups));
+        DB.save('shorashim-custom-worker-groups', customWorkerGroups);
       }
       container.innerHTML = '';
       renderWorklogTab();
@@ -2538,7 +2562,7 @@
         added = true;
       }
     });
-    if (added) localStorage.setItem('shorashim-workers', JSON.stringify(savedWorkers));
+    if (added) DB.save('shorashim-workers', savedWorkers);
   }
   
   // ── Save & send to Sheet ──
@@ -3839,7 +3863,7 @@
       var usersData = JSON.parse(localStorage.getItem('shorashim-users') || '{}');
       if (usersData[currentUser.username]) {
         usersData[currentUser.username].primary_plot_id = newPrimary;
-        localStorage.setItem('shorashim-users', JSON.stringify(usersData));
+        DB.save('shorashim-users', usersData);
         users = usersData;
         currentUser = usersData[currentUser.username];
         showToast(newPrimary ? '⭐ ' + plot.name : '📍 ' + t('חלקה ראשית בוטלה'));
@@ -4722,7 +4746,7 @@
       receipts.unshift(receipt);
       // Keep max 50 receipts to avoid localStorage overflow
       if (receipts.length > 50) receipts = receipts.slice(0, 50);
-      localStorage.setItem('shorashim-receipts', JSON.stringify(receipts));
+      DB.save('shorashim-receipts', receipts);
 
       showToast('✅ ' + t('תעודה נשמרה'));
       container.innerHTML = '';
@@ -4794,7 +4818,7 @@
 
     document.getElementById('receiptDeleteBtn').addEventListener('click', function() {
       receipts = receipts.filter(function(x) { return x.id !== receiptId; });
-      localStorage.setItem('shorashim-receipts', JSON.stringify(receipts));
+      DB.save('shorashim-receipts', receipts);
       showToast('🗑️ ' + t('תעודה נמחקה'));
       container.innerHTML = '';
     });
@@ -5251,9 +5275,9 @@
   }
 
   function saveTalgilConfig(cfg) {
-    localStorage.setItem('shorashim-talgil-config', JSON.stringify({
+    DB.save('shorashim-talgil-config', {
       host: cfg.host, controllerId: cfg.controllerId, user: cfg.user, pass: cfg.pass, apiKey: cfg.apiKey
-    }));
+    });
   }
 
   function renderIrrigationTab() {
@@ -5627,9 +5651,52 @@
       var uid = sel.getAttribute('data-valve-uid');
       if (sel.value) valvePlotMap[uid] = parseInt(sel.value);
     });
-    localStorage.setItem('shorashim-valve-plot-map', JSON.stringify(valvePlotMap));
+    DB.save('shorashim-valve-plot-map', valvePlotMap);
     renderPlotIrrigationView();
     renderMappingUI();
     showToast('💾 שיוך מגופים נשמר');
   };
 
+
+  // ── FIRESTORE REALTIME SYNC ──
+  // Listen for changes from other devices and refresh UI
+  if (typeof DB !== 'undefined' && typeof db !== 'undefined') {
+    DB.listen('plotMapperSprayData', function(data) {
+      if (data) {
+        plots = [];
+        drawnItems.clearLayers();
+        var saved = data;
+        plots = saved.plots || [];
+        sprayEvents = saved.sprayEvents || [];
+        pesticides = saved.pesticides || [];
+        farms = saved.farms || [];
+        worklogEntries = saved.worklogEntries || [];
+        // Rebuild map layers
+        var accessiblePlots = getAccessiblePlots();
+        accessiblePlots.forEach(function(p) {
+          var latlngs = p.latlngs.map(function(c) { return L.latLng(c[0], c[1]); });
+          var layer = L.polygon(latlngs, {
+            color: p.color, fillColor: p.color, weight: 3, fillOpacity: 0.25
+          }).addTo(drawnItems);
+          var center = layer.getBounds().getCenter();
+          var label = L.divIcon({
+            className: '',
+            html: '<div style="background:' + p.color + ';color:white;padding:3px 10px;border-radius:8px;font-family:Heebo,sans-serif;font-size:12px;font-weight:700;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,0.3);text-align:center;">' + p.name + '</div>',
+            iconAnchor: [0, 0]
+          });
+          var labelMarker = L.marker(center, { icon: label, interactive: false }).addTo(drawnItems);
+          p.layer = layer;
+          p.labelMarker = labelMarker;
+          layer.on('click', function() { showPlotDetails(p.id); });
+        });
+      }
+    });
+
+    DB.listen('shorashim-users', function(data) {
+      if (data) users = data;
+    });
+
+    DB.listen('shorashim-valve-plot-map', function(data) {
+      if (data) valvePlotMap = data;
+    });
+  }
