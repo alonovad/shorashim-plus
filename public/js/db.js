@@ -19,7 +19,12 @@ var DB = (function() {
   function _writeFirestore(key, data) {
     if (!firestore) return;
     firestore.collection('appData').doc(key).set({ value: data, updatedAt: firebase.firestore.FieldValue.serverTimestamp() })
-      .catch(function(err) { console.warn('Firestore write error for ' + key + ':', err); });
+      .then(function() { console.log('Firestore saved: ' + key); })
+      .catch(function(err) { 
+        console.error('Firestore write FAILED for ' + key + ':', err);
+        // Show visible error for debugging
+        if (typeof showToast === 'function') showToast('❌ Firestore: ' + err.message);
+      });
   }
 
   // Save: writes to localStorage immediately + Firestore debounced
@@ -27,7 +32,8 @@ var DB = (function() {
     var json = JSON.stringify(data);
     localStorage.setItem(key, json);
     cache[key] = data;
-    debouncedSave(key, data);
+    // Write to Firestore immediately for critical data, debounced for others
+    _writeFirestore(key, data);
   }
 
   // Load: tries cache first, then Firestore, falls back to localStorage
