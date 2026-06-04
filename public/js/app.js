@@ -258,7 +258,7 @@
       drawnItems.clearLayers();
       var accessiblePlots = getAccessiblePlots();
       accessiblePlots.forEach(function(p) {
-        var latlngs = p.latlngs.map(function(c) { return L.latLng(c[0], c[1]); });
+        var latlngs = p.latlngs.map(function(c) { return L.latLng(c.lat !== undefined ? c.lat : c[0], c.lng !== undefined ? c.lng : c[1]); });
         var layer = L.polygon(latlngs, {
           color: p.color, fillColor: p.color, weight: 3, fillOpacity: 0.25
         }).addTo(drawnItems);
@@ -301,7 +301,7 @@
           tree_count: p.tree_count || null,
           row_spacing: p.row_spacing || null,
           tree_spacing: p.tree_spacing || null,
-          latlngs: p.layer.getLatLngs()[0].map(function(ll) { return [ll.lat, ll.lng]; })
+          latlngs: p.layer.getLatLngs()[0].map(function(ll) { return {lat: ll.lat, lng: ll.lng}; })
         };
       }),
       sprayEvents: sprayEvents,
@@ -818,7 +818,7 @@
       }
     } else if (action.type === 'delete') {
       var d = action.data;
-      var latlngs = d.latlngs.map(function(c) { return L.latLng(c[0], c[1]); });
+      var latlngs = d.latlngs.map(function(c) { return L.latLng(c.lat !== undefined ? c.lat : c[0], c.lng !== undefined ? c.lng : c[1]); });
       var layer = L.polygon(latlngs, { color: d.color, fillColor: d.color, weight: 3, fillOpacity: 0.25 }).addTo(drawnItems);
       var center = layer.getBounds().getCenter();
       var label = L.divIcon({
@@ -5674,7 +5674,7 @@
         // Rebuild map layers
         var accessiblePlots = getAccessiblePlots();
         accessiblePlots.forEach(function(p) {
-          var latlngs = p.latlngs.map(function(c) { return L.latLng(c[0], c[1]); });
+          var latlngs = p.latlngs.map(function(c) { return L.latLng(c.lat !== undefined ? c.lat : c[0], c.lng !== undefined ? c.lng : c[1]); });
           var layer = L.polygon(latlngs, {
             color: p.color, fillColor: p.color, weight: 3, fillOpacity: 0.25
           }).addTo(drawnItems);
