@@ -269,6 +269,7 @@ var TimeClock = (function() {
     if (isAdmin) {
       html += '<button onclick="TimeClock.showAllRecords();TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-bottom:6px;border-radius:10px;border:none;background:#e3f2fd;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">📊 ניהול שעות</button>';
       html += '<button onclick="TimeClock.showWorkplaceAdmin();TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-bottom:6px;border-radius:10px;border:none;background:#fff3e0;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">📍 מקומות עבודה</button>';
+      html += '<button onclick="TimeClock.showCropAdmin();TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-bottom:6px;border-radius:10px;border:none;background:#e8f5e9;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">🌱 סוגי גידולים</button>';
     }
 
     html += '<button onclick="TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-top:12px;border-radius:10px;border:none;background:#f5f5f5;font-family:inherit;font-size:0.9rem;cursor:pointer;text-align:center;">סגור</button>';
@@ -498,6 +499,54 @@ var TimeClock = (function() {
     showWorkplaceAdmin();
   }
 
+  // ── Admin: Crop Type Management ──
+
+  function showCropAdmin() {
+    var cropList = JSON.parse(localStorage.getItem('shorashim-crop-types') || '[]');
+    var modal = document.getElementById('modalContainer');
+    var html = '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;">';
+    html += '<div style="background:white;border-radius:16px;padding:20px;width:90%;max-width:400px;max-height:80vh;overflow-y:auto;">';
+    html += '<h3 style="font-weight:700;margin-bottom:12px;">🌱 ניהול סוגי גידולים</h3>';
+    html += '<div style="font-size:0.75rem;color:#999;margin-bottom:10px;">הגידולים ישמשו לסינון חומרי הדברה ולהגדרת חלקות.</div>';
+
+    cropList.forEach(function(c, i) {
+      html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">';
+      html += '<div style="flex:1;padding:6px 10px;background:#e8f5e9;border-radius:6px;font-size:0.85rem;">🌱 ' + c + '</div>';
+      html += '<button onclick="TimeClock._removeCrop(' + i + ')" style="border:none;background:none;cursor:pointer;font-size:1rem;">🗑️</button>';
+      html += '</div>';
+    });
+
+    html += '<div style="display:flex;gap:6px;margin-top:10px;">';
+    html += '<input id="newCropName" placeholder="שם גידול חדש (לדוגמה: תמרים)" style="flex:1;padding:8px 12px;border-radius:8px;border:1px solid #ddd;font-family:inherit;">';
+    html += '<button onclick="TimeClock._addCrop()" style="padding:8px 16px;border-radius:8px;border:none;background:#4caf50;color:white;font-family:inherit;font-weight:700;cursor:pointer;">➕</button>';
+    html += '</div>';
+
+    html += '<button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'" style="margin-top:12px;width:100%;padding:10px;border-radius:10px;border:none;background:#eee;font-family:inherit;cursor:pointer;">סגור</button>';
+    html += '</div></div>';
+    modal.innerHTML = html;
+  }
+
+  function _addCrop() {
+    var input = document.getElementById('newCropName');
+    var name = input.value.trim();
+    if (!name) return;
+    var cropList = JSON.parse(localStorage.getItem('shorashim-crop-types') || '[]');
+    if (cropList.indexOf(name) === -1) {
+      cropList.push(name);
+      if (typeof DB !== 'undefined') DB.save('shorashim-crop-types', cropList);
+      else localStorage.setItem('shorashim-crop-types', JSON.stringify(cropList));
+    }
+    showCropAdmin();
+  }
+
+  function _removeCrop(index) {
+    var cropList = JSON.parse(localStorage.getItem('shorashim-crop-types') || '[]');
+    cropList.splice(index, 1);
+    if (typeof DB !== 'undefined') DB.save('shorashim-crop-types', cropList);
+    else localStorage.setItem('shorashim-crop-types', JSON.stringify(cropList));
+    showCropAdmin();
+  }
+
   // ── Public API ──
   return {
     init: init,
@@ -515,6 +564,9 @@ var TimeClock = (function() {
     _saveEdit: _saveEdit,
     _deleteRecord: _deleteRecord,
     _addWorkplace: _addWorkplace,
-    _removeWorkplace: _removeWorkplace
+    _removeWorkplace: _removeWorkplace,
+    showCropAdmin: showCropAdmin,
+    _addCrop: _addCrop,
+    _removeCrop: _removeCrop
   };
 })();

@@ -304,6 +304,8 @@
           tree_count: p.tree_count || null,
           row_spacing: p.row_spacing || null,
           tree_spacing: p.tree_spacing || null,
+          crop_type: p.crop_type || null,
+          plants_per_dunam: p.plants_per_dunam || null,
           latlngs: p.layer.getLatLngs()[0].map(function(ll) { return {lat: ll.lat, lng: ll.lng}; })
         };
       }),
@@ -884,6 +886,13 @@
     });
     presetsHtml += '<button class="btn-admin spacing-preset" data-row="0" data-tree="0" style="padding: 8px 16px; font-size: 0.85rem; border-radius: 10px;">✏️ ' + t('ידני') + '</button>';
     
+    // Build crop type options from admin-defined list
+    var cropList = JSON.parse(localStorage.getItem('shorashim-crop-types') || '[]');
+    var cropOptions = '<option value="">' + t('בחר גידול') + '</option>';
+    cropList.forEach(function(c) {
+      cropOptions += '<option value="' + c + '">' + c + '</option>';
+    });
+
     container.innerHTML =
       '<div class="modal-overlay" id="modalOverlay">' +
         '<div class="modal">' +
@@ -897,31 +906,42 @@
             '<label class="form-label">' + t('מטע') + '</label>' +
             '<select id="plotFarmSelect" class="form-input" required>' + farmOptions + '</select>' +
           '</div>' +
+          '<div class="form-group">' +
+            '<label class="form-label">' + t('סוג גידול') + '</label>' +
+            '<select id="plotCropType" class="form-input">' + cropOptions + '</select>' +
+          '</div>' +
           
           '<div style="background: var(--g6); border-radius: 12px; padding: 14px; margin-bottom: 14px;">' +
-            '<div style="font-size: 0.82rem; font-weight: 700; color: var(--g1); margin-bottom: 8px;">🌴 ' + t('הערכת מספר עצים') + '</div>' +
-            '<div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 10px;">' + t('בחר מרווחי שתילה או הזן ידנית') + '</div>' +
-            '<div style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px;">' + presetsHtml + '</div>' +
+            '<div style="font-size: 0.82rem; font-weight: 700; color: var(--g1); margin-bottom: 8px;">🌴 ' + t('צפיפות צמחים') + '</div>' +
+            '<div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 10px;">' + t('בחר שיטת חישוב') + '</div>' +
+            '<div style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px;">' +
+              presetsHtml +
+              '<button class="btn-admin spacing-preset" data-row="-1" data-tree="-1" style="padding: 8px 16px; font-size: 0.85rem; border-radius: 10px;">📊 ' + t('צמחים לדונם') + '</button>' +
+            '</div>' +
             '<div id="manualSpacingRow" style="display: none; margin-bottom: 10px;">' +
-            '<div style="display: flex; gap: 8px; align-items: center;">' +
-              '<div style="flex: 1;">' +
-                '<label style="font-size: 0.7rem; color: var(--text-muted);">' + t('בין שורות') + ' (מ\')</label>' +
-                '<input type="number" class="form-input" id="plotRowSpacing" min="1" max="20" step="0.5" value="8" style="padding: 8px; font-size: 0.85rem;">' +
-              '</div>' +
-              '<span style="font-size: 1.2rem; margin-top: 14px;">×</span>' +
-              '<div style="flex: 1;">' +
-                '<label style="font-size: 0.7rem; color: var(--text-muted);">' + t('בין עצים') + ' (מ\')</label>' +
-                '<input type="number" class="form-input" id="plotTreeSpacing" min="1" max="20" step="0.5" value="8" style="padding: 8px; font-size: 0.85rem;">' +
+              '<div style="display: flex; gap: 8px; align-items: center;">' +
+                '<div style="flex: 1;">' +
+                  '<label style="font-size: 0.7rem; color: var(--text-muted);">' + t('בין שורות') + ' (מ\')</label>' +
+                  '<input type="number" class="form-input" id="plotRowSpacing" min="1" max="20" step="0.5" value="8" style="padding: 8px; font-size: 0.85rem;">' +
+                '</div>' +
+                '<span style="font-size: 1.2rem; margin-top: 14px;">×</span>' +
+                '<div style="flex: 1;">' +
+                  '<label style="font-size: 0.7rem; color: var(--text-muted);">' + t('בין עצים') + ' (מ\')</label>' +
+                  '<input type="number" class="form-input" id="plotTreeSpacing" min="1" max="20" step="0.5" value="8" style="padding: 8px; font-size: 0.85rem;">' +
+                '</div>' +
               '</div>' +
             '</div>' +
+            '<div id="manualDensityRow" style="display: none; margin-bottom: 10px;">' +
+              '<label style="font-size: 0.7rem; color: var(--text-muted);">' + t('צמחים לדונם') + '</label>' +
+              '<input type="number" class="form-input" id="plotPlantsPerDunam" min="1" step="1" value="" placeholder="לדוגמה: 156" style="padding: 8px; font-size: 0.85rem;">' +
             '</div>' +
             '<div id="treeEstimateResult" style="background: linear-gradient(135deg, var(--g1), var(--g2)); border-radius: 10px; padding: 12px; color: white; text-align: center;">' +
-              '<div style="font-size: 0.72rem; opacity: 0.8;">' + t('מספר עצים משוער') + '</div>' +
+              '<div style="font-size: 0.72rem; opacity: 0.8;">' + t('מספר צמחים משוער') + '</div>' +
               '<div style="font-size: 1.8rem; font-weight: 700;" id="treeEstimateNum">—</div>' +
               '<div style="font-size: 0.7rem; opacity: 0.7;" id="treeEstimateMeta"></div>' +
             '</div>' +
             '<div class="form-group" style="margin-top: 10px; margin-bottom: 0;">' +
-              '<label style="font-size: 0.7rem; color: var(--text-muted);">' + t('מספר עצים סופי (ניתן לעריכה)') + '</label>' +
+              '<label style="font-size: 0.7rem; color: var(--text-muted);">' + t('מספר צמחים סופי (ניתן לעריכה)') + '</label>' +
               '<input type="number" class="form-input" id="plotTreeCount" min="0" step="1" value="" style="padding: 8px; font-size: 0.95rem; font-weight: 700; text-align: center;">' +
             '</div>' +
           '</div>' +
@@ -965,15 +985,31 @@
         this.style.color = 'white';
         
         var manualRow = document.getElementById('manualSpacingRow');
+        var densityRow = document.getElementById('manualDensityRow');
         
-        if (r === 0) {
-          // Manual mode — show inputs
+        if (r === -1) {
+          // Plants per dunam mode
+          manualRow.style.display = 'none';
+          densityRow.style.display = 'block';
+          var densityInput = document.getElementById('plotPlantsPerDunam');
+          densityInput.focus();
+          densityInput.addEventListener('input', function() {
+            var ppd = parseInt(this.value) || 0;
+            var est = Math.round(area * ppd);
+            document.getElementById('treeEstimateNum').textContent = est.toLocaleString();
+            document.getElementById('treeEstimateMeta').textContent = ppd + ' ' + t('צמחים') + '/' + t('דונם');
+            treeCountInput.value = est;
+          });
+        } else if (r === 0) {
+          // Manual spacing mode
           manualRow.style.display = 'block';
+          densityRow.style.display = 'none';
           rowInput.focus();
           updateTreeEstimate();
         } else {
-          // Preset — hide manual, set values
+          // Preset spacing
           manualRow.style.display = 'none';
+          densityRow.style.display = 'none';
           rowInput.value = r;
           treeInput.value = tr;
           updateTreeEstimate();
@@ -1007,6 +1043,8 @@
       var treeCount = parseInt(treeCountInput.value) || null;
       var rowSpacing = parseFloat(rowInput.value) || null;
       var treeSpacing = parseFloat(treeInput.value) || null;
+      var cropType = document.getElementById('plotCropType').value || null;
+      var plantsPerDunam = parseInt(document.getElementById('plotPlantsPerDunam').value) || null;
 
       var plot = { 
         id: Date.now(), 
@@ -1017,6 +1055,8 @@
         tree_count: treeCount,
         row_spacing: rowSpacing,
         tree_spacing: treeSpacing,
+        crop_type: cropType,
+        plants_per_dunam: plantsPerDunam,
         layer: layer, 
         labelMarker: labelMarker, 
         vertices: vertices 
@@ -4023,6 +4063,16 @@
   // ── PESTICIDE SEARCH (data.gov.il) ──
   // ══════════════════════════════════
 
+  // Get crop types from user's accessible plots
+  function getUserCropTypes() {
+    var accessiblePlots = getAccessiblePlots();
+    var crops = {};
+    accessiblePlots.forEach(function(p) {
+      if (p.crop_type) crops[p.crop_type] = true;
+    });
+    return Object.keys(crops);
+  }
+
   var PEST_API_URL = 'https://data.gov.il/api/3/action/datastore_search';
   var PEST_RESOURCE_ID = 'cffe0c50-6856-4187-9315-51bc113cb718';
   var pestSearchTimer = null;
@@ -4321,9 +4371,22 @@
       seen[key] = true;
       uniqueRows.push(rec);
     });
+
+    // Filter by user's crops (non-admin only)
+    var userCrops = getUserCropTypes();
+    var filteredRows = uniqueRows;
+    var showingFiltered = false;
+    if (currentUser && currentUser.role !== 'admin' && userCrops.length > 0) {
+      filteredRows = uniqueRows.filter(function(rec) {
+        var crop = (rec['\u05D2\u05D9\u05D3\u05D5\u05DC'] || '').toLowerCase();
+        return userCrops.some(function(uc) { return crop.indexOf(uc.toLowerCase()) !== -1 || uc.toLowerCase().indexOf(crop) !== -1; });
+      });
+      showingFiltered = filteredRows.length !== uniqueRows.length;
+      if (filteredRows.length === 0) filteredRows = uniqueRows; // fallback to all if no match
+    }
     
     var cropsHtml = '';
-    uniqueRows.forEach(function(rec, idx) {
+    filteredRows.forEach(function(rec, idx) {
       var crop = rec['\u05D2\u05D9\u05D3\u05D5\u05DC'] || '';
       var pest = rec['\u05E0\u05D2\u05E2'] || '';
       var dosage = rec['\u05DE\u05D9\u05E0\u05D5\u05DF \u05DC\u05D9\u05D9\u05E9\u05D5\u05DD'] || '';
@@ -4345,7 +4408,7 @@
         (g.company?'<div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:4px;">\u{1F3ED} '+g.company+'</div>':'') +
         (g.regNum?'<div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:12px;">#'+g.regNum+' \u2022 '+g.usage+'</div>':'') +
         labelLink +
-        '<div style="font-size:0.82rem;font-weight:600;color:var(--g1);margin-bottom:8px;">'+uniqueRows.length+' '+t('\u05D2\u05D9\u05D3\u05D5\u05DC\u05D9\u05DD')+':</div>' +
+        '<div style="font-size:0.82rem;font-weight:600;color:var(--g1);margin-bottom:8px;">'+filteredRows.length+' '+t('\u05D2\u05D9\u05D3\u05D5\u05DC\u05D9\u05DD')+(showingFiltered?' (מסונן לגידולים שלך)':'')+':</div>' +
         '<div style="max-height:50vh;overflow-y:auto;">'+cropsHtml+'</div>' +
         '<div class="modal-buttons" style="margin-top:14px;">' +
           (currentUser&&currentUser.role==='admin'?'<button class="btn btn-primary" id="pdImportAll">\u2795 '+t('\u05D4\u05D5\u05E1\u05E3 \u05DC\u05E8\u05E9\u05D9\u05DE\u05D4')+'</button>':'') +
@@ -4353,7 +4416,7 @@
         '</div></div></div>';
     
     var imp = document.getElementById('pdImportAll');
-    if (imp) imp.addEventListener('click', function() { uniqueRows.forEach(function(r){importPesticideFromGov(r);}); container.innerHTML=''; });
+    if (imp) imp.addEventListener('click', function() { filteredRows.forEach(function(r){importPesticideFromGov(r);}); container.innerHTML=''; });
   }
   
   // Show all products for a crop
@@ -4550,6 +4613,17 @@
     var form = getRecField(rec, 'form');
     var regNum = getRecField(rec, 'reg');
     var labelUrl = getRecField(rec, 'label');
+
+    // Check if crop matches user's crops (non-admin only)
+    var userCrops = getUserCropTypes();
+    if (currentUser && currentUser.role !== 'admin' && userCrops.length > 0 && crop) {
+      var cropLower = crop.toLowerCase();
+      var match = userCrops.some(function(uc) { return cropLower.indexOf(uc.toLowerCase()) !== -1 || uc.toLowerCase().indexOf(cropLower) !== -1; });
+      if (!match) {
+        showToast('⚠️ ' + crop + ' לא רלוונטי לגידולים שלך');
+        return;
+      }
+    }
 
     var exists = pesticides.find(function(p) {
       return p.productName === productName && p.activeIngredient === activeIngredient && p.crop === crop;
