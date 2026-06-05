@@ -130,13 +130,17 @@
   #map.drawing { cursor: crosshair; }
 
   .layer-toggle {
-    position: fixed; top: 120px; right: 40px; z-index: 999;
-    background: var(--card); border: none; border-radius: 20px; padding: 7px 11px;
+    z-index: 999;
+    background: var(--card); border: none; border-radius: 14px; padding: 7px 11px;
     font-family: 'Heebo', sans-serif; font-size: 0.75rem; font-weight: 500;
     box-shadow: var(--shadow); cursor: pointer; display: flex; align-items: center; gap: 5px; color: var(--g1);
-    touch-action: manipulation;
+    touch-action: manipulation; flex: 1;
   }
   .layer-toggle:active { transform: scale(0.95); }
+  .map-float-bar {
+    position: fixed; bottom: 76px; left: 16px; z-index: 1100;
+    display: flex; gap: 8px; align-items: center;
+  }
 
   /* ── Panel (Original) ── */
   .panel {
@@ -192,10 +196,10 @@
 
   /* ── FAB (Original) ── */
   .fab-main {
-    position: fixed; bottom: 76px; left: 16px; z-index: 1100;
-    width: 60px; height: 60px; border-radius: 18px; border: none;
+    z-index: 1100;
+    width: 52px; height: 52px; border-radius: 14px; border: none;
     background: linear-gradient(135deg, var(--g2), var(--g3));
-    color: white; font-size: 2rem; font-weight: 300; line-height: 1;
+    color: white; font-size: 1.8rem; font-weight: 300; line-height: 1;
     cursor: pointer; box-shadow: 0 4px 20px rgba(46,125,50,0.45);
     display: flex; align-items: center; justify-content: center;
     transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);

@@ -116,27 +116,21 @@
 
 <!-- Map Tab -->
 <div class="tab-content active" id="tabMap">
-  <button class="layer-toggle" id="layerBtn">
-    <span id="layerIcon">🛰️</span>
-    <span id="layerText">לוויין</span>
-  </button>
-
   <div id="map"></div>
 
-  <button class="fab-main" id="fabMain">+</button>
+  <div class="map-float-bar">
+    <button class="fab-main" id="fabMain">+</button>
+    <button class="layer-toggle" id="layerBtn">
+      <span id="layerIcon">🛰️</span>
+      <span id="layerText">לוויין</span>
+    </button>
+  </div>
   <div class="fab-options" id="fabOptions">
     <button class="fab-option" id="btnPolygon">
       <div class="fab-option-icon polygon">⬠</div>
       <div>
-        <div class="fab-option-text">פוליגון חופשי</div>
+        <div class="fab-option-text">חלקה חדשה</div>
         <div class="fab-option-sub">סימון נקודה-נקודה</div>
-      </div>
-    </button>
-    <button class="fab-option" id="btnRect">
-      <div class="fab-option-icon rect">▬</div>
-      <div>
-        <div class="fab-option-text">מלבן</div>
-        <div class="fab-option-sub">לחץ שתי פינות נגדיות</div>
       </div>
     </button>
   </div>

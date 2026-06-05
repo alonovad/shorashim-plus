@@ -191,9 +191,13 @@
   var undoTimer;
 
   function getUserFarms(user) {
-    // Admin or users with empty farm_permissions array can access all farms
-    if (user.role === 'admin' || user.farm_permissions.length === 0) {
+    // Admin can access all farms
+    if (user.role === 'admin') {
       return farms;
+    }
+    // Non-admin with no permissions sees nothing
+    if (!user.farm_permissions || user.farm_permissions.length === 0) {
+      return [];
     }
     return farms.filter(function(f) {
       return user.farm_permissions.indexOf(f.id) !== -1;
@@ -1135,6 +1139,10 @@
         var plotId = parseInt(this.getAttribute('data-delete-id'));
         var plot = plots.find(function(p) { return p.id === plotId; });
         if (!plot) return;
+        if (!currentUser || currentUser.role !== 'admin') {
+          showToast('⛔ רק מנהל יכול למחוק חלקות');
+          return;
+        }
         
         var latlngs = plot.layer.getLatLngs()[0].map(function(ll) { return [ll.lat, ll.lng]; });
         pushUndo('delete', { id: plot.id, name: plot.name, color: plot.color, area: plot.area, vertices: plot.vertices, farm_id: plot.farm_id, latlngs: latlngs });
@@ -3772,7 +3780,8 @@
             '</div>' +
           '</div>' +
           
-          '<!-- Edit Section -->' +
+          '<!-- Edit Section (admin only) -->' +
+          (currentUser && currentUser.role === 'admin' ?
           '<div style="background: var(--g6); border-radius: 12px; padding: 14px; margin-bottom: 14px;">' +
             '<div style="font-size: 0.82rem; font-weight: 700; color: var(--g1); margin-bottom: 10px;">✏️ ' + t('עריכת חלקה') + '</div>' +
             '<div class="form-group" style="margin-bottom: 10px;">' +
@@ -3787,7 +3796,7 @@
               '<button class="btn-admin" id="pdSaveEdit" style="flex: 1;">💾 ' + t('שמור') + '</button>' +
               '<button class="btn-admin" id="pdRedrawPolygon" style="flex: 1; background: var(--water);">🔄 ' + t('צייר מחדש') + '</button>' +
             '</div>' +
-          '</div>' +
+          '</div>' : '') +
           
           '<div style="display: flex; gap: 8px; margin-bottom: 14px;">' +
             '<button class="btn-submit" id="plotDetailNav" style="flex: 1; margin: 0; font-size: 0.85rem;">🗺️ ' + t('נווט') + '</button>' +
@@ -4907,7 +4916,16 @@
 
   var LANGUAGES = ['he', 'th', 'ar'];
   var LANG_LABELS = { he: 'עב', th: 'ไทย', ar: 'عر' };
-  var currentLang = localStorage.getItem('shorashim-lang') || 'he';
+  // Detect browser language for first-time users
+  function detectBrowserLang() {
+    var saved = localStorage.getItem('shorashim-lang');
+    if (saved) return saved;
+    var browserLang = (navigator.language || navigator.userLanguage || 'he').toLowerCase();
+    if (browserLang.indexOf('th') === 0) return 'th';
+    if (browserLang.indexOf('ar') === 0) return 'ar';
+    return 'he';
+  }
+  var currentLang = detectBrowserLang();
 
   var TRANSLATIONS = {
     // ── Tab bar ──
