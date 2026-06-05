@@ -850,3 +850,26 @@
   .pest-ac-item .ac-name { font-weight: 600; font-size: 0.88rem; color: var(--text); }
   .pest-ac-item .ac-detail { font-size: 0.75rem; color: var(--text-muted); margin-top: 2px; }
   .pest-ac-item .ac-highlight { background: rgba(255,200,0,0.3); border-radius: 2px; }
+
+/* Hamburger Menu */
+.hamburger-btn {
+  background: none; border: none; color: white; cursor: pointer;
+  padding: 6px; display: flex; align-items: center; justify-content: center;
+  order: -1;
+}
+.hamburger-btn svg { display: block; }
+.hamburger-panel {
+  display: none; position: fixed; top: 0; right: 0; width: 280px; height: 100vh;
+  background: white; box-shadow: -4px 0 20px rgba(0,0,0,0.3); z-index: 99998;
+  overflow-y: auto; animation: slideIn 0.2s ease;
+}
+@keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
+.hamburger-overlay {
+  display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 99997;
+}
+/* Clock Bar */
+.clock-bar {
+  display: none; align-items: center; padding: 6px 16px;
+  background: linear-gradient(135deg, #1b5e20, #2e7d32); color: white;
+  font-family: inherit; min-height: 40px;
+}

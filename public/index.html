@@ -56,6 +56,11 @@
 
 <!-- Header -->
 <div class="header">
+  <button class="hamburger-btn" onclick="TimeClock.toggleMenu()" title="תפריט">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+      <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+    </svg>
+  </button>
   <div class="header-brand">
     <div class="header-logo">
       <svg width="34" height="34" viewBox="0 0 100 100" fill="none">
@@ -84,6 +89,13 @@
     <button class="hdr-btn" id="langBtn" title="שפה" style="font-size: 0.85rem; font-weight: 700;">עב</button>
   </div>
 </div>
+
+<!-- Clock Bar -->
+<div class="clock-bar" id="clockBar"></div>
+
+<!-- Hamburger Panel + Overlay -->
+<div class="hamburger-overlay" id="hamburgerOverlay" onclick="TimeClock.closeMenu();this.style.display='none'"></div>
+<div class="hamburger-panel" id="hamburgerPanel"></div>
 
 <!-- Tab Bar -->
 <div class="tab-bar">
@@ -547,5 +559,6 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="js/db.js"></script>
 <script src="js/app.js"></script>
+<script src="js/timeclock.js"></script>
 </body>
 </html>

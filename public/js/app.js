@@ -75,6 +75,9 @@
     adminTabs.forEach(function(tab) {
       tab.style.display = user.role === 'admin' ? 'block' : 'none';
     });
+
+    // Init time clock
+    if (typeof TimeClock !== 'undefined') TimeClock.init();
     
     var session = {
       user_id: user.id,
