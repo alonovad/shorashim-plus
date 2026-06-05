@@ -5227,7 +5227,8 @@
   };
 
   function t(hebrewText) {
-    if (currentLang === 'he') return hebrewText;
+    if (typeof currentLang === 'undefined' || currentLang === 'he') return hebrewText;
+    if (typeof TRANSLATIONS === 'undefined') return hebrewText;
     var entry = TRANSLATIONS[hebrewText];
     if (entry && entry[currentLang]) return entry[currentLang];
     return hebrewText;
