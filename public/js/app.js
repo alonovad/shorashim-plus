@@ -165,6 +165,34 @@
     if (e.key === 'Enter') document.getElementById('loginBtn').click();
   });
 
+  // Google Sign-In
+  document.getElementById('googleLoginBtn').addEventListener('click', function() {
+    var errorEl = document.getElementById('loginError');
+    errorEl.textContent = '⏳ מתחבר...';
+    
+    var provider = new firebase.auth.GoogleAuthProvider();
+    auth.signInWithPopup(provider)
+      .then(function(result) {
+        return loadUsers().then(function() {
+          var profile = getUserByEmail(result.user.email);
+          if (!profile) {
+            errorEl.textContent = 'חשבון לא מוגדר במערכת. פנה למנהל.';
+            auth.signOut();
+            return;
+          }
+          showApp(profile, null);
+          initMapAndData();
+        });
+      })
+      .catch(function(err) {
+        if (err.code === 'auth/popup-closed-by-user') {
+          errorEl.textContent = '';
+          return;
+        }
+        errorEl.textContent = 'שגיאה: ' + (err.message || err.code);
+      });
+  });
+
   // ── Constants ──
   var COLORS = ['#2e7d32','#1565c0','#c62828','#6a1b9a','#ef6c00','#00838f','#ad1457','#4e342e'];
   var FARM_COLORS = ['#2e7d32','#1565c0','#c62828','#6a1b9a','#ef6c00','#00838f','#ad1457','#4e342e'];
