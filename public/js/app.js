@@ -1,46 +1,15 @@
   'use strict';
 
-  // ── AUTHENTICATION ──
+  // ── FIREBASE AUTHENTICATION ──
   var users = {};
   
-  async function hashPin(pin) {
-    var encoder = new TextEncoder();
-    var data = encoder.encode(pin);
-    var hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    var hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map(function(b) { return b.toString(16).padStart(2, '0'); }).join('');
-  }
-
-  // Make hashPin available globally for user management
-  window.hashPin = hashPin;
-
-  function initDefaultAdmin() {
-    return hashPin('1234').then(function(hash) {
-      users = { 
-        'admin': { 
-          id: 1, 
-          name: 'מנהל ראשי', 
-          username: 'admin', 
-          pin_hash: hash, 
-          role: 'admin',
-          farm_permissions: [] // admin has access to all farms
-        } 
-      };
-      DB.save('shorashim-users', users);
-      return users;
-    });
-  }
-
+  // Load user profiles from Firestore
   function loadUsers() {
-    // Try localStorage first for instant load
     try {
       var saved = localStorage.getItem('shorashim-users');
-      if (saved) {
-        users = JSON.parse(saved);
-      }
+      if (saved) users = JSON.parse(saved);
     } catch(e) {}
 
-    // Then try Firestore for latest
     if (typeof DB !== 'undefined') {
       return DB.loadAsync('shorashim-users').then(function(data) {
         if (data && Object.keys(data).length > 0) {
@@ -48,25 +17,40 @@
           return users;
         }
         if (Object.keys(users).length > 0) return users;
-        return initDefaultAdmin();
+        return Promise.resolve(users);
       });
     }
-
-    if (Object.keys(users).length > 0) return Promise.resolve(users);
-    return initDefaultAdmin();
+    return Promise.resolve(users);
   }
 
-  function attemptLogin(username, pin) {
-    var user = users[username];
-    if (!user) return Promise.reject('שם משתמש או סיסמה שגויים');
-    return hashPin(pin).then(function(hash) {
-      if (hash !== user.pin_hash) throw 'שם משתמש או סיסמה שגויים';
-      return user;
-    });
+  // Find user profile by email
+  function getUserByEmail(email) {
+    for (var key in users) {
+      if (users[key].email === email) return users[key];
+    }
+    return null;
+  }
+
+  // Create user profile in Firestore (admin action)
+  function createUserProfile(email, name, role, farmPermissions) {
+    var username = email.split('@')[0];
+    users[username] = {
+      id: Date.now(),
+      name: name,
+      username: username,
+      email: email,
+      role: role || 'worker',
+      farm_permissions: farmPermissions || [],
+      created_at: Date.now()
+    };
+    DB.save('shorashim-users', users);
+    return users[username];
   }
 
   function showApp(user, farm) {
     currentUser = user;
+    // Make currentUser available globally
+    window.currentUser = user;
     document.getElementById('loginScreen').style.display = 'none';
     document.getElementById('mainApp').style.display = 'flex';
     
@@ -79,60 +63,105 @@
     // Init time clock
     if (typeof TimeClock !== 'undefined') TimeClock.init();
     
-    var session = {
+    sessionStorage.setItem('currentUser', JSON.stringify({
       user_id: user.id,
       username: user.username,
       name: user.name,
       role: user.role,
       email: user.email || null,
       farm_permissions: user.farm_permissions,
-      active_farm_id: farm ? farm.id : null,
       login_time: Date.now()
-    };
-    sessionStorage.setItem('currentUser', JSON.stringify(session));
-  }
-
-  function checkSession() {
-    try {
-      var session = JSON.parse(sessionStorage.getItem('currentUser'));
-      if (session && users[session.username]) {
-        currentUser = users[session.username];
-        showApp(currentUser, null);
-        return true;
-      }
-    } catch(e) {}
-    return false;
+    }));
   }
 
   function showLoginScreen() {
     document.getElementById('loginScreen').style.display = 'flex';
-    setTimeout(function() { document.getElementById('loginUsername').focus(); }, 100);
+    // Check if user is already logged in via Firebase
+    if (typeof auth !== 'undefined') {
+      auth.onAuthStateChanged(function(firebaseUser) {
+        if (firebaseUser) {
+          // Already logged in — find their profile
+          loadUsers().then(function() {
+            var profile = getUserByEmail(firebaseUser.email);
+            if (profile) {
+              showApp(profile, null);
+              initMapAndData();
+            } else {
+              // User exists in Firebase Auth but no profile — show login screen
+              // They need to be added by admin first
+              document.getElementById('loginError').textContent = 'חשבון לא מוגדר במערכת. פנה למנהל.';
+              auth.signOut();
+            }
+          });
+        }
+      });
+    }
+    setTimeout(function() { 
+      var emailInput = document.getElementById('loginEmail');
+      if (emailInput) emailInput.focus(); 
+    }, 100);
   }
 
+  // Login button handler
   document.getElementById('loginBtn').addEventListener('click', function() {
-    var username = document.getElementById('loginUsername').value.trim();
-    var pin = document.getElementById('loginPin').value.trim();
+    var email = document.getElementById('loginEmail').value.trim();
+    var password = document.getElementById('loginPassword').value.trim();
+    var errorEl = document.getElementById('loginError');
     
-    if (!username || !pin) {
-      document.getElementById('loginError').textContent = 'יש למלא שם משתמש וסיסמה';
+    if (!email || !password) {
+      errorEl.textContent = 'יש למלא אימייל וסיסמה';
       return;
     }
 
-    if (pin.length !== 4 || !/^\d{4}$/.test(pin)) {
-      document.getElementById('loginError').textContent = 'הסיסמה חייבת להיות 4 ספרות';
-      return;
-    }
+    errorEl.textContent = '⏳ מתחבר...';
 
-    attemptLogin(username, pin).then(function(user) {
-      showApp(user, null);
-      // Re-initialize map and data after login
-      initMapAndData();
-    }).catch(function(error) {
-      document.getElementById('loginError').textContent = error;
-    });
+    auth.signInWithEmailAndPassword(email, password)
+      .then(function(cred) {
+        return loadUsers().then(function() {
+          var profile = getUserByEmail(cred.user.email);
+          if (!profile) {
+            errorEl.textContent = 'חשבון לא מוגדר במערכת. פנה למנהל.';
+            auth.signOut();
+            return;
+          }
+          showApp(profile, null);
+          initMapAndData();
+        });
+      })
+      .catch(function(err) {
+        if (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential') {
+          // Try to create account
+          auth.createUserWithEmailAndPassword(email, password)
+            .then(function(cred) {
+              return loadUsers().then(function() {
+                var profile = getUserByEmail(cred.user.email);
+                if (!profile) {
+                  errorEl.textContent = 'חשבון לא מוגדר במערכת. פנה למנהל.';
+                  auth.signOut();
+                  return;
+                }
+                showApp(profile, null);
+                initMapAndData();
+              });
+            })
+            .catch(function(err2) {
+              var msg = 'שגיאת התחברות';
+              if (err2.code === 'auth/weak-password') msg = 'הסיסמה חייבת להכיל לפחות 6 תווים';
+              if (err2.code === 'auth/email-already-in-use') msg = 'האימייל כבר בשימוש';
+              if (err2.code === 'auth/invalid-email') msg = 'כתובת אימייל לא תקינה';
+              errorEl.textContent = msg;
+            });
+        } else {
+          var msg = 'שגיאת התחברות';
+          if (err.code === 'auth/wrong-password') msg = 'סיסמה שגויה';
+          if (err.code === 'auth/invalid-email') msg = 'כתובת אימייל לא תקינה';
+          if (err.code === 'auth/too-many-requests') msg = 'יותר מדי נסיונות, נסה מאוחר יותר';
+          errorEl.textContent = msg;
+        }
+      });
   });
 
-  document.getElementById('loginPin').addEventListener('keydown', function(e) {
+  document.getElementById('loginPassword').addEventListener('keydown', function(e) {
     if (e.key === 'Enter') document.getElementById('loginBtn').click();
   });
 
@@ -684,12 +713,8 @@
 
   // ── Start auth flow ──
   loadUsers().then(function() {
-    if (!checkSession()) {
-      showLoginScreen();
-    } else {
-      // Session restored, load map data
-      initMapAndData();
-    }
+    // Firebase Auth handles persistence — showLoginScreen checks onAuthStateChanged
+    showLoginScreen();
   }).catch(function(e) {
     console.error('Auth init error:', e);
     showLoginScreen();
@@ -2230,9 +2255,9 @@
     // Build farm checkboxes
     var farmCheckboxes = '';
     if (farms.length > 0) {
-      farmCheckboxes = '<div class="form-group"><label class="form-label">גישה למטעים (ריק = כל המטעים)</label><div style="display: flex; flex-direction: column; gap: 8px; max-height: 150px; overflow-y: auto; padding: 8px; background: var(--g6); border-radius: 8px;">';
+      farmCheckboxes = '<div class="form-group"><label class="form-label">גישה למטעים</label><div style="display: flex; flex-direction: column; gap: 8px; max-height: 150px; overflow-y: auto; padding: 8px; background: var(--g6); border-radius: 8px;">';
       farms.forEach(function(farm) {
-        var checked = isEdit && user.farm_permissions.indexOf(farm.id) !== -1;
+        var checked = isEdit && user.farm_permissions && user.farm_permissions.indexOf(farm.id) !== -1;
         farmCheckboxes += '<label style="display: flex; align-items: center; gap: 8px; cursor: pointer;"><input type="checkbox" class="farm-permission-cb" data-farm-id="' + farm.id + '"' + (checked ? ' checked' : '') + ' style="width: 18px; height: 18px;"><span>' + farm.name + '</span></label>';
       });
       farmCheckboxes += '</div></div>';
@@ -2247,19 +2272,19 @@
             '<input type="text" class="form-input" id="userName" value="' + (isEdit ? user.name : '') + '" placeholder="לדוגמה: משה כהן">' +
           '</div>' +
           '<div class="form-group">' +
-            '<label class="form-label">שם משתמש</label>' +
-            '<input type="text" class="form-input" id="userUsername" value="' + (isEdit ? user.username : '') + '" placeholder="אותיות באנגלית" ' + (isEdit ? 'readonly style="background: #f0f0f0;"' : '') + '>' +
+            '<label class="form-label">אימייל</label>' +
+            '<input type="email" class="form-input" id="userEmail" value="' + (isEdit ? (user.email || '') : '') + '" placeholder="email@example.com" style="direction:ltr;text-align:left;" ' + (isEdit ? 'readonly style="background:#f0f0f0;direction:ltr;text-align:left;"' : '') + '>' +
           '</div>' +
-          (isEdit ? '' : '<div class="form-group"><label class="form-label">סיסמה (4 ספרות)</label><input type="text" class="form-input" id="userPin" placeholder="1234" maxlength="4" inputmode="numeric"></div>') +
           '<div class="form-group">' +
             '<label class="form-label">תפקיד</label>' +
             '<select class="form-input" id="userRole" style="cursor: pointer;">' +
+              '<option value="worker"' + (isEdit && user.role === 'worker' ? ' selected' : '') + '>עובד</option>' +
               '<option value="operator"' + (isEdit && user.role === 'operator' ? ' selected' : '') + '>מפעיל</option>' +
-              '<option value="viewer"' + (isEdit && user.role === 'viewer' ? ' selected' : '') + '>צופה</option>' +
               '<option value="admin"' + (isEdit && user.role === 'admin' ? ' selected' : '') + '>מנהל</option>' +
             '</select>' +
           '</div>' +
           farmCheckboxes +
+          '<div style="font-size:0.75rem;color:#999;padding:8px;background:#fff3e0;border-radius:8px;margin-bottom:12px;">💡 המשתמש יתחבר עם האימייל שהוזן. בכניסה הראשונה יצר חשבון אוטומטית עם הסיסמה שיבחר.</div>' +
           '<div class="modal-buttons">' +
             '<button class="btn btn-primary" onclick="window.saveUserModal()">שמור</button>' +
             '<button class="btn btn-secondary" onclick="window.cancelUserModal()">ביטול</button>' +
@@ -2269,10 +2294,9 @@
 
     container.innerHTML = html;
 
-    // Create global save/cancel functions with closure
-    window.saveUserModal = async function() {
+    window.saveUserModal = function() {
       var name = document.getElementById('userName').value.trim();
-      var username = document.getElementById('userUsername').value.trim();
+      var email = document.getElementById('userEmail').value.trim();
       var role = document.getElementById('userRole').value;
       
       var selectedFarms = [];
@@ -2280,76 +2304,51 @@
         selectedFarms.push(parseInt(cb.getAttribute('data-farm-id')));
       });
 
-      if (!name || !username) {
-        showToast('❌ חובה למלא שם ושם משתמש');
+      if (!name || !email) {
+        showToast('❌ חובה למלא שם ואימייל');
         return;
       }
 
       if (isEdit) {
-        // Get users from localStorage
-        var usersData = JSON.parse(localStorage.getItem('shorashim-users') || '{}');
-        
-        // Find and update the user (username is readonly in edit mode)
-        if (usersData[user.username]) {
-          usersData[user.username].name = name;
-          usersData[user.username].role = role;
-          usersData[user.username].farm_permissions = selectedFarms;
-          DB.save('shorashim-users', usersData);
-          // Also update in-memory users
-          users = usersData;
+        if (users[user.username]) {
+          users[user.username].name = name;
+          users[user.username].role = role;
+          users[user.username].farm_permissions = selectedFarms;
+          DB.save('shorashim-users', users);
           renderUsersAdminList();
           showToast('✅ משתמש עודכן');
-        } else {
-          showToast('❌ שגיאה: משתמש לא נמצא');
-          return;
         }
       } else {
-        var pin = document.getElementById('userPin').value.trim();
-        if (!pin || pin.length !== 4 || !/^\d{4}$/.test(pin)) {
-          showToast('❌ סיסמה חייבת להיות 4 ספרות');
+        // Check if email already exists
+        var existing = getUserByEmail(email);
+        if (existing) {
+          showToast('❌ אימייל כבר קיים');
           return;
         }
 
-        // Get users from localStorage
-        var usersData = JSON.parse(localStorage.getItem('shorashim-users') || '{}');
-
-        if (usersData[username]) {
-          showToast('❌ שם משתמש כבר קיים');
-          return;
-        }
-
-        var maxId = Object.keys(usersData).length > 0 ? Math.max.apply(null, Object.values(usersData).map(function(u) { return u.id; })) : 0;
-        var hash = await window.hashPin(pin);
+        var username = email.split('@')[0];
+        var maxId = Object.keys(users).length > 0 ? Math.max.apply(null, Object.values(users).map(function(u) { return u.id; })) : 0;
         
-        usersData[username] = {
+        users[username] = {
           id: maxId + 1,
           name: name,
           username: username,
-          pin_hash: hash,
+          email: email,
           role: role,
           farm_permissions: selectedFarms,
           created_at: Date.now()
         };
         
-        DB.save('shorashim-users', usersData);
-        // Also update in-memory users
-        users = usersData;
+        DB.save('shorashim-users', users);
         renderUsersAdminList();
-        showToast('✅ משתמש נוסף');
+        showToast('✅ משתמש נוסף — יוכל להתחבר עם ' + email);
       }
 
-      // Close modal - get container fresh to ensure it closes
-      var modalContainer = document.getElementById('modalContainer');
-      if (modalContainer) {
-        modalContainer.innerHTML = '';
-      }
+      document.getElementById('modalContainer').innerHTML = '';
     };
 
     window.cancelUserModal = function() {
-      var modalContainer = document.getElementById('modalContainer');
-      if (modalContainer) {
-        modalContainer.innerHTML = '';
-      }
+      document.getElementById('modalContainer').innerHTML = '';
     };
   }
 
@@ -4026,10 +4025,12 @@
     if (confirm(t('להתנתק מהמערכת?'))) {
       sessionStorage.removeItem('currentUser');
       currentUser = null;
+      window.currentUser = null;
+      if (typeof auth !== 'undefined') auth.signOut();
       document.getElementById('mainApp').style.display = 'none';
       document.getElementById('loginScreen').style.display = 'flex';
-      document.getElementById('loginUsername').value = '';
-      document.getElementById('loginPin').value = '';
+      document.getElementById('loginEmail').value = '';
+      document.getElementById('loginPassword').value = '';
       document.getElementById('loginError').textContent = '';
     }
   });
