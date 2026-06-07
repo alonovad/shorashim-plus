@@ -761,15 +761,25 @@
       farms = data.farms || [];
       worklogEntries = data.worklogEntries || [];
       
-      // Only display accessible plots on map
+      // Clear map
       drawnItems.clearLayers();
-      var accessiblePlots = getAccessiblePlots();
-      accessiblePlots.forEach(function(p) {
+
+      // Build layers for ALL plots (so saveData can read latlngs from any)
+      plots.forEach(function(p) {
+        if (!p.latlngs || p.latlngs.length === 0) return;
         var latlngs = p.latlngs.map(function(c) { return L.latLng(c.lat !== undefined ? c.lat : c[0], c.lng !== undefined ? c.lng : c[1]); });
         var layer = L.polygon(latlngs, {
           color: p.color, fillColor: p.color, weight: 3, fillOpacity: 0.25
-        }).addTo(drawnItems);
-        var center = layer.getBounds().getCenter();
+        });
+        p.layer = layer;
+      });
+
+      // Only display accessible plots on map
+      var accessiblePlots = getAccessiblePlots();
+      accessiblePlots.forEach(function(p) {
+        if (!p.layer) return;
+        p.layer.addTo(drawnItems);
+        var center = p.layer.getBounds().getCenter();
         var label = L.divIcon({
           className: '',
           html: '<div style="background:' + p.color + ';color:white;padding:3px 10px;border-radius:8px;' +
@@ -778,10 +788,8 @@
           iconAnchor: [0, 0]
         });
         var labelMarker = L.marker(center, { icon: label, interactive: false }).addTo(drawnItems);
-        p.layer = layer;
         p.labelMarker = labelMarker;
-        // Click on polygon to show plot details
-        layer.on('click', function() {
+        p.layer.on('click', function() {
           if (!drawMode) showPlotDetails(p.id);
         });
       });
@@ -802,6 +810,16 @@
   function saveData() {
     var data = {
       plots: plots.map(function(p) {
+        var ll;
+        if (p.layer && typeof p.layer.getLatLngs === 'function') {
+          ll = p.layer.getLatLngs()[0].map(function(c) { return {lat: c.lat, lng: c.lng}; });
+        } else if (p.latlngs) {
+          ll = p.latlngs.map(function(c) {
+            return {lat: c.lat !== undefined ? c.lat : c[0], lng: c.lng !== undefined ? c.lng : c[1]};
+          });
+        } else {
+          ll = [];
+        }
         return {
           id: p.id, name: p.name, color: p.color, area: p.area, vertices: p.vertices,
           farm_id: p.farm_id,
@@ -810,7 +828,7 @@
           tree_spacing: p.tree_spacing || null,
           crop_type: p.crop_type || null,
           plants_per_dunam: p.plants_per_dunam || null,
-          latlngs: p.layer.getLatLngs()[0].map(function(ll) { return {lat: ll.lat, lng: ll.lng}; })
+          latlngs: ll
         };
       }),
       sprayEvents: sprayEvents,
@@ -1638,10 +1656,15 @@
           }
         }
         
-        var latlngs = plot.layer.getLatLngs()[0].map(function(ll) { return [ll.lat, ll.lng]; });
+        var latlngs = [];
+        if (plot.layer && typeof plot.layer.getLatLngs === 'function') {
+          latlngs = plot.layer.getLatLngs()[0].map(function(ll) { return [ll.lat, ll.lng]; });
+        } else if (plot.latlngs) {
+          latlngs = plot.latlngs;
+        }
         pushUndo('delete', { id: plot.id, name: plot.name, color: plot.color, area: plot.area, vertices: plot.vertices, farm_id: plot.farm_id, latlngs: latlngs });
-        drawnItems.removeLayer(plot.layer);
-        drawnItems.removeLayer(plot.labelMarker);
+        if (plot.layer) drawnItems.removeLayer(plot.layer);
+        if (plot.labelMarker) drawnItems.removeLayer(plot.labelMarker);
         var plotIdx = plots.indexOf(plot);
         if (plotIdx !== -1) plots.splice(plotIdx, 1);
         renderPlotList();
@@ -6097,32 +6120,7 @@
   if (typeof DB !== 'undefined' && typeof db !== 'undefined') {
     DB.listen('plotMapperSprayData', function(data) {
       if (data) {
-        plots = [];
-        drawnItems.clearLayers();
-        var saved = data;
-        plots = saved.plots || [];
-        sprayEvents = saved.sprayEvents || [];
-        pesticides = saved.pesticides || [];
-        farms = saved.farms || [];
-        worklogEntries = saved.worklogEntries || [];
-        // Rebuild map layers
-        var accessiblePlots = getAccessiblePlots();
-        accessiblePlots.forEach(function(p) {
-          var latlngs = p.latlngs.map(function(c) { return L.latLng(c.lat !== undefined ? c.lat : c[0], c.lng !== undefined ? c.lng : c[1]); });
-          var layer = L.polygon(latlngs, {
-            color: p.color, fillColor: p.color, weight: 3, fillOpacity: 0.25
-          }).addTo(drawnItems);
-          var center = layer.getBounds().getCenter();
-          var label = L.divIcon({
-            className: '',
-            html: '<div style="background:' + p.color + ';color:white;padding:3px 10px;border-radius:8px;font-family:Heebo,sans-serif;font-size:12px;font-weight:700;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,0.3);text-align:center;">' + p.name + '</div>',
-            iconAnchor: [0, 0]
-          });
-          var labelMarker = L.marker(center, { icon: label, interactive: false }).addTo(drawnItems);
-          p.layer = layer;
-          p.labelMarker = labelMarker;
-          layer.on('click', function() { showPlotDetails(p.id); });
-        });
+        _applyPlotData(data);
       }
     });
 
