@@ -264,10 +264,12 @@ var TimeClock = (function() {
     html += '<h3 style="font-weight:700;font-size:1.1rem;margin-bottom:16px;border-bottom:2px solid #e0e0e0;padding-bottom:8px;">⚙️ תפריט</h3>';
 
     // Time records - for all users
+    html += '<button onclick="TaskBoard.showMyTasks();TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-bottom:6px;border-radius:10px;border:none;background:#f3e5f5;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">📋 המשימות שלי</button>';
     html += '<button onclick="TimeClock.showMyRecords();TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-bottom:6px;border-radius:10px;border:none;background:#e8f5e9;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">🕐 הדוחות שלי</button>';
 
     if (isAdmin) {
       html += '<button onclick="TimeClock.showAllRecords();TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-bottom:6px;border-radius:10px;border:none;background:#e3f2fd;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">📊 ניהול שעות</button>';
+      html += '<button onclick="TaskBoard.showTaskManager();TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-bottom:6px;border-radius:10px;border:none;background:#ede7f6;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">📋 ניהול משימות</button>';
       html += '<button onclick="TimeClock.showWorkplaceAdmin();TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-bottom:6px;border-radius:10px;border:none;background:#fff3e0;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">📍 מקומות עבודה</button>';
       html += '<button onclick="TimeClock.showCropAdmin();TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-bottom:6px;border-radius:10px;border:none;background:#e8f5e9;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">🌱 סוגי גידולים</button>';
     }

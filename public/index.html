@@ -6,6 +6,8 @@
 <title>שורשים פלוס — ניהול מטעים וריסוס</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
 <link rel="stylesheet" href="css/style.css"/>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#2e7d32">
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
@@ -19,6 +21,8 @@
     appId: "1:627757175361:web:ff61437630a88da23a6cc0"
   });
   var db = firebase.firestore();
+  db.enablePersistence({ synchronizeTabs: true })
+    .catch(function(err) { console.warn('Offline persistence:', err.code); });
   var auth = firebase.auth();
   auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
 </script>
@@ -135,6 +139,9 @@
 <!-- Clock Bar -->
 <div class="clock-bar" id="clockBar"></div>
 
+<!-- Offline Bar -->
+<div id="offlineBar" style="display:none;background:#f44336;color:white;text-align:center;padding:4px 12px;font-size:0.75rem;font-weight:600;">📡 אין חיבור — נתונים יסונכרנו כשהחיבור יחזור</div>
+
 <!-- Hamburger Panel + Overlay -->
 <div class="hamburger-overlay" id="hamburgerOverlay" onclick="TimeClock.closeMenu();this.style.display='none'"></div>
 <div class="hamburger-panel" id="hamburgerPanel"></div>
@@ -147,7 +154,7 @@
   <div class="tab" data-tab="history" data-t-key="היסטוריה">📋 היסטוריה</div>
   <div class="tab" data-tab="irrigation" data-t-key="השקיה">💧 השקיה</div>
   <div class="tab" data-tab="profile" data-t-key="אישי">👤 אישי</div>
-  <div class="tab admin-only" data-tab="farms" data-t-key="מטעים" style="display: none;">🌳 מטעים</div>
+  <div class="tab" data-tab="farms" data-t-key="מטעים">🌳 מטעים</div>
   <div class="tab admin-only" data-tab="users" data-t-key="משתמשים" style="display: none;">👥 משתמשים</div>
   <div class="tab admin-only" data-tab="admin" data-t-key="חומרים" style="display: none;">🧪 חומרים</div>
   <div class="tab" data-tab="pestsearch" data-t-key="חיפוש חומרים">🔍 חיפוש חומרים</div>
@@ -559,6 +566,61 @@
   </div>
 </div>
 
+<!-- Viewer Clock Dashboard -->
+<div class="tab-content" id="tabViewerClock">
+  <div class="admin-container" style="padding-top: 16px;">
+    <div style="text-align: center; margin-bottom: 16px;">
+      <div style="font-size: 3rem;" id="viewerClockIcon">⚪</div>
+      <div style="font-size: 2.5rem; font-weight: 900; font-family: monospace;" id="viewerClockTime">00:00:00</div>
+      <div style="font-size: 0.9rem; color: var(--text-muted);" id="viewerClockStatus">לא בשעון</div>
+      <div style="margin-top: 16px;">
+        <button id="viewerPunchBtn" onclick="TimeClock.punchIn()" style="padding: 16px 48px; border-radius: 16px; border: none; background: #4caf50; color: white; font-family: inherit; font-weight: 800; font-size: 1.2rem; cursor: pointer; box-shadow: 0 4px 16px rgba(0,0,0,0.2);">🟢 כניסה</button>
+      </div>
+      <div style="margin-top: 12px;">
+        <button onclick="TaskBoard.showMyTasks()" style="padding: 10px 24px; border-radius: 12px; border: 2px solid #7e57c2; background: transparent; color: #7e57c2; font-family: inherit; font-weight: 700; font-size: 0.95rem; cursor: pointer;" id="viewerTaskBtn">📋 המשימות שלי</button>
+      </div>
+    </div>
+
+    <!-- Period selector -->
+    <div class="section-card">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+        <h3 style="font-weight: 700; font-size: 1rem;">📊 סיכום נוכחות</h3>
+        <select id="viewerPeriod" onchange="renderViewerDashboard()" style="padding: 6px 12px; border-radius: 8px; border: 1px solid #ddd; font-family: inherit; font-size: 0.85rem;">
+          <option value="week">השבוע</option>
+          <option value="month" selected>החודש</option>
+          <option value="year">השנה</option>
+          <option value="custom">בחירה מלוח שנה</option>
+        </select>
+      </div>
+      <div id="viewerCustomDates" style="display: none; margin-bottom: 12px;">
+        <div style="display: flex; gap: 8px;">
+          <input type="date" id="viewerDateFrom" style="flex: 1; padding: 6px; border-radius: 8px; border: 1px solid #ddd; font-family: inherit;" onchange="renderViewerDashboard()">
+          <input type="date" id="viewerDateTo" style="flex: 1; padding: 6px; border-radius: 8px; border: 1px solid #ddd; font-family: inherit;" onchange="renderViewerDashboard()">
+        </div>
+      </div>
+
+      <!-- Summary stats -->
+      <div id="viewerStats" style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 16px;">
+        <div style="background: var(--g6); border-radius: 10px; padding: 10px; text-align: center;">
+          <div style="font-size: 0.7rem; color: var(--text-muted);">ימים</div>
+          <div style="font-size: 1.5rem; font-weight: 800;" id="viewerDays">0</div>
+        </div>
+        <div style="background: var(--g6); border-radius: 10px; padding: 10px; text-align: center;">
+          <div style="font-size: 0.7rem; color: var(--text-muted);">שעות</div>
+          <div style="font-size: 1.5rem; font-weight: 800;" id="viewerHours">0</div>
+        </div>
+        <div style="background: var(--g6); border-radius: 10px; padding: 10px; text-align: center;">
+          <div style="font-size: 0.7rem; color: var(--text-muted);">משמרות</div>
+          <div style="font-size: 1.5rem; font-weight: 800;" id="viewerShifts">0</div>
+        </div>
+      </div>
+
+      <!-- Records table -->
+      <div id="viewerRecordsTable"></div>
+    </div>
+  </div>
+</div>
+
 </div><!-- End tabs-wrapper -->
 
 <!-- Draggable Farms FAB -->
@@ -596,5 +658,36 @@
 <script src="js/db.js"></script>
 <script src="js/app.js"></script>
 <script src="js/timeclock.js"></script>
+<script src="js/taskboard.js"></script>
+<script>
+  // Register service worker for offline support
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').then(function(reg) {
+      console.log('SW registered');
+    }).catch(function(err) {
+      console.warn('SW registration failed:', err);
+    });
+  }
+
+  // Online/Offline indicator
+  function updateConnectionStatus() {
+    var bar = document.getElementById('offlineBar');
+    if (!bar) return;
+    if (navigator.onLine) {
+      bar.style.display = 'none';
+    } else {
+      bar.style.display = 'block';
+    }
+  }
+  window.addEventListener('online', function() {
+    updateConnectionStatus();
+    if (typeof showToast === 'function') showToast('🟢 חזר חיבור — מסנכרן נתונים');
+  });
+  window.addEventListener('offline', function() {
+    updateConnectionStatus();
+    if (typeof showToast === 'function') showToast('🔴 אין חיבור — עובד במצב לא מקוון');
+  });
+  setTimeout(updateConnectionStatus, 1000);
+</script>
 </body>
 </html>

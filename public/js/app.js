@@ -62,6 +62,17 @@
 
     // Init time clock
     if (typeof TimeClock !== 'undefined') TimeClock.init();
+
+    // Viewer mode: show only clock dashboard
+    if (user.role === 'viewer') {
+      document.querySelector('.tab-bar').style.display = 'none';
+      document.querySelectorAll('.tab-content').forEach(function(tc) { tc.classList.remove('active'); });
+      var viewerPanel = document.getElementById('tabViewerClock');
+      if (viewerPanel) {
+        viewerPanel.classList.add('active');
+        renderViewerDashboard();
+      }
+    }
     
     sessionStorage.setItem('currentUser', JSON.stringify({
       user_id: user.id,
@@ -524,6 +535,115 @@
     'מעבר מים': { th: 'ให้น้ำ', ar: 'ري' },
     'רשומה נשמרה מקומית': { th: 'บันทึกในเครื่อง', ar: 'تم الحفظ محلياً' },
     'רישומים לגידולים': { th: 'รายการจดทะเบียนพืช', ar: 'تسجيلات المحاصيل' },
+
+    // ── Crop & Density ──
+    'בחר גידול': { th: 'เลือกพืช', ar: 'اختر محصول' },
+    'סוג גידול': { th: 'ประเภทพืช', ar: 'نوع المحصول' },
+    'צפיפות צמחים': { th: 'ความหนาแน่นของต้นไม้', ar: 'كثافة النباتات' },
+    'בחר שיטת חישוב': { th: 'เลือกวิธีคำนวณ', ar: 'اختر طريقة الحساب' },
+    'צמחים לדונם': { th: 'ต้น/ดูนัม', ar: 'نبات/دونم' },
+    'מספר צמחים משוער': { th: 'จำนวนต้นโดยประมาณ', ar: 'عدد النباتات المقدر' },
+    'מספר צמחים סופי (ניתן לעריכה)': { th: 'จำนวนต้นสุดท้าย (แก้ไขได้)', ar: 'عدد النباتات النهائي (قابل للتعديل)' },
+    'צמחים': { th: 'ต้น', ar: 'نبتة' },
+    'שם גידול': { th: 'ชื่อพืช', ar: 'اسم المحصول' },
+
+    // ── Irrigation ──
+    'השקיה': { th: 'การให้น้ำ', ar: 'ري' },
+
+    // ── Worklog extras ──
+    'בחר סעיף': { th: 'เลือกหมวด', ar: 'اختر بند' },
+    'בחר פעולה': { th: 'เลือกงาน', ar: 'اختر عملية' },
+    'בחר קבוצה': { th: 'เลือกกลุ่ม', ar: 'اختر مجموعة' },
+    'יש לבחור פעולה': { th: 'กรุณาเลือกงาน', ar: 'يجب اختيار عملية' },
+    'פעולה חדשה': { th: 'งานใหม่', ar: 'عملية جديدة' },
+    'קבוצת עובדים חדשה': { th: 'กลุ่มคนงานใหม่', ar: 'مجموعة عمال جديدة' },
+    'שם הקבוצה': { th: 'ชื่อกลุ่ม', ar: 'اسم المجموعة' },
+    'סעיף תקציבי': { th: 'หมวดงบประมาณ', ar: 'بند الميزانية' },
+    'קבוצת עובדים': { th: 'กลุ่มคนงาน', ar: 'مجموعة عمال' },
+    'מספר עובדים': { th: 'จำนวนคนงาน', ar: 'عدد العمال' },
+    'שעות עבודה': { th: 'ชั่วโมงทำงาน', ar: 'ساعات العمل' },
+    'עובדים (שמות)': { th: 'ชื่อคนงาน', ar: 'أسماء العمال' },
+    'רשומה חדשה': { th: 'รายการใหม่', ar: 'سجل جديد' },
+    'רשומות אחרונות': { th: 'รายการล่าสุด', ar: 'سجلات أخيرة' },
+    'רשומת יומן מהירה': { th: 'บันทึกด่วน', ar: 'سجل سريع' },
+    'דיווח עבודה': { th: 'รายงานงาน', ar: 'تقرير عمل' },
+    'סיכום והיסטוריה': { th: 'สรุปและประวัติ', ar: 'ملخص وتاريخ' },
+    'סיכום הספק': { th: 'สรุปผลผลิต', ar: 'ملخص الإنتاجية' },
+    'הספק מחושב': { th: 'ผลผลิตที่คำนวณ', ar: 'إنتاجية محسوبة' },
+    'עצים שטופלו': { th: 'ต้นที่ดูแลแล้ว', ar: 'أشجار تمت معالجتها' },
+    'עצים/עובד': { th: 'ต้น/คน', ar: 'شجرة/عامل' },
+    'עצים/שעה': { th: 'ต้น/ชม.', ar: 'شجرة/ساعة' },
+    'עצים/עובד×שעה': { th: 'ต้น/คน×ชม.', ar: 'شجرة/عامل×ساعة' },
+
+    // ── Spray ──
+    'פרטי ריסוס': { th: 'รายละเอียดพ่นยา', ar: 'تفاصيل الرش' },
+    'שם המפעיל': { th: 'ชื่อผู้ปฏิบัติ', ar: 'اسم المشغل' },
+    'שם תכשיר': { th: 'ชื่อสารเคมี', ar: 'اسم المبيد' },
+    'בחירת חלקות': { th: 'เลือกแปลง', ar: 'اختيار قطع' },
+    'בחר מטע': { th: 'เลือกสวน', ar: 'اختر بستان' },
+    'תאריך': { th: 'วันที่', ar: 'تاريخ' },
+    'חלקה': { th: 'แปลง', ar: 'قطعة' },
+    'גידול': { th: 'พืช', ar: 'محصول' },
+
+    // ── Pesticide Search ──
+    'חיפוש חומרי הדברה': { th: 'ค้นหายาฆ่าแมลง', ar: 'بحث مبيدات' },
+    'חיפוש חופשי': { th: 'ค้นหาอิสระ', ar: 'بحث حر' },
+    'מאגר משרד החקלאות': { th: 'ฐานข้อมูลกระทรวงเกษตร', ar: 'قاعدة بيانات وزارة الزراعة' },
+    'מחפש': { th: 'กำลังค้นหา...', ar: 'جاري البحث...' },
+    'תכשיר': { th: 'สารเคมี', ar: 'مبيد' },
+
+    // ── Profile ──
+    'הגדרות Google Sheets': { th: 'ตั้งค่า Google Sheets', ar: 'إعدادات Google Sheets' },
+    'כתובת Apps Script': { th: 'ที่อยู่ Apps Script', ar: 'عنوان Apps Script' },
+    'הכתובת מתקבלת אחרי פריסת הסקריפט': { th: 'ที่อยู่จะได้หลังจากปรับใช้สคริปต์', ar: 'العنوان يتم الحصول عليه بعد نشر السكريبت' },
+    'מזהה גיליון לכל מטע': { th: 'รหัสชีตสำหรับแต่ละสวน', ar: 'معرف الجدول لكل بستان' },
+    'המזהה נמצא בכתובת URL של הגיליון': { th: 'รหัสอยู่ใน URL ของชีต', ar: 'المعرف موجود في عنوان URL للجدول' },
+
+    // ── Receipts & Documents ──
+    'חשבונית או תעודה': { th: 'ใบแจ้งหนี้หรือใบรับ', ar: 'فاتورة أو شهادة' },
+    'צלם תעודת משלוח': { th: 'ถ่ายภาพใบส่งของ', ar: 'تصوير بوليصة شحن' },
+    'דו״ח עבודה': { th: 'รายงานงาน', ar: 'تقرير عمل' },
+    'גלריה': { th: 'แกลเลอรี', ar: 'معرض' },
+
+    // ── Map & Navigation ──
+    'גישה למיקום נדחתה': { th: 'การเข้าถึงตำแหน่งถูกปฏิเสธ', ar: 'تم رفض الوصول للموقع' },
+    'הדפדפן לא תומך באיתור מיקום': { th: 'เบราว์เซอร์ไม่รองรับการระบุตำแหน่ง', ar: 'المتصفح لا يدعم تحديد الموقع' },
+    'בדוק הגדרות דפדפן ומכשיר': { th: 'ตรวจสอบการตั้งค่าเบราว์เซอร์และอุปกรณ์', ar: 'تحقق من إعدادات المتصفح والجهاز' },
+
+    // ── Empty states ──
+    'אין היסטוריה': { th: 'ไม่มีประวัติ', ar: 'لا يوجد تاريخ' },
+    'אין חלקות זמינות': { th: 'ไม่มีแปลงที่พร้อม', ar: 'لا توجد قطع متاحة' },
+    'אין מטעים זמינים': { th: 'ไม่มีสวนที่พร้อม', ar: 'لا توجد بساتين متاحة' },
+    'אין מטעים משויכים': { th: 'ไม่มีสวนที่ผูกไว้', ar: 'لا توجد بساتين مرتبطة' },
+    'אין רכבים': { th: 'ไม่มียานพาหนะ', ar: 'لا توجد مركبات' },
+    'אין רשומות': { th: 'ไม่มีรายการ', ar: 'لا توجد سجلات' },
+    'אין תעודות משלוח': { th: 'ไม่มีใบส่งของ', ar: 'لا توجد بوالص شحن' },
+    'אין תעודות': { th: 'ไม่มีเอกสาร', ar: 'لا توجد شهادات' },
+
+    // ── Safety & Categories ──
+    'בטיחות': { th: 'ความปลอดภัย', ar: 'سلامة' },
+    'ביטוח': { th: 'ประกัน', ar: 'تأمين' },
+    'בעלות': { th: 'ความเป็นเจ้าของ', ar: 'ملكية' },
+
+    // ── Toast messages ──
+    '⛔ רק מנהל יכול למחוק חלקות': { th: '⛔ เฉพาะผู้ดูแลเท่านั้นที่ลบแปลงได้', ar: '⛔ فقط المسؤول يمكنه حذف القطع' },
+    '⛔ אין לך הרשאה למחוק חלקה זו': { th: '⛔ คุณไม่มีสิทธิ์ลบแปลงนี้', ar: '⛔ ليس لديك صلاحية لحذف هذه القطعة' },
+    '💾 שיוך מגופים נשמר': { th: '💾 บันทึกการเชื่อมต่อวาล์วแล้ว', ar: '💾 تم حفظ ربط الصمامات' },
+    '🔄 נתונים עודכנו': { th: '🔄 อัปเดตข้อมูลแล้ว', ar: '🔄 تم تحديث البيانات' },
+
+    // ── Misc UI ──
+    'גרור או לחץ על הפינה הנגדית': { th: 'ลากหรือคลิกที่มุมตรงข้าม', ar: 'اسحب أو اضغط على الزاوية المقابلة' },
+    'לא בשעון': { th: 'ไม่ได้เข้างาน', ar: 'غير مسجل' },
+    'כניסה': { th: 'เข้างาน', ar: 'دخول' },
+    'השבוע': { th: 'สัปดาห์นี้', ar: 'هذا الأسبوع' },
+    'החודש': { th: 'เดือนนี้', ar: 'هذا الشهر' },
+    'השנה': { th: 'ปีนี้', ar: 'هذه السنة' },
+    'בחירה מלוח שנה': { th: 'เลือกจากปฏิทิน', ar: 'اختيار من التقويم' },
+    'סיכום נוכחות': { th: 'สรุปการเข้างาน', ar: 'ملخص الحضور' },
+    'ימים': { th: 'วัน', ar: 'أيام' },
+    'שעות': { th: 'ชั่วโมง', ar: 'ساعات' },
+    'משמרות': { th: 'กะ', ar: 'مناوبات' },
+    'המשימות שלי': { th: 'งานของฉัน', ar: 'مهامي' },
   };
 
   function t(hebrewText) {
@@ -1509,9 +1629,13 @@
         var plotId = parseInt(this.getAttribute('data-delete-id'));
         var plot = plots.find(function(p) { return p.id === plotId; });
         if (!plot) return;
-        if (!currentUser || currentUser.role !== 'admin') {
-          showToast('⛔ רק מנהל יכול למחוק חלקות');
-          return;
+        // Check user has access to this plot's farm
+        if (currentUser && currentUser.role !== 'admin') {
+          var userFarmIds = (currentUser.farm_permissions || []);
+          if (userFarmIds.length > 0 && userFarmIds.indexOf(plot.farm_id) === -1) {
+            showToast(t('⛔ אין לך הרשאה למחוק חלקה זו'));
+            return;
+          }
         }
         
         var latlngs = plot.layer.getLatLngs()[0].map(function(ll) { return [ll.lat, ll.lng]; });
@@ -4125,9 +4249,9 @@
               (plot.row_spacing && plot.tree_spacing ? '<div style="font-size: 0.6rem; color: var(--text-muted);">' + plot.row_spacing + '×' + plot.tree_spacing + '</div>' : '') +
             '</div>' +
           '</div>' +
+          (plot.crop_type ? '<div style="background:#e8f5e9;border-radius:8px;padding:6px 12px;margin-bottom:14px;font-size:0.85rem;font-weight:600;text-align:center;">🌱 ' + plot.crop_type + '</div>' : '') +
           
-          '<!-- Edit Section (admin only) -->' +
-          (currentUser && currentUser.role === 'admin' ?
+          '<!-- Edit Section -->' +
           '<div style="background: var(--g6); border-radius: 12px; padding: 14px; margin-bottom: 14px;">' +
             '<div style="font-size: 0.82rem; font-weight: 700; color: var(--g1); margin-bottom: 10px;">✏️ ' + t('עריכת חלקה') + '</div>' +
             '<div class="form-group" style="margin-bottom: 10px;">' +
@@ -4138,11 +4262,18 @@
               '<label class="form-label" style="font-size: 0.78rem;">🌳 ' + t('מטע') + '</label>' +
               '<select class="form-input" id="pdEditFarm" style="cursor: pointer;">' + farmOptions + '</select>' +
             '</div>' +
+            '<div class="form-group" style="margin-bottom: 10px;">' +
+              '<label class="form-label" style="font-size: 0.78rem;">🌱 ' + t('סוג גידול') + '</label>' +
+              '<select class="form-input" id="pdEditCrop" style="cursor: pointer;">' +
+                '<option value="">' + t('בחר גידול') + '</option>' +
+                (function() { var cropList = JSON.parse(localStorage.getItem('shorashim-crop-types') || '[]'); return cropList.map(function(c) { return '<option value="' + c + '"' + (plot.crop_type === c ? ' selected' : '') + '>' + c + '</option>'; }).join(''); })() +
+              '</select>' +
+            '</div>' +
             '<div style="display: flex; gap: 8px;">' +
               '<button class="btn-admin" id="pdSaveEdit" style="flex: 1;">💾 ' + t('שמור') + '</button>' +
               '<button class="btn-admin" id="pdRedrawPolygon" style="flex: 1; background: var(--water);">🔄 ' + t('צייר מחדש') + '</button>' +
             '</div>' +
-          '</div>' : '') +
+          '</div>' +
           
           '<div style="display: flex; gap: 8px; margin-bottom: 14px;">' +
             '<button class="btn-submit" id="plotDetailNav" style="flex: 1; margin: 0; font-size: 0.85rem;">🗺️ ' + t('נווט') + '</button>' +
@@ -4167,6 +4298,7 @@
     document.getElementById('pdSaveEdit').addEventListener('click', function() {
       var newName = document.getElementById('pdEditName').value.trim();
       var newFarmId = parseInt(document.getElementById('pdEditFarm').value);
+      var newCropType = document.getElementById('pdEditCrop').value || null;
       if (!newName) { showToast('❌ ' + t('שם ריק')); return; }
       
       var changed = false;
@@ -4186,6 +4318,12 @@
           if (plot.layer) plot.layer.setStyle({ color: newFarm.color, fillColor: newFarm.color });
           changed = true;
         }
+      }
+
+      // Update crop type
+      if (newCropType !== plot.crop_type) {
+        plot.crop_type = newCropType;
+        changed = true;
       }
       
       if (changed) {
@@ -5776,6 +5914,183 @@
     showToast('💾 שיוך מגופים נשמר');
   };
 
+
+  // ── VIEWER CLOCK DASHBOARD ──
+  window.renderViewerDashboard = function() {
+    if (!currentUser) return;
+    var username = currentUser.username;
+
+    // Period calculation
+    var periodEl = document.getElementById('viewerPeriod');
+    var period = periodEl ? periodEl.value : 'month';
+    var now = new Date();
+    var fromDate, toDate;
+
+    if (period === 'week') {
+      var day = now.getDay(); // 0=Sun
+      fromDate = new Date(now);
+      fromDate.setDate(now.getDate() - day);
+      fromDate.setHours(0, 0, 0, 0);
+      toDate = now;
+    } else if (period === 'month') {
+      fromDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      toDate = now;
+    } else if (period === 'year') {
+      fromDate = new Date(now.getFullYear(), 0, 1);
+      toDate = now;
+    } else if (period === 'custom') {
+      var customDates = document.getElementById('viewerCustomDates');
+      if (customDates) customDates.style.display = 'block';
+      var fromVal = document.getElementById('viewerDateFrom').value;
+      var toVal = document.getElementById('viewerDateTo').value;
+      if (!fromVal || !toVal) return;
+      fromDate = new Date(fromVal);
+      toDate = new Date(toVal);
+      toDate.setHours(23, 59, 59);
+    }
+
+    // Hide custom dates if not custom
+    if (period !== 'custom') {
+      var customDates = document.getElementById('viewerCustomDates');
+      if (customDates) customDates.style.display = 'none';
+    }
+
+    var fromStr = fromDate.toISOString().slice(0, 10);
+    var toStr = toDate.toISOString().slice(0, 10);
+
+    // Update clock display
+    updateViewerClockDisplay();
+
+    // Update task button with pending count
+    if (typeof TaskBoard !== 'undefined') {
+      TaskBoard.getMyPendingCount(function(count) {
+        var taskBtn = document.getElementById('viewerTaskBtn');
+        if (taskBtn) {
+          var label = t('המשימות שלי');
+          taskBtn.textContent = '📋 ' + label + (count > 0 ? ' (' + count + ')' : '');
+          if (count > 0) {
+            taskBtn.style.background = '#7e57c2';
+            taskBtn.style.color = 'white';
+          }
+        }
+      });
+    }
+
+    // Query Firestore
+    if (typeof db === 'undefined') return;
+    db.collection('timeclock')
+      .where('username', '==', username)
+      .where('date', '>=', fromStr)
+      .where('date', '<=', toStr)
+      .orderBy('date', 'desc')
+      .orderBy('punchIn', 'desc')
+      .get()
+      .then(function(snap) {
+        var records = [];
+        snap.forEach(function(doc) { records.push(doc.data()); });
+        
+        // Stats
+        var uniqueDays = {};
+        var totalMs = 0;
+        records.forEach(function(r) {
+          if (r.date) uniqueDays[r.date] = true;
+          if (r.duration) totalMs += r.duration;
+        });
+
+        var daysEl = document.getElementById('viewerDays');
+        var hoursEl = document.getElementById('viewerHours');
+        var shiftsEl = document.getElementById('viewerShifts');
+        if (daysEl) daysEl.textContent = Object.keys(uniqueDays).length;
+        if (hoursEl) hoursEl.textContent = (totalMs / 3600000).toFixed(1);
+        if (shiftsEl) shiftsEl.textContent = records.length;
+
+        // Table
+        var tableEl = document.getElementById('viewerRecordsTable');
+        if (!tableEl) return;
+        if (records.length === 0) {
+          tableEl.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:16px;">אין רשומות בתקופה</div>';
+          return;
+        }
+
+        var html = '<table style="width:100%;border-collapse:collapse;font-size:0.8rem;">';
+        html += '<tr style="background:var(--g6);font-weight:700;">';
+        html += '<td style="padding:6px;">תאריך</td><td>מקום</td><td>כניסה</td><td>יציאה</td><td>שעות</td></tr>';
+
+        records.forEach(function(r) {
+          var pIn = new Date(r.punchIn);
+          var hIn = (pIn.getHours() < 10 ? '0' : '') + pIn.getHours() + ':' + (pIn.getMinutes() < 10 ? '0' : '') + pIn.getMinutes();
+          var hOut = '—';
+          if (r.punchOut) {
+            var pOut = new Date(r.punchOut);
+            hOut = (pOut.getHours() < 10 ? '0' : '') + pOut.getHours() + ':' + (pOut.getMinutes() < 10 ? '0' : '') + pOut.getMinutes();
+          }
+          var dur = r.duration ? (r.duration / 3600000).toFixed(1) : '—';
+          html += '<tr style="border-bottom:1px solid #eee;">';
+          html += '<td style="padding:6px;">' + (r.date || '') + '</td>';
+          html += '<td>' + (r.workplace || '—') + '</td>';
+          html += '<td>' + hIn + '</td>';
+          html += '<td>' + hOut + '</td>';
+          html += '<td>' + dur + '</td></tr>';
+        });
+        html += '</table>';
+        tableEl.innerHTML = html;
+      })
+      .catch(function(err) {
+        console.error('Viewer records error:', err);
+        var tableEl = document.getElementById('viewerRecordsTable');
+        if (tableEl) tableEl.innerHTML = '<div style="color:red;text-align:center;padding:8px;">שגיאה: ' + err.message + '</div>';
+      });
+  };
+
+  function updateViewerClockDisplay() {
+    var iconEl = document.getElementById('viewerClockIcon');
+    var timeEl = document.getElementById('viewerClockTime');
+    var statusEl = document.getElementById('viewerClockStatus');
+    var btnEl = document.getElementById('viewerPunchBtn');
+    if (!iconEl) return;
+
+    var shift = localStorage.getItem('shorashim-current-shift');
+    if (shift) {
+      try { shift = JSON.parse(shift); } catch(e) { shift = null; }
+    }
+
+    if (shift) {
+      iconEl.textContent = '🟢';
+      statusEl.textContent = shift.workplace || 'בעבודה';
+      if (btnEl) {
+        btnEl.textContent = '🔴 יציאה';
+        btnEl.style.background = '#f44336';
+        btnEl.setAttribute('onclick', 'TimeClock.punchOut(); setTimeout(renderViewerDashboard, 500);');
+      }
+      // Start updating time
+      if (!window._viewerClockTimer) {
+        window._viewerClockTimer = setInterval(function() {
+          var s = localStorage.getItem('shorashim-current-shift');
+          if (s) {
+            try { s = JSON.parse(s); } catch(e) { return; }
+            var elapsed = Date.now() - s.punchIn;
+            var h = Math.floor(elapsed / 3600000);
+            var m = Math.floor((elapsed % 3600000) / 60000);
+            var sec = Math.floor((elapsed % 60000) / 1000);
+            if (timeEl) timeEl.textContent = (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m + ':' + (sec < 10 ? '0' : '') + sec;
+          }
+        }, 1000);
+      }
+    } else {
+      iconEl.textContent = '⚪';
+      timeEl.textContent = '00:00:00';
+      statusEl.textContent = t('לא בשעון');
+      if (btnEl) {
+        btnEl.textContent = '🟢 ' + t('כניסה');
+        btnEl.style.background = '#4caf50';
+        btnEl.setAttribute('onclick', 'TimeClock.punchIn(); setTimeout(renderViewerDashboard, 500);');
+      }
+      if (window._viewerClockTimer) {
+        clearInterval(window._viewerClockTimer);
+        window._viewerClockTimer = null;
+      }
+    }
+  }
 
   // ── FIRESTORE REALTIME SYNC ──
   // Listen for changes from other devices and refresh UI

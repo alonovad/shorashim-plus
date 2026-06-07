@@ -1,0 +1,18 @@
+{
+  "name": "שורשים פלוס",
+  "short_name": "שורשים+",
+  "description": "פלטפורמה לניהול חקלאי",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1a3c1a",
+  "theme_color": "#2e7d32",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
