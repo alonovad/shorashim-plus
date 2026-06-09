@@ -266,10 +266,13 @@ var TimeClock = (function() {
     // Time records - for all users
     html += '<button onclick="TaskBoard.showMyTasks();TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-bottom:6px;border-radius:10px;border:none;background:#f3e5f5;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">📋 המשימות שלי</button>';
     html += '<button onclick="TimeClock.showMyRecords();TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-bottom:6px;border-radius:10px;border:none;background:#e8f5e9;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">🕐 הדוחות שלי</button>';
+    html += '<button onclick="TimeClock.showProfileEdit();TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-bottom:6px;border-radius:10px;border:none;background:#fce4ec;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">👤 הפרופיל שלי</button>';
 
     if (isAdmin) {
       html += '<button onclick="TimeClock.showAllRecords();TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-bottom:6px;border-radius:10px;border:none;background:#e3f2fd;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">📊 ניהול שעות</button>';
       html += '<button onclick="TaskBoard.showTaskManager();TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-bottom:6px;border-radius:10px;border:none;background:#ede7f6;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">📋 ניהול משימות</button>';
+      html += '<button onclick="TimeClock.showAdminDashboard();TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-bottom:6px;border-radius:10px;border:none;background:#e0f7fa;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">📊 לוח בקרה</button>';
+      html += '<button onclick="TimeClock.showExportMenu();TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-bottom:6px;border-radius:10px;border:none;background:#f1f8e9;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">📥 ייצוא נתונים</button>';
       html += '<button onclick="TimeClock.showWorkplaceAdmin();TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-bottom:6px;border-radius:10px;border:none;background:#fff3e0;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">📍 מקומות עבודה</button>';
       html += '<button onclick="TimeClock.showCropAdmin();TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-bottom:6px;border-radius:10px;border:none;background:#e8f5e9;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">🌱 סוגי גידולים</button>';
     }
@@ -291,6 +294,7 @@ var TimeClock = (function() {
       renderMenuPanel();
       panel.style.display = 'block';
       if (overlay) overlay.style.display = 'block';
+      if (typeof markBadgeSeen === 'function') markBadgeSeen();
     }
   }
 
@@ -501,6 +505,322 @@ var TimeClock = (function() {
     showWorkplaceAdmin();
   }
 
+  // ── Profile Edit ──
+
+  function showProfileEdit() {
+    var user = window.currentUser;
+    if (!user) return;
+    var modal = document.getElementById('modalContainer');
+    modal.innerHTML = '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;">' +
+      '<div style="background:white;border-radius:16px;padding:20px;width:90%;max-width:400px;">' +
+        '<h3 style="font-weight:700;margin-bottom:12px;">👤 הפרופיל שלי</h3>' +
+        '<div style="display:grid;gap:10px;">' +
+          '<div><label style="font-size:0.8rem;color:#666;">שם</label><input id="profName" value="' + (user.name || '') + '" style="width:100%;padding:8px 12px;border-radius:8px;border:1px solid #ddd;font-family:inherit;"></div>' +
+          '<div><label style="font-size:0.8rem;color:#666;">אימייל</label><input id="profEmail" value="' + (user.email || '') + '" readonly style="width:100%;padding:8px 12px;border-radius:8px;border:1px solid #ddd;font-family:inherit;background:#f0f0f0;direction:ltr;text-align:left;"></div>' +
+          '<div><label style="font-size:0.8rem;color:#666;">תפקיד</label><div style="padding:8px 12px;background:#f0f0f0;border-radius:8px;">' + (user.role || '') + '</div></div>' +
+          '<button onclick="TimeClock._changePassword()" style="padding:10px;border-radius:8px;border:1px solid #ff9800;background:transparent;color:#ff9800;font-family:inherit;font-weight:600;cursor:pointer;">🔑 שנה סיסמה</button>' +
+          '<div style="display:flex;gap:8px;">' +
+            '<button onclick="TimeClock._saveProfile()" style="flex:1;padding:10px;border-radius:10px;border:none;background:#4caf50;color:white;font-family:inherit;font-weight:700;cursor:pointer;">💾 שמור</button>' +
+            '<button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'" style="flex:1;padding:10px;border-radius:10px;border:none;background:#eee;font-family:inherit;cursor:pointer;">סגור</button>' +
+          '</div>' +
+        '</div>' +
+      '</div></div>';
+  }
+
+  function _saveProfile() {
+    var name = document.getElementById('profName').value.trim();
+    if (!name) return;
+    var user = window.currentUser;
+    if (!user) return;
+    var users = JSON.parse(localStorage.getItem('shorashim-users') || '{}');
+    if (users[user.username]) {
+      users[user.username].name = name;
+      if (typeof DB !== 'undefined') DB.save('shorashim-users', users);
+      window.currentUser.name = name;
+      if (typeof showToast === 'function') showToast('✅ פרופיל עודכן');
+      document.getElementById('modalContainer').innerHTML = '';
+    }
+  }
+
+  function _changePassword() {
+    var email = window.currentUser ? window.currentUser.email : '';
+    if (!email || typeof auth === 'undefined') return;
+    auth.sendPasswordResetEmail(email).then(function() {
+      if (typeof showToast === 'function') showToast('📧 נשלח מייל לאיפוס סיסמה');
+    }).catch(function(err) {
+      if (typeof showToast === 'function') showToast('❌ ' + err.message);
+    });
+  }
+
+  // ── Admin Dashboard ──
+
+  function showAdminDashboard() {
+    var modal = document.getElementById('modalContainer');
+    modal.innerHTML = '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;">' +
+      '<div style="background:white;border-radius:16px;padding:20px;width:95%;max-width:500px;max-height:85vh;overflow-y:auto;">' +
+        '<h3 style="font-weight:700;margin-bottom:16px;">📊 לוח בקרה</h3>' +
+        '<div id="dashboardContent" style="color:#999;text-align:center;padding:16px;">טוען...</div>' +
+        '<button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'" style="margin-top:12px;width:100%;padding:10px;border-radius:10px;border:none;background:#eee;font-family:inherit;cursor:pointer;">סגור</button>' +
+      '</div></div>';
+
+    var today = new Date().toISOString().slice(0, 10);
+    var weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+
+    // Get users
+    var users = JSON.parse(localStorage.getItem('shorashim-users') || '{}');
+    var userCount = Object.keys(users).length;
+    var plots = JSON.parse(localStorage.getItem('plotMapperSprayData') || '{}');
+    var plotCount = (plots.plots || []).length;
+    var farmCount = (plots.farms || []).length;
+    var sprayCount = (plots.sprayEvents || []).length;
+
+    // Get today's clock records
+    if (typeof db !== 'undefined') {
+      db.collection('timeclock')
+        .where('date', '==', today)
+        .get()
+        .then(function(snap) {
+          var todayRecords = [];
+          snap.forEach(function(doc) { todayRecords.push(doc.data()); });
+          var clockedIn = todayRecords.filter(function(r) { return !r.punchOut; }).length;
+          var todayWorkers = {};
+          todayRecords.forEach(function(r) { todayWorkers[r.username] = true; });
+          var todayHours = 0;
+          todayRecords.forEach(function(r) { if (r.duration) todayHours += r.duration; });
+
+          // Get tasks
+          var tasks = JSON.parse(localStorage.getItem('shorashim-tasks') || '[]');
+          var pendingTasks = tasks.filter(function(t) { return t.status === 'pending'; }).length;
+          var overdueTasks = tasks.filter(function(t) { return t.status === 'pending' && t.dueDate && t.dueDate < today; }).length;
+
+          var el = document.getElementById('dashboardContent');
+          el.innerHTML =
+            '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;">' +
+              '<div style="background:#e8f5e9;border-radius:12px;padding:14px;text-align:center;">' +
+                '<div style="font-size:2rem;font-weight:900;">' + Object.keys(todayWorkers).length + '</div>' +
+                '<div style="font-size:0.75rem;color:#666;">עובדים היום</div>' +
+              '</div>' +
+              '<div style="background:#e3f2fd;border-radius:12px;padding:14px;text-align:center;">' +
+                '<div style="font-size:2rem;font-weight:900;">' + clockedIn + '</div>' +
+                '<div style="font-size:0.75rem;color:#666;">מחוברים עכשיו</div>' +
+              '</div>' +
+              '<div style="background:#fff3e0;border-radius:12px;padding:14px;text-align:center;">' +
+                '<div style="font-size:2rem;font-weight:900;">' + (todayHours / 3600000).toFixed(1) + '</div>' +
+                '<div style="font-size:0.75rem;color:#666;">שעות היום</div>' +
+              '</div>' +
+              '<div style="background:' + (overdueTasks > 0 ? '#ffebee' : '#f3e5f5') + ';border-radius:12px;padding:14px;text-align:center;">' +
+                '<div style="font-size:2rem;font-weight:900;">' + pendingTasks + '</div>' +
+                '<div style="font-size:0.75rem;color:#666;">משימות פתוחות' + (overdueTasks > 0 ? ' (' + overdueTasks + ' באיחור)' : '') + '</div>' +
+              '</div>' +
+            '</div>' +
+            '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">' +
+              '<div style="background:var(--g6);border-radius:10px;padding:10px;text-align:center;">' +
+                '<div style="font-size:1.3rem;font-weight:800;">' + userCount + '</div><div style="font-size:0.7rem;color:#999;">משתמשים</div></div>' +
+              '<div style="background:var(--g6);border-radius:10px;padding:10px;text-align:center;">' +
+                '<div style="font-size:1.3rem;font-weight:800;">' + plotCount + '</div><div style="font-size:0.7rem;color:#999;">חלקות</div></div>' +
+              '<div style="background:var(--g6);border-radius:10px;padding:10px;text-align:center;">' +
+                '<div style="font-size:1.3rem;font-weight:800;">' + sprayCount + '</div><div style="font-size:0.7rem;color:#999;">ריסוסים</div></div>' +
+            '</div>';
+        });
+    }
+  }
+
+  // ── Data Export ──
+
+  function showExportMenu() {
+    var modal = document.getElementById('modalContainer');
+    modal.innerHTML = '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;">' +
+      '<div style="background:white;border-radius:16px;padding:20px;width:90%;max-width:400px;max-height:85vh;overflow-y:auto;">' +
+        '<h3 style="font-weight:700;margin-bottom:12px;">📥 ייצוא נתונים</h3>' +
+        '<div style="display:grid;gap:8px;">' +
+          '<button onclick="TimeClock._exportCSV(\'timeclock\')" style="padding:12px;border-radius:10px;border:none;background:#e8f5e9;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">🕐 שעות עבודה (CSV)</button>' +
+          '<button onclick="TimeClock._exportCSV(\'spray\')" style="padding:12px;border-radius:10px;border:none;background:#e3f2fd;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">💧 יומן ריסוס (CSV)</button>' +
+          '<button onclick="TimeClock._exportCSV(\'worklog\')" style="padding:12px;border-radius:10px;border:none;background:#fff3e0;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">📝 יומן עבודה (CSV)</button>' +
+          '<button onclick="TimeClock._exportCSV(\'tasks\')" style="padding:12px;border-radius:10px;border:none;background:#f3e5f5;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">📋 משימות (CSV)</button>' +
+        '</div>' +
+        '<div style="margin-top:16px;padding-top:16px;border-top:2px solid #eee;">' +
+          '<h4 style="font-weight:700;font-size:0.9rem;margin-bottom:8px;">💾 גיבוי ושחזור</h4>' +
+          '<div style="display:grid;gap:8px;">' +
+            '<button onclick="TimeClock._backupAll()" style="padding:12px;border-radius:10px;border:none;background:#1565c0;color:white;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">⬇️ הורד גיבוי מלא (JSON)</button>' +
+            '<label style="padding:12px;border-radius:10px;border:2px dashed #999;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;display:block;color:#666;">⬆️ שחזר מגיבוי<input type="file" accept=".json" onchange="TimeClock._restoreBackup(this.files[0])" style="display:none;"></label>' +
+          '</div>' +
+        '</div>' +
+        '<button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'" style="margin-top:12px;width:100%;padding:10px;border-radius:10px;border:none;background:#eee;font-family:inherit;cursor:pointer;">סגור</button>' +
+      '</div></div>';
+  }
+
+  function _exportCSV(type) {
+    var rows = [];
+    var filename = '';
+
+    if (type === 'timeclock') {
+      filename = 'timeclock_' + new Date().toISOString().slice(0,10) + '.csv';
+      rows.push(['תאריך', 'עובד', 'מקום עבודה', 'כניסה', 'יציאה', 'שעות']);
+      if (typeof db !== 'undefined') {
+        db.collection('timeclock').orderBy('punchIn', 'desc').limit(500).get().then(function(snap) {
+          snap.forEach(function(doc) {
+            var r = doc.data();
+            var pIn = new Date(r.punchIn);
+            var pOut = r.punchOut ? new Date(r.punchOut) : null;
+            rows.push([
+              r.date || '',
+              r.userName || r.username || '',
+              r.workplace || '',
+              pIn.getHours() + ':' + (pIn.getMinutes() < 10 ? '0' : '') + pIn.getMinutes(),
+              pOut ? pOut.getHours() + ':' + (pOut.getMinutes() < 10 ? '0' : '') + pOut.getMinutes() : '',
+              r.duration ? (r.duration / 3600000).toFixed(2) : ''
+            ]);
+          });
+          downloadCSV(rows, filename);
+        });
+        return;
+      }
+    }
+
+    if (type === 'spray') {
+      filename = 'spray_log_' + new Date().toISOString().slice(0,10) + '.csv';
+      var data = JSON.parse(localStorage.getItem('plotMapperSprayData') || '{}');
+      var events = data.sprayEvents || [];
+      rows.push(['תאריך', 'מפעיל', 'חלקות', 'תכשיר', 'ריכוז', 'כמות', 'הערות']);
+      events.forEach(function(e) {
+        rows.push([e.date || '', e.operator || '', (e.plotNames || []).join('; '), e.pesticide || '', e.concentration || '', e.quantity || '', e.notes || '']);
+      });
+    }
+
+    if (type === 'worklog') {
+      filename = 'worklog_' + new Date().toISOString().slice(0,10) + '.csv';
+      var data = JSON.parse(localStorage.getItem('plotMapperSprayData') || '{}');
+      var entries = data.worklogEntries || [];
+      rows.push(['תאריך', 'חלקה', 'סעיף', 'פעולה', 'קבוצת עובדים', 'מספר עובדים', 'שעות', 'עצים', 'הערות']);
+      entries.forEach(function(e) {
+        rows.push([e.date || '', e.plot_name || '', e.budget_category || '', e.description || '', e.worker_group || '', e.worker_count || '', e.hours || '', e.trees || '', e.notes || '']);
+      });
+    }
+
+    if (type === 'tasks') {
+      filename = 'tasks_' + new Date().toISOString().slice(0,10) + '.csv';
+      var tasks = JSON.parse(localStorage.getItem('shorashim-tasks') || '[]');
+      rows.push(['כותרת', 'תיאור', 'מוקצה ל', 'מקום', 'תאריך יעד', 'סטטוס', 'נוצר']);
+      tasks.forEach(function(t) {
+        rows.push([t.title || '', t.description || '', t.assignedTo || '', t.workplace || '', t.dueDate || '', t.status || '', t.created ? new Date(t.created).toLocaleDateString('he-IL') : '']);
+      });
+    }
+
+    if (rows.length > 1) downloadCSV(rows, filename);
+  }
+
+  function downloadCSV(rows, filename) {
+    var bom = '\uFEFF';
+    var csv = bom + rows.map(function(r) {
+      return r.map(function(cell) {
+        var s = String(cell).replace(/"/g, '""');
+        return '"' + s + '"';
+      }).join(',');
+    }).join('\n');
+    var blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+    if (typeof showToast === 'function') showToast('📥 ' + filename);
+  }
+
+  // ── Backup ──
+
+  function _backupAll() {
+    var backup = { _version: 1, _date: new Date().toISOString(), _type: 'shorashim-plus-backup' };
+    var keys = [
+      'shorashim-users', 'plotMapperSprayData', 'shorashim-valve-plot-map',
+      'shorashim-talgil-config', 'shorashim-crop-types', 'shorashim-workplaces',
+      'shorashim-custom-actions', 'shorashim-custom-budgets', 'shorashim-custom-worker-groups',
+      'shorashim-custom-work-types', 'shorashim-workers', 'shorashim-apps-script-url',
+      'shorashim-receipts', 'shorashim-tasks'
+    ];
+    keys.forEach(function(key) {
+      var val = localStorage.getItem(key);
+      if (val) {
+        try { backup[key] = JSON.parse(val); } catch(e) { backup[key] = val; }
+      }
+    });
+
+    // Also backup timeclock from Firestore
+    if (typeof db !== 'undefined') {
+      db.collection('timeclock').orderBy('punchIn', 'desc').limit(1000).get().then(function(snap) {
+        var records = [];
+        snap.forEach(function(doc) { records.push(doc.data()); });
+        backup['_timeclock'] = records;
+        _downloadBackup(backup);
+      }).catch(function() {
+        _downloadBackup(backup);
+      });
+    } else {
+      _downloadBackup(backup);
+    }
+  }
+
+  function _downloadBackup(backup) {
+    var json = JSON.stringify(backup, null, 2);
+    var blob = new Blob([json], { type: 'application/json' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'shorashim-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+    a.click();
+    URL.revokeObjectURL(url);
+    if (typeof showToast === 'function') showToast('💾 גיבוי הורד');
+  }
+
+  function _restoreBackup(file) {
+    if (!file) return;
+    if (!confirm('שחזור גיבוי ידרוס את כל הנתונים הנוכחיים. להמשיך?')) return;
+
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      try {
+        var backup = JSON.parse(e.target.result);
+        if (backup._type !== 'shorashim-plus-backup') {
+          if (typeof showToast === 'function') showToast('❌ קובץ לא תקין');
+          return;
+        }
+
+        var keys = [
+          'shorashim-users', 'plotMapperSprayData', 'shorashim-valve-plot-map',
+          'shorashim-talgil-config', 'shorashim-crop-types', 'shorashim-workplaces',
+          'shorashim-custom-actions', 'shorashim-custom-budgets', 'shorashim-custom-worker-groups',
+          'shorashim-custom-work-types', 'shorashim-workers', 'shorashim-apps-script-url',
+          'shorashim-receipts', 'shorashim-tasks'
+        ];
+        
+        keys.forEach(function(key) {
+          if (backup[key] !== undefined) {
+            var val = typeof backup[key] === 'string' ? backup[key] : JSON.stringify(backup[key]);
+            localStorage.setItem(key, val);
+            if (typeof DB !== 'undefined') DB.save(key, backup[key]);
+          }
+        });
+
+        // Restore timeclock records
+        if (backup['_timeclock'] && typeof db !== 'undefined') {
+          backup['_timeclock'].forEach(function(rec) {
+            if (rec.punchIn && rec.username) {
+              var dateStr = rec.date || new Date(rec.punchIn).toISOString().slice(0, 10);
+              var docId = dateStr + '_' + rec.username + '_' + (rec.shiftIndex || 0);
+              db.collection('timeclock').doc(docId).set(rec).catch(function() {});
+            }
+          });
+        }
+
+        if (typeof showToast === 'function') showToast('✅ גיבוי שוחזר — רענן את הדף');
+        setTimeout(function() { location.reload(); }, 2000);
+      } catch(err) {
+        if (typeof showToast === 'function') showToast('❌ שגיאה: ' + err.message);
+      }
+    };
+    reader.readAsText(file);
+  }
+
   // ── Admin: Crop Type Management ──
 
   function showCropAdmin() {
@@ -568,6 +888,14 @@ var TimeClock = (function() {
     _addWorkplace: _addWorkplace,
     _removeWorkplace: _removeWorkplace,
     showCropAdmin: showCropAdmin,
+    showProfileEdit: showProfileEdit,
+    showAdminDashboard: showAdminDashboard,
+    showExportMenu: showExportMenu,
+    _saveProfile: _saveProfile,
+    _changePassword: _changePassword,
+    _exportCSV: _exportCSV,
+    _backupAll: _backupAll,
+    _restoreBackup: _restoreBackup,
     _addCrop: _addCrop,
     _removeCrop: _removeCrop
   };

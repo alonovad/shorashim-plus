@@ -66,6 +66,9 @@
       </div>
       <button id="loginBtn" style="width: 100%; padding: 14px; background: linear-gradient(135deg, #245a28, #2e7d32); color: white; border: none; border-radius: 12px; font-family: Heebo, sans-serif; font-size: 1rem; font-weight: 700; cursor: pointer; margin-top: 8px; box-shadow: 0 4px 16px rgba(15,31,15,0.4);" id-label="loginBtnText">התחבר</button>
       <div id="loginError" style="color: #c62828; font-size: 0.85rem; font-weight: 600; text-align: center; min-height: 20px;"></div>
+      <div style="text-align: center; margin-top: 4px;">
+        <a href="#" id="forgotPassLink" style="font-size: 0.8rem; color: #5a7a5a; text-decoration: underline; cursor: pointer;">שכחתי סיסמה</a>
+      </div>
     </div>
   </div>
 </div>
@@ -102,10 +105,11 @@
 
 <!-- Header -->
 <div class="header">
-  <button class="hamburger-btn" onclick="TimeClock.toggleMenu()" title="תפריט">
+  <button class="hamburger-btn" onclick="TimeClock.toggleMenu()" title="תפריט" style="position:relative;">
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
       <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
     </svg>
+    <span id="menuBadge" style="display:none;position:absolute;top:2px;right:2px;width:18px;height:18px;border-radius:50%;background:#f44336;color:white;font-size:0.65rem;font-weight:800;line-height:18px;text-align:center;">0</span>
   </button>
   <div class="header-brand">
     <div class="header-logo">

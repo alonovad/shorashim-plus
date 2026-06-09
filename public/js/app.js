@@ -63,6 +63,9 @@
     // Init time clock
     if (typeof TimeClock !== 'undefined') TimeClock.init();
 
+    // Update notification badge
+    setTimeout(updateNotificationBadge, 1000);
+
     // Viewer mode: show only clock dashboard
     if (user.role === 'viewer') {
       document.querySelector('.tab-bar').style.display = 'none';
@@ -202,6 +205,22 @@
         }
         errorEl.textContent = 'שגיאה: ' + (err.message || err.code);
       });
+  });
+
+  // Forgot password
+  document.getElementById('forgotPassLink').addEventListener('click', function(e) {
+    e.preventDefault();
+    var email = document.getElementById('loginEmail').value.trim();
+    if (!email) {
+      document.getElementById('loginError').textContent = 'הזן אימייל קודם';
+      return;
+    }
+    auth.sendPasswordResetEmail(email).then(function() {
+      document.getElementById('loginError').style.color = '#2e7d32';
+      document.getElementById('loginError').textContent = '📧 נשלח מייל לאיפוס סיסמה ל-' + email;
+    }).catch(function(err) {
+      document.getElementById('loginError').textContent = err.code === 'auth/user-not-found' ? 'אימייל לא נמצא' : err.message;
+    });
   });
 
   // ── Constants ──
@@ -4964,7 +4983,10 @@
       cropsHtml += '<div style="padding:8px;background:var(--g6);border-radius:8px;margin-bottom:5px;">' +
         '<div style="display:flex;justify-content:space-between;align-items:center;">' +
           '<span style="font-weight:600;font-size:0.88rem;">\u{1F331} '+crop+'</span>' +
-          (phi ? '<span style="font-size:0.72rem;padding:2px 8px;background:#fff3e0;border-radius:6px;color:var(--accent);">\u23F3 '+phi+'</span>' : '') +
+          '<div style="display:flex;align-items:center;gap:6px;">' +
+            (phi ? '<span style="font-size:0.72rem;padding:2px 8px;background:#fff3e0;border-radius:6px;color:var(--accent);">\u23F3 '+phi+'</span>' : '') +
+            '<button class="pd-add-single" data-row-idx="'+idx+'" style="border:none;background:#4caf50;color:white;border-radius:6px;padding:2px 8px;font-size:0.75rem;font-weight:700;cursor:pointer;">➕</button>' +
+          '</div>' +
         '</div>' +
         (pest ? '<div style="font-size:0.78rem;color:var(--danger);margin-top:2px;">\u{1F41B} '+pest+'</div>' : '') +
         (dosage ? '<div style="font-size:0.75rem;color:var(--text-muted);margin-top:2px;">\u{1F489} '+dosage+'</div>' : '') +
@@ -4988,6 +5010,19 @@
     
     var imp = document.getElementById('pdImportAll');
     if (imp) imp.addEventListener('click', function() { filteredRows.forEach(function(r){importPesticideFromGov(r);}); container.innerHTML=''; });
+    
+    // Individual row add buttons
+    container.querySelectorAll('.pd-add-single').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var rowIdx = parseInt(this.getAttribute('data-row-idx'));
+        if (filteredRows[rowIdx]) {
+          importPesticideFromGov(filteredRows[rowIdx]);
+          this.textContent = '✓';
+          this.style.background = '#999';
+          this.disabled = true;
+        }
+      });
+    });
   }
   
   // Show all products for a crop
@@ -6175,6 +6210,43 @@
     }
   }
 
+  // ── NOTIFICATION BADGE ──
+  window.updateNotificationBadge = function() {
+    var badge = document.getElementById('menuBadge');
+    if (!badge || !window.currentUser) return;
+    
+    var username = window.currentUser.username;
+    var count = 0;
+    
+    // Count pending tasks assigned to this user
+    try {
+      var tasks = JSON.parse(localStorage.getItem('shorashim-tasks') || '[]');
+      var lastSeen = parseInt(localStorage.getItem('shorashim-badge-seen-' + username) || '0');
+      
+      tasks.forEach(function(t) {
+        if (t.assignedTo === username && t.status === 'pending') {
+          // Count as new if created after last seen
+          if (t.created && t.created > lastSeen) count++;
+        }
+      });
+    } catch(e) {}
+    
+    if (count > 0) {
+      badge.textContent = count > 9 ? '9+' : count;
+      badge.style.display = 'block';
+    } else {
+      badge.style.display = 'none';
+    }
+  };
+
+  // Mark notifications as seen when menu is opened
+  window.markBadgeSeen = function() {
+    if (!window.currentUser) return;
+    localStorage.setItem('shorashim-badge-seen-' + window.currentUser.username, String(Date.now()));
+    var badge = document.getElementById('menuBadge');
+    if (badge) badge.style.display = 'none';
+  };
+
   // ── FIRESTORE REALTIME SYNC ──
   // Listen for changes from other devices and refresh UI
   if (typeof DB !== 'undefined' && typeof db !== 'undefined') {
@@ -6190,5 +6262,86 @@
 
     DB.listen('shorashim-valve-plot-map', function(data) {
       if (data) valvePlotMap = data;
+    });
+
+    DB.listen('shorashim-crop-types', function(data) {
+      if (data && Array.isArray(data)) {
+        localStorage.setItem('shorashim-crop-types', JSON.stringify(data));
+      }
+    });
+
+    DB.listen('shorashim-workplaces', function(data) {
+      if (data && Array.isArray(data)) {
+        localStorage.setItem('shorashim-workplaces', JSON.stringify(data));
+      }
+    });
+
+    DB.listen('shorashim-tasks', function(data) {
+      if (data && Array.isArray(data)) {
+        localStorage.setItem('shorashim-tasks', JSON.stringify(data));
+        updateNotificationBadge();
+      }
+    });
+
+    DB.listen('shorashim-custom-actions', function(data) {
+      if (data && Array.isArray(data)) {
+        localStorage.setItem('shorashim-custom-actions', JSON.stringify(data));
+      }
+    });
+
+    DB.listen('shorashim-custom-budgets', function(data) {
+      if (data && Array.isArray(data)) {
+        localStorage.setItem('shorashim-custom-budgets', JSON.stringify(data));
+      }
+    });
+
+    DB.listen('shorashim-custom-worker-groups', function(data) {
+      if (data && Array.isArray(data)) {
+        localStorage.setItem('shorashim-custom-worker-groups', JSON.stringify(data));
+      }
+    });
+
+    DB.listen('shorashim-custom-work-types', function(data) {
+      if (data) {
+        localStorage.setItem('shorashim-custom-work-types', JSON.stringify(data));
+      }
+    });
+
+    DB.listen('shorashim-workers', function(data) {
+      if (data && Array.isArray(data)) {
+        localStorage.setItem('shorashim-workers', JSON.stringify(data));
+      }
+    });
+
+    DB.listen('shorashim-apps-script-url', function(data) {
+      if (data) {
+        localStorage.setItem('shorashim-apps-script-url', typeof data === 'string' ? data : JSON.stringify(data));
+      }
+    });
+
+    DB.listen('shorashim-receipts', function(data) {
+      if (data && Array.isArray(data)) {
+        localStorage.setItem('shorashim-receipts', JSON.stringify(data));
+      }
+    });
+
+    DB.listen('shorashim-talgil-config', function(data) {
+      if (data) {
+        localStorage.setItem('shorashim-talgil-config', JSON.stringify(data));
+      }
+    });
+
+    // Initial load of all shared data from Firestore
+    var sharedKeys = [
+      'shorashim-crop-types', 'shorashim-workplaces', 'shorashim-custom-actions',
+      'shorashim-custom-budgets', 'shorashim-custom-worker-groups', 'shorashim-custom-work-types',
+      'shorashim-workers', 'shorashim-apps-script-url', 'shorashim-receipts', 'shorashim-talgil-config'
+    ];
+    sharedKeys.forEach(function(key) {
+      DB.loadAsync(key).then(function(data) {
+        if (data !== null && data !== undefined) {
+          localStorage.setItem(key, typeof data === 'string' ? data : JSON.stringify(data));
+        }
+      });
     });
   }
