@@ -18,11 +18,12 @@ var DB = (function() {
 
   function _writeFirestore(key, data) {
     if (!firestore) return;
-    firestore.collection('appData').doc(key).set({ value: data, updatedAt: firebase.firestore.FieldValue.serverTimestamp() })
+    // Firestore rejects undefined values — strip them
+    var clean = JSON.parse(JSON.stringify(data));
+    firestore.collection('appData').doc(key).set({ value: clean, updatedAt: firebase.firestore.FieldValue.serverTimestamp() })
       .then(function() { console.log('Firestore saved: ' + key); })
       .catch(function(err) { 
         console.error('Firestore write FAILED for ' + key + ':', err);
-        // Show visible error for debugging
         if (typeof showToast === 'function') showToast('❌ Firestore: ' + err.message);
       });
   }

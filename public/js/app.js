@@ -644,6 +644,13 @@
     'שעות': { th: 'ชั่วโมง', ar: 'ساعات' },
     'משמרות': { th: 'กะ', ar: 'مناوبات' },
     'המשימות שלי': { th: 'งานของฉัน', ar: 'مهامي' },
+    'מחק חלקה': { th: 'ลบแปลง', ar: 'حذف قطعة' },
+    'למחוק את חלקה': { th: 'ลบแปลง', ar: 'حذف القطعة' },
+    'נמחק': { th: 'ถูกลบแล้ว', ar: 'تم الحذف' },
+    'אין רישומים לגידולים שלך': { th: 'ไม่มีรายการสำหรับพืชของคุณ', ar: 'لا توجد تسجيلات لمحاصيلك' },
+    'סה״כ': { th: 'ทั้งหมด', ar: 'إجمالي' },
+    'רשומים לתכשיר זה': { th: 'รายการจดทะเบียนของสารนี้', ar: 'مسجلة لهذا المبيد' },
+    'לא רלוונטי לגידולים שלך': { th: 'ไม่เกี่ยวข้องกับพืชของคุณ', ar: 'غير ملائم لمحاصيلك' },
   };
 
   function t(hebrewText) {
@@ -821,20 +828,24 @@
           ll = [];
         }
         return {
-          id: p.id, name: p.name, color: p.color, area: p.area, vertices: p.vertices,
-          farm_id: p.farm_id,
-          tree_count: p.tree_count || null,
-          row_spacing: p.row_spacing || null,
-          tree_spacing: p.tree_spacing || null,
-          crop_type: p.crop_type || null,
-          plants_per_dunam: p.plants_per_dunam || null,
+          id: p.id || 0, 
+          name: p.name || '', 
+          color: p.color || '#4caf50', 
+          area: p.area || 0, 
+          vertices: p.vertices || 0,
+          farm_id: p.farm_id || 0,
+          tree_count: p.tree_count || 0,
+          row_spacing: p.row_spacing || 0,
+          tree_spacing: p.tree_spacing || 0,
+          crop_type: p.crop_type || '',
+          plants_per_dunam: p.plants_per_dunam || 0,
           latlngs: ll
         };
       }),
-      sprayEvents: sprayEvents,
-      pesticides: pesticides,
-      farms: farms,
-      worklogEntries: worklogEntries
+      sprayEvents: sprayEvents || [],
+      pesticides: pesticides || [],
+      farms: farms || [],
+      worklogEntries: worklogEntries || []
     };
     DB.save('plotMapperSprayData', data);
   }
@@ -4313,10 +4324,36 @@
           
           '<div class="modal-buttons" style="margin-top: 14px;">' +
             '<button class="btn btn-secondary" onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'">' + t('סגור') + '</button>' +
+            '<button class="btn" id="pdDeletePlot" style="background:#f44336;color:white;">🗑️ ' + t('מחק חלקה') + '</button>' +
           '</div>' +
         '</div>' +
       '</div>';
     
+    // Delete plot
+    var pdDelBtn = document.getElementById('pdDeletePlot');
+    if (pdDelBtn) {
+      pdDelBtn.addEventListener('click', function() {
+        // Permission check
+        if (currentUser && currentUser.role !== 'admin') {
+          var userFarmIds = (currentUser.farm_permissions || []);
+          if (userFarmIds.length > 0 && userFarmIds.indexOf(plot.farm_id) === -1) {
+            showToast(t('⛔ אין לך הרשאה למחוק חלקה זו'));
+            return;
+          }
+        }
+        if (!confirm(t('למחוק את חלקה') + ' "' + plot.name + '"?')) return;
+        
+        if (plot.layer) drawnItems.removeLayer(plot.layer);
+        if (plot.labelMarker) drawnItems.removeLayer(plot.labelMarker);
+        var idx = plots.indexOf(plot);
+        if (idx !== -1) plots.splice(idx, 1);
+        saveData();
+        renderPlotList();
+        document.getElementById('modalContainer').innerHTML = '';
+        showToast('🗑️ "' + plot.name + '" ' + t('נמחק'));
+      });
+    }
+
     // Save name + farm edit
     document.getElementById('pdSaveEdit').addEventListener('click', function() {
       var newName = document.getElementById('pdEditName').value.trim();
@@ -4888,21 +4925,38 @@
       uniqueRows.push(rec);
     });
 
-    // Filter by user's crops (non-admin only)
+    // Filter by user's crops (all non-admin users)
     var userCrops = getUserCropTypes();
     var filteredRows = uniqueRows;
     var showingFiltered = false;
+    var noMatch = false;
     if (currentUser && currentUser.role !== 'admin' && userCrops.length > 0) {
       filteredRows = uniqueRows.filter(function(rec) {
         var crop = (rec['\u05D2\u05D9\u05D3\u05D5\u05DC'] || '').toLowerCase();
-        return userCrops.some(function(uc) { return crop.indexOf(uc.toLowerCase()) !== -1 || uc.toLowerCase().indexOf(crop) !== -1; });
+        return userCrops.some(function(uc) { 
+          var ucl = uc.toLowerCase();
+          // Flexible matching: "תמרים" matches "תמר", "דקל תמרים", etc.
+          return crop.indexOf(ucl) !== -1 || ucl.indexOf(crop) !== -1 ||
+            crop.replace(/ים$/, '').indexOf(ucl.replace(/ים$/, '')) !== -1 ||
+            ucl.replace(/ים$/, '').indexOf(crop.replace(/ים$/, '')) !== -1;
+        });
       });
-      showingFiltered = filteredRows.length !== uniqueRows.length;
-      if (filteredRows.length === 0) filteredRows = uniqueRows; // fallback to all if no match
+      showingFiltered = true;
+      if (filteredRows.length === 0) {
+        noMatch = true;
+      }
     }
     
     var cropsHtml = '';
-    filteredRows.forEach(function(rec, idx) {
+    if (noMatch) {
+      cropsHtml = '<div style="padding:16px;text-align:center;color:#999;">' +
+        '<div style="font-size:1.5rem;margin-bottom:8px;">🚫</div>' +
+        '<div>' + t('אין רישומים לגידולים שלך') + '</div>' +
+        '<div style="font-size:0.75rem;margin-top:6px;">(' + userCrops.join(', ') + ')</div>' +
+        '<div style="font-size:0.72rem;margin-top:8px;color:#aaa;">' + t('סה״כ') + ' ' + uniqueRows.length + ' ' + t('גידולים') + ' ' + t('רשומים לתכשיר זה') + '</div>' +
+      '</div>';
+    } else {
+      filteredRows.forEach(function(rec, idx) {
       var crop = rec['\u05D2\u05D9\u05D3\u05D5\u05DC'] || '';
       var pest = rec['\u05E0\u05D2\u05E2'] || '';
       var dosage = rec['\u05DE\u05D9\u05E0\u05D5\u05DF \u05DC\u05D9\u05D9\u05E9\u05D5\u05DD'] || '';
@@ -4916,6 +4970,7 @@
         (dosage ? '<div style="font-size:0.75rem;color:var(--text-muted);margin-top:2px;">\u{1F489} '+dosage+'</div>' : '') +
       '</div>';
     });
+    } // end else (has matching crops)
     
     container.innerHTML = '<div class="modal-overlay" onclick="if(event.target===this)document.getElementById(\'modalContainer\').innerHTML=\'\'">' +
       '<div class="modal" style="max-width:520px;">' +
@@ -5134,9 +5189,14 @@
     var userCrops = getUserCropTypes();
     if (currentUser && currentUser.role !== 'admin' && userCrops.length > 0 && crop) {
       var cropLower = crop.toLowerCase();
-      var match = userCrops.some(function(uc) { return cropLower.indexOf(uc.toLowerCase()) !== -1 || uc.toLowerCase().indexOf(cropLower) !== -1; });
+      var match = userCrops.some(function(uc) { 
+        var ucl = uc.toLowerCase();
+        return cropLower.indexOf(ucl) !== -1 || ucl.indexOf(cropLower) !== -1 ||
+          cropLower.replace(/ים$/, '').indexOf(ucl.replace(/ים$/, '')) !== -1 ||
+          ucl.replace(/ים$/, '').indexOf(cropLower.replace(/ים$/, '')) !== -1;
+      });
       if (!match) {
-        showToast('⚠️ ' + crop + ' לא רלוונטי לגידולים שלך');
+        showToast('⚠️ ' + crop + ' ' + t('לא רלוונטי לגידולים שלך'));
         return;
       }
     }
