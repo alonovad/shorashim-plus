@@ -6331,11 +6331,18 @@
       }
     });
 
+    DB.listen('shorashim-field-reports', function(data) {
+      if (data && Array.isArray(data)) {
+        localStorage.setItem('shorashim-field-reports', JSON.stringify(data));
+      }
+    });
+
     // Initial load of all shared data from Firestore
     var sharedKeys = [
       'shorashim-crop-types', 'shorashim-workplaces', 'shorashim-custom-actions',
       'shorashim-custom-budgets', 'shorashim-custom-worker-groups', 'shorashim-custom-work-types',
-      'shorashim-workers', 'shorashim-apps-script-url', 'shorashim-receipts', 'shorashim-talgil-config'
+      'shorashim-workers', 'shorashim-apps-script-url', 'shorashim-receipts', 'shorashim-talgil-config',
+      'shorashim-field-reports'
     ];
     sharedKeys.forEach(function(key) {
       DB.loadAsync(key).then(function(data) {
