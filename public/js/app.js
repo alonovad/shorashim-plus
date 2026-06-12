@@ -5874,22 +5874,32 @@
     }
     var targetUrl = 'https://' + cfg.host + '/api/targets/' + cfg.controllerId + '/' + endpoint;
     if (filter) targetUrl += '?filter=' + filter;
-    var proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent(targetUrl);
-    for (var attempt = 0; attempt < 3; attempt++) {
-      var resp = await fetch(proxyUrl, {
-        headers: {
-          'Authorization': 'Basic ' + btoa(cfg.user + ':' + cfg.pass),
-          'TLG-API-Key': cfg.apiKey
+    
+    var proxies = [
+      'https://api.allorigins.win/raw?url=' + encodeURIComponent(targetUrl),
+      'https://corsproxy.io/?' + encodeURIComponent(targetUrl),
+      'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(targetUrl)
+    ];
+    
+    var headers = {
+      'Authorization': 'Basic ' + btoa(cfg.user + ':' + cfg.pass),
+      'TLG-API-Key': cfg.apiKey
+    };
+
+    for (var p = 0; p < proxies.length; p++) {
+      try {
+        var resp = await fetch(proxies[p], { headers: headers });
+        if (resp.status === 429) {
+          await delay(3000);
+          continue;
         }
-      });
-      if (resp.status === 429) {
-        await delay(2000 * (attempt + 1));
-        continue;
+        if (resp.ok) return resp.json();
+      } catch(e) {
+        console.warn('Proxy ' + p + ' failed:', e.message);
+        if (p < proxies.length - 1) await delay(1000);
       }
-      if (!resp.ok) throw new Error('HTTP ' + resp.status);
-      return resp.json();
     }
-    throw new Error('Rate limited — try again in a minute');
+    throw new Error('All proxies failed — check connection');
   }
 
   window.talgilConnect = async function() {
