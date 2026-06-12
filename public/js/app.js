@@ -57,7 +57,7 @@
     // Show/hide admin tabs
     var adminTabs = document.querySelectorAll('.admin-only');
     adminTabs.forEach(function(tab) {
-      tab.style.display = user.role === 'admin' ? 'block' : 'none';
+      tab.style.display = (user.role === 'admin' || user.role === 'operator') ? 'block' : 'none';
     });
 
     // Init time clock
@@ -227,6 +227,14 @@
   var COLORS = ['#2e7d32','#1565c0','#c62828','#6a1b9a','#ef6c00','#00838f','#ad1457','#4e342e'];
   var FARM_COLORS = ['#2e7d32','#1565c0','#c62828','#6a1b9a','#ef6c00','#00838f','#ad1457','#4e342e'];
   var TREES_PER_DUNAM = 12.3;
+
+  // Permission helpers
+  function isAdmin() {
+    return currentUser && currentUser.role === 'admin';
+  }
+  function isManager() {
+    return currentUser && (currentUser.role === 'admin' || currentUser.role === 'operator');
+  }
   var colorIdx = 0;
 
   // ── State ──

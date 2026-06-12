@@ -257,6 +257,7 @@ var TimeClock = (function() {
 
   function renderMenuPanel() {
     var isAdmin = window.currentUser && window.currentUser.role === 'admin';
+    var isManager = window.currentUser && (window.currentUser.role === 'admin' || window.currentUser.role === 'operator');
     var panel = document.getElementById('hamburgerPanel');
     if (!panel) return;
 
@@ -268,7 +269,7 @@ var TimeClock = (function() {
     html += '<button onclick="TimeClock.showMyRecords();TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-bottom:6px;border-radius:10px;border:none;background:#e8f5e9;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">🕐 הדוחות שלי</button>';
     html += '<button onclick="TimeClock.showProfileEdit();TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-bottom:6px;border-radius:10px;border:none;background:#fce4ec;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">👤 הפרופיל שלי</button>';
 
-    if (isAdmin) {
+    if (isManager) {
       html += '<button onclick="TimeClock.showAllRecords();TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-bottom:6px;border-radius:10px;border:none;background:#e3f2fd;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">📊 ניהול שעות</button>';
       html += '<button onclick="TaskBoard.showTaskManager();TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-bottom:6px;border-radius:10px;border:none;background:#ede7f6;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">📋 ניהול משימות</button>';
       html += '<button onclick="TimeClock.showAdminDashboard();TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-bottom:6px;border-radius:10px;border:none;background:#e0f7fa;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">📊 לוח בקרה</button>';
@@ -278,7 +279,9 @@ var TimeClock = (function() {
       html += '<button onclick="TimeClock.showCropAdmin();TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-bottom:6px;border-radius:10px;border:none;background:#e8f5e9;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">🌱 סוגי גידולים</button>';
     }
 
-    html += '<button onclick="TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-top:12px;border-radius:10px;border:none;background:#f5f5f5;font-family:inherit;font-size:0.9rem;cursor:pointer;text-align:center;">סגור</button>';
+    html += '<button onclick="location.reload(true)" style="display:block;width:100%;padding:12px;margin-top:12px;border-radius:10px;border:none;background:#e3f2fd;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:center;">🔄 רענן אפליקציה</button>';
+    html += '<button onclick="TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-top:6px;border-radius:10px;border:none;background:#f5f5f5;font-family:inherit;font-size:0.9rem;cursor:pointer;text-align:center;">סגור</button>';
+    html += '<div style="text-align:center;margin-top:8px;font-size:0.65rem;color:#bbb;">v1.0.0</div>';
     html += '</div>';
     panel.innerHTML = html;
   }
