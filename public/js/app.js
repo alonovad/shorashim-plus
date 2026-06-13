@@ -103,7 +103,7 @@
             } else {
               // User exists in Firebase Auth but no profile — show login screen
               // They need to be added by admin first
-              document.getElementById('loginError').textContent = 'חשבון לא מוגדר במערכת. פנה למנהל.';
+              document.getElementById('loginError').textContent = t('חשבון לא מוגדר במערכת. פנה למנהל.');
               auth.signOut();
             }
           });
@@ -123,18 +123,18 @@
     var errorEl = document.getElementById('loginError');
     
     if (!email || !password) {
-      errorEl.textContent = 'יש למלא אימייל וסיסמה';
+      errorEl.textContent = t('יש למלא אימייל וסיסמה');
       return;
     }
 
-    errorEl.textContent = '⏳ מתחבר...';
+    errorEl.textContent = '⏳ ' + t('מתחבר...');
 
     auth.signInWithEmailAndPassword(email, password)
       .then(function(cred) {
         return loadUsers().then(function() {
           var profile = getUserByEmail(cred.user.email);
           if (!profile) {
-            errorEl.textContent = 'חשבון לא מוגדר במערכת. פנה למנהל.';
+            errorEl.textContent = t('חשבון לא מוגדר במערכת. פנה למנהל.');
             auth.signOut();
             return;
           }
@@ -150,7 +150,7 @@
               return loadUsers().then(function() {
                 var profile = getUserByEmail(cred.user.email);
                 if (!profile) {
-                  errorEl.textContent = 'חשבון לא מוגדר במערכת. פנה למנהל.';
+                  errorEl.textContent = t('חשבון לא מוגדר במערכת. פנה למנהל.');
                   auth.signOut();
                   return;
                 }
@@ -159,17 +159,17 @@
               });
             })
             .catch(function(err2) {
-              var msg = 'שגיאת התחברות';
-              if (err2.code === 'auth/weak-password') msg = 'הסיסמה חייבת להכיל לפחות 6 תווים';
-              if (err2.code === 'auth/email-already-in-use') msg = 'האימייל כבר בשימוש';
-              if (err2.code === 'auth/invalid-email') msg = 'כתובת אימייל לא תקינה';
+              var msg = t('שגיאת התחברות');
+              if (err2.code === 'auth/weak-password') msg = t('הסיסמה חייבת להכיל לפחות 6 תווים');
+              if (err2.code === 'auth/email-already-in-use') msg = t('האימייל כבר בשימוש');
+              if (err2.code === 'auth/invalid-email') msg = t('כתובת אימייל לא תקינה');
               errorEl.textContent = msg;
             });
         } else {
-          var msg = 'שגיאת התחברות';
-          if (err.code === 'auth/wrong-password') msg = 'סיסמה שגויה';
-          if (err.code === 'auth/invalid-email') msg = 'כתובת אימייל לא תקינה';
-          if (err.code === 'auth/too-many-requests') msg = 'יותר מדי נסיונות, נסה מאוחר יותר';
+          var msg = t('שגיאת התחברות');
+          if (err.code === 'auth/wrong-password') msg = t('סיסמה שגויה');
+          if (err.code === 'auth/invalid-email') msg = t('כתובת אימייל לא תקינה');
+          if (err.code === 'auth/too-many-requests') msg = t('יותר מדי נסיונות, נסה מאוחר יותר');
           errorEl.textContent = msg;
         }
       });
@@ -182,7 +182,7 @@
   // Google Sign-In
   document.getElementById('googleLoginBtn').addEventListener('click', function() {
     var errorEl = document.getElementById('loginError');
-    errorEl.textContent = '⏳ מתחבר...';
+    errorEl.textContent = '⏳ ' + t('מתחבר...');
     
     var provider = new firebase.auth.GoogleAuthProvider();
     auth.signInWithPopup(provider)
@@ -190,7 +190,7 @@
         return loadUsers().then(function() {
           var profile = getUserByEmail(result.user.email);
           if (!profile) {
-            errorEl.textContent = 'חשבון לא מוגדר במערכת. פנה למנהל.';
+            errorEl.textContent = t('חשבון לא מוגדר במערכת. פנה למנהל.');
             auth.signOut();
             return;
           }
@@ -203,7 +203,7 @@
           errorEl.textContent = '';
           return;
         }
-        errorEl.textContent = 'שגיאה: ' + (err.message || err.code);
+        errorEl.textContent = t('שגיאה') + ': ' + (err.message || err.code);
       });
   });
 
@@ -212,14 +212,14 @@
     e.preventDefault();
     var email = document.getElementById('loginEmail').value.trim();
     if (!email) {
-      document.getElementById('loginError').textContent = 'הזן אימייל קודם';
+      document.getElementById('loginError').textContent = t('הזן אימייל קודם');
       return;
     }
     auth.sendPasswordResetEmail(email).then(function() {
       document.getElementById('loginError').style.color = '#2e7d32';
-      document.getElementById('loginError').textContent = '📧 נשלח מייל לאיפוס סיסמה ל-' + email;
+      document.getElementById('loginError').textContent = '📧 ' + t('נשלח מייל לאיפוס סיסמה ל-') + email;
     }).catch(function(err) {
-      document.getElementById('loginError').textContent = err.code === 'auth/user-not-found' ? 'אימייל לא נמצא' : err.message;
+      document.getElementById('loginError').textContent = err.code === 'auth/user-not-found' ? t('אימייל לא נמצא') : err.message;
     });
   });
 
@@ -678,6 +678,264 @@
     'סה״כ': { th: 'ทั้งหมด', ar: 'إجمالي' },
     'רשומים לתכשיר זה': { th: 'รายการจดทะเบียนของสารนี้', ar: 'مسجلة لهذا المبيد' },
     'לא רלוונטי לגידולים שלך': { th: 'ไม่เกี่ยวข้องกับพืชของคุณ', ar: 'غير ملائم لمحاصيلك' },
+    'מסונן לגידולים שלך': { th: 'กรองตามพืชของคุณ', ar: 'مصفى لمحاصيلك' },
+
+    // ── Login & Auth ──
+    'חשבון לא מוגדר במערכת. פנה למנהל.': { th: 'บัญชีไม่ได้ลงทะเบียนในระบบ ติดต่อผู้ดูแล', ar: 'الحساب غير مسجل في النظام. تواصل مع المسؤول.' },
+    'יש למלא אימייל וסיסמה': { th: 'กรอกอีเมลและรหัสผ่าน', ar: 'يجب إدخال البريد وكلمة المرور' },
+    'מתחבר...': { th: 'กำลังเชื่อมต่อ...', ar: 'جاري الاتصال...' },
+    'שגיאת התחברות': { th: 'เข้าสู่ระบบล้มเหลว', ar: 'خطأ في تسجيل الدخول' },
+    'הסיסמה חייבת להכיל לפחות 6 תווים': { th: 'รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร', ar: 'كلمة المرور يجب أن تحتوي على 6 أحرف على الأقل' },
+    'האימייל כבר בשימוש': { th: 'อีเมลนี้ถูกใช้แล้ว', ar: 'البريد الإلكتروني مستخدم بالفعل' },
+    'סיסמה שגויה': { th: 'รหัสผ่านไม่ถูกต้อง', ar: 'كلمة المرور خاطئة' },
+    'יותר מדי נסיונות, נסה מאוחר יותר': { th: 'พยายามมากเกินไป ลองใหม่ภายหลัง', ar: 'محاولات كثيرة، حاول لاحقاً' },
+    'הזן אימייל קודם': { th: 'กรอกอีเมลก่อน', ar: 'أدخل البريد أولاً' },
+    'נשלח מייל לאיפוס סיסמה ל-': { th: 'ส่งอีเมลรีเซ็ตรหัสผ่านไปที่ ', ar: 'تم إرسال بريد إعادة تعيين كلمة المرور إلى ' },
+    'אימייל לא נמצא': { th: 'ไม่พบอีเมล', ar: 'البريد غير موجود' },
+    'רשת': { th: 'เครือข่าย', ar: 'شبكة' },
+
+    // ── Spray calculations ──
+    'מספר עצים': { th: 'จำนวนต้นไม้', ar: 'عدد الأشجار' },
+    'נפח כולל': { th: 'ปริมาตรรวม', ar: 'الحجم الإجمالي' },
+    'מספר מילויים': { th: 'จำนวนครั้งเติม', ar: 'عدد التعبئات' },
+    'מילויים': { th: 'ครั้งเติม', ar: 'تعبئات' },
+    'ליטר': { th: 'ลิตร', ar: 'لتر' },
+    'למילוי אחד': { th: 'ต่อครั้งเติม', ar: 'لتعبئة واحدة' },
+    'ליטר/עץ': { th: 'ลิตร/ต้น', ar: 'لتر/شجرة' },
+    'חלקה לא ידועה': { th: 'แปลงไม่ทราบ', ar: 'قطعة غير معروفة' },
+    'לא ידוע': { th: 'ไม่ทราบ', ar: 'غير معروف' },
+    'ריכוז (%)': { th: 'ความเข้มข้น (%)', ar: 'تركيز (%)' },
+    'מטרה': { th: 'เป้าหมาย', ar: 'هدف' },
+
+    // ── Spray PDF export ──
+    'יומן ריסוסים': { th: 'บันทึกการพ่นยา', ar: 'سجل الرش' },
+    'יומן ריסוסים - שורשים פלוס': { th: 'บันทึกการพ่นยา - ชอราชิม พลัส', ar: 'سجل الرش - شوراشيم بلس' },
+    'תאריך הפקה:': { th: 'วันที่ออกรายงาน:', ar: 'تاريخ الإصدار:' },
+    'מפעיל': { th: 'ผู้ปฏิบัติงาน', ar: 'مشغل' },
+    'נפח/עץ': { th: 'ปริมาตร/ต้น', ar: 'حجم/شجرة' },
+    'חומר': { th: 'สาร', ar: 'مادة' },
+    'מרסס': { th: 'เครื่องพ่น', ar: 'رشاش' },
+
+    // ── Pesticide admin ──
+    'עריכת חומר': { th: 'แก้ไขสารเคมี', ar: 'تعديل مبيد' },
+    'הוספת חומר': { th: 'เพิ่มสารเคมี', ar: 'إضافة مبيد' },
+    'מלא את פרטי חומר ההדברה': { th: 'กรอกรายละเอียดสารเคมี', ar: 'املأ تفاصيل المبيد' },
+    'שם מסחרי': { th: 'ชื่อการค้า', ar: 'الاسم التجاري' },
+    'ריכוז ברירת מחדל (%)': { th: 'ความเข้มข้นเริ่มต้น (%)', ar: 'التركيز الافتراضي (%)' },
+    'מטרות נפוצות': { th: 'เป้าหมายทั่วไป', ar: 'أهداف شائعة' },
+    'למחוק את': { th: 'ลบ', ar: 'حذف' },
+
+    // ── Farm admin ──
+    'עריכת מטע': { th: 'แก้ไขสวน', ar: 'تعديل بستان' },
+    'מטע חדש': { th: 'สวนใหม่', ar: 'بستان جديد' },
+    'מלא את פרטי המטע': { th: 'กรอกรายละเอียดสวน', ar: 'املأ تفاصيل البستان' },
+    'שם המטע': { th: 'ชื่อสวน', ar: 'اسم البستان' },
+    'צבע המטע (כל החלקות יהיו בצבע זה)': { th: 'สีสวน (ทุกแปลงจะเป็นสีนี้)', ar: 'لون البستان (جميع القطع ستكون بهذا اللون)' },
+
+    // ── User admin ──
+    'סה"כ משתמשים': { th: 'ผู้ใช้ทั้งหมด', ar: 'إجمالي المستخدمين' },
+    'מנהלים': { th: 'ผู้จัดการ', ar: 'مدراء' },
+    'מפעילים': { th: 'ผู้ปฏิบัติงาน', ar: 'مشغلون' },
+    'צופים': { th: 'ผู้ชม', ar: 'مشاهدون' },
+    'מפעיל': { th: 'ผู้ปฏิบัติ', ar: 'مشغل' },
+    'צופה': { th: 'ผู้ชม', ar: 'مشاهد' },
+    'כל המטעים': { th: 'ทุกสวน', ar: 'جميع البساتين' },
+    'למחוק את המשתמש': { th: 'ลบผู้ใช้', ar: 'حذف المستخدم' },
+    'גישה למטעים': { th: 'เข้าถึงสวน', ar: 'الوصول إلى البساتين' },
+    'עריכת משתמש': { th: 'แก้ไขผู้ใช้', ar: 'تعديل مستخدم' },
+    'משתמש חדש': { th: 'ผู้ใช้ใหม่', ar: 'مستخدم جديد' },
+    'שם מלא': { th: 'ชื่อเต็ม', ar: 'الاسم الكامل' },
+    'אימייל': { th: 'อีเมล', ar: 'بريد إلكتروني' },
+    'תפקיד': { th: 'ตำแหน่ง', ar: 'وظيفة' },
+    'עובד': { th: 'คนงาน', ar: 'عامل' },
+    'המשתמש יתחבר עם האימייל שהוזן. בכניסה הראשונה יצר חשבון אוטומטית עם הסיסמה שיבחר.': { th: 'ผู้ใช้จะเข้าสู่ระบบด้วยอีเมลที่กรอก ครั้งแรกจะสร้างบัญชีอัตโนมัติด้วยรหัสผ่านที่เลือก', ar: 'المستخدم سيسجل بالبريد المدخل. في الدخول الأول سينشئ حساباً تلقائياً بكلمة المرور التي يختارها.' },
+    'המשתמש יתחבר עם האימייל שהזנת. אם זה משתמש חדש, הסיסמה הראשונית תהיה האימייל עצמו.': { th: 'ผู้ใช้จะเข้าสู่ระบบด้วยอีเมลที่กรอก หากเป็นผู้ใช้ใหม่ รหัสผ่านเริ่มต้นจะเป็นอีเมลนั้น', ar: 'سيسجل المستخدم بالبريد المدخل. إذا كان جديداً، كلمة المرور الأولية ستكون البريد نفسه.' },
+    'משתמש נוסף — יוכל להתחבר עם': { th: 'เพิ่มผู้ใช้แล้ว — เข้าสู่ระบบด้วย', ar: 'تمت إضافة المستخدم — يمكنه تسجيل الدخول بـ' },
+    'למחוק את מטע': { th: 'ลบสวน', ar: 'حذف بستان' },
+
+    // ── Profile ──
+    'ימים/שבוע': { th: 'วัน/สัปดาห์', ar: 'أيام/أسبوع' },
+
+    // ── Day names ──
+    'יום א\'': { th: 'อาทิตย์', ar: 'الأحد' },
+    'יום ב\'': { th: 'จันทร์', ar: 'الاثنين' },
+    'יום ג\'': { th: 'อังคาร', ar: 'الثلاثاء' },
+    'יום ד\'': { th: 'พุธ', ar: 'الأربعاء' },
+    'יום ה\'': { th: 'พฤหัส', ar: 'الخميس' },
+    'יום ו\'': { th: 'ศุกร์', ar: 'الجمعة' },
+    'שבת': { th: 'เสาร์', ar: 'السبت' },
+
+    // ── Worklog sync status ──
+    'סונכרן': { th: 'ซิงค์แล้ว', ar: 'تمت المزامنة' },
+    'מקומי': { th: 'ในเครื่อง', ar: 'محلي' },
+
+    // ── Irrigation / Talgil ──
+    'טוען נתוני השקיה...': { th: 'กำลังโหลดข้อมูลการให้น้ำ...', ar: 'جاري تحميل بيانات الري...' },
+    'אין מגופים משויכים': { th: 'ไม่มีวาล์วที่ผูกไว้', ar: 'لا توجد صمامات مرتبطة' },
+    'ספיקה:': { th: 'อัตราไหล:', ar: 'التدفق:' },
+    'קוב/ש': { th: 'ลบ.ม./ชม.', ar: 'م³/ساعة' },
+    'שטח:': { th: 'พื้นที่:', ar: 'مساحة:' },
+    'ד\'': { th: 'ดูนัม', ar: 'د' },
+    'כל': { th: 'ทุก', ar: 'كل' },
+    'ימים': { th: 'วัน', ar: 'أيام' },
+    'סגור': { th: 'ปิด', ar: 'إغلاق' },
+    'פתוח': { th: 'เปิด', ar: 'مفتوح' },
+    'תקלה': { th: 'ข้อผิดพลาด', ar: 'عطل' },
+    'ממתין': { th: 'รอ', ar: 'انتظار' },
+    'מצב': { th: 'สถานะ', ar: 'حالة' },
+    'מגוף': { th: 'วาล์ว', ar: 'صمام' },
+    'קו': { th: 'สาย', ar: 'خط' },
+    'ספיקה (קוב/ש)': { th: 'อัตราไหล (ลบ.ม./ชม.)', ar: 'التدفق (م³/ساعة)' },
+    'שטח (ד\')': { th: 'พื้นที่ (ดูนัม)', ar: 'مساحة (د)' },
+    'קוב': { th: 'ลบ.ม.', ar: 'م³' },
+    'קוב/ד\'': { th: 'ลบ.ม./ดูนัม', ar: 'م³/د' },
+    'דקות': { th: 'นาที', ar: 'دقائق' },
+    'ידני': { th: 'ด้วยตนเอง', ar: 'يدوي' },
+    'מחזור:': { th: 'รอบ:', ar: 'دورة:' },
+    'רצף:': { th: 'ลำดับ:', ar: 'تسلسل:' },
+    'אין תוכניות': { th: 'ไม่มีโปรแกรม', ar: 'لا توجد برامج' },
+    'בחר חלקה': { th: 'เลือกแปลง', ar: 'اختر قطعة' },
+    'התחבר לתלגיל למעלה ושייך מגופים לחלקות': { th: 'เชื่อมต่อ Talgil ด้านบนและผูกวาล์วกับแปลง', ar: 'اتصل بـ Talgil أعلاه واربط الصمامات بالقطع' },
+    'אין עדיין נתוני השקיה': { th: 'ยังไม่มีข้อมูลการให้น้ำ', ar: 'لا توجد بيانات ري بعد' },
+    'שייך מגופים לחלקות בחלק למטה': { th: 'ผูกวาล์วกับแปลงด้านล่าง', ar: 'اربط الصمامات بالقطع في الأسفل' },
+    'המנהל טרם שייך מגופים לחלקות שלך': { th: 'ผู้ดูแลยังไม่ได้ผูกวาล์วกับแปลงของคุณ', ar: 'المسؤول لم يربط الصمامات بقطعك بعد' },
+    'מתחבר...': { th: 'กำลังเชื่อมต่อ...', ar: 'جاري الاتصال...' },
+    'טוען תוכניות...': { th: 'กำลังโหลดโปรแกรม...', ar: 'جاري تحميل البرامج...' },
+    'מחובר —': { th: 'เชื่อมต่อแล้ว —', ar: 'متصل —' },
+    'מגופים': { th: 'วาล์ว', ar: 'صمامات' },
+    'תוכניות': { th: 'โปรแกรม', ar: 'برامج' },
+    'חבר תלגיל קודם': { th: 'เชื่อมต่อ Talgil ก่อน', ar: 'اتصل بـ Talgil أولاً' },
+
+    // ── Viewer clock ──
+    'אין רשומות בתקופה': { th: 'ไม่มีรายการในช่วงนี้', ar: 'لا توجد سجلات في الفترة' },
+    'מקום': { th: 'สถานที่', ar: 'مكان' },
+    'יציאה': { th: 'ออก', ar: 'خروج' },
+    'בעבודה': { th: 'กำลังทำงาน', ar: 'في العمل' },
+    'יציאה': { th: 'ออกงาน', ar: 'خروج' },
+
+    // ── Plot & Misc ──
+    'נוספה חלקה': { th: 'เพิ่มแปลงแล้ว', ar: 'تمت إضافة القطعة' },
+    'נמחקה חלקה': { th: 'ลบแปลงแล้ว', ar: 'تم حذف القطعة' },
+    'לדוגמה:': { th: 'ตัวอย่าง:', ar: 'مثال:' },
+    'מ\'': { th: 'ม.', ar: 'م' },
+    'אין חומרים מוגדרים. הוסף בלשונית חומרים.': { th: 'ไม่มีสารเคมีที่กำหนด เพิ่มในแท็บสารเคมี', ar: 'لا توجد مبيدات محددة. أضف في تبويب المواد.' },
+    'כמות נוכחית': { th: 'ปริมาณปัจจุบัน', ar: 'الكمية الحالية' },
+    'כמות מקסימלית': { th: 'ปริมาณสูงสุด', ar: 'الكمية القصوى' },
+    'כתובת Apps Script נשמרה': { th: 'บันทึก URL ของ Apps Script แล้ว', ar: 'تم حفظ عنوان Apps Script' },
+    'כתובת הוסרה': { th: 'ลบ URL แล้ว', ar: 'تم حذف العنوان' },
+
+    // ── Worklog default actions (agricultural terms) ──
+    'איגוז': { th: 'เก็บถั่ว', ar: 'جمع المكسرات' },
+    'בדיקת השקייה תקופתית': { th: 'ตรวจสอบระบบน้ำประจำ', ar: 'فحص ري دوري' },
+    'גדיד': { th: 'ตัดกาบ', ar: 'تقليم السعف' },
+    'גיזום וניקוי אשלים וחוטרים עודפים': { th: 'ตัดแต่งทางใบเกิน', ar: 'تقليم وتنظيف السعف والأغصان الزائدة' },
+    'גיזום חורפי': { th: 'ตัดแต่งฤดูหนาว', ar: 'تقليم شتوي' },
+    'גיזום תמרים במושב': { th: 'ตัดแต่งอินทผลัมที่โมชาฟ', ar: 'تقليم التمور في الموشاف' },
+    'דילול ראשוני': { th: 'ตัดแต่งช่อครั้งแรก', ar: 'خف أولي' },
+    'דילול שני': { th: 'ตัดแต่งช่อครั้งที่สอง', ar: 'خف ثاني' },
+    'הגמעת גימיק': { th: 'ใส่สาร Gimmick', ar: 'تطبيق جيميك' },
+    'הגמעת קונפידור - חידקונית, קרנפית, ציקדות': { th: 'ใส่ Confidor - แมลงสกาล, ดอกกะหล่ำ, เพลี้ยจักจั่น', ar: 'تطبيق كونفيدور - بق دقيقي, قرنبيطية, حشرات قافزة' },
+    'הורדת שקים': { th: 'ถอดถุง', ar: 'إنزال الأكياس' },
+    'הכנת חדר אבקה': { th: 'เตรียมห้องเกสร', ar: 'تجهيز غرفة اللقاح' },
+    'הפרייה': { th: 'ผสมเกสร', ar: 'تلقيح' },
+    'השלמת נטיעה': { th: 'ปลูกเสริม', ar: 'استكمال الزراعة' },
+    'טיפול שוטף לכלי גובה': { th: 'บำรุงเครื่องมือยกสูง', ar: 'صيانة معدات الارتفاع' },
+    'נקיון מט"ש': { th: 'ทำความสะอาดบ่อบำบัดน้ำ', ar: 'تنظيف محطة المعالجة' },
+    'נקיון מטע כללי': { th: 'ทำความสะอาดสวนทั่วไป', ar: 'تنظيف بستان عام' },
+    'סידור גזם חורפי לאיסוף': { th: 'จัดกิ่งไม้ตัดสำหรับเก็บ', ar: 'ترتيب التقليم الشتوي للجمع' },
+    'סילוק עורלה': { th: 'กำจัดต้นอ่อน', ar: 'إزالة النباتات غير المرغوبة' },
+    'סיקול אבנים': { th: 'เก็บหิน', ar: 'إزالة الحجارة' },
+    'עטיפה': { th: 'ห่อช่อผล', ar: 'تغليف' },
+    'עשבייה מטעים כללי': { th: 'กำจัดวัชพืชทั่วไป', ar: 'إزالة أعشاب عامة' },
+    'קיפניס - יישור קרקע': { th: 'ปรับระดับดิน', ar: 'تسوية التربة' },
+    'קשירה': { th: 'ผูกมัด', ar: 'ربط' },
+    'קשירה ושקים': { th: 'ผูกและถุง', ar: 'ربط وأكياس' },
+    'קשירת זכרים והפקת אבקה': { th: 'ผูกต้นตัวผู้และเก็บเกสร', ar: 'ربط الذكور واستخراج اللقاح' },
+    'ריסוס אקריות': { th: 'พ่นยากำจัดไรแดง', ar: 'رش عناكبيات' },
+    'ריסוס בקתוש': { th: 'พ่นยากำจัดแบคเตอช', ar: 'رش بكتوش' },
+    'ריסוס גזע לחידקונית': { th: 'พ่นยาลำต้นกำจัดแมลงสกาล', ar: 'رش جذع للبق الدقيقي' },
+    'ריסוס כווייה שחורה - ריסוס צמרות': { th: 'พ่นยาโรคดำ - พ่นยอด', ar: 'رش حرق أسود - رش قمم' },
+    'ריסוס עשבייה': { th: 'พ่นยากำจัดวัชพืช', ar: 'رش أعشاب' },
+    'ריסוס עת"ק': { th: 'พ่นยา ATAQ', ar: 'رش عتق' },
+    'נטיעה': { th: 'ปลูก', ar: 'زراعة' },
+    'ריסוק': { th: 'บด', ar: 'سحق' },
+    'שטיפת שקים': { th: 'ล้างถุง', ar: 'غسل أكياس' },
+    'תחזוקת גדר חשמלית': { th: 'บำรุงรักษารั้วไฟฟ้า', ar: 'صيانة سياج كهربائي' },
+    'קטיף לולבים': { th: 'เก็บเกี่ยวลูลาฟ', ar: 'قطف لولاف' },
+    'מיון ושימור לולבים': { th: 'คัดแยกและเก็บรักษาลูลาฟ', ar: 'فرز وحفظ لولاف' },
+    'קידוח גזע לחידקונית': { th: 'เจาะลำต้นกำจัดแมลงสกาล', ar: 'حفر جذع للبق الدقيقي' },
+    'הדרכות': { th: 'การฝึกอบรม', ar: 'تدريبات' },
+    'העברת/איסוף שקים': { th: 'ย้าย/เก็บถุง', ar: 'نقل/جمع أكياس' },
+    'שקים': { th: 'ถุง', ar: 'أكياس' },
+    'ראיס/מנהל עבודה': { th: 'หัวหน้างาน', ar: 'رئيس/مدير عمل' },
+
+    // ── Budget categories ──
+    'הורדת רשת/שקים': { th: 'ถอดตาข่าย/ถุง', ar: 'إنزال شباك/أكياس' },
+    'טיפול קרקע ואחזקה': { th: 'ดูแลดินและบำรุงรักษา', ar: 'معالجة التربة والصيانة' },
+    'לולבים': { th: 'ลูลาฟ', ar: 'لولاف' },
+
+    // ── Worker groups (transliteration + descriptive) ──
+    'תאילנדים שורשים': { th: 'ไทยชอราชิม', ar: 'تايلانديون شوراشيم' },
+    'תאילנדים גלגל': { th: 'ไทยกัลกัล', ar: 'تايلانديون جلجل' },
+    'תאילנדים ייטב': { th: 'ไทยเยทาฟ', ar: 'تايلانديون ييطاف' },
+    'נפאלים': { th: 'เนปาล', ar: 'نيباليون' },
+    'סרילנקה': { th: 'ศรีลังกา', ar: 'سريلانكا' },
+    'מלאווים': { th: 'มาลาวี', ar: 'ملاويون' },
+    'פלסטינאים': { th: 'ปาเลสไตน์', ar: 'فلسطينيون' },
+    'ישראלים': { th: 'อิสราเอล', ar: 'إسرائيليون' },
+    'מתנדבים': { th: 'อาสาสมัคร', ar: 'متطوعون' },
+    'קבלנות פרדסים': { th: 'ผู้รับเหมาสวน', ar: 'مقاولات بساتين' },
+    'פרדס איימן': { th: 'สวนอัยมาน', ar: 'بستان أيمن' },
+    'עובדי גד"ש מפנמה': { th: 'คนงาน กดช ปานามา', ar: 'عمال جدش بنما' },
+    'שומר חדש': { th: 'ผู้คุ้มกันใหม่', ar: 'حارس جديد' },
+    'אלון עובדיה': { th: 'อาลอน โอวาเดีย', ar: 'ألون عوفاديا' },
+    'ארנון צור': { th: 'อาร์นอน ซูร์', ar: 'أرنون تسور' },
+    'זיו ליבה': { th: 'ซีฟ ลิวา', ar: 'زيف ليفا' },
+    'נערן': { th: 'นาอาราน', ar: 'نعران' },
+    'אגוזי': { th: 'อะกูซี', ar: 'أجوزي' },
+    'דיירי': { th: 'ดายรี', ar: 'ديري' },
+    'הלאלי': { th: 'ฮะลาลี', ar: 'هلالي' },
+    'רוחקין': { th: 'รูฮาคิน', ar: 'روحكين' },
+    'בראשית': { th: 'เบเรชิต', ar: 'بريشيت' },
+    'סנסן ודקל': { th: 'ซันซัน เว ดาเคล', ar: 'سنسن ودقل' },
+    'אדיר שלמה': { th: 'อาดีร์ ชโลโม', ar: 'أدير شلومو' },
+    'יובל בן עמי': { th: 'ยูวาล เบ็น อามี', ar: 'يوفال بن عمي' },
+
+
+    // ── Toast messages (success/error) ──
+    'חובה למלא תאריך ושם מפעיל': { th: 'ต้องกรอกวันที่และชื่อผู้ปฏิบัติ', ar: 'يجب إدخال التاريخ واسم المشغل' },
+    'בחר לפחות חלקה אחת': { th: 'เลือกอย่างน้อยหนึ่งแปลง', ar: 'اختر قطعة واحدة على الأقل' },
+    'בחר לפחות חומר הדברה אחד': { th: 'เลือกสารเคมีอย่างน้อยหนึ่งชนิด', ar: 'اختر مبيداً واحداً على الأقل' },
+    'אין יומני ריסוס לייצוא': { th: 'ไม่มีบันทึกการพ่นสำหรับส่งออก', ar: 'لا توجد سجلات رش للتصدير' },
+    'קובץ HTML הורד': { th: 'ดาวน์โหลดไฟล์ HTML แล้ว', ar: 'تم تنزيل ملف HTML' },
+    'חומר נמחק': { th: 'ลบสารเคมีแล้ว', ar: 'تم حذف المبيد' },
+    'חובה למלא שם מסחרי וחומר פעיל': { th: 'ต้องกรอกชื่อการค้าและสารออกฤทธิ์', ar: 'يجب إدخال الاسم التجاري والمادة الفعالة' },
+    'חומר עודכן': { th: 'อัปเดตสารเคมีแล้ว', ar: 'تم تحديث المبيد' },
+    'חומר נוסף': { th: 'เพิ่มสารเคมีแล้ว', ar: 'تمت إضافة المبيد' },
+    'מטע נמחק': { th: 'ลบสวนแล้ว', ar: 'تم حذف البستان' },
+    'חובה למלא שם מטע': { th: 'ต้องกรอกชื่อสวน', ar: 'يجب إدخال اسم البستان' },
+    'שם מטע כבר קיים': { th: 'ชื่อสวนมีอยู่แล้ว', ar: 'اسم البستان موجود بالفعل' },
+    'מטע עודכן': { th: 'อัปเดตสวนแล้ว', ar: 'تم تحديث البستان' },
+    'לא מחובר': { th: 'ไม่ได้เชื่อมต่อ', ar: 'غير متصل' },
+    'מטע נוסף': { th: 'เพิ่มสวนแล้ว', ar: 'تمت إضافة البستان' },
+    'משתמש נמחק': { th: 'ลบผู้ใช้แล้ว', ar: 'تم حذف المستخدم' },
+    'חובה למלא שם ואימייל': { th: 'ต้องกรอกชื่อและอีเมล', ar: 'يجب إدخال الاسم والبريد' },
+    'משתמש עודכן': { th: 'อัปเดตผู้ใช้แล้ว', ar: 'تم تحديث المستخدم' },
+    'אימייל כבר קיים': { th: 'อีเมลมีอยู่แล้ว', ar: 'البريد موجود بالفعل' },
+    'מזהי גיליונות נשמרו': { th: 'บันทึก Sheet ID แล้ว', ar: 'تم حفظ معرفات الجداول' },
+    'לא הוגדר גיליון למטע זה': { th: 'ยังไม่กำหนด Sheet สำหรับสวนนี้', ar: 'لم يتم تحديد جدول لهذا البستان' },
+    'לא הוגדר כתובת Apps Script': { th: 'ยังไม่กำหนด URL ของ Apps Script', ar: 'لم يتم تحديد عنوان Apps Script' },
+    'נתוני השקייה עודכנו': { th: 'อัปเดตข้อมูลการให้น้ำแล้ว', ar: 'تم تحديث بيانات الري' },
+    'תעודת משלוח נוספה': { th: 'เพิ่มใบส่งสินค้าแล้ว', ar: 'تمت إضافة وصل التوريد' },
+    'מלאי חומרים עודכן': { th: 'อัปเดตสต็อกสารเคมีแล้ว', ar: 'تم تحديث مخزون المبيدات' },
+    'נתונים עודכנו': { th: 'อัปเดตข้อมูลแล้ว', ar: 'تم تحديث البيانات' },
+    'שיוך מגופים נשמר': { th: 'บันทึกการเชื่อมต่อวาล์วแล้ว', ar: 'تم حفظ ربط الصمامات' },
+    'הוסר': { th: 'ถูกลบ', ar: 'أُزيل' },
+    'שוחזר': { th: 'กู้คืนแล้ว', ar: 'تمت الاستعادة' },
+    'לא ניתן למחוק': { th: 'ไม่สามารถลบได้', ar: 'لا يمكن الحذف' },
+    'במטע זה': { th: 'ในสวนนี้', ar: 'في هذا البستان' },
+    'כתובת לא תקינה': { th: 'URL ไม่ถูกต้อง', ar: 'عنوان غير صالح' },
+
   };
 
   function t(hebrewText) {
@@ -1005,7 +1263,7 @@
           gpsMarker = L.circleMarker(latlng, {
             radius: 8, fillColor: '#4285f4', color: 'white', weight: 2, fillOpacity: 1
           }).addTo(map);
-          showToast('📍 ' + t('מיקום זוהה') + ' (' + (highAccuracy ? 'GPS' : 'רשת') + ')');
+          showToast('📍 ' + t('מיקום זוהה') + ' (' + (highAccuracy ? 'GPS' : t('רשת')) + ')');
         },
         function(error) {
           // If high accuracy failed, try low accuracy
@@ -1352,7 +1610,7 @@
     undoStack.push({ type: type, data: data });
     undoActionBtn.style.display = 'flex';
     clearTimeout(undoTimer);
-    var msg = type === 'add' ? 'נוספה חלקה "' + data.name + '"' : 'נמחקה חלקה "' + data.name + '"';
+    var msg = type === 'add' ? t('נוספה חלקה') + ' "' + data.name + '"' : t('נמחקה חלקה') + ' "' + data.name + '"';
     undoBarText.textContent = msg;
     undoBar.classList.add('show');
     undoTimer = setTimeout(function() { undoBar.classList.remove('show'); }, 5000);
@@ -1369,7 +1627,7 @@
         drawnItems.removeLayer(p.layer);
         drawnItems.removeLayer(p.labelMarker);
         plots.splice(idx, 1);
-        showToast('↩ "' + action.data.name + '" הוסר');
+        showToast('↩ "' + action.data.name + '" ' + t('הוסר'));
       }
     } else if (action.type === 'delete') {
       var d = action.data;
@@ -1394,7 +1652,7 @@
         labelMarker: labelMarker, 
         vertices: d.vertices 
       });
-      showToast('↩ "' + d.name + '" שוחזר');
+      showToast('↩ "' + d.name + '" ' + t('שוחזר'));
     }
 
     renderPlotList();
@@ -1471,19 +1729,19 @@
             '<div id="manualSpacingRow" style="display: none; margin-bottom: 10px;">' +
               '<div style="display: flex; gap: 8px; align-items: center;">' +
                 '<div style="flex: 1;">' +
-                  '<label style="font-size: 0.7rem; color: var(--text-muted);">' + t('בין שורות') + ' (מ\')</label>' +
+                  '<label style="font-size: 0.7rem; color: var(--text-muted);">' + t('בין שורות') + ' (' + t('מ\'') + ')</label>' +
                   '<input type="number" class="form-input" id="plotRowSpacing" min="1" max="20" step="0.5" value="8" style="padding: 8px; font-size: 0.85rem;">' +
                 '</div>' +
                 '<span style="font-size: 1.2rem; margin-top: 14px;">×</span>' +
                 '<div style="flex: 1;">' +
-                  '<label style="font-size: 0.7rem; color: var(--text-muted);">' + t('בין עצים') + ' (מ\')</label>' +
+                  '<label style="font-size: 0.7rem; color: var(--text-muted);">' + t('בין עצים') + ' (' + t('מ\'') + ')</label>' +
                   '<input type="number" class="form-input" id="plotTreeSpacing" min="1" max="20" step="0.5" value="8" style="padding: 8px; font-size: 0.85rem;">' +
                 '</div>' +
               '</div>' +
             '</div>' +
             '<div id="manualDensityRow" style="display: none; margin-bottom: 10px;">' +
               '<label style="font-size: 0.7rem; color: var(--text-muted);">' + t('צמחים לדונם') + '</label>' +
-              '<input type="number" class="form-input" id="plotPlantsPerDunam" min="1" step="1" value="" placeholder="לדוגמה: 156" style="padding: 8px; font-size: 0.85rem;">' +
+              '<input type="number" class="form-input" id="plotPlantsPerDunam" min="1" step="1" value="" placeholder="156" style="padding: 8px; font-size: 0.85rem;">' +
             '</div>' +
             '<div id="treeEstimateResult" style="background: linear-gradient(135deg, var(--g1), var(--g2)); border-radius: 10px; padding: 12px; color: white; text-align: center;">' +
               '<div style="font-size: 0.72rem; opacity: 0.8;">' + t('מספר צמחים משוער') + '</div>' +
@@ -1568,7 +1826,7 @@
     });
 
     function save() {
-      var name = input.value.trim() || 'חלקה ' + (plots.length + 1);
+      var name = input.value.trim() || t('חלקה') + ' ' + (plots.length + 1);
       var farmSelect = document.getElementById('plotFarmSelect');
       var farmId = parseInt(farmSelect.value);
       
@@ -1707,7 +1965,7 @@
         if (plotIdx !== -1) plots.splice(plotIdx, 1);
         renderPlotList();
         saveData();
-        showToast('🗑 "' + plot.name + '" נמחק');
+        showToast('🗑 "' + plot.name + '" ' + t('נמחק'));
       });
     });
   }
@@ -1754,9 +2012,9 @@
         '<div class="pesticide-name">' + pest.productName + '</div>' +
         '<div class="pesticide-active">' + pest.activeIngredient + ' • ' + pest.commonTargets + '</div>' +
         '<div class="pesticide-concentration-input">' +
-          '<label class="form-label" style="margin-top: 8px;">ריכוז (%)</label>' +
+          '<label class="form-label" style="margin-top: 8px;">' + t('ריכוז (%)') + '</label>' +
           '<input type="number" class="form-input concentration-input" data-pest-id="' + pest.id + '" value="' + pest.defaultConcentration + '" step="0.001" min="0">' +
-          '<label class="form-label" style="margin-top: 8px;">מטרה</label>' +
+          '<label class="form-label" style="margin-top: 8px;">' + t('מטרה') + '</label>' +
           '<input type="text" class="form-input target-input" data-pest-id="' + pest.id + '" value="' + pest.commonTargets.split(',')[0].trim() + '" placeholder="מזיק/מחלה">' +
         '</div>' +
       '</div>';
@@ -1816,20 +2074,20 @@
 
     var html = '<div class="calc-results">';
     html += '<div class="calc-row"><span class="calc-label">' + t('שטח כולל') + '</span><span class="calc-value">' + totalArea.toFixed(2) + ' ' + t('דונם') + '</span></div>';
-    html += '<div class="calc-row"><span class="calc-label">מספר עצים</span><span class="calc-value">' + totalTrees + ' עצים</span></div>';
-    html += '<div class="calc-row"><span class="calc-label">נפח כולל</span><span class="calc-value">' + totalVolume.toFixed(0) + ' ליטר</span></div>';
-    html += '<div class="calc-row"><span class="calc-label">מספר מילויים</span><span class="calc-value">' + iterations + ' מילויים</span></div>';
+    html += '<div class="calc-row"><span class="calc-label">' + t('מספר עצים') + '</span><span class="calc-value">' + totalTrees + ' ' + t('עצים') + '</span></div>';
+    html += '<div class="calc-row"><span class="calc-label">' + t('נפח כולל') + '</span><span class="calc-value">' + totalVolume.toFixed(0) + ' ' + t('ליטר') + '</span></div>';
+    html += '<div class="calc-row"><span class="calc-label">' + t('מספר מילויים') + '</span><span class="calc-value">' + iterations + ' ' + t('מילויים') + '</span></div>';
     
     selectedPesticides.forEach(function(sp) {
       var amountTotal = (totalVolume * sp.concentration / 100).toFixed(2);
       var amountPerIter = (sprayerCapacity * sp.concentration / 100).toFixed(2);
       html += '<div class="calc-row" style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.3);">';
       html += '<span class="calc-label" style="font-weight: 700;">' + sp.pesticide.productName + '</span>';
-      html += '<span class="calc-value">' + amountTotal + ' ליטר</span>';
+      html += '<span class="calc-value">' + amountTotal + ' ' + t('ליטר') + '</span>';
       html += '</div>';
       html += '<div class="calc-row" style="border: none; padding-top: 4px;">';
-      html += '<span class="calc-label" style="font-size: 0.85rem; opacity: 0.8;">למילוי אחד</span>';
-      html += '<span class="calc-value" style="font-size: 0.85rem;">' + amountPerIter + ' ליטר</span>';
+      html += '<span class="calc-label" style="font-size: 0.85rem; opacity: 0.8;">' + t('למילוי אחד') + '</span>';
+      html += '<span class="calc-value" style="font-size: 0.85rem;">' + amountPerIter + ' ' + t('ליטר') + '</span>';
       html += '</div>';
     });
 
@@ -1850,7 +2108,7 @@
     var sprayerCapacity = parseFloat(document.getElementById('sprayerCapacity').value) || 0;
 
     if (!date || !operator) {
-      showToast('❌ חובה למלא תאריך ושם מפעיל');
+      showToast('❌ ' + t('חובה למלא תאריך ושם מפעיל'));
       return;
     }
 
@@ -1860,7 +2118,7 @@
     });
 
     if (selectedPlotIds.length === 0) {
-      showToast('❌ בחר לפחות חלקה אחת');
+      showToast('❌ ' + t('בחר לפחות חלקה אחת'));
       return;
     }
 
@@ -1881,7 +2139,7 @@
     });
 
     if (applications.length === 0) {
-      showToast('❌ בחר לפחות חומר הדברה אחד');
+      showToast('❌ ' + t('בחר לפחות חומר הדברה אחד'));
       return;
     }
 
@@ -1926,7 +2184,7 @@
     sorted.forEach(function(event) {
       var plotNames = event.plotIds.map(function(id) {
         var p = plots.find(function(plot) { return plot.id === id; });
-        return p ? p.name : 'חלקה לא ידועה';
+        return p ? p.name : t('חלקה לא ידועה');
       }).join(', ');
 
       var totalArea = event.plotIds.reduce(function(sum, id) {
@@ -1941,7 +2199,7 @@
       html += '</div>';
       html += '<div class="history-plots">' + t('חלקות') + ': ' + plotNames + ' (' + totalArea.toFixed(2) + ' ' + t('דונם') + ')</div>';
       html += '<div class="history-meta" style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">';
-      html += event.volumePerTree + ' ליטר/עץ • מרסס ' + event.sprayerCapacity + ' ליטר';
+      html += event.volumePerTree + ' ' + t('ליטר/עץ') + ' • ' + t('מרסס') + ' ' + event.sprayerCapacity + ' ' + t('ליטר');
       html += '</div>';
       html += '<div class="history-pesticides">';
       event.applications.forEach(function(app) {
@@ -1961,7 +2219,7 @@
 
   document.getElementById('exportPdfBtn').addEventListener('click', function() {
     if (sprayEvents.length === 0) {
-      showToast('❌ אין יומני ריסוס לייצוא');
+      showToast('❌ ' + t('אין יומני ריסוס לייצוא'));
       return;
     }
 
@@ -1970,10 +2228,10 @@
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
     a.href = url;
-    a.download = 'יומן_ריסוסים_' + new Date().toISOString().split('T')[0] + '.html';
+    a.download = t('יומן ריסוסים').replace(/ /g, '_') + '_' + new Date().toISOString().split('T')[0] + '.html';
     a.click();
     URL.revokeObjectURL(url);
-    showToast('📄 קובץ HTML הורד - המר ל-PDF עם wkhtmltopdf');
+    showToast('📄 ' + t('קובץ HTML הורד'));
   });
 
   function generatePdfHtml() {
@@ -1983,7 +2241,7 @@
 
     var html = '<!DOCTYPE html>\n<html lang="he" dir="rtl">\n<head>\n';
     html += '<meta charset="UTF-8">\n';
-    html += '<title>יומן ריסוסים</title>\n';
+    html += '<title>' + t('יומן ריסוסים') + '</title>\n';
     html += '<style>\n';
     html += 'body { font-family: "Arial", sans-serif; direction: rtl; padding: 20px; }\n';
     html += 'h1 { text-align: center; color: #1b5e20; border-bottom: 3px solid #43a047; padding-bottom: 10px; }\n';
@@ -1994,17 +2252,17 @@
     html += '.pesticide-row { background: #fafafa; }\n';
     html += '</style>\n';
     html += '</head>\n<body>\n';
-    html += '<h1>יומן ריסוסים - שורשים פלוס</h1>\n';
-    html += '<p><strong>תאריך הפקה:</strong> ' + formatDate(new Date().toISOString().split('T')[0]) + '</p>\n';
+    html += '<h1>' + t('יומן ריסוסים - שורשים פלוס') + '</h1>\n';
+    html += '<p><strong>' + t('תאריך הפקה:') + '</strong> ' + formatDate(new Date().toISOString().split('T')[0]) + '</p>\n';
     
     html += '<table>\n';
-    html += '<thead><tr><th>תאריך</th><th>מפעיל</th><th>חלקות</th><th>שטח</th><th>נפח/עץ</th><th>מרסס</th><th>חומר</th><th>ריכוז</th><th>מטרה</th></tr></thead>\n';
+    html += '<thead><tr><th>' + t('תאריך') + '</th><th>' + t('מפעיל') + '</th><th>' + t('חלקות') + '</th><th>' + t('שטח') + '</th><th>' + t('נפח/עץ') + '</th><th>' + t('מרסס') + '</th><th>' + t('חומר') + '</th><th>' + t('ריכוז') + '</th><th>' + t('מטרה') + '</th></tr></thead>\n';
     html += '<tbody>\n';
 
     sorted.forEach(function(event) {
       var plotNames = event.plotIds.map(function(id) {
         var p = plots.find(function(plot) { return plot.id === id; });
-        return p ? p.name : 'לא ידוע';
+        return p ? p.name : t('לא ידוע');
       }).join(', ');
 
       var totalArea = event.plotIds.reduce(function(sum, id) {
@@ -2019,8 +2277,8 @@
           html += '<td rowspan="' + event.applications.length + '">' + event.operator + '</td>\n';
           html += '<td rowspan="' + event.applications.length + '">' + plotNames + '</td>\n';
           html += '<td rowspan="' + event.applications.length + '">' + totalArea.toFixed(2) + ' ' + t('דונם') + '</td>\n';
-          html += '<td rowspan="' + event.applications.length + '">' + event.volumePerTree + ' ליטר</td>\n';
-          html += '<td rowspan="' + event.applications.length + '">' + event.sprayerCapacity + ' ליטר</td>\n';
+          html += '<td rowspan="' + event.applications.length + '">' + event.volumePerTree + ' ' + t('ליטר') + '</td>\n';
+          html += '<td rowspan="' + event.applications.length + '">' + event.sprayerCapacity + ' ' + t('ליטר') + '</td>\n';
         }
         html += '<td>' + app.productName + ' (' + app.activeIngredient + ')</td>\n';
         html += '<td>' + app.concentration + '%</td>\n';
@@ -2071,11 +2329,11 @@
       btn.addEventListener('click', function() {
         var id = parseInt(this.getAttribute('data-delete-id'));
         var pest = pesticides.find(function(p) { return p.id === id; });
-        if (confirm('למחוק את ' + pest.productName + '?')) {
+        if (confirm(t('למחוק את') + ' ' + pest.productName + '?')) {
           pesticides = pesticides.filter(function(p) { return p.id !== id; });
           saveData();
           renderPesticideAdminList();
-          showToast('🗑️ חומר נמחק');
+          showToast('🗑️ ' + t('חומר נמחק'));
         }
       });
     });
@@ -2093,27 +2351,27 @@
     container.innerHTML =
       '<div class="modal-overlay" id="modalOverlay">' +
         '<div class="modal">' +
-          '<h2>' + (isEdit ? '✏️ עריכת חומר' : '➕ הוספת חומר') + '</h2>' +
-          '<p>מלא את פרטי חומר ההדברה</p>' +
+          '<h2>' + (isEdit ? '✏️ ' + t('עריכת חומר') : '➕ ' + t('הוספת חומר')) + '</h2>' +
+          '<p>' + t('מלא את פרטי חומר ההדברה') + '</p>' +
           '<div class="form-group">' +
-            '<label class="form-label">שם מסחרי</label>' +
-            '<input type="text" class="form-input" id="pestProductName" value="' + (isEdit ? pest.productName : '') + '" placeholder="לדוגמה: ורטימק">' +
+            '<label class="form-label">' + t('שם מסחרי') + '</label>' +
+            '<input type="text" class="form-input" id="pestProductName" value="' + (isEdit ? pest.productName : '') + '" placeholder="' + t('לדוגמה:') + ' ורטימק">' +
           '</div>' +
           '<div class="form-group">' +
-            '<label class="form-label">חומר פעיל</label>' +
-            '<input type="text" class="form-input" id="pestActiveIngredient" value="' + (isEdit ? pest.activeIngredient : '') + '" placeholder="לדוגמה: אבמקטין">' +
+            '<label class="form-label">' + t('חומר פעיל') + '</label>' +
+            '<input type="text" class="form-input" id="pestActiveIngredient" value="' + (isEdit ? pest.activeIngredient : '') + '" placeholder="Abamectin">' +
           '</div>' +
           '<div class="form-group">' +
-            '<label class="form-label">ריכוז ברירת מחדל (%)</label>' +
+            '<label class="form-label">' + t('ריכוז ברירת מחדל (%)') + '</label>' +
             '<input type="number" class="form-input" id="pestDefaultConc" value="' + (isEdit ? pest.defaultConcentration : '') + '" step="0.001" min="0" placeholder="0.015">' +
           '</div>' +
           '<div class="form-group">' +
-            '<label class="form-label">מטרות נפוצות</label>' +
-            '<input type="text" class="form-input" id="pestTargets" value="' + (isEdit ? pest.commonTargets : '') + '" placeholder="כנימת מגן, קמחית">' +
+            '<label class="form-label">' + t('מטרות נפוצות') + '</label>' +
+            '<input type="text" class="form-input" id="pestTargets" value="' + (isEdit ? pest.commonTargets : '') + '" placeholder="Scale, Mealybug">' +
           '</div>' +
           '<div class="modal-buttons">' +
-            '<button class="btn btn-primary" id="modalSavePest">שמור</button>' +
-            '<button class="btn btn-secondary" id="modalCancelPest">ביטול</button>' +
+            '<button class="btn btn-primary" id="modalSavePest">' + t('שמור') + '</button>' +
+            '<button class="btn btn-secondary" id="modalCancelPest">' + t('ביטול') + '</button>' +
           '</div>' +
         '</div>' +
       '</div>';
@@ -2125,7 +2383,7 @@
       var commonTargets = document.getElementById('pestTargets').value.trim();
 
       if (!productName || !activeIngredient) {
-        showToast('❌ חובה למלא שם מסחרי וחומר פעיל');
+        showToast('❌ ' + t('חובה למלא שם מסחרי וחומר פעיל'));
         return;
       }
 
@@ -2134,7 +2392,7 @@
         pest.activeIngredient = activeIngredient;
         pest.defaultConcentration = defaultConcentration;
         pest.commonTargets = commonTargets;
-        showToast('✅ חומר עודכן');
+        showToast('✅ ' + t('חומר עודכן'));
       } else {
         var newId = pesticides.length > 0 ? Math.max.apply(null, pesticides.map(function(p) { return p.id; })) + 1 : 1;
         pesticides.push({
@@ -2145,7 +2403,7 @@
           unit: '%',
           commonTargets: commonTargets
         });
-        showToast('✅ חומר נוסף');
+        showToast('✅ ' + t('חומר נוסף'));
       }
 
       saveData();
@@ -2222,15 +2480,15 @@
         var farmPlots = plots.filter(function(p) { return p.farm_id === id; });
         
         if (farmPlots.length > 0) {
-          showToast('❌ לא ניתן למחוק - קיימות ' + farmPlots.length + ' חלקות במטע זה');
+          showToast('❌ ' + t('לא ניתן למחוק') + ' - ' + farmPlots.length + ' ' + t('חלקות') + ' ' + t('במטע זה'));
           return;
         }
         
-        if (confirm('למחוק את מטע ' + farm.name + '?')) {
+        if (confirm(t('למחוק את מטע') + ' ' + farm.name + '?')) {
           farms = farms.filter(function(f) { return f.id !== id; });
           saveData();
           renderFarmsAdminList();
-          showToast('🗑️ מטע נמחק');
+          showToast('🗑️ ' + t('מטע נמחק'));
         }
       });
     });
@@ -2259,19 +2517,19 @@
     var html =
       '<div class="modal-overlay" id="modalOverlay" onclick="if(event.target===this) window.cancelFarmModal()">' +
         '<div class="modal">' +
-          '<h2>' + (isEdit ? '✏️ עריכת מטע' : '➕ מטע חדש') + '</h2>' +
-          '<p>מלא את פרטי המטע</p>' +
+          '<h2>' + (isEdit ? '✏️ ' + t('עריכת מטע') : '➕ ' + t('מטע חדש')) + '</h2>' +
+          '<p>' + t('מלא את פרטי המטע') + '</p>' +
           '<div class="form-group">' +
-            '<label class="form-label">שם המטע</label>' +
-            '<input type="text" class="form-input" id="farmName" value="' + (isEdit ? farm.name : '') + '" placeholder="לדוגמה: פארן">' +
+            '<label class="form-label">' + t('שם המטע') + '</label>' +
+            '<input type="text" class="form-input" id="farmName" value="' + (isEdit ? farm.name : '') + '" placeholder="Paran">' +
           '</div>' +
           '<div class="form-group">' +
-            '<label class="form-label">צבע המטע (כל החלקות יהיו בצבע זה)</label>' +
+            '<label class="form-label">' + t('צבע המטע (כל החלקות יהיו בצבע זה)') + '</label>' +
             '<div class="color-picker">' + colorOptions + '</div>' +
           '</div>' +
           '<div class="modal-buttons">' +
-            '<button class="btn btn-primary" onclick="window.saveFarmModal()">שמור</button>' +
-            '<button class="btn btn-secondary" onclick="window.cancelFarmModal()">ביטול</button>' +
+            '<button class="btn btn-primary" onclick="window.saveFarmModal()">' + t('שמור') + '</button>' +
+            '<button class="btn btn-secondary" onclick="window.cancelFarmModal()">' + t('ביטול') + '</button>' +
           '</div>' +
         '</div>' +
       '</div>';
@@ -2285,7 +2543,7 @@
       var color = selectedColor ? selectedColor.getAttribute('data-color') : FARM_COLORS[0];
 
       if (!name) {
-        showToast('❌ חובה למלא שם מטע');
+        showToast('❌ ' + t('חובה למלא שם מטע'));
         return;
       }
 
@@ -2294,7 +2552,7 @@
         return f.name.toLowerCase() === name.toLowerCase() && (!isEdit || f.id !== farm.id);
       });
       if (existingFarm) {
-        showToast('❌ שם מטע כבר קיים');
+        showToast('❌ ' + t('שם מטע כבר קיים'));
         return;
       }
 
@@ -2303,11 +2561,11 @@
         farm.color = color;
         saveData();
         renderFarmsAdminList();
-        showToast('✅ מטע עודכן');
+        showToast('✅ ' + t('מטע עודכן'));
       } else {
         var session = JSON.parse(sessionStorage.getItem('currentUser'));
         if (!session) {
-          showToast('❌ שגיאה: לא מחובר');
+          showToast('❌ ' + t('שגיאה') + ': ' + t('לא מחובר'));
           return;
         }
         var newId = farms.length > 0 ? Math.max.apply(null, farms.map(function(f) { return f.id; })) + 1 : 1;
@@ -2320,7 +2578,7 @@
         });
         saveData();
         renderFarmsAdminList();
-        showToast('✅ מטע נוסף');
+        showToast('✅ ' + t('מטע נוסף'));
       }
 
       // Close modal - get container fresh to ensure it closes
@@ -2387,20 +2645,20 @@
     // Render summary
     summaryContainer.innerHTML = 
       '<div style="display: flex; gap: 24px; flex-wrap: wrap;">' +
-        '<div><div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">סה"כ משתמשים</div><div style="font-size: 24px; font-weight: 700; color: var(--primary);">' + userList.length + '</div></div>' +
-        '<div><div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">מנהלים</div><div style="font-size: 24px; font-weight: 700;">' + adminCount + '</div></div>' +
-        '<div><div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">מפעילים</div><div style="font-size: 24px; font-weight: 700;">' + operatorCount + '</div></div>' +
-        '<div><div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">צופים</div><div style="font-size: 24px; font-weight: 700;">' + viewerCount + '</div></div>' +
+        '<div><div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">' + t('סה"כ משתמשים') + '</div><div style="font-size: 24px; font-weight: 700; color: var(--primary);">' + userList.length + '</div></div>' +
+        '<div><div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">' + t('מנהלים') + '</div><div style="font-size: 24px; font-weight: 700;">' + adminCount + '</div></div>' +
+        '<div><div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">' + t('מפעילים') + '</div><div style="font-size: 24px; font-weight: 700;">' + operatorCount + '</div></div>' +
+        '<div><div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">' + t('צופים') + '</div><div style="font-size: 24px; font-weight: 700;">' + viewerCount + '</div></div>' +
       '</div>';
 
     var html = '';
     userList.forEach(function(user) {
-      var roleText = user.role === 'admin' ? 'מנהל' : user.role === 'operator' ? 'מפעיל' : 'צופה';
+      var roleText = user.role === 'admin' ? t('מנהל') : user.role === 'operator' ? t('מפעיל') : t('צופה');
       
       // Build farm badges with colors
       var farmBadges = '';
       if (user.role === 'admin' || user.farm_permissions.length === 0) {
-        farmBadges = '<span style="display: inline-block; padding: 4px 8px; background: var(--g6); border-radius: 6px; font-size: 12px; color: var(--text-muted);">כל המטעים</span>';
+        farmBadges = '<span style="display: inline-block; padding: 4px 8px; background: var(--g6); border-radius: 6px; font-size: 12px; color: var(--text-muted);">' + t('כל המטעים') + '</span>';
       } else {
         user.farm_permissions.forEach(function(fid) {
           var f = farms.find(function(farm) { return farm.id === fid; });
@@ -2449,11 +2707,11 @@
         var id = parseInt(this.getAttribute('data-delete-user-id'));
         var user = Object.values(users).find(function(u) { return u.id === id; });
         
-        if (confirm('למחוק את המשתמש ' + user.name + '?')) {
+        if (confirm(t('למחוק את המשתמש') + ' ' + user.name + '?')) {
           delete users[user.username];
           DB.save('shorashim-users', users);
           renderUsersAdminList();
-          showToast('🗑️ משתמש נמחק');
+          showToast('🗑️ ' + t('משתמש נמחק'));
         }
       });
     });
@@ -2468,7 +2726,7 @@
     // Build farm checkboxes
     var farmCheckboxes = '';
     if (farms.length > 0) {
-      farmCheckboxes = '<div class="form-group"><label class="form-label">גישה למטעים</label><div style="display: flex; flex-direction: column; gap: 8px; max-height: 150px; overflow-y: auto; padding: 8px; background: var(--g6); border-radius: 8px;">';
+      farmCheckboxes = '<div class="form-group"><label class="form-label">' + t('גישה למטעים') + '</label><div style="display: flex; flex-direction: column; gap: 8px; max-height: 150px; overflow-y: auto; padding: 8px; background: var(--g6); border-radius: 8px;">';
       farms.forEach(function(farm) {
         var checked = isEdit && user.farm_permissions && user.farm_permissions.indexOf(farm.id) !== -1;
         farmCheckboxes += '<label style="display: flex; align-items: center; gap: 8px; cursor: pointer;"><input type="checkbox" class="farm-permission-cb" data-farm-id="' + farm.id + '"' + (checked ? ' checked' : '') + ' style="width: 18px; height: 18px;"><span>' + farm.name + '</span></label>';
@@ -2479,28 +2737,28 @@
     var html =
       '<div class="modal-overlay" id="modalOverlay" onclick="if(event.target===this) window.cancelUserModal()">' +
         '<div class="modal" style="max-width: 500px;">' +
-          '<h2>' + (isEdit ? '✏️ עריכת משתמש' : '➕ משתמש חדש') + '</h2>' +
+          '<h2>' + (isEdit ? '✏️ ' + t('עריכת משתמש') : '➕ ' + t('משתמש חדש')) + '</h2>' +
           '<div class="form-group">' +
-            '<label class="form-label">שם מלא</label>' +
-            '<input type="text" class="form-input" id="userName" value="' + (isEdit ? user.name : '') + '" placeholder="לדוגמה: משה כהן">' +
+            '<label class="form-label">' + t('שם מלא') + '</label>' +
+            '<input type="text" class="form-input" id="userName" value="' + (isEdit ? user.name : '') + '" placeholder="Name">' +
           '</div>' +
           '<div class="form-group">' +
-            '<label class="form-label">אימייל</label>' +
+            '<label class="form-label">' + t('אימייל') + '</label>' +
             '<input type="email" class="form-input" id="userEmail" value="' + (isEdit ? (user.email || '') : '') + '" placeholder="email@example.com" style="direction:ltr;text-align:left;" ' + (isEdit ? 'readonly style="background:#f0f0f0;direction:ltr;text-align:left;"' : '') + '>' +
           '</div>' +
           '<div class="form-group">' +
-            '<label class="form-label">תפקיד</label>' +
+            '<label class="form-label">' + t('תפקיד') + '</label>' +
             '<select class="form-input" id="userRole" style="cursor: pointer;">' +
-              '<option value="worker"' + (isEdit && user.role === 'worker' ? ' selected' : '') + '>עובד</option>' +
-              '<option value="operator"' + (isEdit && user.role === 'operator' ? ' selected' : '') + '>מפעיל</option>' +
-              '<option value="admin"' + (isEdit && user.role === 'admin' ? ' selected' : '') + '>מנהל</option>' +
+              '<option value="worker"' + (isEdit && user.role === 'worker' ? ' selected' : '') + '>' + t('עובד') + '</option>' +
+              '<option value="operator"' + (isEdit && user.role === 'operator' ? ' selected' : '') + '>' + t('מפעיל') + '</option>' +
+              '<option value="admin"' + (isEdit && user.role === 'admin' ? ' selected' : '') + '>' + t('מנהל') + '</option>' +
             '</select>' +
           '</div>' +
           farmCheckboxes +
-          '<div style="font-size:0.75rem;color:#999;padding:8px;background:#fff3e0;border-radius:8px;margin-bottom:12px;">💡 המשתמש יתחבר עם האימייל שהוזן. בכניסה הראשונה יצר חשבון אוטומטית עם הסיסמה שיבחר.</div>' +
+          '<div style="font-size:0.75rem;color:#999;padding:8px;background:#fff3e0;border-radius:8px;margin-bottom:12px;">💡 ' + t('המשתמש יתחבר עם האימייל שהוזן. בכניסה הראשונה יצר חשבון אוטומטית עם הסיסמה שיבחר.') + '</div>' +
           '<div class="modal-buttons">' +
-            '<button class="btn btn-primary" onclick="window.saveUserModal()">שמור</button>' +
-            '<button class="btn btn-secondary" onclick="window.cancelUserModal()">ביטול</button>' +
+            '<button class="btn btn-primary" onclick="window.saveUserModal()">' + t('שמור') + '</button>' +
+            '<button class="btn btn-secondary" onclick="window.cancelUserModal()">' + t('ביטול') + '</button>' +
           '</div>' +
         '</div>' +
       '</div>';
@@ -2518,7 +2776,7 @@
       });
 
       if (!name || !email) {
-        showToast('❌ חובה למלא שם ואימייל');
+        showToast('❌ ' + t('חובה למלא שם ואימייל'));
         return;
       }
 
@@ -2529,13 +2787,13 @@
           users[user.username].farm_permissions = selectedFarms;
           DB.save('shorashim-users', users);
           renderUsersAdminList();
-          showToast('✅ משתמש עודכן');
+          showToast('✅ ' + t('משתמש עודכן'));
         }
       } else {
         // Check if email already exists
         var existing = getUserByEmail(email);
         if (existing) {
-          showToast('❌ אימייל כבר קיים');
+          showToast('❌ ' + t('אימייל כבר קיים'));
           return;
         }
 
@@ -2554,7 +2812,7 @@
         
         DB.save('shorashim-users', users);
         renderUsersAdminList();
-        showToast('✅ משתמש נוסף — יוכל להתחבר עם ' + email);
+        showToast('✅ ' + t('משתמש נוסף — יוכל להתחבר עם') + ' ' + email);
       }
 
       document.getElementById('modalContainer').innerHTML = '';
@@ -2583,7 +2841,7 @@
     var initial = currentUser.name ? currentUser.name.charAt(0) : '?';
     document.getElementById('profileInitial').textContent = initial;
     document.getElementById('profileName').textContent = currentUser.name;
-    var roleText = currentUser.role === 'admin' ? 'מנהל' : currentUser.role === 'operator' ? 'מפעיל' : 'צופה';
+    var roleText = currentUser.role === 'admin' ? t('מנהל') : currentUser.role === 'operator' ? t('מפעיל') : t('צופה');
     document.getElementById('profileRole').textContent = roleText + ' • ' + currentUser.username;
     
     // ── Farm cards ──
@@ -2599,14 +2857,14 @@
         var totalArea = farmPlots.reduce(function(sum, p) { return sum + (p.area || 0); }, 0);
         var irr = farm.irrigation || {};
         var irrText = irr.cube_per_dunam ? (irr.cube_per_dunam + ' ' + t('קוב לדונם/פתיחה')) : t('לא הוגדר');
-        var irrDays = irr.days_per_week ? (irr.days_per_week + ' ימים/שבוע') : '';
+        var irrDays = irr.days_per_week ? (irr.days_per_week + ' ' + t('ימים/שבוע')) : '';
         
         farmsHtml += '<div class="plot-card profile-farm-card" data-profile-farm-id="' + farm.id + '" style="border-right-color: ' + farm.color + '; cursor: pointer;">' +
           '<div class="plot-color" style="background:' + farm.color + '"></div>' +
           '<div class="plot-info">' +
             '<div class="plot-name">' + farm.name + '</div>' +
             '<div class="plot-meta">' +
-              '<span>🌳 ' + farmPlots.length + ' חלקות</span>' +
+              '<span>🌳 ' + farmPlots.length + ' ' + t('חלקות') + '</span>' +
               '<span>📐 ' + totalArea.toFixed(1) + ' ' + t('דונם') + '</span>' +
             '</div>' +
             '<div style="font-size: 0.72rem; color: var(--water); margin-top: 3px; font-weight: 500;">💧 ' + irrText + (irrDays ? ' • ' + irrDays : '') + '</div>' +
@@ -2638,7 +2896,7 @@
     
     html += '<div class="plot-checkbox-item primary-plot-option" data-primary-id="0" style="' + (!currentPrimary ? 'background: var(--g5); border: 2px solid var(--g3);' : 'border: 2px solid transparent;') + '">' +
       '<span style="font-size: 1.2rem;">' + (!currentPrimary ? '✅' : '⬜') + '</span>' +
-      '<span class="plot-checkbox-label">ללא — הצג את כל החלקות</span>' +
+      '<span class="plot-checkbox-label">' + t('ללא — הצג את כל החלקות') + '</span>' +
     '</div>';
     
     accessiblePlots.forEach(function(p) {
@@ -2729,7 +2987,7 @@
             if (farm) farm.google_sheet_id = input.value.trim() || null;
           });
           saveData();
-          showToast('✅ מזהי גיליונות נשמרו');
+          showToast('✅ ' + t('מזהי גיליונות נשמרו'));
           renderProfileTab();
         });
       }
@@ -2755,7 +3013,7 @@
       var session = JSON.parse(sessionStorage.getItem('currentUser') || '{}');
       session.email = email || null;
       sessionStorage.setItem('currentUser', JSON.stringify(session));
-      showToast(email ? '✅ אימייל נשמר' : '✅ אימייל הוסר');
+      showToast(email ? '✅ ' + t('אימייל נשמר') : '✅ ' + t('אימייל הוסר'));
       renderProfileTab();
     }
   });
@@ -2764,12 +3022,12 @@
   document.getElementById('saveAppsScriptUrl').addEventListener('click', function() {
     var url = document.getElementById('profileAppsScriptUrl').value.trim();
     if (url && !url.startsWith('https://script.google.com/')) {
-      showToast('❌ כתובת לא תקינה — צריכה להתחיל ב-https://script.google.com/');
+      showToast('❌ ' + t('כתובת לא תקינה'));
       return;
     }
     DB.save('shorashim-apps-script-url', url);
     APPS_SCRIPT_URL = url;
-    showToast(url ? '✅ כתובת Apps Script נשמרה' : '✅ כתובת הוסרה');
+    showToast(url ? '✅ ' + t('כתובת Apps Script נשמרה') : '✅ ' + t('כתובת הוסרה'));
     renderProfileTab();
   });
 
@@ -2778,29 +3036,29 @@
   // ══════════════════════════════════
 
   var WL_ACTIONS_DEFAULT = [
-    'איגוז','בדיקת השקייה תקופתית','גדיד','גיזום וניקוי אשלים וחוטרים עודפים','גיזום חורפי',
-    'גיזום תמרים במושב','דילול ראשוני','דילול שני','הגמעת גימיק',
-    'הגמעת קונפידור - חידקונית, קרנפית, ציקדות','הורדת שקים','הכנת חדר אבקה','הפרייה',
-    'השלמת נטיעה','טיפול שוטף לכלי גובה','נקיון מט"ש','נקיון מטע כללי',
-    'סידור גזם חורפי לאיסוף','סילוק עורלה','סיקול אבנים','עטיפה','עשבייה מטעים כללי',
-    'קיוץ','קיפניס - יישור קרקע','קשירה','קשירה ושקים','קשירת זכרים והפקת אבקה',
-    'ריסוס אקריות','ריסוס בקתוש','ריסוס גזע לחידקונית','ריסוס כווייה שחורה - ריסוס צמרות',
-    'ריסוס עשבייה','ריסוס עת"ק','נטיעה','ריסוק','שטיפת שקים','תחזוקת גדר חשמלית',
-    'קטיף לולבים','מיון ושימור לולבים','קידוח גזע לחידקונית','הדרכות',
-    'העברת/איסוף שקים','שקים','ראיס/מנהל עבודה'
+    t('איגוז'),t('בדיקת השקייה תקופתית'),t('גדיד'),t('גיזום וניקוי אשלים וחוטרים עודפים'),t('גיזום חורפי'),
+    t('גיזום תמרים במושב'),t('דילול ראשוני'),t('דילול שני'),t('הגמעת גימיק'),
+    t('הגמעת קונפידור - חידקונית, קרנפית, ציקדות'),t('הורדת שקים'),t('הכנת חדר אבקה'),t('הפרייה'),
+    t('השלמת נטיעה'),t('טיפול שוטף לכלי גובה'),t('נקיון מט"ש'),t('נקיון מטע כללי'),
+    t('סידור גזם חורפי לאיסוף'),t('סילוק עורלה'),t('סיקול אבנים'),t('עטיפה'),t('עשבייה מטעים כללי'),
+    t('קיוץ'),t('קיפניס - יישור קרקע'),t('קשירה'),t('קשירה ושקים'),t('קשירת זכרים והפקת אבקה'),
+    t('ריסוס אקריות'),t('ריסוס בקתוש'),t('ריסוס גזע לחידקונית'),t('ריסוס כווייה שחורה - ריסוס צמרות'),
+    t('ריסוס עשבייה'),t('ריסוס עת"ק'),t('נטיעה'),t('ריסוק'),t('שטיפת שקים'),t('תחזוקת גדר חשמלית'),
+    t('קטיף לולבים'),t('מיון ושימור לולבים'),t('קידוח גזע לחידקונית'),t('הדרכות'),
+    t('העברת/איסוף שקים'),t('שקים'),t('ראיס/מנהל עבודה')
   ];
   
   var WL_BUDGET_CATEGORIES_DEFAULT = [
-    'קיוץ','הפרייה','דילול','קשירה','שקים','גדיד','הורדת רשת/שקים',
-    'גיזום','טיפול קרקע ואחזקה','קשירה ושקים','לולבים'
+    t('קיוץ'),t('הפרייה'),t('דילול'),t('קשירה'),t('שקים'),t('גדיד'),t('הורדת רשת/שקים'),
+    t('גיזום'),t('טיפול קרקע ואחזקה'),t('קשירה ושקים'),t('לולבים')
   ];
   
   var WL_WORKER_GROUPS_DEFAULT = [
-    'תאילנדים שורשים','תאילנדים גלגל','תאילנדים ייטב','נפאלים','סרילנקה','מלאווים',
-    'פלסטינאים','ישראלים','מתנדבים','קבלנות פרדסים','פרדס איימן',
-    'עובדי גד"ש מפנמה','שומר חדש',
-    'אלון עובדיה','ארנון צור','זיו ליבה','נערן','אגוזי','דיירי','הלאלי',
-    'רוחקין','בראשית','סנסן ודקל','אדיר שלמה','יובל בן עמי'
+    t('תאילנדים שורשים'),t('תאילנדים גלגל'),t('תאילנדים ייטב'),t('נפאלים'),t('סרילנקה'),t('מלאווים'),
+    t('פלסטינאים'),t('ישראלים'),t('מתנדבים'),t('קבלנות פרדסים'),t('פרדס איימן'),
+    t('עובדי גד"ש מפנמה'),t('שומר חדש'),
+    t('אלון עובדיה'),t('ארנון צור'),t('זיו ליבה'),t('נערן'),t('אגוזי'),t('דיירי'),t('הלאלי'),
+    t('רוחקין'),t('בראשית'),t('סנסן ודקל'),t('אדיר שלמה'),t('יובל בן עמי')
   ];
   
   // Admin-editable: merge defaults with custom from localStorage
@@ -3154,7 +3412,7 @@
     
     var farm = farms.find(function(f) { return f.id === entry.farm_id; });
     if (!farm || !farm.google_sheet_id) {
-      showToast('❌ לא הוגדר גיליון למטע זה');
+      showToast('❌ ' + t('לא הוגדר גיליון למטע זה'));
       return;
     }
     if (!currentUser.email) {
@@ -3211,7 +3469,7 @@
     var hours = parseFloat(document.getElementById('wlHours').value) || null;
     
     // Day of week in Hebrew
-    var dayNames = ['יום א\'','יום ב\'','יום ג\'','יום ד\'','יום ה\'','יום ו\'','שבת'];
+    var dayNames = [t('יום א\''),t('יום ב\''),t('יום ג\''),t('יום ד\''),t('יום ה\''),t('יום ו\''),t('שבת')];
     var dayOfWeek = dayNames[new Date(date).getDay()];
     
     return {
@@ -3302,7 +3560,7 @@
     
     var html = '';
     filtered.slice(0, 20).forEach(function(entry) {
-      var syncIcon = entry.synced_to_sheet ? '<span style="color: var(--g3); font-size: 0.7rem;" title="סונכרן">☁️</span>' : '<span style="color: var(--text-muted); font-size: 0.7rem;" title="מקומי">💾</span>';
+      var syncIcon = entry.synced_to_sheet ? '<span style="color: var(--g3); font-size: 0.7rem;" title="' + t('סונכרן') + '">☁️</span>' : '<span style="color: var(--text-muted); font-size: 0.7rem;" title="' + t('מקומי') + '">💾</span>';
       html += '<div style="padding: 12px; background: var(--card); border-radius: 10px; margin-bottom: 8px; box-shadow: var(--shadow); border-right: 3px solid ' + getTypeColor(entry.type) + ';">' +
         '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">' +
           '<span class="wl-type-badge ' + entry.type + '">' + t(WL_TYPES[entry.type] || entry.type) + '</span>' +
@@ -3489,7 +3747,7 @@
   function sendToGoogleSheet(farm, entry) {
     var url = getAppsScriptUrl();
     if (!url) {
-      showToast('❌ לא הוגדר כתובת Apps Script');
+      showToast('❌ ' + t('לא הוגדר כתובת Apps Script'));
       return Promise.resolve(false);
     }
     
@@ -3705,7 +3963,7 @@
         pestHtml += '<div style="padding: 6px 0; border-bottom: 1px solid var(--g6);">' +
           '<div style="display: flex; justify-content: space-between; margin-bottom: 3px;">' +
             '<span style="font-weight: 600; font-size: 0.82rem;">' + name + '</span>' +
-            '<span style="font-size: 0.78rem; color: var(--text-muted);">' + item.quantity + ' ' + (item.unit || 'ליטר') + '</span>' +
+            '<span style="font-size: 0.78rem; color: var(--text-muted);">' + item.quantity + ' ' + (item.unit || t('ליטר')) + '</span>' +
           '</div>' +
           '<div style="height: 5px; background: var(--g6); border-radius: 3px; overflow: hidden;">' +
             '<div style="height: 100%; width: ' + pct + '%; background: ' + barColor + '; border-radius: 3px;"></div>' +
@@ -4117,7 +4375,7 @@
         last_updated: new Date().toLocaleDateString('he-IL')
       };
       saveData();
-      showToast('✅ נתוני השקייה עודכנו');
+      showToast('✅ ' + t('נתוני השקייה עודכנו'));
       showFarmDetails(farm.id);
     });
   }
@@ -4166,7 +4424,7 @@
         quantity: document.getElementById('delQty').value.trim()
       });
       saveData();
-      showToast('✅ תעודת משלוח נוספה');
+      showToast('✅ ' + t('תעודת משלוח נוספה'));
       showFarmDetails(farm.id);
     });
   }
@@ -4182,11 +4440,11 @@
         '<div style="font-weight: 600; font-size: 0.9rem; margin-bottom: 8px;">' + p.productName + ' <span style="font-weight: 400; color: var(--text-muted);">(' + p.activeIngredient + ')</span></div>' +
         '<div style="display: flex; gap: 8px;">' +
           '<div style="flex: 1;">' +
-            '<label style="font-size: 0.75rem; color: var(--text-muted);">כמות נוכחית</label>' +
+            '<label style="font-size: 0.75rem; color: var(--text-muted);">' + t('כמות נוכחית') + '</label>' +
             '<input type="number" class="form-input inv-qty" data-pest-id="' + p.id + '" value="' + (existing ? existing.quantity : 0) + '" min="0" step="0.1" style="padding: 8px; font-size: 0.85rem;">' +
           '</div>' +
           '<div style="flex: 1;">' +
-            '<label style="font-size: 0.75rem; color: var(--text-muted);">כמות מקסימלית</label>' +
+            '<label style="font-size: 0.75rem; color: var(--text-muted);">' + t('כמות מקסימלית') + '</label>' +
             '<input type="number" class="form-input inv-max" data-pest-id="' + p.id + '" value="' + (existing ? existing.max_quantity : 0) + '" min="0" step="0.1" style="padding: 8px; font-size: 0.85rem;">' +
           '</div>' +
         '</div>' +
@@ -4194,7 +4452,7 @@
     });
     
     if (pesticides.length === 0) {
-      pestOptions = '<div style="padding: 12px; text-align: center; color: var(--text-muted);">אין חומרים מוגדרים. הוסף בלשונית חומרים.</div>';
+      pestOptions = '<div style="padding: 12px; text-align: center; color: var(--text-muted);">' + t('אין חומרים מוגדרים. הוסף בלשונית חומרים.') + '</div>';
     }
     
     var container = document.getElementById('modalContainer');
@@ -4222,13 +4480,13 @@
             pesticide_id: pestId,
             quantity: qty,
             max_quantity: maxQty,
-            unit: 'ליטר'
+            unit: t('ליטר')
           });
         }
       });
       farm.pesticide_inventory = newInventory;
       saveData();
-      showToast('✅ מלאי חומרים עודכן');
+      showToast('✅ ' + t('מלאי חומרים עודכן'));
       showFarmDetails(farm.id);
     });
   }
@@ -5009,7 +5267,7 @@
         (g.company?'<div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:4px;">\u{1F3ED} '+g.company+'</div>':'') +
         (g.regNum?'<div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:12px;">#'+g.regNum+' \u2022 '+g.usage+'</div>':'') +
         labelLink +
-        '<div style="font-size:0.82rem;font-weight:600;color:var(--g1);margin-bottom:8px;">'+filteredRows.length+' '+t('\u05D2\u05D9\u05D3\u05D5\u05DC\u05D9\u05DD')+(showingFiltered?' (מסונן לגידולים שלך)':'')+':</div>' +
+        '<div style="font-size:0.82rem;font-weight:600;color:var(--g1);margin-bottom:8px;">'+filteredRows.length+' '+t('\u05D2\u05D9\u05D3\u05D5\u05DC\u05D9\u05DD')+(showingFiltered?' (' + t('מסונן לגידולים שלך') + ')':'')+':</div>' +
         '<div style="max-height:50vh;overflow-y:auto;">'+cropsHtml+'</div>' +
         '<div class="modal-buttons" style="margin-top:14px;">' +
           (currentUser&&currentUser.role==='admin'?'<button class="btn btn-primary" id="pdImportAll">\u2795 '+t('\u05D4\u05D5\u05E1\u05E3 \u05DC\u05E8\u05E9\u05D9\u05DE\u05D4')+'</button>':'') +
@@ -5215,7 +5473,7 @@
   }
 
   function importPesticideFromGov(rec) {
-    var productName = getRecField(rec, 'product') || 'תכשיר';
+    var productName = getRecField(rec, 'product') || t('תכשיר');
     var activeIngredient = getRecField(rec, 'active');
     var crop = getRecField(rec, 'crop');
     var pest = getRecField(rec, 'pest');
@@ -5693,7 +5951,7 @@
 
   async function autoConnectTalgil(cfg) {
     var statusEl = document.getElementById('plotIrrigationList');
-    statusEl.innerHTML = '<div style="text-align: center; padding: 16px; color: var(--text-muted);">⏳ טוען נתוני השקיה...</div>';
+    statusEl.innerHTML = '<div style="text-align: center; padding: 16px; color: var(--text-muted);">⏳ ' + t('טוען נתוני השקיה...') + '</div>';
     try {
       // Set hidden inputs for talgilFetch to use
       document.getElementById('talgilHost').value = cfg.host;
@@ -5749,7 +6007,7 @@
   function getPlotIrrigationHtml(plotId) {
     var pValves = getPlotValves(plotId);
     if (pValves.length === 0) {
-      return '<div style="padding: 10px; text-align: center; color: var(--text-muted); font-size: 0.82rem;">אין מגופים משויכים</div>';
+      return '<div style="padding: 10px; text-align: center; color: var(--text-muted); font-size: 0.82rem;">' + t('אין מגופים משויכים') + '</div>';
     }
     var html = '';
     pValves.forEach(function(v) {
@@ -5759,7 +6017,7 @@
       html += '<span style="font-weight: 600; font-size: 0.85rem;">' + v.name + '</span>';
       html += '<span style="font-size: 0.78rem;">' + valveStateText(v.state) + '</span>';
       html += '</div>';
-      html += '<div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 2px;">ספיקה: ' + v.nomFlow + ' קוב/ש &nbsp;|&nbsp; שטח: ' + v.area + ' ד\'</div>';
+      html += '<div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 2px;">' + t('ספיקה:') + ' ' + v.nomFlow + ' ' + t('קוב/ש') + ' &nbsp;|&nbsp; ' + t('שטח:') + ' ' + v.area + ' ' + t('ד\'') + '</div>';
 
       // Programs
       var vProgs = [];
@@ -5775,7 +6033,7 @@
       if (vProgs.length > 0) {
         vProgs.forEach(function(vp) {
           html += '<div style="font-size: 0.72rem; color: #1565c0; margin-top: 3px;">📋 ' + vp.name + ': ' + vp.water + ' ' + dosageModeText(vp.mode) + ' 🕐' + vp.start;
-          if (vp.cycle > 0) html += ' (כל ' + vp.cycle + ' ימים)';
+          if (vp.cycle > 0) html += ' (' + t('כל') + ' ' + vp.cycle + ' ' + t('ימים') + ')';
           html += '</div>';
         });
       }
@@ -5810,8 +6068,7 @@
         html += '<div style="flex: 1;">';
         html += '<div style="font-weight: 600; font-size: 0.85rem;">' + v.name + '</div>';
         html += '<div style="font-size: 0.75rem; color: var(--text-muted);">';
-        html += 'ספיקה: ' + v.nomFlow + ' קוב/ש &nbsp;|&nbsp; שטח: ' + v.area + ' ד\'';
-        html += '</div>';
+        html += t('ספיקה:') + ' ' + v.nomFlow + ' ' + t('קוב/ש') + ' &nbsp;|&nbsp; ' + t('שטח:') + ' ' + v.area + ' ' + t("ד'");        html += '</div>';
 
         // Find programs for this valve
         var vProgs = [];
@@ -5830,7 +6087,7 @@
           vProgs.forEach(function(vp) {
             html += '<span style="background: #e3f2fd; color: #1565c0; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem;">';
             html += vp.name + ': ' + vp.water + ' ' + dosageModeText(vp.mode) + ' 🕐' + vp.start;
-            if (vp.cycle > 0) html += ' (כל ' + vp.cycle + ' י\')';
+            if (vp.cycle > 0) html += ' (' + t('כל') + ' ' + vp.cycle + ' ' + t('ימים') + ')';
             html += '</span>';
           });
           html += '</div>';
@@ -5849,15 +6106,15 @@
         html = '<div style="text-align: center; padding: 24px; color: var(--text-muted);">';
         html += '<div style="font-size: 2rem; margin-bottom: 8px;">💧</div>';
         html += currentUser && currentUser.role === 'admin'
-          ? '<div>התחבר לתלגיל למעלה ושייך מגופים לחלקות</div>'
-          : '<div>אין עדיין נתוני השקיה</div>';
+          ? '<div>' + t('התחבר לתלגיל למעלה ושייך מגופים לחלקות') + '</div>'
+          : '<div>' + t('אין עדיין נתוני השקיה') + '</div>';
         html += '</div>';
       } else {
         html = '<div style="text-align: center; padding: 24px; color: var(--text-muted);">';
         html += '<div style="font-size: 2rem; margin-bottom: 8px;">🗺️</div>';
         html += currentUser && currentUser.role === 'admin'
-          ? '<div>שייך מגופים לחלקות בחלק למטה</div>'
-          : '<div>המנהל טרם שייך מגופים לחלקות שלך</div>';
+          ? '<div>' + t('שייך מגופים לחלקות בחלק למטה') + '</div>'
+          : '<div>' + t('המנהל טרם שייך מגופים לחלקות שלך') + '</div>';
         html += '</div>';
       }
     }
@@ -5905,17 +6162,17 @@
   window.talgilConnect = async function() {
     var statusEl = document.getElementById('talgilStatus');
     var btn = document.getElementById('talgilConnectBtn');
-    statusEl.textContent = '⏳ מתחבר...';
+    statusEl.textContent = '⏳ ' + t('מתחבר...');
     statusEl.style.color = 'var(--text-muted)';
     btn.disabled = true;
     try {
       var cfg = getTalgilConfig();
       saveTalgilConfig(cfg);
       talgilValves = await talgilFetch('valves', 'uid|name|nomFlow|area|line|state');
-      statusEl.textContent = '⏳ טוען תוכניות...';
+      statusEl.textContent = '⏳ ' + t('טוען תוכניות...');
       await delay(2000);
       talgilPrograms = await talgilFetch('programs', 'uid|name|state|sequence|startTime|daysCycle|runList|valves|waterPlanned|waterDosageMode');
-      statusEl.textContent = '✅ מחובר — ' + safeValvesList().length + ' מגופים, ' + talgilPrograms.length + ' תוכניות';
+      statusEl.textContent = '✅ ' + t('מחובר —') + ' ' + safeValvesList().length + ' ' + t('מגופים') + ', ' + talgilPrograms.length + ' ' + t('תוכניות');
       statusEl.style.color = 'var(--g3)';
       document.getElementById('programsCard').style.display = '';
       document.getElementById('mappingCard').style.display = '';
@@ -5923,7 +6180,7 @@
       renderProgramsList();
       renderMappingUI();
     } catch (e) {
-      statusEl.textContent = '❌ שגיאה: ' + e.message;
+      statusEl.textContent = '❌ ' + t('שגיאה') + ': ' + e.message;
       statusEl.style.color = 'var(--danger)';
     }
     btn.disabled = false;
@@ -5937,22 +6194,22 @@
       renderPlotIrrigationView();
       renderProgramsList();
       renderMappingUI();
-      showToast('🔄 נתונים עודכנו');
+      showToast('🔄 ' + t('נתונים עודכנו'));
     } catch (e) {
       showToast('❌ ' + e.message);
     }
   };
 
   function valveStateText(s) {
-    var states = { 0: '⚪ סגור', 1: '🟢 פתוח', 5: '🔴 תקלה', 7: '🟡 ממתין' };
-    return states[s] || ('מצב ' + s);
+    var states = { 0: '⚪ ' + t('סגור'), 1: '🟢 ' + t('פתוח'), 5: '🔴 ' + t('תקלה'), 7: '🟡 ' + t('ממתין') };
+    return states[s] || (t('מצב') + ' ' + s);
   }
 
   function renderValvesList() {
     var el = document.getElementById('valvesList');
     var html = '<table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">';
     html += '<tr style="background: var(--g6); font-weight: 600;">';
-    html += '<td style="padding: 6px 8px;">מגוף</td><td>קו</td><td>ספיקה (קוב/ש)</td><td>שטח (ד\')</td><td>מצב</td></tr>';
+    html += '<td style="padding: 6px 8px;">' + t('מגוף') + '</td><td>' + t('קו') + '</td><td>' + t('ספיקה (קוב/ש)') + '</td><td>' + t('שטח (ד\')') + '</td><td>' + t('מצב') + '</td></tr>';
     safeValvesList().forEach(function(v) {
       var plotName = valvePlotMap[v.uid] ? plots.find(function(p) { return p.id === valvePlotMap[v.uid]; }) : null;
       html += '<tr style="border-bottom: 1px solid #eee;">';
@@ -5979,7 +6236,7 @@
   }
 
   function dosageModeText(m) {
-    return m === 1 ? 'קוב' : m === 2 ? 'קוב/ד\'' : 'דקות';
+    return m === 1 ? t('קוב') : m === 2 ? t('קוב/ד\'') : t('דקות');
   }
 
   function isProgramActive(state) {
@@ -5999,13 +6256,13 @@
       html += '<span style="font-size: 0.8rem; background: var(--card); padding: 2px 8px; border-radius: 6px;">🕐 ' + formatStartTime(prog.startTime) + '</span>';
       html += '</div>';
       html += '<div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 6px;">';
-      html += 'מחזור: ' + (prog.daysCycle === 0 ? 'ידני' : 'כל ' + prog.daysCycle + ' ימים');
-      html += ' &nbsp;|&nbsp; רצף: ' + prog.sequence;
+      html += t('מחזור:') + ' ' + (prog.daysCycle === 0 ? t('ידני') : t('כל') + ' ' + prog.daysCycle + ' ' + t('ימים'));
+      html += ' &nbsp;|&nbsp; ' + t('רצף:') + ' ' + prog.sequence;
       html += '</div>';
       if (prog.valves && prog.valves.length > 0) {
         html += '<div style="display: flex; flex-wrap: wrap; gap: 4px;">';
         prog.valves.forEach(function(pv, i) {
-          var label = seqParts[i] || ('מגוף ' + (i + 1));
+          var label = seqParts[i] || (t('מגוף') + ' ' + (i + 1));
           html += '<span style="background: var(--card); padding: 3px 8px; border-radius: 6px; font-size: 0.75rem;">';
           html += label + ': ' + pv.waterPlanned + ' ' + dosageModeText(pv.waterDosageMode);
           html += '</span>';
@@ -6014,7 +6271,7 @@
       }
       html += '</div>';
     });
-    el.innerHTML = html || '<div style="color: var(--text-muted); text-align: center;">אין תוכניות</div>';
+    el.innerHTML = html || '<div style="color: var(--text-muted); text-align: center;">' + t('אין תוכניות') + '</div>';
   }
 
   function renderMappingUI() {
@@ -6024,17 +6281,17 @@
     safeValvesList().forEach(function(v) {
       html += '<div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px; padding: 8px; background: var(--g6); border-radius: 8px;">';
       html += '<span style="font-weight: 600; min-width: 90px; font-size: 0.85rem;">' + v.name + '</span>';
-      html += '<span style="font-size: 0.75rem; color: var(--text-muted); min-width: 65px;">' + v.nomFlow + ' קוב/ש</span>';
+      html += '<span style="font-size: 0.75rem; color: var(--text-muted); min-width: 65px;">' + v.nomFlow + ' ' + t('קוב/ש') + '</span>';
       html += '<select data-valve-uid="' + v.uid + '" style="flex: 1; padding: 6px 8px; border-radius: 8px; border: 1px solid #ccc; font-family: inherit; font-size: 0.85rem;">';
-      html += '<option value="">— בחר חלקה —</option>';
+      html += '<option value="">— ' + t('בחר חלקה') + ' —</option>';
       accessiblePlots.forEach(function(p) {
         var sel = (valvePlotMap[v.uid] == p.id) ? ' selected' : '';
-        html += '<option value="' + p.id + '"' + sel + '>' + p.name + ' (' + p.area.toFixed(1) + ' ד\')</option>';
+        html += '<option value="' + p.id + '"' + sel + '>' + p.name + ' (' + p.area.toFixed(1) + ' ' + t('ד\'') + ')</option>';
       });
       html += '</select>';
       html += '</div>';
     });
-    el.innerHTML = html || '<div style="color: var(--text-muted); text-align: center;">חבר תלגיל קודם</div>';
+    el.innerHTML = html || '<div style="color: var(--text-muted); text-align: center;">' + t('חבר תלגיל קודם') + '</div>';
   }
 
   window.saveValvePlotMapping = function() {
@@ -6047,7 +6304,7 @@
     DB.save('shorashim-valve-plot-map', valvePlotMap);
     renderPlotIrrigationView();
     renderMappingUI();
-    showToast('💾 שיוך מגופים נשמר');
+    showToast('💾 ' + t('שיוך מגופים נשמר'));
   };
 
 
@@ -6144,13 +6401,13 @@
         var tableEl = document.getElementById('viewerRecordsTable');
         if (!tableEl) return;
         if (records.length === 0) {
-          tableEl.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:16px;">אין רשומות בתקופה</div>';
+          tableEl.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:16px;">' + t('אין רשומות בתקופה') + '</div>';
           return;
         }
 
         var html = '<table style="width:100%;border-collapse:collapse;font-size:0.8rem;">';
         html += '<tr style="background:var(--g6);font-weight:700;">';
-        html += '<td style="padding:6px;">תאריך</td><td>מקום</td><td>כניסה</td><td>יציאה</td><td>שעות</td></tr>';
+        html += '<td style="padding:6px;">' + t('תאריך') + '</td><td>' + t('מקום') + '</td><td>' + t('כניסה') + '</td><td>' + t('יציאה') + '</td><td>' + t('שעות') + '</td></tr>';
 
         records.forEach(function(r) {
           var pIn = new Date(r.punchIn);
@@ -6174,7 +6431,7 @@
       .catch(function(err) {
         console.error('Viewer records error:', err);
         var tableEl = document.getElementById('viewerRecordsTable');
-        if (tableEl) tableEl.innerHTML = '<div style="color:red;text-align:center;padding:8px;">שגיאה: ' + err.message + '</div>';
+        if (tableEl) tableEl.innerHTML = '<div style="color:red;text-align:center;padding:8px;">' + t('שגיאה') + ': ' + err.message + '</div>';
       });
   };
 
@@ -6192,9 +6449,9 @@
 
     if (shift) {
       iconEl.textContent = '🟢';
-      statusEl.textContent = shift.workplace || 'בעבודה';
+      statusEl.textContent = shift.workplace || t('בעבודה');
       if (btnEl) {
-        btnEl.textContent = '🔴 יציאה';
+        btnEl.textContent = '🔴 ' + t('יציאה');
         btnEl.style.background = '#f44336';
         btnEl.setAttribute('onclick', 'TimeClock.punchOut(); setTimeout(renderViewerDashboard, 500);');
       }
