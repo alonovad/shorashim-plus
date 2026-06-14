@@ -48,6 +48,20 @@
   }
 
   function showApp(user, farm) {
+    // Sync role to Firebase custom claims (non-blocking)
+    try {
+      var fbUser = firebase.auth().currentUser;
+      if (fbUser && user && user.role) {
+        fbUser.getIdTokenResult().then(function(tokenResult) {
+          if (tokenResult.claims.role !== user.role) {
+            var setRole = firebase.functions().httpsCallable('setUserRole');
+            setRole({ uid: fbUser.uid, role: user.role }).then(function() {
+              fbUser.getIdToken(true); // force refresh
+            }).catch(function(e) { console.warn('Role sync:', e.message); });
+          }
+        });
+      }
+    } catch(e) { /* ignore — non-critical */ }
     currentUser = user;
     // Make currentUser available globally
     window.currentUser = user;
@@ -6192,9 +6206,16 @@
       throw new Error('missing config');
     }
 
+    // Get Firebase auth token for the proxy
+    var authToken = '';
+    try { authToken = await firebase.auth().currentUser.getIdToken(); } catch(e) {}
+
     var resp = await fetch('/api/talgil', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + authToken
+      },
       body: JSON.stringify({
         host: cfg.host,
         controllerId: cfg.controllerId,

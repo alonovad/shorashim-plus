@@ -1,0 +1,13 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "timeclock",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "username", "order": "ASCENDING" },
+        { "fieldPath": "punchIn", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

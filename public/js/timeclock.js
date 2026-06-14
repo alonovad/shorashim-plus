@@ -9,6 +9,13 @@ var TimeClock = (function() {
   var currentShift = null; // { punchIn: timestamp, workplace: string }
   var workplaces = []; // admin-defined list
 
+  function tt(he, th, ar) {
+    var lang = (typeof currentLang !== 'undefined') ? currentLang : 'he';
+    if (lang === 'th') return th || he;
+    if (lang === 'ar') return ar || he;
+    return he;
+  }
+
   function init() {
     loadWorkplaces();
     loadCurrentShift();
