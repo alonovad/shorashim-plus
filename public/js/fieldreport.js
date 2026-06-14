@@ -653,29 +653,37 @@ var FieldReport = (function() {
       var r = reports.find(function(rep) { return rep.id === reportId; });
       if (!r) return;
       var sev = SEVERITY_LEVELS[r.severity] || SEVERITY_LEVELS[0];
-      var htmlContent = '<!DOCTYPE html><html dir="' + tt('rtl','ltr','rtl') + '"><head><meta charset="utf-8"><title>' + tt('דוח סיור','รายงานตรวจ','تقرير فحص') + ' - ' + r.date + '</title>' +
-        '<style>body{font-family:Arial,sans-serif;padding:30px;max-width:700px;margin:0 auto;direction:' + tt('rtl','ltr','rtl') + ';}' +
-        'h1{color:#2e7d32;border-bottom:3px solid #2e7d32;padding-bottom:10px;}' +
-        'table{width:100%;border-collapse:collapse;margin:16px 0;}' +
-        'td,th{padding:8px 12px;border:1px solid #ddd;text-align:' + tt('right','left','right') + ';}' +
-        'th{background:#f5f5f5;font-weight:700;width:120px;}' +
-        '.severity{display:inline-block;padding:4px 12px;border-radius:6px;color:white;font-weight:700;background:' + sev.color + ';}' +
-        '.footer{margin-top:30px;padding-top:10px;border-top:1px solid #ddd;font-size:0.8em;color:#999;}</style></head><body>' +
-        '<h1>🔬 ' + tt('דוח סיור שדה', 'รายงานตรวจสนาม', 'تقرير فحص ميداني') + '</h1>' +
-        '<table>' +
-          '<tr><th>' + tt('תאריך','วันที่','تاريخ') + '</th><td>' + r.date + ' ' + (r.time || '') + '</td></tr>' +
-          '<tr><th>' + tt('סוקר','ผู้ตรวจ','المفتش') + '</th><td>' + (r.inspector || '') + '</td></tr>' +
-          '<tr><th>' + tt('חלקה','แปลง','قطعة') + '</th><td>' + (r.plotName || '') + (r.cropType ? ' (' + r.cropType + ')' : '') + '</td></tr>' +
-          (r.pest ? '<tr><th>' + tt('מזיק','ศัตรูพืช','آفة') + '</th><td>' + r.pest + '</td></tr>' : '') +
-          (r.disease ? '<tr><th>' + tt('מחלה','โรค','مرض') + '</th><td>' + r.disease + '</td></tr>' : '') +
-          '<tr><th>' + tt('חומרה','ความรุนแรง','شدة') + '</th><td><span class="severity">' + sev.icon + ' ' + tt(sev.label, sev.labelTh, sev.labelAr) + '</span></td></tr>' +
-          (r.infectionPercent ? '<tr><th>' + tt('אחוז נגיעות','เปอร์เซ็นต์','نسبة الإصابة') + '</th><td>' + r.infectionPercent + '%</td></tr>' : '') +
-          (r.affectedTrees ? '<tr><th>' + tt('עצים נגועים','ต้นติดเชื้อ','أشجار مصابة') + '</th><td>' + r.affectedTrees + '</td></tr>' : '') +
-          (r.locations ? '<tr><th>' + tt('מיקום בעץ','ตำแหน่ง','موقع في الشجرة') + '</th><td>' + translateLocs(r.locations) + '</td></tr>' : '') +
-          (r.recommendation ? '<tr><th>' + tt('המלצות טיפול','คำแนะนำ','توصيات العلاج') + '</th><td>' + r.recommendation + '</td></tr>' : '') +
-          (r.notes ? '<tr><th>' + tt('הערות','หมายเหตุ','ملاحظات') + '</th><td>' + r.notes + '</td></tr>' : '') +
-        '</table>' +
-        '<div class="footer">' + tt('שורשים פלוס — דוח סיור שדה', 'Shorashim Plus — รายงานตรวจ', 'شوراشيم بلس — تقرير فحص') + ' | ' + tt('נוצר','สร้างเมื่อ','أُنشئ') + ' ' + new Date().toLocaleDateString(tt('he-IL','th-TH','ar-SA')) + '</div>' +
+      var dir = tt('rtl','ltr','rtl');
+      var htmlContent = '<!DOCTYPE html><html dir="' + dir + '"><head><meta charset="utf-8"><title>' + tt('דוח סיור','รายงานตรวจ','تقرير فحص') + ' - ' + r.date + '</title>' +
+        '<style>' +
+        '@page { margin: 20mm 15mm; }' +
+        'body { font-family: -apple-system, "Segoe UI", Arial, sans-serif; padding: 0; margin: 0; color: #2b2520; direction: ' + dir + '; line-height: 1.5; }' +
+        '.header { background: linear-gradient(135deg, #1a5632, #2d6a4f, #40916c); color: white; padding: 28px 32px 20px; border-radius: 0 0 20px 20px; margin-bottom: 24px; }' +
+        '.header h1 { font-size: 1.5rem; font-weight: 800; margin: 0 0 4px; letter-spacing: -0.02em; }' +
+        '.header .meta { font-size: 0.85rem; opacity: 0.85; display: flex; gap: 16px; margin-top: 8px; }' +
+        '.content { padding: 0 28px; }' +
+        '.field { display: flex; margin-bottom: 10px; border-radius: 10px; overflow: hidden; box-shadow: 0 1px 4px rgba(43,37,32,0.06); }' +
+        '.field-label { background: #f5f0eb; padding: 10px 16px; font-weight: 700; font-size: 0.82rem; color: #8a8078; min-width: 110px; display: flex; align-items: center; }' +
+        '.field-value { background: white; padding: 10px 16px; flex: 1; font-size: 0.88rem; }' +
+        '.severity-badge { display: inline-block; padding: 6px 16px; border-radius: 50px; color: white; font-weight: 700; font-size: 0.88rem; background: ' + sev.color + '; box-shadow: 0 2px 8px ' + sev.color + '44; }' +
+        '.section-title { font-size: 0.75rem; font-weight: 700; color: #2d6a4f; text-transform: uppercase; letter-spacing: 0.05em; margin: 20px 0 8px; padding-bottom: 4px; border-bottom: 2px solid #d8f3dc; }' +
+        '.footer { text-align: center; padding: 24px; margin-top: 28px; font-size: 0.78rem; color: #8a8078; border-top: 1px solid #f0ebe6; }' +
+        '.footer .brand { color: #2d6a4f; font-weight: 700; }' +
+        '</style></head><body>' +
+        '<div class="header">' +
+          '<h1>🔬 ' + tt('דוח סיור שדה', 'รายงานตรวจสนาม', 'تقرير فحص ميداني') + '</h1>' +
+          '<div class="meta"><span>📅 ' + r.date + ' ' + (r.time || '') + '</span><span>👤 ' + (r.inspector || '') + '</span><span>📍 ' + (r.plotName || '') + (r.cropType ? ' · ' + r.cropType : '') + '</span></div>' +
+        '</div>' +
+        '<div class="content">' +
+          '<div class="section-title">' + tt('ממצאים','ผลตรวจ','النتائج') + '</div>' +
+          (r.pest ? '<div class="field"><div class="field-label">🐛 ' + tt('מזיק','ศัตรูพืช','آفة') + '</div><div class="field-value">' + r.pest + '</div></div>' : '') +
+          (r.disease ? '<div class="field"><div class="field-label">🦠 ' + tt('מחלה','โรค','مرض') + '</div><div class="field-value">' + r.disease + '</div></div>' : '') +
+          '<div class="field"><div class="field-label">' + tt('חומרה','ความรุนแรง','شدة') + '</div><div class="field-value"><span class="severity-badge">' + sev.icon + ' ' + tt(sev.label, sev.labelTh, sev.labelAr) + '</span>' + (r.infectionPercent ? ' &nbsp; ' + r.infectionPercent + '%' : '') + (r.affectedTrees ? ' &nbsp; ' + r.affectedTrees + ' ' + tt('עצים','ต้น','أشجار') : '') + '</div></div>' +
+          (r.locations ? '<div class="field"><div class="field-label">📌 ' + tt('מיקום','ตำแหน่ง','موقع') + '</div><div class="field-value">' + translateLocs(r.locations) + '</div></div>' : '') +
+          (r.recommendation ? '<div class="section-title">' + tt('המלצות','คำแนะนำ','توصيات') + '</div><div class="field"><div class="field-label">💊</div><div class="field-value">' + r.recommendation + '</div></div>' : '') +
+          (r.notes ? '<div class="section-title">' + tt('הערות','หมายเหตุ','ملاحظات') + '</div><div class="field"><div class="field-label">📝</div><div class="field-value">' + r.notes + '</div></div>' : '') +
+        '</div>' +
+        '<div class="footer"><span class="brand">🌿 ' + tt('שורשים פלוס', 'Shorashim Plus', 'شوراشيم بلس') + '</span> · ' + tt('דוח סיור שדה','รายงานตรวจสนาม','تقرير فحص ميداني') + ' · ' + tt('נוצר','สร้างเมื่อ','أُنشئ') + ' ' + new Date().toLocaleDateString(tt('he-IL','th-TH','ar-SA')) + '</div>' +
         '</body></html>';
       var blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
       var a = document.createElement('a');

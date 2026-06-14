@@ -2286,17 +2286,28 @@
     html += '<meta charset="UTF-8">\n';
     html += '<title>' + t('יומן ריסוסים') + '</title>\n';
     html += '<style>\n';
-    html += 'body { font-family: "Arial", sans-serif; direction: rtl; padding: 20px; }\n';
-    html += 'h1 { text-align: center; color: #1b5e20; border-bottom: 3px solid #43a047; padding-bottom: 10px; }\n';
-    html += 'table { width: 100%; border-collapse: collapse; margin-top: 20px; }\n';
-    html += 'th, td { border: 1px solid #ccc; padding: 8px; text-align: right; }\n';
-    html += 'th { background: #e8f5e9; font-weight: bold; }\n';
-    html += '.event-header { background: #f4f9f4; font-weight: bold; }\n';
-    html += '.pesticide-row { background: #fafafa; }\n';
+    html += '@page { margin: 20mm 15mm; }\n';
+    html += 'body { font-family: -apple-system, "Segoe UI", Arial, sans-serif; direction: rtl; padding: 0; margin: 0; color: #2b2520; line-height: 1.5; }\n';
+    html += '.header { background: linear-gradient(135deg, #1a5632, #2d6a4f, #40916c); color: white; padding: 28px 32px; border-radius: 0 0 20px 20px; margin-bottom: 24px; }\n';
+    html += '.header h1 { font-size: 1.6rem; font-weight: 800; margin: 0 0 4px 0; letter-spacing: -0.02em; }\n';
+    html += '.header .sub { font-size: 0.85rem; opacity: 0.85; }\n';
+    html += '.meta { display: flex; justify-content: space-between; padding: 0 24px; margin-bottom: 20px; font-size: 0.85rem; color: #8a8078; }\n';
+    html += 'table { width: calc(100% - 48px); margin: 0 24px; border-collapse: separate; border-spacing: 0; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 12px rgba(43,37,32,0.07); }\n';
+    html += 'th { background: #2d6a4f; color: white; padding: 12px 14px; text-align: right; font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; }\n';
+    html += 'td { padding: 10px 14px; border-bottom: 1px solid #f0ebe6; font-size: 0.85rem; }\n';
+    html += 'tr:last-child td { border-bottom: none; }\n';
+    html += '.event-header td { background: #faf8f5; font-weight: 600; }\n';
+    html += '.pesticide-row td { background: white; }\n';
+    html += 'tr:hover td { background: #f5f0eb; }\n';
+    html += '.footer { text-align: center; padding: 24px; margin-top: 24px; font-size: 0.78rem; color: #8a8078; border-top: 1px solid #f0ebe6; }\n';
+    html += '.footer .brand { color: #2d6a4f; font-weight: 700; }\n';
+    html += '.badge { display: inline-block; padding: 3px 10px; border-radius: 50px; font-size: 0.75rem; font-weight: 600; }\n';
     html += '</style>\n';
     html += '</head>\n<body>\n';
-    html += '<h1>' + t('יומן ריסוסים - שורשים פלוס') + '</h1>\n';
-    html += '<p><strong>' + t('תאריך הפקה:') + '</strong> ' + formatDate(new Date().toISOString().split('T')[0]) + '</p>\n';
+    html += '<div class="header">\n';
+    html += '<h1>🌿 ' + t('יומן ריסוסים - שורשים פלוס') + '</h1>\n';
+    html += '<div class="sub">' + t('תאריך הפקה:') + ' ' + formatDate(new Date().toISOString().split('T')[0]) + '</div>\n';
+    html += '</div>\n';
     
     html += '<table>\n';
     html += '<thead><tr><th>' + t('תאריך') + '</th><th>' + t('מפעיל') + '</th><th>' + t('חלקות') + '</th><th>' + t('שטח') + '</th><th>' + t('נפח/עץ') + '</th><th>' + t('מרסס') + '</th><th>' + t('חומר') + '</th><th>' + t('ריכוז') + '</th><th>' + t('מטרה') + '</th></tr></thead>\n';
@@ -2331,6 +2342,7 @@
     });
 
     html += '</tbody>\n</table>\n';
+    html += '<div class="footer"><span class="brand">🌿 ' + t('שורשים פלוס') + '</span> · ' + t('יומן ריסוסים') + ' · ' + new Date().getFullYear() + '</div>\n';
     html += '</body>\n</html>';
 
     return html;
@@ -5959,12 +5971,97 @@
     setTimeout(function() { applyTranslations(); }, 300);
   }
 
+  // ── Sound System (Web Audio API — tiny procedural sounds, no files needed) ──
+  var sfxCtx = null;
+  var sfxMuted = localStorage.getItem('shorashim-sfx-muted') === 'true';
+
+  function sfxInit() {
+    if (sfxCtx) return;
+    try { sfxCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e) {}
+  }
+
+  function sfxPlay(type) {
+    if (sfxMuted || !sfxCtx) return;
+    try {
+      var osc = sfxCtx.createOscillator();
+      var gain = sfxCtx.createGain();
+      osc.connect(gain);
+      gain.connect(sfxCtx.destination);
+      var now = sfxCtx.currentTime;
+
+      if (type === 'tap') {
+        osc.frequency.setValueAtTime(800, now);
+        osc.frequency.exponentialRampToValueAtTime(600, now + 0.06);
+        gain.gain.setValueAtTime(0.06, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
+        osc.start(now); osc.stop(now + 0.06);
+      } else if (type === 'success') {
+        osc.frequency.setValueAtTime(523, now);
+        osc.frequency.setValueAtTime(659, now + 0.1);
+        osc.frequency.setValueAtTime(784, now + 0.2);
+        gain.gain.setValueAtTime(0.08, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+        osc.start(now); osc.stop(now + 0.35);
+      } else if (type === 'error') {
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(200, now);
+        osc.frequency.exponentialRampToValueAtTime(120, now + 0.15);
+        gain.gain.setValueAtTime(0.05, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+        osc.start(now); osc.stop(now + 0.15);
+      } else if (type === 'punch') {
+        osc.frequency.setValueAtTime(400, now);
+        osc.frequency.exponentialRampToValueAtTime(800, now + 0.08);
+        osc.frequency.exponentialRampToValueAtTime(600, now + 0.15);
+        gain.gain.setValueAtTime(0.1, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+        osc.start(now); osc.stop(now + 0.2);
+      }
+    } catch(e) {}
+  }
+
+  window.toggleSfxMute = function() {
+    sfxMuted = !sfxMuted;
+    localStorage.setItem('shorashim-sfx-muted', sfxMuted);
+    showToast(sfxMuted ? '🔇' : '🔊');
+  };
+
+  // Init audio on first user interaction
+  document.addEventListener('click', function() { sfxInit(); }, { once: true });
+
+  // ── Ripple Effect ──
+  document.addEventListener('click', function(e) {
+    var btn = e.target.closest('button, .btn-admin, .btn-submit, .tab, .fab-main, .fab-option-icon');
+    if (!btn || btn.classList.contains('no-ripple')) return;
+    var rect = btn.getBoundingClientRect();
+    var ripple = document.createElement('span');
+    ripple.className = 'ripple';
+    var size = Math.max(rect.width, rect.height);
+    ripple.style.width = ripple.style.height = size + 'px';
+    ripple.style.left = (e.clientX - rect.left - size / 2) + 'px';
+    ripple.style.top = (e.clientY - rect.top - size / 2) + 'px';
+    btn.style.position = btn.style.position || 'relative';
+    btn.style.overflow = 'hidden';
+    btn.appendChild(ripple);
+    setTimeout(function() { ripple.remove(); }, 500);
+  });
+
   // ── Toast ──
   function showToast(msg) {
+    // Determine sound from message content
+    if (msg.indexOf('✅') !== -1 || msg.indexOf('💾') !== -1 || msg.indexOf('📋') !== -1) sfxPlay('success');
+    else if (msg.indexOf('❌') !== -1) sfxPlay('error');
+    else if (msg.indexOf('🟢') !== -1 || msg.indexOf('🔴') !== -1) sfxPlay('punch');
+    else sfxPlay('tap');
+
     var toastEl = document.getElementById('toast');
     toastEl.textContent = msg;
-    toastEl.classList.add('show');
-    setTimeout(function() { toastEl.classList.remove('show'); }, 2500);
+    toastEl.className = 'toast show';
+    clearTimeout(toastEl._timer);
+    toastEl._timer = setTimeout(function() {
+      toastEl.classList.add('hide');
+      setTimeout(function() { toastEl.className = 'toast'; }, 300);
+    }, 2400);
   }
 
   // ── TALGIL IRRIGATION ──
