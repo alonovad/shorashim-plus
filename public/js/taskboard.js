@@ -34,7 +34,7 @@ var TaskBoard = (function() {
       task.status = 'pending';
       tasks.push(task);
       saveTasks(tasks);
-      if (typeof showToast === 'function') showToast('✅ משימה נוספה');
+      if (typeof showToast === 'function') showToast('✅ ' + tt('משימה נוספה', 'เพิ่มงานแล้ว', 'تمت إضافة المهمة'));
     });
   }
 
@@ -52,7 +52,7 @@ var TaskBoard = (function() {
     loadTasks().then(function(tasks) {
       tasks = tasks.filter(function(t) { return t.id !== taskId; });
       saveTasks(tasks);
-      if (typeof showToast === 'function') showToast('🗑️ משימה נמחקה');
+      if (typeof showToast === 'function') showToast('🗑️ ' + tt('משימה נמחקה', 'ลบงานแล้ว', 'تم حذف المهمة'));
     });
   }
 
@@ -154,11 +154,11 @@ var TaskBoard = (function() {
     modal.innerHTML = '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;">' +
       '<div style="background:white;border-radius:16px;padding:20px;width:95%;max-width:600px;max-height:85vh;overflow-y:auto;">' +
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">' +
-          '<h3 style="font-weight:700;">📋 ניהול משימות</h3>' +
-          '<button onclick="TaskBoard.showNewTaskForm()" style="padding:6px 14px;border-radius:8px;border:none;background:#4caf50;color:white;font-family:inherit;font-weight:700;cursor:pointer;">➕ חדש</button>' +
+          '<h3 style="font-weight:700;">📋 ' + tt('ניהול משימות', 'จัดการงาน', 'إدارة المهام') + '</h3>' +
+          '<button onclick="TaskBoard.showNewTaskForm()" style="padding:6px 14px;border-radius:8px;border:none;background:#4caf50;color:white;font-family:inherit;font-weight:700;cursor:pointer;">' + tt('➕ חדש', '➕ ใหม่', '➕ جديد') + '</button>' +
         '</div>' +
-        '<div id="taskManagerContent" style="color:#999;text-align:center;padding:16px;">טוען...</div>' +
-        '<button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'" style="margin-top:12px;width:100%;padding:10px;border-radius:10px;border:none;background:#eee;font-family:inherit;cursor:pointer;">סגור</button>' +
+        '<div id="taskManagerContent" style="color:#999;text-align:center;padding:16px;">' + tt('טוען...', 'กำลังโหลด...', 'جاري التحميل...') + '</div>' +
+        '<button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'" style="margin-top:12px;width:100%;padding:10px;border-radius:10px;border:none;background:#eee;font-family:inherit;cursor:pointer;">' + tt('סגור', 'ปิด', 'إغلاق') + '</button>' +
       '</div></div>';
 
     loadTasks().then(function(tasks) {
@@ -175,7 +175,7 @@ var TaskBoard = (function() {
     if (!el) return;
 
     if (tasks.length === 0) {
-      el.innerHTML = '<div style="padding:16px;text-align:center;color:#999;">אין משימות — לחץ ➕ להוספה</div>';
+      el.innerHTML = '<div style="padding:16px;text-align:center;color:#999;">' + tt('אין משימות — לחץ ➕ להוספה', 'ไม่มีงาน — กด ➕ เพื่อเพิ่ม', 'لا توجد مهام — اضغط ➕ للإضافة') + '</div>';
       return;
     }
 
@@ -214,7 +214,7 @@ var TaskBoard = (function() {
     // Get workers list
     var users = {};
     try { users = JSON.parse(localStorage.getItem('shorashim-users') || '{}'); } catch(e) {}
-    var workerOptions = '<option value="">— בחר עובד —</option>';
+    var workerOptions = '<option value="">' + tt('— בחר עובד —', '— เลือกคนงาน —', '— اختر عامل —') + '</option>';
     Object.values(users).forEach(function(u) {
       if (u.username) {
         workerOptions += '<option value="' + u.username + '">' + u.name + ' (' + u.role + ')</option>';
@@ -222,7 +222,7 @@ var TaskBoard = (function() {
     });
 
     // Get workplaces
-    var workplaceOptions = '<option value="">— מקום (אופציונלי) —</option>';
+    var workplaceOptions = '<option value="">' + tt('— מקום (אופציונלי) —', '— สถานที่ (ไม่บังคับ) —', '— مكان (اختياري) —') + '</option>';
     if (typeof farms !== 'undefined') {
       farms.forEach(function(f) {
         workplaceOptions += '<option value="' + f.name + '">' + f.name + '</option>';
@@ -232,19 +232,19 @@ var TaskBoard = (function() {
     var modal = document.getElementById('modalContainer');
     modal.innerHTML = '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;">' +
       '<div style="background:white;border-radius:16px;padding:20px;width:90%;max-width:400px;">' +
-        '<h3 style="font-weight:700;margin-bottom:12px;">➕ משימה חדשה</h3>' +
+        '<h3 style="font-weight:700;margin-bottom:12px;">➕ ' + tt('משימה חדשה', 'งานใหม่', 'مهمة جديدة') + '</h3>' +
         '<div style="display:grid;gap:10px;">' +
-          '<input id="taskTitle" placeholder="כותרת המשימה" style="padding:10px 12px;border-radius:8px;border:1px solid #ddd;font-family:inherit;font-size:0.95rem;">' +
-          '<textarea id="taskDesc" placeholder="תיאור (אופציונלי)" rows="2" style="padding:10px 12px;border-radius:8px;border:1px solid #ddd;font-family:inherit;font-size:0.85rem;resize:vertical;"></textarea>' +
+          '<input id="taskTitle" placeholder="' + tt('כותרת המשימה', 'ชื่องาน', 'عنوان المهمة') + '" style="padding:10px 12px;border-radius:8px;border:1px solid #ddd;font-family:inherit;font-size:0.95rem;">' +
+          '<textarea id="taskDesc" placeholder="' + tt('תיאור (אופציונלי)', 'รายละเอียด (ไม่บังคับ)', 'وصف (اختياري)') + '" rows="2" style="padding:10px 12px;border-radius:8px;border:1px solid #ddd;font-family:inherit;font-size:0.85rem;resize:vertical;"></textarea>' +
           '<select id="taskAssign" style="padding:10px 12px;border-radius:8px;border:1px solid #ddd;font-family:inherit;">' + workerOptions + '</select>' +
           '<select id="taskWorkplace" style="padding:10px 12px;border-radius:8px;border:1px solid #ddd;font-family:inherit;">' + workplaceOptions + '</select>' +
           '<div>' +
-            '<label style="font-size:0.75rem;color:#999;">תאריך יעד</label>' +
+            '<label style="font-size:0.75rem;color:#999;">' + tt('תאריך יעד', 'วันกำหนด', 'تاريخ الاستحقاق') + '</label>' +
             '<input type="date" id="taskDue" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #ddd;font-family:inherit;">' +
           '</div>' +
           '<div style="display:flex;gap:8px;margin-top:4px;">' +
-            '<button onclick="TaskBoard._saveNewTask()" style="flex:1;padding:10px;border-radius:10px;border:none;background:#4caf50;color:white;font-family:inherit;font-weight:700;cursor:pointer;">💾 שמור</button>' +
-            '<button onclick="TaskBoard.showTaskManager()" style="flex:1;padding:10px;border-radius:10px;border:none;background:#eee;font-family:inherit;cursor:pointer;">ביטול</button>' +
+            '<button onclick="TaskBoard._saveNewTask()" style="flex:1;padding:10px;border-radius:10px;border:none;background:#4caf50;color:white;font-family:inherit;font-weight:700;cursor:pointer;">💾 ' + tt('שמור', 'บันทึก', 'حفظ') + '</button>' +
+            '<button onclick="TaskBoard.showTaskManager()" style="flex:1;padding:10px;border-radius:10px;border:none;background:#eee;font-family:inherit;cursor:pointer;">' + tt('ביטול', 'ยกเลิก', 'إلغاء') + '</button>' +
           '</div>' +
         '</div>' +
       '</div></div>';
@@ -263,7 +263,7 @@ var TaskBoard = (function() {
     var dueDate = document.getElementById('taskDue').value;
 
     if (!title) {
-      if (typeof showToast === 'function') showToast('❌ חובה למלא כותרת');
+      if (typeof showToast === 'function') showToast('❌ ' + tt('חובה למלא כותרת', 'ต้องกรอกชื่องาน', 'يجب إدخال العنوان'));
       return;
     }
 
@@ -280,7 +280,7 @@ var TaskBoard = (function() {
   }
 
   function _deleteTask(taskId) {
-    if (!confirm('למחוק משימה?')) return;
+    if (!confirm(tt('למחוק משימה?', 'ลบงาน?', 'حذف المهمة؟'))) return;
     deleteTask(taskId);
     setTimeout(showTaskManager, 300);
   }

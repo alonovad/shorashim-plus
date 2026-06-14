@@ -103,14 +103,14 @@ var TimeClock = (function() {
             '<div style="font-size:0.7rem;opacity:0.8;">' + (currentShift.workplace || '') + '</div>' +
           '</div>' +
         '</div>' +
-        '<button onclick="TimeClock.punchOut()" style="padding:6px 14px;border-radius:8px;border:none;background:#f44336;color:white;font-family:inherit;font-weight:700;font-size:0.8rem;cursor:pointer;">🔴 יציאה</button>';
+        '<button onclick="TimeClock.punchOut()" style="padding:6px 14px;border-radius:8px;border:none;background:#f44336;color:white;font-family:inherit;font-weight:700;font-size:0.8rem;cursor:pointer;">' + tt('🔴 יציאה', '🔴 ออกงาน', '🔴 خروج') + '</button>';
     } else {
       bar.innerHTML =
         '<div style="display:flex;align-items:center;gap:8px;flex:1;">' +
           '<span style="font-size:1.2rem;">⚪</span>' +
-          '<div style="font-size:0.85rem;font-weight:600;">לא בשעון</div>' +
+          '<div style="font-size:0.85rem;font-weight:600;">' + tt('לא בשעון', 'ไม่ได้เข้างาน', 'غير مسجل') + '</div>' +
         '</div>' +
-        '<button onclick="TimeClock.punchIn()" style="padding:6px 14px;border-radius:8px;border:none;background:#4caf50;color:white;font-family:inherit;font-weight:700;font-size:0.8rem;cursor:pointer;">🟢 כניסה</button>';
+        '<button onclick="TimeClock.punchIn()" style="padding:6px 14px;border-radius:8px;border:none;background:#4caf50;color:white;font-family:inherit;font-weight:700;font-size:0.8rem;cursor:pointer;">' + tt('🟢 כניסה', '🟢 เข้างาน', '🟢 دخول') + '</button>';
     }
   }
 
@@ -145,7 +145,7 @@ var TimeClock = (function() {
 
   function formatDate(ts) {
     var d = new Date(ts);
-    return d.toLocaleDateString('he-IL');
+    return d.toLocaleDateString((typeof currentLang !== 'undefined' && currentLang === 'th') ? 'th-TH' : (typeof currentLang !== 'undefined' && currentLang === 'ar') ? 'ar-SA' : 'he-IL');
   }
 
   // ── Punch In ──
@@ -179,7 +179,7 @@ var TimeClock = (function() {
       saveCurrentShift();
       renderClockBar();
       startTicker();
-      if (typeof showToast === 'function') showToast('🟢 נכנסת — ' + workplace);
+      if (typeof showToast === 'function') showToast('🟢 ' + tt('נכנסת', 'เข้างานแล้ว', 'دخلت') + ' — ' + workplace);
     });
   }
 
@@ -217,7 +217,7 @@ var TimeClock = (function() {
     saveCurrentShift();
     stopTicker();
     renderClockBar();
-    if (typeof showToast === 'function') showToast('🔴 יצאת — ' + formatDuration(record.duration));
+    if (typeof showToast === 'function') showToast('🔴 ' + tt('יצאת', 'ออกงานแล้ว', 'خرجت') + ' — ' + formatDuration(record.duration));
   }
 
   // ── Workplace Picker Modal ──
@@ -227,17 +227,17 @@ var TimeClock = (function() {
     var modal = document.getElementById('modalContainer');
     var html = '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;">';
     html += '<div style="background:white;border-radius:16px;padding:20px;width:90%;max-width:360px;max-height:80vh;overflow-y:auto;">';
-    html += '<h3 style="font-weight:700;font-size:1.1rem;margin-bottom:12px;">📍 ' + (forceNew ? 'בחר מקום עבודה חדש' : 'בחר מקום עבודה') + '</h3>';
+    html += '<h3 style="font-weight:700;font-size:1.1rem;margin-bottom:12px;">📍 ' + (forceNew ? tt('בחר מקום עבודה חדש', 'เลือกสถานที่ทำงานใหม่', 'اختر مكان عمل جديد') : tt('בחר מקום עבודה', 'เลือกสถานที่ทำงาน', 'اختر مكان العمل')) + '</h3>';
 
     if (options.length === 0) {
-      html += '<div style="color:#999;text-align:center;padding:16px;">אין מקומות עבודה מוגדרים. המנהל צריך להגדיר.</div>';
+      html += '<div style="color:#999;text-align:center;padding:16px;">' + tt('אין מקומות עבודה מוגדרים. המנהל צריך להגדיר.', 'ไม่มีสถานที่ทำงาน ผู้ดูแลต้องตั้งค่า', 'لا توجد أماكن عمل. يجب على المسؤول إعدادها.') + '</div>';
     } else {
       options.forEach(function(opt) {
         html += '<button onclick="TimeClock._selectWorkplace(\'' + opt.replace(/'/g, "\\'") + '\')" style="display:block;width:100%;padding:12px 16px;margin-bottom:6px;border-radius:10px;border:1px solid #ddd;background:#f5f5f5;font-family:inherit;font-size:0.95rem;font-weight:600;cursor:pointer;text-align:right;">' + opt + '</button>';
       });
     }
 
-    html += '<button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'" style="margin-top:10px;width:100%;padding:10px;border-radius:10px;border:none;background:#eee;font-family:inherit;font-size:0.9rem;cursor:pointer;">ביטול</button>';
+    html += '<button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'" style="margin-top:10px;width:100%;padding:10px;border-radius:10px;border:none;background:#eee;font-family:inherit;font-size:0.9rem;cursor:pointer;">' + tt('ביטול', 'ยกเลิก', 'إلغاء') + '</button>';
     html += '</div></div>';
     modal.innerHTML = html;
 
@@ -262,25 +262,25 @@ var TimeClock = (function() {
     if (!panel) return;
 
     var html = '<div style="padding:16px;">';
-    html += '<h3 style="font-weight:700;font-size:1.1rem;margin-bottom:16px;border-bottom:2px solid #e0e0e0;padding-bottom:8px;">⚙️ תפריט</h3>';
+    html += '<h3 style="font-weight:700;font-size:1.1rem;margin-bottom:16px;border-bottom:2px solid #e0e0e0;padding-bottom:8px;">' + tt('⚙️ תפריט', '⚙️ เมนู', '⚙️ القائمة') + '</h3>';
 
     // Time records - for all users
-    html += '<button onclick="TaskBoard.showMyTasks();TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-bottom:6px;border-radius:10px;border:none;background:#f3e5f5;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">📋 המשימות שלי</button>';
-    html += '<button onclick="TimeClock.showMyRecords();TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-bottom:6px;border-radius:10px;border:none;background:#e8f5e9;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">🕐 הדוחות שלי</button>';
-    html += '<button onclick="TimeClock.showProfileEdit();TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-bottom:6px;border-radius:10px;border:none;background:#fce4ec;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">👤 הפרופיל שלי</button>';
+    html += '<button onclick="TaskBoard.showMyTasks();TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-bottom:6px;border-radius:10px;border:none;background:#f3e5f5;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">' + tt('📋 המשימות שלי', '📋 งานของฉัน', '📋 مهامي') + '</button>';
+    html += '<button onclick="TimeClock.showMyRecords();TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-bottom:6px;border-radius:10px;border:none;background:#e8f5e9;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">' + tt('🕐 הדוחות שלי', '🕐 รายงานของฉัน', '🕐 تقاريري') + '</button>';
+    html += '<button onclick="TimeClock.showProfileEdit();TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-bottom:6px;border-radius:10px;border:none;background:#fce4ec;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">' + tt('👤 הפרופיל שלי', '👤 โปรไฟล์ของฉัน', '👤 ملفي الشخصي') + '</button>';
 
     if (isManager) {
-      html += '<button onclick="TimeClock.showAllRecords();TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-bottom:6px;border-radius:10px;border:none;background:#e3f2fd;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">📊 ניהול שעות</button>';
-      html += '<button onclick="TaskBoard.showTaskManager();TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-bottom:6px;border-radius:10px;border:none;background:#ede7f6;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">📋 ניהול משימות</button>';
-      html += '<button onclick="TimeClock.showAdminDashboard();TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-bottom:6px;border-radius:10px;border:none;background:#e0f7fa;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">📊 לוח בקרה</button>';
-      html += '<button onclick="FieldReport.showReportsList();TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-bottom:6px;border-radius:10px;border:none;background:#f9fbe7;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">🔬 דוחות סיור</button>';
-      html += '<button onclick="TimeClock.showExportMenu();TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-bottom:6px;border-radius:10px;border:none;background:#f1f8e9;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">📥 ייצוא נתונים</button>';
-      html += '<button onclick="TimeClock.showWorkplaceAdmin();TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-bottom:6px;border-radius:10px;border:none;background:#fff3e0;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">📍 מקומות עבודה</button>';
-      html += '<button onclick="TimeClock.showCropAdmin();TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-bottom:6px;border-radius:10px;border:none;background:#e8f5e9;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">🌱 סוגי גידולים</button>';
+      html += '<button onclick="TimeClock.showAllRecords();TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-bottom:6px;border-radius:10px;border:none;background:#e3f2fd;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">' + tt('📊 ניהול שעות', '📊 จัดการชั่วโมง', '📊 إدارة الساعات') + '</button>';
+      html += '<button onclick="TaskBoard.showTaskManager();TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-bottom:6px;border-radius:10px;border:none;background:#ede7f6;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">' + tt('📋 ניהול משימות', '📋 จัดการงาน', '📋 إدارة المهام') + '</button>';
+      html += '<button onclick="TimeClock.showAdminDashboard();TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-bottom:6px;border-radius:10px;border:none;background:#e0f7fa;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">' + tt('📊 לוח בקרה', '📊 แดชบอร์ด', '📊 لوحة التحكم') + '</button>';
+      html += '<button onclick="FieldReport.showReportsList();TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-bottom:6px;border-radius:10px;border:none;background:#f9fbe7;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">' + tt('🔬 דוחות סיור', '🔬 รายงานสำรวจ', '🔬 تقارير الجولات') + '</button>';
+      html += '<button onclick="TimeClock.showExportMenu();TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-bottom:6px;border-radius:10px;border:none;background:#f1f8e9;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">' + tt('📥 ייצוא נתונים', '📥 ส่งออกข้อมูล', '📥 تصدير البيانات') + '</button>';
+      html += '<button onclick="TimeClock.showWorkplaceAdmin();TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-bottom:6px;border-radius:10px;border:none;background:#fff3e0;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">' + tt('📍 מקומות עבודה', '📍 สถานที่ทำงาน', '📍 أماكن العمل') + '</button>';
+      html += '<button onclick="TimeClock.showCropAdmin();TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-bottom:6px;border-radius:10px;border:none;background:#e8f5e9;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">' + tt('🌱 סוגי גידולים', '🌱 ประเภทพืช', '🌱 أنواع المحاصيل') + '</button>';
     }
 
-    html += '<button onclick="location.reload(true)" style="display:block;width:100%;padding:12px;margin-top:12px;border-radius:10px;border:none;background:#e3f2fd;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:center;">🔄 רענן אפליקציה</button>';
-    html += '<button onclick="TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-top:6px;border-radius:10px;border:none;background:#f5f5f5;font-family:inherit;font-size:0.9rem;cursor:pointer;text-align:center;">סגור</button>';
+    html += '<button onclick="location.reload(true)" style="display:block;width:100%;padding:12px;margin-top:12px;border-radius:10px;border:none;background:#e3f2fd;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:center;">' + tt('🔄 רענן אפליקציה', '🔄 รีเฟรชแอป', '🔄 تحديث التطبيق') + '</button>';
+    html += '<button onclick="TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-top:6px;border-radius:10px;border:none;background:#f5f5f5;font-family:inherit;font-size:0.9rem;cursor:pointer;text-align:center;">' + tt('סגור', 'ปิด', 'إغلاق') + '</button>';
     html += '<div style="text-align:center;margin-top:8px;font-size:0.65rem;color:#bbb;">v1.0.0</div>';
     html += '</div>';
     panel.innerHTML = html;
@@ -314,7 +314,7 @@ var TimeClock = (function() {
   function showMyRecords() {
     var username = window.currentUser ? window.currentUser.username : '';
     var modal = document.getElementById('modalContainer');
-    modal.innerHTML = '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;"><div style="background:white;border-radius:16px;padding:20px;width:95%;max-width:500px;max-height:85vh;overflow-y:auto;"><h3 style="font-weight:700;margin-bottom:12px;">🕐 הדוחות שלי</h3><div id="myRecordsContent" style="color:#999;text-align:center;padding:16px;">טוען...</div><button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'" style="margin-top:12px;width:100%;padding:10px;border-radius:10px;border:none;background:#eee;font-family:inherit;cursor:pointer;">סגור</button></div></div>';
+    modal.innerHTML = '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;"><div style="background:white;border-radius:16px;padding:20px;width:95%;max-width:500px;max-height:85vh;overflow-y:auto;"><h3 style="font-weight:700;margin-bottom:12px;">' + tt('🕐 הדוחות שלי', '🕐 รายงานของฉัน', '🕐 تقاريري') + '</h3><div id="myRecordsContent" style="color:#999;text-align:center;padding:16px;">' + tt('טוען...', 'กำลังโหลด...', 'جاري التحميل...') + '</div><button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'" style="margin-top:12px;width:100%;padding:10px;border-radius:10px;border:none;background:#eee;font-family:inherit;cursor:pointer;">' + tt('סגור', 'ปิด', 'إغلาق') + '</button></div></div>';
 
     if (typeof db !== 'undefined') {
       db.collection('timeclock')
@@ -328,7 +328,7 @@ var TimeClock = (function() {
           renderRecordsTable('myRecordsContent', records, false);
         })
         .catch(function(err) {
-          document.getElementById('myRecordsContent').innerHTML = '<div style="color:red;">שגיאה: ' + err.message + '</div>';
+          document.getElementById('myRecordsContent').innerHTML = '<div style="color:red;">' + tt('שגיאה', 'ข้อผิดพลาด', 'خطأ') + ': ' + err.message + '</div>';
         });
     }
   }
@@ -337,7 +337,7 @@ var TimeClock = (function() {
 
   function showAllRecords() {
     var modal = document.getElementById('modalContainer');
-    modal.innerHTML = '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;"><div style="background:white;border-radius:16px;padding:20px;width:95%;max-width:600px;max-height:85vh;overflow-y:auto;"><h3 style="font-weight:700;margin-bottom:12px;">📊 ניהול שעות — כל העובדים</h3><div id="allRecordsContent" style="color:#999;text-align:center;padding:16px;">טוען...</div><button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'" style="margin-top:12px;width:100%;padding:10px;border-radius:10px;border:none;background:#eee;font-family:inherit;cursor:pointer;">סגור</button></div></div>';
+    modal.innerHTML = '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;"><div style="background:white;border-radius:16px;padding:20px;width:95%;max-width:600px;max-height:85vh;overflow-y:auto;"><h3 style="font-weight:700;margin-bottom:12px;">' + tt('📊 ניהול שעות — כל העובדים', '📊 จัดการชั่วโมง — ทุกคน', '📊 إدارة الساعات — جميع العمال') + '</h3><div id="allRecordsContent" style="color:#999;text-align:center;padding:16px;">' + tt('טוען...', 'กำลังโหลด...', 'جاري التحميل...') + '</div><button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'" style="margin-top:12px;width:100%;padding:10px;border-radius:10px;border:none;background:#eee;font-family:inherit;cursor:pointer;">' + tt('סגור', 'ปิด', 'إغلาق') + '</button></div></div>';
 
     if (typeof db !== 'undefined') {
       db.collection('timeclock')
@@ -350,7 +350,7 @@ var TimeClock = (function() {
           renderRecordsTable('allRecordsContent', records, true);
         })
         .catch(function(err) {
-          document.getElementById('allRecordsContent').innerHTML = '<div style="color:red;">שגיאה: ' + err.message + '<br>אם זו שגיאת index, לחץ על הקישור בקונסול ליצירת ה-index.</div>';
+          document.getElementById('allRecordsContent').innerHTML = '<div style="color:red;">' + tt('שגיאה', 'ข้อผิดพลาด', 'خطأ') + ': ' + err.message + '</div>';
         });
     }
   }
@@ -358,15 +358,15 @@ var TimeClock = (function() {
   function renderRecordsTable(containerId, records, showUser) {
     var el = document.getElementById(containerId);
     if (records.length === 0) {
-      el.innerHTML = '<div style="text-align:center;color:#999;padding:16px;">אין רשומות</div>';
+      el.innerHTML = '<div style="text-align:center;color:#999;padding:16px;">' + tt('אין רשומות', 'ไม่มีรายการ', 'لا توجد سجلات') + '</div>';
       return;
     }
 
     var html = '<table style="width:100%;border-collapse:collapse;font-size:0.8rem;">';
     html += '<tr style="background:#f5f5f5;font-weight:700;">';
-    html += '<td style="padding:6px;">תאריך</td>';
-    if (showUser) html += '<td>עובד</td>';
-    html += '<td>מקום</td><td>כניסה</td><td>יציאה</td><td>שעות</td>';
+    html += '<td style="padding:6px;">' + tt('תאריך', 'วันที่', 'تاريخ') + '</td>';
+    if (showUser) html += '<td>' + tt('עובד', 'คนงาน', 'عامل') + '</td>';
+    html += '<td>' + tt('מקום', 'สถานที่', 'مكان') + '</td><td>' + tt('כניסה', 'เข้า', 'دخول') + '</td><td>' + tt('יציאה', 'ออก', 'خروج') + '</td><td>' + tt('שעות', 'ชั่วโมง', 'ساعات') + '</td>';
     if (showUser) html += '<td></td>';
     html += '</tr>';
 
@@ -404,18 +404,18 @@ var TimeClock = (function() {
       modal.innerHTML =
         '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;">' +
         '<div style="background:white;border-radius:16px;padding:20px;width:90%;max-width:360px;">' +
-          '<h3 style="font-weight:700;margin-bottom:12px;">✏️ עריכת רשומה</h3>' +
+          '<h3 style="font-weight:700;margin-bottom:12px;">✏️ ' + tt('עריכת רשומה', 'แก้ไขรายการ', 'تعديل سجل') + '</h3>' +
           '<div style="margin-bottom:8px;font-size:0.85rem;font-weight:600;">' + (r.userName || r.username) + ' — ' + (r.workplace || '') + '</div>' +
-          '<label style="font-size:0.8rem;color:#666;">תאריך</label>' +
+          '<label style="font-size:0.8rem;color:#666;">' + tt('תאריך', 'วันที่', 'تاريخ') + '</label>' +
           '<input type="date" id="editDate" value="' + dateStr + '" style="width:100%;padding:8px;border-radius:8px;border:1px solid #ddd;margin-bottom:8px;font-family:inherit;">' +
           '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">' +
-            '<div><label style="font-size:0.8rem;color:#666;">כניסה</label><input type="time" id="editIn" value="' + inTime + '" style="width:100%;padding:8px;border-radius:8px;border:1px solid #ddd;font-family:inherit;"></div>' +
-            '<div><label style="font-size:0.8rem;color:#666;">יציאה</label><input type="time" id="editOut" value="' + outTime + '" style="width:100%;padding:8px;border-radius:8px;border:1px solid #ddd;font-family:inherit;"></div>' +
+            '<div><label style="font-size:0.8rem;color:#666;">' + tt('כניסה', 'เข้า', 'دخول') + '</label><input type="time" id="editIn" value="' + inTime + '" style="width:100%;padding:8px;border-radius:8px;border:1px solid #ddd;font-family:inherit;"></div>' +
+            '<div><label style="font-size:0.8rem;color:#666;">' + tt('יציאה', 'ออก', 'خروج') + '</label><input type="time" id="editOut" value="' + outTime + '" style="width:100%;padding:8px;border-radius:8px;border:1px solid #ddd;font-family:inherit;"></div>' +
           '</div>' +
           '<div style="display:flex;gap:8px;">' +
-            '<button onclick="TimeClock._saveEdit(\'' + docId + '\')" style="flex:1;padding:10px;border-radius:10px;border:none;background:#4caf50;color:white;font-family:inherit;font-weight:700;cursor:pointer;">💾 שמור</button>' +
+            '<button onclick="TimeClock._saveEdit(\'' + docId + '\')" style="flex:1;padding:10px;border-radius:10px;border:none;background:#4caf50;color:white;font-family:inherit;font-weight:700;cursor:pointer;">' + tt('💾 שמור', '💾 บันทึก', '💾 حفظ') + '</button>' +
             '<button onclick="TimeClock._deleteRecord(\'' + docId + '\')" style="padding:10px 16px;border-radius:10px;border:none;background:#f44336;color:white;font-family:inherit;font-weight:700;cursor:pointer;">🗑️</button>' +
-            '<button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'" style="flex:1;padding:10px;border-radius:10px;border:none;background:#eee;font-family:inherit;cursor:pointer;">ביטול</button>' +
+            '<button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'" style="flex:1;padding:10px;border-radius:10px;border:none;background:#eee;font-family:inherit;cursor:pointer;">' + tt('ביטול', 'ยกเลิก', 'إلغاء') + '</button>' +
           '</div>' +
         '</div></div>';
     });
@@ -438,7 +438,7 @@ var TimeClock = (function() {
     db.collection('timeclock').doc(docId).update(update)
       .then(function() {
         document.getElementById('modalContainer').innerHTML = '';
-        if (typeof showToast === 'function') showToast('💾 עודכן');
+        if (typeof showToast === 'function') showToast('💾 ' + tt('עודכן', 'อัปเดตแล้ว', 'تم التحديث'));
         showAllRecords();
       })
       .catch(function(err) {
@@ -447,11 +447,11 @@ var TimeClock = (function() {
   }
 
   function _deleteRecord(docId) {
-    if (!confirm('למחוק רשומה זו?')) return;
+    if (!confirm(tt('למחוק רשומה זו?', 'ลบรายการนี้?', 'حذف هذا السجل؟'))) return;
     db.collection('timeclock').doc(docId).delete()
       .then(function() {
         document.getElementById('modalContainer').innerHTML = '';
-        if (typeof showToast === 'function') showToast('🗑️ נמחק');
+        if (typeof showToast === 'function') showToast('🗑️ ' + tt('נמחק', 'ลบแล้ว', 'تم الحذف'));
         showAllRecords();
       });
   }
@@ -462,19 +462,19 @@ var TimeClock = (function() {
     var modal = document.getElementById('modalContainer');
     var html = '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;">';
     html += '<div style="background:white;border-radius:16px;padding:20px;width:90%;max-width:400px;max-height:80vh;overflow-y:auto;">';
-    html += '<h3 style="font-weight:700;margin-bottom:12px;">📍 ניהול מקומות עבודה</h3>';
-    html += '<div style="font-size:0.75rem;color:#999;margin-bottom:10px;">מטעים מהמערכת מתווספים אוטומטית. כאן ניתן להוסיף מקומות נוספים.</div>';
+    html += '<h3 style="font-weight:700;margin-bottom:12px;">📍 ' + tt('ניהול מקומות עבודה', 'จัดการสถานที่ทำงาน', 'إدارة أماكن العمل') + '</h3>';
+    html += '<div style="font-size:0.75rem;color:#999;margin-bottom:10px;">' + tt('מטעים מהמערכת מתווספים אוטומטית. כאן ניתן להוסיף מקומות נוספים.', 'สวนจากระบบจะเพิ่มอัตโนมัติ เพิ่มสถานที่อื่นได้ที่นี่', 'البساتين تُضاف تلقائياً. يمكن إضافة أماكن أخرى هنا.') + '</div>';
 
     // Show farms (read-only)
     if (typeof farms !== 'undefined' && farms.length > 0) {
-      html += '<div style="font-size:0.8rem;font-weight:600;margin-bottom:4px;color:#666;">מטעים (אוטומטי):</div>';
+      html += '<div style="font-size:0.8rem;font-weight:600;margin-bottom:4px;color:#666;">' + tt('מטעים (אוטומטי)', 'สวน (อัตโนมัติ)', 'بساتين (تلقائي)') + ':</div>';
       farms.forEach(function(f) {
         html += '<div style="padding:6px 10px;background:#e8f5e9;border-radius:6px;margin-bottom:4px;font-size:0.85rem;">🌳 ' + f.name + '</div>';
       });
     }
 
     // Show custom workplaces (editable)
-    html += '<div style="font-size:0.8rem;font-weight:600;margin:10px 0 4px;color:#666;">מקומות נוספים:</div>';
+    html += '<div style="font-size:0.8rem;font-weight:600;margin:10px 0 4px;color:#666;">' + tt('מקומות נוספים', 'สถานที่เพิ่มเติม', 'أماكن إضافية') + ':</div>';
     workplaces.forEach(function(w, i) {
       html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">';
       html += '<div style="flex:1;padding:6px 10px;background:#fff3e0;border-radius:6px;font-size:0.85rem;">📍 ' + w + '</div>';
@@ -483,11 +483,11 @@ var TimeClock = (function() {
     });
 
     html += '<div style="display:flex;gap:6px;margin-top:10px;">';
-    html += '<input id="newWorkplaceName" placeholder="שם מקום עבודה חדש" style="flex:1;padding:8px 12px;border-radius:8px;border:1px solid #ddd;font-family:inherit;">';
+    html += '<input id="newWorkplaceName" placeholder="' + tt('שם מקום עבודה חדש', 'ชื่อสถานที่ใหม่', 'اسم مكان جديد') + '" style="flex:1;padding:8px 12px;border-radius:8px;border:1px solid #ddd;font-family:inherit;">';
     html += '<button onclick="TimeClock._addWorkplace()" style="padding:8px 16px;border-radius:8px;border:none;background:#ff9800;color:white;font-family:inherit;font-weight:700;cursor:pointer;">➕</button>';
     html += '</div>';
 
-    html += '<button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'" style="margin-top:12px;width:100%;padding:10px;border-radius:10px;border:none;background:#eee;font-family:inherit;cursor:pointer;">סגור</button>';
+    html += '<button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'" style="margin-top:12px;width:100%;padding:10px;border-radius:10px;border:none;background:#eee;font-family:inherit;cursor:pointer;">' + tt('סגור', 'ปิด', 'إغلاق') + '</button>';
     html += '</div></div>';
     modal.innerHTML = html;
   }
@@ -517,15 +517,15 @@ var TimeClock = (function() {
     var modal = document.getElementById('modalContainer');
     modal.innerHTML = '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;">' +
       '<div style="background:white;border-radius:16px;padding:20px;width:90%;max-width:400px;">' +
-        '<h3 style="font-weight:700;margin-bottom:12px;">👤 הפרופיל שלי</h3>' +
+        '<h3 style="font-weight:700;margin-bottom:12px;">👤 ' + tt('הפרופיל שלי', 'โปรไฟล์ของฉัน', 'ملفي الشخصي') + '</h3>' +
         '<div style="display:grid;gap:10px;">' +
-          '<div><label style="font-size:0.8rem;color:#666;">שם</label><input id="profName" value="' + (user.name || '') + '" style="width:100%;padding:8px 12px;border-radius:8px;border:1px solid #ddd;font-family:inherit;"></div>' +
-          '<div><label style="font-size:0.8rem;color:#666;">אימייל</label><input id="profEmail" value="' + (user.email || '') + '" readonly style="width:100%;padding:8px 12px;border-radius:8px;border:1px solid #ddd;font-family:inherit;background:#f0f0f0;direction:ltr;text-align:left;"></div>' +
-          '<div><label style="font-size:0.8rem;color:#666;">תפקיד</label><div style="padding:8px 12px;background:#f0f0f0;border-radius:8px;">' + (user.role || '') + '</div></div>' +
-          '<button onclick="TimeClock._changePassword()" style="padding:10px;border-radius:8px;border:1px solid #ff9800;background:transparent;color:#ff9800;font-family:inherit;font-weight:600;cursor:pointer;">🔑 שנה סיסמה</button>' +
+          '<div><label style="font-size:0.8rem;color:#666;">' + tt('שם', 'ชื่อ', 'الاسم') + '</label><input id="profName" value="' + (user.name || '') + '" style="width:100%;padding:8px 12px;border-radius:8px;border:1px solid #ddd;font-family:inherit;"></div>' +
+          '<div><label style="font-size:0.8rem;color:#666;">' + tt('אימייל', 'อีเมล', 'البريد') + '</label><input id="profEmail" value="' + (user.email || '') + '" readonly style="width:100%;padding:8px 12px;border-radius:8px;border:1px solid #ddd;font-family:inherit;background:#f0f0f0;direction:ltr;text-align:left;"></div>' +
+          '<div><label style="font-size:0.8rem;color:#666;">' + tt('תפקיד', 'ตำแหน่ง', 'الوظيفة') + '</label><div style="padding:8px 12px;background:#f0f0f0;border-radius:8px;">' + (user.role || '') + '</div></div>' +
+          '<button onclick="TimeClock._changePassword()" style="padding:10px;border-radius:8px;border:1px solid #ff9800;background:transparent;color:#ff9800;font-family:inherit;font-weight:600;cursor:pointer;">🔑 ' + tt('שנה סיסמה', 'เปลี่ยนรหัสผ่าน', 'تغيير كلمة المرور') + '</button>' +
           '<div style="display:flex;gap:8px;">' +
-            '<button onclick="TimeClock._saveProfile()" style="flex:1;padding:10px;border-radius:10px;border:none;background:#4caf50;color:white;font-family:inherit;font-weight:700;cursor:pointer;">💾 שמור</button>' +
-            '<button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'" style="flex:1;padding:10px;border-radius:10px;border:none;background:#eee;font-family:inherit;cursor:pointer;">סגור</button>' +
+            '<button onclick="TimeClock._saveProfile()" style="flex:1;padding:10px;border-radius:10px;border:none;background:#4caf50;color:white;font-family:inherit;font-weight:700;cursor:pointer;">' + tt('💾 שמור', '💾 บันทึก', '💾 حفظ') + '</button>' +
+            '<button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'" style="flex:1;padding:10px;border-radius:10px;border:none;background:#eee;font-family:inherit;cursor:pointer;">' + tt('סגור', 'ปิด', 'إغلاق') + '</button>' +
           '</div>' +
         '</div>' +
       '</div></div>';
@@ -541,7 +541,7 @@ var TimeClock = (function() {
       users[user.username].name = name;
       if (typeof DB !== 'undefined') DB.save('shorashim-users', users);
       window.currentUser.name = name;
-      if (typeof showToast === 'function') showToast('✅ פרופיל עודכן');
+      if (typeof showToast === 'function') showToast('✅ ' + tt('פרופיל עודכן', 'อัปเดตโปรไฟล์แล้ว', 'تم تحديث الملف الشخصي'));
       document.getElementById('modalContainer').innerHTML = '';
     }
   }
@@ -550,7 +550,7 @@ var TimeClock = (function() {
     var email = window.currentUser ? window.currentUser.email : '';
     if (!email || typeof auth === 'undefined') return;
     auth.sendPasswordResetEmail(email).then(function() {
-      if (typeof showToast === 'function') showToast('📧 נשלח מייל לאיפוס סיסמה');
+      if (typeof showToast === 'function') showToast('📧 ' + tt('נשלח מייל לאיפוס סיסמה', 'ส่งอีเมลรีเซ็ตรหัสผ่านแล้ว', 'تم إرسال بريد إعادة تعيين كلمة المرور'));
     }).catch(function(err) {
       if (typeof showToast === 'function') showToast('❌ ' + err.message);
     });
@@ -562,9 +562,9 @@ var TimeClock = (function() {
     var modal = document.getElementById('modalContainer');
     modal.innerHTML = '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;">' +
       '<div style="background:white;border-radius:16px;padding:20px;width:95%;max-width:500px;max-height:85vh;overflow-y:auto;">' +
-        '<h3 style="font-weight:700;margin-bottom:16px;">📊 לוח בקרה</h3>' +
-        '<div id="dashboardContent" style="color:#999;text-align:center;padding:16px;">טוען...</div>' +
-        '<button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'" style="margin-top:12px;width:100%;padding:10px;border-radius:10px;border:none;background:#eee;font-family:inherit;cursor:pointer;">סגור</button>' +
+        '<h3 style="font-weight:700;margin-bottom:16px;">📊 ' + tt('לוח בקרה', 'แดชบอร์ด', 'لوحة التحكم') + '</h3>' +
+        '<div id="dashboardContent" style="color:#999;text-align:center;padding:16px;">' + tt('טוען...', 'กำลังโหลด...', 'جاري التحميل...') + '</div>' +
+        '<button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'" style="margin-top:12px;width:100%;padding:10px;border-radius:10px;border:none;background:#eee;font-family:inherit;cursor:pointer;">' + tt('סגור', 'ปิด', 'إغلاق') + '</button>' +
       '</div></div>';
 
     var today = new Date().toISOString().slice(0, 10);
@@ -602,28 +602,28 @@ var TimeClock = (function() {
             '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;">' +
               '<div style="background:#e8f5e9;border-radius:12px;padding:14px;text-align:center;">' +
                 '<div style="font-size:2rem;font-weight:900;">' + Object.keys(todayWorkers).length + '</div>' +
-                '<div style="font-size:0.75rem;color:#666;">עובדים היום</div>' +
+                '<div style="font-size:0.75rem;color:#666;">' + tt('עובדים היום', 'คนงานวันนี้', 'العمال اليوم') + '</div>' +
               '</div>' +
               '<div style="background:#e3f2fd;border-radius:12px;padding:14px;text-align:center;">' +
                 '<div style="font-size:2rem;font-weight:900;">' + clockedIn + '</div>' +
-                '<div style="font-size:0.75rem;color:#666;">מחוברים עכשיו</div>' +
+                '<div style="font-size:0.75rem;color:#666;">' + tt('מחוברים עכשיו', 'ออนไลน์ตอนนี้', 'متصلون الآن') + '</div>' +
               '</div>' +
               '<div style="background:#fff3e0;border-radius:12px;padding:14px;text-align:center;">' +
                 '<div style="font-size:2rem;font-weight:900;">' + (todayHours / 3600000).toFixed(1) + '</div>' +
-                '<div style="font-size:0.75rem;color:#666;">שעות היום</div>' +
+                '<div style="font-size:0.75rem;color:#666;">' + tt('שעות היום', 'ชั่วโมงวันนี้', 'ساعات اليوم') + '</div>' +
               '</div>' +
               '<div style="background:' + (overdueTasks > 0 ? '#ffebee' : '#f3e5f5') + ';border-radius:12px;padding:14px;text-align:center;">' +
                 '<div style="font-size:2rem;font-weight:900;">' + pendingTasks + '</div>' +
-                '<div style="font-size:0.75rem;color:#666;">משימות פתוחות' + (overdueTasks > 0 ? ' (' + overdueTasks + ' באיחור)' : '') + '</div>' +
+                '<div style="font-size:0.75rem;color:#666;">' + tt('משימות פתוחות', 'งานค้าง', 'مهام مفتوحة') + (overdueTasks > 0 ? ' (' + overdueTasks + ' ' + tt('באיחור', 'เลยกำหนด', 'متأخر') + ')' : '') + '</div>' +
               '</div>' +
             '</div>' +
             '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">' +
               '<div style="background:var(--g6);border-radius:10px;padding:10px;text-align:center;">' +
-                '<div style="font-size:1.3rem;font-weight:800;">' + userCount + '</div><div style="font-size:0.7rem;color:#999;">משתמשים</div></div>' +
+                '<div style="font-size:1.3rem;font-weight:800;">' + userCount + '</div><div style="font-size:0.7rem;color:#999;">' + tt('משתמשים', 'ผู้ใช้', 'مستخدمون') + '</div></div>' +
               '<div style="background:var(--g6);border-radius:10px;padding:10px;text-align:center;">' +
-                '<div style="font-size:1.3rem;font-weight:800;">' + plotCount + '</div><div style="font-size:0.7rem;color:#999;">חלקות</div></div>' +
+                '<div style="font-size:1.3rem;font-weight:800;">' + plotCount + '</div><div style="font-size:0.7rem;color:#999;">' + tt('חלקות', 'แปลง', 'قطع') + '</div></div>' +
               '<div style="background:var(--g6);border-radius:10px;padding:10px;text-align:center;">' +
-                '<div style="font-size:1.3rem;font-weight:800;">' + sprayCount + '</div><div style="font-size:0.7rem;color:#999;">ריסוסים</div></div>' +
+                '<div style="font-size:1.3rem;font-weight:800;">' + sprayCount + '</div><div style="font-size:0.7rem;color:#999;">' + tt('ריסוסים', 'การพ่น', 'رشات') + '</div></div>' +
             '</div>';
         });
     }
@@ -635,21 +635,21 @@ var TimeClock = (function() {
     var modal = document.getElementById('modalContainer');
     modal.innerHTML = '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;">' +
       '<div style="background:white;border-radius:16px;padding:20px;width:90%;max-width:400px;max-height:85vh;overflow-y:auto;">' +
-        '<h3 style="font-weight:700;margin-bottom:12px;">📥 ייצוא נתונים</h3>' +
+        '<h3 style="font-weight:700;margin-bottom:12px;">📥 ' + tt('ייצוא נתונים', 'ส่งออกข้อมูล', 'تصدير البيانات') + '</h3>' +
         '<div style="display:grid;gap:8px;">' +
-          '<button onclick="TimeClock._exportCSV(\'timeclock\')" style="padding:12px;border-radius:10px;border:none;background:#e8f5e9;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">🕐 שעות עבודה (CSV)</button>' +
-          '<button onclick="TimeClock._exportCSV(\'spray\')" style="padding:12px;border-radius:10px;border:none;background:#e3f2fd;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">💧 יומן ריסוס (CSV)</button>' +
-          '<button onclick="TimeClock._exportCSV(\'worklog\')" style="padding:12px;border-radius:10px;border:none;background:#fff3e0;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">📝 יומן עבודה (CSV)</button>' +
-          '<button onclick="TimeClock._exportCSV(\'tasks\')" style="padding:12px;border-radius:10px;border:none;background:#f3e5f5;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">📋 משימות (CSV)</button>' +
+          '<button onclick="TimeClock._exportCSV(\'timeclock\')" style="padding:12px;border-radius:10px;border:none;background:#e8f5e9;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">' + tt('🕐 שעות עבודה (CSV)', '🕐 ชั่วโมงทำงาน (CSV)', '🕐 ساعات العمل (CSV)') + '</button>' +
+          '<button onclick="TimeClock._exportCSV(\'spray\')" style="padding:12px;border-radius:10px;border:none;background:#e3f2fd;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">' + tt('💧 יומן ריסוס (CSV)', '💧 บันทึกพ่นยา (CSV)', '💧 سجل الرش (CSV)') + '</button>' +
+          '<button onclick="TimeClock._exportCSV(\'worklog\')" style="padding:12px;border-radius:10px;border:none;background:#fff3e0;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">' + tt('📝 יומן עבודה (CSV)', '📝 บันทึกงาน (CSV)', '📝 سجل العمل (CSV)') + '</button>' +
+          '<button onclick="TimeClock._exportCSV(\'tasks\')" style="padding:12px;border-radius:10px;border:none;background:#f3e5f5;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">' + tt('📋 משימות (CSV)', '📋 งาน (CSV)', '📋 المهام (CSV)') + '</button>' +
         '</div>' +
         '<div style="margin-top:16px;padding-top:16px;border-top:2px solid #eee;">' +
-          '<h4 style="font-weight:700;font-size:0.9rem;margin-bottom:8px;">💾 גיבוי ושחזור</h4>' +
+          '<h4 style="font-weight:700;font-size:0.9rem;margin-bottom:8px;">💾 ' + tt('גיבוי ושחזור', 'สำรองและกู้คืน', 'نسخ احتياطي واستعادة') + '</h4>' +
           '<div style="display:grid;gap:8px;">' +
-            '<button onclick="TimeClock._backupAll()" style="padding:12px;border-radius:10px;border:none;background:#1565c0;color:white;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">⬇️ הורד גיבוי מלא (JSON)</button>' +
-            '<label style="padding:12px;border-radius:10px;border:2px dashed #999;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;display:block;color:#666;">⬆️ שחזר מגיבוי<input type="file" accept=".json" onchange="TimeClock._restoreBackup(this.files[0])" style="display:none;"></label>' +
+            '<button onclick="TimeClock._backupAll()" style="padding:12px;border-radius:10px;border:none;background:#1565c0;color:white;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">' + tt('⬇️ הורד גיבוי מלא (JSON)', '⬇️ ดาวน์โหลดสำรองทั้งหมด (JSON)', '⬇️ تنزيل نسخة كاملة (JSON)') + '</button>' +
+            '<label style="padding:12px;border-radius:10px;border:2px dashed #999;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;display:block;color:#666;">' + tt('⬆️ שחזר מגיבוי', '⬆️ กู้คืนจากสำรอง', '⬆️ استعادة من نسخة') + '<input type="file" accept=".json" onchange="TimeClock._restoreBackup(this.files[0])" style="display:none;"></label>' +
           '</div>' +
         '</div>' +
-        '<button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'" style="margin-top:12px;width:100%;padding:10px;border-radius:10px;border:none;background:#eee;font-family:inherit;cursor:pointer;">סגור</button>' +
+        '<button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'" style="margin-top:12px;width:100%;padding:10px;border-radius:10px;border:none;background:#eee;font-family:inherit;cursor:pointer;">' + tt('סגור', 'ปิด', 'إغلاق') + '</button>' +
       '</div></div>';
   }
 
@@ -659,7 +659,7 @@ var TimeClock = (function() {
 
     if (type === 'timeclock') {
       filename = 'timeclock_' + new Date().toISOString().slice(0,10) + '.csv';
-      rows.push(['תאריך', 'עובד', 'מקום עבודה', 'כניסה', 'יציאה', 'שעות']);
+      rows.push([tt('תאריך','วันที่','تاريخ'), tt('עובד','คนงาน','عامل'), tt('מקום עבודה','สถานที่','مكان العمل'), tt('כניסה','เข้า','دخول'), tt('יציאה','ออก','خروج'), tt('שעות','ชั่วโมง','ساعات')]);
       if (typeof db !== 'undefined') {
         db.collection('timeclock').orderBy('punchIn', 'desc').limit(500).get().then(function(snap) {
           snap.forEach(function(doc) {
@@ -685,7 +685,7 @@ var TimeClock = (function() {
       filename = 'spray_log_' + new Date().toISOString().slice(0,10) + '.csv';
       var data = JSON.parse(localStorage.getItem('plotMapperSprayData') || '{}');
       var events = data.sprayEvents || [];
-      rows.push(['תאריך', 'מפעיל', 'חלקות', 'תכשיר', 'ריכוז', 'כמות', 'הערות']);
+      rows.push([tt('תאריך','วันที่','تاريخ'), tt('מפעיל','ผู้ปฏิบัติ','مشغل'), tt('חלקות','แปลง','قطع'), tt('תכשיר','สารเคมี','مبيد'), tt('ריכוז','ความเข้มข้น','تركيز'), tt('כמות','ปริมาณ','كمية'), tt('הערות','หมายเหตุ','ملاحظات')]);
       events.forEach(function(e) {
         rows.push([e.date || '', e.operator || '', (e.plotNames || []).join('; '), e.pesticide || '', e.concentration || '', e.quantity || '', e.notes || '']);
       });
@@ -695,7 +695,7 @@ var TimeClock = (function() {
       filename = 'worklog_' + new Date().toISOString().slice(0,10) + '.csv';
       var data = JSON.parse(localStorage.getItem('plotMapperSprayData') || '{}');
       var entries = data.worklogEntries || [];
-      rows.push(['תאריך', 'חלקה', 'סעיף', 'פעולה', 'קבוצת עובדים', 'מספר עובדים', 'שעות', 'עצים', 'הערות']);
+      rows.push([tt('תאריך','วันที่','تاريخ'), tt('חלקה','แปลง','قطعة'), tt('סעיף','หมวด','بند'), tt('פעולה','งาน','عملية'), tt('קבוצת עובדים','กลุ่มคนงาน','مجموعة عمال'), tt('מספר עובדים','จำนวน','عدد العمال'), tt('שעות','ชม.','ساعات'), tt('עצים','ต้น','أشجار'), tt('הערות','หมายเหตุ','ملاحظات')]);
       entries.forEach(function(e) {
         rows.push([e.date || '', e.plot_name || '', e.budget_category || '', e.description || '', e.worker_group || '', e.worker_count || '', e.hours || '', e.trees || '', e.notes || '']);
       });
@@ -704,7 +704,7 @@ var TimeClock = (function() {
     if (type === 'tasks') {
       filename = 'tasks_' + new Date().toISOString().slice(0,10) + '.csv';
       var tasks = JSON.parse(localStorage.getItem('shorashim-tasks') || '[]');
-      rows.push(['כותרת', 'תיאור', 'מוקצה ל', 'מקום', 'תאריך יעד', 'סטטוס', 'נוצר']);
+      rows.push([tt('כותרת','ชื่อ','عنوان'), tt('תיאור','รายละเอียด','وصف'), tt('מוקצה ל','มอบหมายให้','مكلف لـ'), tt('מקום','สถานที่','مكان'), tt('תאריך יעד','วันกำหนด','تاريخ الاستحقاق'), tt('סטטוס','สถานะ','حالة'), tt('נוצר','สร้างเมื่อ','أُنشئ')]);
       tasks.forEach(function(t) {
         rows.push([t.title || '', t.description || '', t.assignedTo || '', t.workplace || '', t.dueDate || '', t.status || '', t.created ? new Date(t.created).toLocaleDateString('he-IL') : '']);
       });
@@ -773,19 +773,19 @@ var TimeClock = (function() {
     a.download = 'shorashim-backup-' + new Date().toISOString().slice(0, 10) + '.json';
     a.click();
     URL.revokeObjectURL(url);
-    if (typeof showToast === 'function') showToast('💾 גיבוי הורד');
+    if (typeof showToast === 'function') showToast('💾 ' + tt('גיבוי הורד', 'ดาวน์โหลดสำรองแล้ว', 'تم تنزيل النسخة'));
   }
 
   function _restoreBackup(file) {
     if (!file) return;
-    if (!confirm('שחזור גיבוי ידרוס את כל הנתונים הנוכחיים. להמשיך?')) return;
+    if (!confirm(tt('שחזור גיבוי ידרוס את כל הנתונים הנוכחיים. להמשיך?', 'การกู้คืนจะเขียนทับข้อมูลทั้งหมด ดำเนินการต่อ?', 'الاستعادة ستمحو جميع البيانات الحالية. متابعة؟'))) return;
 
     var reader = new FileReader();
     reader.onload = function(e) {
       try {
         var backup = JSON.parse(e.target.result);
         if (backup._type !== 'shorashim-plus-backup') {
-          if (typeof showToast === 'function') showToast('❌ קובץ לא תקין');
+          if (typeof showToast === 'function') showToast('❌ ' + tt('קובץ לא תקין', 'ไฟล์ไม่ถูกต้อง', 'ملف غير صالح'));
           return;
         }
 
@@ -816,10 +816,10 @@ var TimeClock = (function() {
           });
         }
 
-        if (typeof showToast === 'function') showToast('✅ גיבוי שוחזר — רענן את הדף');
+        if (typeof showToast === 'function') showToast('✅ ' + tt('גיבוי שוחזר — רענן את הדף', 'กู้คืนแล้ว — รีเฟรชหน้า', 'تمت الاستعادة — حدّث الصفحة'));
         setTimeout(function() { location.reload(); }, 2000);
       } catch(err) {
-        if (typeof showToast === 'function') showToast('❌ שגיאה: ' + err.message);
+        if (typeof showToast === 'function') showToast('❌ ' + tt('שגיאה', 'ข้อผิดพลาด', 'خطأ') + ': ' + err.message);
       }
     };
     reader.readAsText(file);
@@ -832,8 +832,8 @@ var TimeClock = (function() {
     var modal = document.getElementById('modalContainer');
     var html = '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;">';
     html += '<div style="background:white;border-radius:16px;padding:20px;width:90%;max-width:400px;max-height:80vh;overflow-y:auto;">';
-    html += '<h3 style="font-weight:700;margin-bottom:12px;">🌱 ניהול סוגי גידולים</h3>';
-    html += '<div style="font-size:0.75rem;color:#999;margin-bottom:10px;">הגידולים ישמשו לסינון חומרי הדברה ולהגדרת חלקות.</div>';
+    html += '<h3 style="font-weight:700;margin-bottom:12px;">🌱 ' + tt('ניהול סוגי גידולים', 'จัดการประเภทพืช', 'إدارة أنواع المحاصيل') + '</h3>';
+    html += '<div style="font-size:0.75rem;color:#999;margin-bottom:10px;">' + tt('הגידולים ישמשו לסינון חומרי הדברה ולהגדרת חלקות.', 'พืชจะใช้กรองสารเคมีและกำหนดแปลง', 'المحاصيل ستُستخدم لتصفية المبيدات وتحديد القطع.') + '</div>';
 
     cropList.forEach(function(c, i) {
       html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">';
@@ -843,11 +843,11 @@ var TimeClock = (function() {
     });
 
     html += '<div style="display:flex;gap:6px;margin-top:10px;">';
-    html += '<input id="newCropName" placeholder="שם גידול חדש (לדוגמה: תמרים)" style="flex:1;padding:8px 12px;border-radius:8px;border:1px solid #ddd;font-family:inherit;">';
+    html += '<input id="newCropName" placeholder="' + tt('שם גידול חדש', 'ชื่อพืชใหม่', 'اسم محصول جديد') + '" style="flex:1;padding:8px 12px;border-radius:8px;border:1px solid #ddd;font-family:inherit;">';
     html += '<button onclick="TimeClock._addCrop()" style="padding:8px 16px;border-radius:8px;border:none;background:#4caf50;color:white;font-family:inherit;font-weight:700;cursor:pointer;">➕</button>';
     html += '</div>';
 
-    html += '<button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'" style="margin-top:12px;width:100%;padding:10px;border-radius:10px;border:none;background:#eee;font-family:inherit;cursor:pointer;">סגור</button>';
+    html += '<button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'" style="margin-top:12px;width:100%;padding:10px;border-radius:10px;border:none;background:#eee;font-family:inherit;cursor:pointer;">' + tt('סגור', 'ปิด', 'إغلاق') + '</button>';
     html += '</div></div>';
     modal.innerHTML = html;
   }

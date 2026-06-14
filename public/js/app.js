@@ -936,6 +936,35 @@
     'במטע זה': { th: 'ในสวนนี้', ar: 'في هذا البستان' },
     'כתובת לא תקינה': { th: 'URL ไม่ถูกต้อง', ar: 'عنوان غير صالح' },
 
+
+    // ── HTML static elements ──
+    'אין חיבור — נתונים יסונכרנו כשהחיבור יחזור': { th: 'ไม่มีสัญญาณ — ข้อมูลจะซิงค์เมื่อเชื่อมต่อ', ar: 'لا يوجد اتصال — ستتم المزامنة عند عودة الاتصال' },
+    'חזר חיבור — מסנכרן נתונים': { th: 'เชื่อมต่อแล้ว — กำลังซิงค์ข้อมูล', ar: 'عاد الاتصال — جاري المزامنة' },
+    'אין חיבור — עובד במצב לא מקוון': { th: 'ไม่มีสัญญาณ — ทำงานแบบออฟไลน์', ar: 'لا يوجد اتصال — العمل بدون إنترنت' },
+    'תפריט': { th: 'เมนู', ar: 'القائمة' },
+    'בטל פעולה': { th: 'ยกเลิกการกระทำ', ar: 'تراجع' },
+    'המיקום שלי': { th: 'ตำแหน่งของฉัน', ar: 'موقعي' },
+    'שפה': { th: 'ภาษา', ar: 'اللغة' },
+    'בטל נקודה': { th: 'ยกเลิกจุด', ar: 'تراجع عن النقطة' },
+    'בטל': { th: 'ยกเลิก', ar: 'تراجع' },
+    'שמור יומן ריסוס': { th: 'บันทึกการพ่น', ar: 'حفظ سجل الرش' },
+    'הוסף מטע חדש': { th: 'เพิ่มสวนใหม่', ar: 'إضافة بستان جديد' },
+    'הוסף משתמש': { th: 'เพิ่มผู้ใช้', ar: 'إضافة مستخدم' },
+    'הוסף חומר': { th: 'เพิ่มสารเคมี', ar: 'إضافة مبيد' },
+    'חיבור תלגיל': { th: 'เชื่อมต่อ Talgil', ar: 'اتصال Talgil' },
+    'התחבר': { th: 'เชื่อมต่อ', ar: 'اتصال' },
+    'שיוך מגופים לחלקות': { th: 'ผูกวาล์วกับแปลง', ar: 'ربط الصمامات بالقطع' },
+    'שמור שיוך': { th: 'บันทึกการผูก', ar: 'حفظ الربط' },
+    'השקיה לפי חלקה': { th: 'การให้น้ำตามแปลง', ar: 'ري حسب القطعة' },
+    'תוכניות השקיה': { th: 'โปรแกรมการให้น้ำ', ar: 'برامج الري' },
+    'סיסמה': { th: 'รหัสผ่าน', ar: 'كلمة المرور' },
+    'הוסף פעולה': { th: 'เพิ่มงาน', ar: 'إضافة عملية' },
+    'הוסף קבוצה': { th: 'เพิ่มกลุ่ม', ar: 'إضافة مجموعة' },
+    'לפי עובד': { th: 'ตามคนงาน', ar: 'حسب العامل' },
+    'לפי חלקה': { th: 'ตามแปลง', ar: 'حسب القطعة' },
+    'שמור כתובת': { th: 'บันทึก URL', ar: 'حفظ العنوان' },
+    'פעולה': { th: 'งาน', ar: 'عملية' },
+
   };
 
   function t(hebrewText) {
@@ -5826,6 +5855,39 @@
     // Re-render ALL dynamic content — this is the nuclear option that guarantees
     // every render function rebuilds with current t() values
     reRenderActiveContent();
+    
+    // Translate ALL remaining [data-t-key] elements (buttons, h3, divs, spans, etc.)
+    document.querySelectorAll('[data-t-key]').forEach(function(el) {
+      // Skip tabs — already handled above with emoji logic
+      if (el.classList.contains('tab')) return;
+      // Skip section-title and form-label — handled in reRenderActiveContent
+      if (el.classList.contains('section-title') || el.classList.contains('form-label')) return;
+      var key = el.getAttribute('data-t-key');
+      var text = el.textContent.trim();
+      // Extract emoji prefix
+      var emoji = '';
+      for (var i = 0; i < text.length; i++) {
+        var code = text.codePointAt(i);
+        if (code > 0xFFFF) { emoji += String.fromCodePoint(code); i++; }
+        else if (code === 0xFE0F || text[i] === ' ') { emoji += text[i]; }
+        else break;
+      }
+      var translated = t(key);
+      // If element has child elements (like <br>), just set textContent for simple elements
+      if (el.children.length === 0) {
+        el.textContent = (emoji || '') + translated;
+      }
+    });
+    
+    // Translate title attributes
+    document.querySelectorAll('[data-t-title]').forEach(function(el) {
+      el.setAttribute('title', t(el.getAttribute('data-t-title')));
+    });
+    
+    // Translate placeholder attributes
+    document.querySelectorAll('[data-t-placeholder]').forEach(function(el) {
+      el.setAttribute('placeholder', t(el.getAttribute('data-t-placeholder')));
+    });
   }
   
   function reRenderActiveContent() {
@@ -6129,34 +6191,27 @@
     if (!cfg.host || !cfg.controllerId || !cfg.apiKey || !cfg.user) {
       throw new Error('missing config');
     }
-    var targetUrl = 'https://' + cfg.host + '/api/targets/' + cfg.controllerId + '/' + endpoint;
-    if (filter) targetUrl += '?filter=' + filter;
-    
-    var proxies = [
-      'https://api.allorigins.win/raw?url=' + encodeURIComponent(targetUrl),
-      'https://corsproxy.io/?' + encodeURIComponent(targetUrl),
-      'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(targetUrl)
-    ];
-    
-    var headers = {
-      'Authorization': 'Basic ' + btoa(cfg.user + ':' + cfg.pass),
-      'TLG-API-Key': cfg.apiKey
-    };
 
-    for (var p = 0; p < proxies.length; p++) {
-      try {
-        var resp = await fetch(proxies[p], { headers: headers });
-        if (resp.status === 429) {
-          await delay(3000);
-          continue;
-        }
-        if (resp.ok) return resp.json();
-      } catch(e) {
-        console.warn('Proxy ' + p + ' failed:', e.message);
-        if (p < proxies.length - 1) await delay(1000);
-      }
+    var resp = await fetch('/api/talgil', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        host: cfg.host,
+        controllerId: cfg.controllerId,
+        user: cfg.user,
+        pass: cfg.pass,
+        apiKey: cfg.apiKey,
+        endpoint: endpoint,
+        filter: filter || ''
+      })
+    });
+
+    if (!resp.ok) {
+      var err = {};
+      try { err = await resp.json(); } catch(e) {}
+      throw new Error(err.error || 'HTTP ' + resp.status);
     }
-    throw new Error('All proxies failed — check connection');
+    return resp.json();
   }
 
   window.talgilConnect = async function() {

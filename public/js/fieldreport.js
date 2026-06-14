@@ -1,5 +1,6 @@
 // ── FIELD REPORT MODULE ──
 // Pest/disease inspection reports with auto-location, PDF export, sharing
+// Pest/disease lists are crop-specific and admin-editable
 
 var FieldReport = (function() {
   'use strict';
@@ -12,16 +13,84 @@ var FieldReport = (function() {
     { value: 4, label: 'קריטי', labelTh: 'วิกฤต', labelAr: 'حرج', color: '#b71c1c', icon: '⚫' }
   ];
 
-  var COMMON_PESTS = [
-    'כנימת מגן', 'חיפושית דקל אדומה', 'תולענית התמר', 'קרדית האבק',
-    'עש התמר', 'חדקונית הדקל', 'זבוב הפירות', 'נמלים', 'עכבישים אדומים',
-    'כנימת עלה', 'תריפס', 'אחר'
+  // ── Seed data (defaults for dates) ──
+  var SEED_PESTS = [
+    { he: 'כנימת מגן', th: 'เพลี้ยหอย', ar: 'حشرة قشرية' },
+    { he: 'חיפושית דקל אדומה', th: 'ด้วงปาล์มแดง', ar: 'سوسة النخيل الحمراء' },
+    { he: 'תולענית התמר', th: 'หนอนอินทผลัม', ar: 'دودة التمر' },
+    { he: 'קרדית האבק', th: 'ไรฝุ่น', ar: 'عنكبوت الغبار' },
+    { he: 'עש התמר', th: 'ผีเสื้อกลางคืนอินทผลัม', ar: 'عثة التمر' },
+    { he: 'חדקונית הדקל', th: 'เพลี้ยแป้งปาล์ม', ar: 'بق النخيل الدقيقي' },
+    { he: 'זבוב הפירות', th: 'แมลงวันผลไม้', ar: 'ذبابة الفاكهة' },
+    { he: 'נמלים', th: 'มด', ar: 'نمل' },
+    { he: 'עכבישים אדומים', th: 'ไรแดง', ar: 'عناكب حمراء' },
+    { he: 'כנימת עלה', th: 'เพลี้ยอ่อน', ar: 'من الأوراق' },
+    { he: 'תריפס', th: 'เพลี้ยไฟ', ar: 'تربس' }
+  ];
+  var SEED_DISEASES = [
+    { he: 'ביוד (Bayoud)', th: 'ไบยูด (Bayoud)', ar: 'بيوض (Bayoud)' },
+    { he: 'רקב שחור', th: 'โรคเน่าดำ', ar: 'عفن أسود' },
+    { he: 'רקב אפור', th: 'โรคเน่าเทา', ar: 'عفن رمادي' },
+    { he: 'כתמי עלים', th: 'โรคจุดใบ', ar: 'بقع أوراق' },
+    { he: 'הכהיית פרי', th: 'ผลคล้ำ', ar: 'اسمرار الثمر' },
+    { he: 'רקב תפרחת', th: 'โรคเน่าช่อดอก', ar: 'عفن النورة' }
   ];
 
-  var COMMON_DISEASES = [
-    'ביוד (Bayoud)', 'רקב שחור', 'רקב אפור', 'כתמי עלים',
-    'הכהיית פרי', 'רקב תפרחת', 'אחר'
-  ];
+  // ── Crop-specific pest/disease store ──
+  // { "cropName": { pests: [{he,th?,ar?},...], diseases: [{he,th?,ar?},...] }, "_default": {...} }
+  var pestLists = {};
+
+  function loadPestLists() {
+    return new Promise(function(resolve) {
+      if (typeof DB !== 'undefined') {
+        DB.loadAsync('shorashim-pest-lists').then(function(data) {
+          if (data && Object.keys(data).length > 0) {
+            pestLists = data;
+          } else { seedDefaults(); }
+          resolve(pestLists);
+        });
+      } else {
+        var saved = localStorage.getItem('shorashim-pest-lists');
+        if (saved) { try { pestLists = JSON.parse(saved); } catch(e) { seedDefaults(); } }
+        else { seedDefaults(); }
+        resolve(pestLists);
+      }
+    });
+  }
+
+  function savePestLists() {
+    if (typeof DB !== 'undefined') DB.save('shorashim-pest-lists', pestLists);
+    else localStorage.setItem('shorashim-pest-lists', JSON.stringify(pestLists));
+  }
+
+  function seedDefaults() {
+    pestLists = {
+      '_default': { pests: JSON.parse(JSON.stringify(SEED_PESTS)), diseases: JSON.parse(JSON.stringify(SEED_DISEASES)) }
+    };
+    savePestLists();
+  }
+
+  function getListForCrop(cropType) {
+    if (cropType && pestLists[cropType]) return pestLists[cropType];
+    return pestLists['_default'] || { pests: SEED_PESTS, diseases: SEED_DISEASES };
+  }
+
+  function getCropForPlot(plotId) {
+    if (!plotId) return '';
+    var ap = (typeof getAccessiblePlots === 'function') ? getAccessiblePlots() : (typeof plots !== 'undefined' ? plots : []);
+    var p = ap.find(function(pl) { return pl.id == plotId; });
+    return (p && p.crop_type) ? p.crop_type : '';
+  }
+
+  function getAllCropTypes() {
+    var crops = {};
+    (typeof plots !== 'undefined' ? plots : []).forEach(function(p) { if (p.crop_type) crops[p.crop_type] = true; });
+    JSON.parse(localStorage.getItem('shorashim-crop-types') || '[]').forEach(function(c) { crops[c] = true; });
+    Object.keys(pestLists).forEach(function(k) { if (k !== '_default') crops[k] = true; });
+    return Object.keys(crops).sort();
+  }
+
+  // ── Translation helpers ──
 
   function tt(he, th, ar) {
     var lang = (typeof currentLang !== 'undefined') ? currentLang : 'he';
@@ -29,76 +98,87 @@ var FieldReport = (function() {
     if (lang === 'ar') return ar || he;
     return he;
   }
+  function pestName(p) { return (typeof p === 'string') ? p : tt(p.he, p.th, p.ar); }
+  function pestVal(p) { return (typeof p === 'string') ? p : p.he; }
+
+  var LOC_NAMES = {
+    'צמרת': { th: 'ยอด', ar: 'قمة' }, 'גזע': { th: 'ลำต้น', ar: 'جذع' },
+    'עלים': { th: 'ใบ', ar: 'أوراق' }, 'פרי': { th: 'ผล', ar: 'ثمرة' },
+    'שורשים': { th: 'ราก', ar: 'جذور' }, 'תפרחת': { th: 'ช่อดอก', ar: 'نورة' }
+  };
+  function locName(he) { var e = LOC_NAMES[he]; return e ? tt(he, e.th, e.ar) : he; }
+  function translateLocs(csv) { return csv ? csv.split(',').map(function(l) { return locName(l.trim()); }).join(', ') : ''; }
 
   // ── Auto-detect nearest plot ──
 
   function getNearestPlot(lat, lng) {
     if (typeof plots === 'undefined' || !plots.length) return null;
-    var nearest = null;
-    var minDist = Infinity;
-    
+    var nearest = null, minDist = Infinity;
     plots.forEach(function(p) {
       if (!p.latlngs || !p.latlngs.length) return;
-      // Calculate center of plot
       var cLat = 0, cLng = 0;
-      p.latlngs.forEach(function(c) {
-        cLat += (c.lat !== undefined ? c.lat : c[0]);
-        cLng += (c.lng !== undefined ? c.lng : c[1]);
-      });
-      cLat /= p.latlngs.length;
-      cLng /= p.latlngs.length;
-      
+      p.latlngs.forEach(function(c) { cLat += (c.lat !== undefined ? c.lat : c[0]); cLng += (c.lng !== undefined ? c.lng : c[1]); });
+      cLat /= p.latlngs.length; cLng /= p.latlngs.length;
       var dist = Math.sqrt(Math.pow(lat - cLat, 2) + Math.pow(lng - cLng, 2));
-      if (dist < minDist) {
-        minDist = dist;
-        nearest = p;
-      }
+      if (dist < minDist) { minDist = dist; nearest = p; }
     });
     return nearest;
   }
 
   // ── Save/Load Reports ──
 
-  function saveReports(reports) {
-    if (typeof DB !== 'undefined') DB.save('shorashim-field-reports', reports);
-  }
-
+  function saveReports(reports) { if (typeof DB !== 'undefined') DB.save('shorashim-field-reports', reports); }
   function loadReports() {
     return new Promise(function(resolve) {
-      if (typeof DB !== 'undefined') {
-        DB.loadAsync('shorashim-field-reports').then(function(data) {
-          resolve(data || []);
-        });
-      } else {
-        var saved = localStorage.getItem('shorashim-field-reports');
-        resolve(saved ? JSON.parse(saved) : []);
-      }
+      if (typeof DB !== 'undefined') { DB.loadAsync('shorashim-field-reports').then(function(d) { resolve(d || []); }); }
+      else { var s = localStorage.getItem('shorashim-field-reports'); resolve(s ? JSON.parse(s) : []); }
     });
+  }
+
+  // ── Build pest/disease dropdown HTML ──
+
+  function buildPestOptions(list) {
+    var html = '<option value="">' + tt('— בחר —', '— เลือก —', '— اختر —') + '</option>';
+    (list || []).forEach(function(p) { html += '<option value="' + pestVal(p) + '">' + pestName(p) + '</option>'; });
+    html += '<option value="__other">' + tt('אחר...', 'อื่นๆ...', 'أخرى...') + '</option>';
+    return html;
+  }
+
+  function _refreshPestDropdowns(cropType) {
+    var data = getListForCrop(cropType);
+    var pestSel = document.getElementById('frPest');
+    var disSel = document.getElementById('frDisease');
+    if (pestSel) pestSel.innerHTML = buildPestOptions(data.pests);
+    if (disSel) disSel.innerHTML = buildPestOptions(data.diseases);
+    // Show crop badge
+    var badge = document.getElementById('frCropBadge');
+    if (badge) badge.textContent = cropType ? ('🌱 ' + cropType) : '';
   }
 
   // ── New Report Form ──
 
   function showNewReport() {
+    loadPestLists().then(function() {
+      _buildReportForm();
+    });
+  }
+
+  function _buildReportForm() {
     var modal = document.getElementById('modalContainer');
     var today = new Date().toISOString().slice(0, 10);
     var timeNow = new Date();
     var timeStr = (timeNow.getHours() < 10 ? '0' : '') + timeNow.getHours() + ':' + (timeNow.getMinutes() < 10 ? '0' : '') + timeNow.getMinutes();
+    var isAdmin = window.currentUser && (window.currentUser.role === 'admin' || window.currentUser.role === 'operator');
 
     // Plot options
     var accessiblePlots = (typeof getAccessiblePlots === 'function') ? getAccessiblePlots() : (typeof plots !== 'undefined' ? plots : []);
     var plotOptions = '<option value="">' + tt('— בחר חלקה —', '— เลือกแปลง —', '— اختر قطعة —') + '</option>';
     accessiblePlots.forEach(function(p) {
-      plotOptions += '<option value="' + p.id + '" data-name="' + p.name + '">' + p.name + (p.crop_type ? ' (' + p.crop_type + ')' : '') + '</option>';
+      plotOptions += '<option value="' + p.id + '" data-crop="' + (p.crop_type || '') + '">' + p.name + (p.crop_type ? ' (' + p.crop_type + ')' : '') + '</option>';
     });
 
-    // Pest options
-    var pestOptions = '<option value="">' + tt('— בחר —', '— เลือก —', '— اختر —') + '</option>';
-    COMMON_PESTS.forEach(function(p) { pestOptions += '<option value="' + p + '">' + p + '</option>'; });
-    pestOptions += '<option value="__other">' + tt('אחר...', 'อื่นๆ...', 'أخرى...') + '</option>';
-
-    var diseaseOptions = '<option value="">' + tt('— בחר —', '— เลือก —', '— اختر —') + '</option>';
-    COMMON_DISEASES.forEach(function(d) { diseaseOptions += '<option value="' + d + '">' + d + '</option>'; });
-    diseaseOptions += '<option value="__other">' + tt('אחר...', 'อื่นๆ...', 'أخرى...') + '</option>';
+    // Initial pest/disease options (default list — will be refreshed when plot is selected)
+    var initData = getListForCrop('');
 
     // Severity buttons
     var severityHtml = '';
@@ -124,17 +204,22 @@ var FieldReport = (function() {
           '<div><label style="font-size:0.75rem;color:#666;">' + tt('סוקר', 'ผู้ตรวจ', 'المفتش') + '</label>' +
           '<input type="text" id="frInspector" value="' + (window.currentUser ? window.currentUser.name : '') + '" style="width:100%;padding:8px;border-radius:8px;border:1px solid #ddd;font-family:inherit;"></div>' +
           
-          // Plot (auto-detect)
+          // Plot
           '<div><label style="font-size:0.75rem;color:#666;">' + tt('חלקה', 'แปลง', 'قطعة') + ' <span id="frLocStatus" style="font-size:0.7rem;color:#999;"></span></label>' +
-          '<select id="frPlot" style="width:100%;padding:8px;border-radius:8px;border:1px solid #ddd;font-family:inherit;">' + plotOptions + '</select></div>' +
+          '<select id="frPlot" style="width:100%;padding:8px;border-radius:8px;border:1px solid #ddd;font-family:inherit;">' + plotOptions + '</select>' +
+          '<div id="frCropBadge" style="font-size:0.72rem;color:#2e7d32;margin-top:2px;font-weight:600;"></div></div>' +
           
-          // Pest/Disease type
+          // Pest/Disease header with manage button
+          '<div style="display:flex;align-items:center;justify-content:space-between;">' +
+            '<label style="font-size:0.75rem;color:#666;">' + tt('מזיק / מחלה', 'ศัตรูพืช / โรค', 'آفة / مرض') + '</label>' +
+            (isAdmin ? '<button onclick="FieldReport.showPestListAdmin()" style="border:none;background:none;cursor:pointer;font-size:0.85rem;padding:2px 6px;" title="' + tt('ניהול רשימות', 'จัดการรายการ', 'إدارة القوائم') + '">⚙️</button>' : '') +
+          '</div>' +
           '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">' +
-            '<div><label style="font-size:0.75rem;color:#666;">' + tt('מזיק', 'ศัตรูพืช', 'آفة') + '</label>' +
-            '<select id="frPest" onchange="if(this.value===\'__other\'){this.style.display=\'none\';document.getElementById(\'frPestCustom\').style.display=\'block\';document.getElementById(\'frPestCustom\').focus();}" style="width:100%;padding:8px;border-radius:8px;border:1px solid #ddd;font-family:inherit;">' + pestOptions + '</select>' +
+            '<div><label style="font-size:0.7rem;color:#999;">🐛 ' + tt('מזיק', 'ศัตรูพืช', 'آفة') + '</label>' +
+            '<select id="frPest" onchange="if(this.value===\'__other\'){this.style.display=\'none\';document.getElementById(\'frPestCustom\').style.display=\'block\';document.getElementById(\'frPestCustom\').focus();}" style="width:100%;padding:8px;border-radius:8px;border:1px solid #ddd;font-family:inherit;">' + buildPestOptions(initData.pests) + '</select>' +
             '<input id="frPestCustom" placeholder="' + tt('שם המזיק', 'ชื่อศัตรูพืช', 'اسم الآفة') + '" style="display:none;width:100%;padding:8px;border-radius:8px;border:1px solid #ddd;font-family:inherit;"></div>' +
-            '<div><label style="font-size:0.75rem;color:#666;">' + tt('מחלה', 'โรค', 'مرض') + '</label>' +
-            '<select id="frDisease" onchange="if(this.value===\'__other\'){this.style.display=\'none\';document.getElementById(\'frDiseaseCustom\').style.display=\'block\';document.getElementById(\'frDiseaseCustom\').focus();}" style="width:100%;padding:8px;border-radius:8px;border:1px solid #ddd;font-family:inherit;">' + diseaseOptions + '</select>' +
+            '<div><label style="font-size:0.7rem;color:#999;">🦠 ' + tt('מחלה', 'โรค', 'مرض') + '</label>' +
+            '<select id="frDisease" onchange="if(this.value===\'__other\'){this.style.display=\'none\';document.getElementById(\'frDiseaseCustom\').style.display=\'block\';document.getElementById(\'frDiseaseCustom\').focus();}" style="width:100%;padding:8px;border-radius:8px;border:1px solid #ddd;font-family:inherit;">' + buildPestOptions(initData.diseases) + '</select>' +
             '<input id="frDiseaseCustom" placeholder="' + tt('שם המחלה', 'ชื่อโรค', 'اسم المرض') + '" style="display:none;width:100%;padding:8px;border-radius:8px;border:1px solid #ddd;font-family:inherit;"></div>' +
           '</div>' +
           
@@ -186,6 +271,13 @@ var FieldReport = (function() {
         '</div>' +
       '</div></div>';
 
+    // ── Plot change → refresh pest dropdowns ──
+    document.getElementById('frPlot').addEventListener('change', function() {
+      var sel = this.options[this.selectedIndex];
+      var crop = sel ? (sel.getAttribute('data-crop') || '') : '';
+      _refreshPestDropdowns(crop);
+    });
+
     // Severity button handlers
     modal.querySelectorAll('.sev-btn').forEach(function(btn) {
       btn.addEventListener('click', function() {
@@ -202,17 +294,8 @@ var FieldReport = (function() {
       btn.addEventListener('click', function() {
         var loc = this.getAttribute('data-loc');
         var idx = selectedLocs.indexOf(loc);
-        if (idx === -1) {
-          selectedLocs.push(loc);
-          this.style.background = '#2e7d32';
-          this.style.color = 'white';
-          this.style.borderColor = '#2e7d32';
-        } else {
-          selectedLocs.splice(idx, 1);
-          this.style.background = '#f5f5f5';
-          this.style.color = 'inherit';
-          this.style.borderColor = '#ddd';
-        }
+        if (idx === -1) { selectedLocs.push(loc); this.style.background = '#2e7d32'; this.style.color = 'white'; this.style.borderColor = '#2e7d32'; }
+        else { selectedLocs.splice(idx, 1); this.style.background = '#f5f5f5'; this.style.color = 'inherit'; this.style.borderColor = '#ddd'; }
         document.getElementById('frLocations').value = selectedLocs.join(',');
       });
     });
@@ -223,16 +306,204 @@ var FieldReport = (function() {
       navigator.geolocation.getCurrentPosition(function(pos) {
         var nearest = getNearestPlot(pos.coords.latitude, pos.coords.longitude);
         if (nearest) {
-          document.getElementById('frPlot').value = nearest.id;
+          var plotSel = document.getElementById('frPlot');
+          plotSel.value = nearest.id;
           document.getElementById('frLocStatus').textContent = '📍 ' + tt('זוהה: ', 'ตรวจพบ: ', 'تم الكشف: ') + nearest.name;
           document.getElementById('frLocStatus').style.color = '#4caf50';
+          // Refresh dropdowns for the detected plot's crop
+          _refreshPestDropdowns(nearest.crop_type || '');
         } else {
           document.getElementById('frLocStatus').textContent = '📍 ' + tt('לא זוהתה חלקה קרובה', 'ไม่พบแปลงใกล้เคียง', 'لم يتم الكشف عن قطعة قريبة');
         }
-      }, function() {
-        document.getElementById('frLocStatus').textContent = '';
-      }, { enableHighAccuracy: true, timeout: 10000 });
+      }, function() { document.getElementById('frLocStatus').textContent = ''; }, { enableHighAccuracy: true, timeout: 10000 });
     }
+  }
+
+  // ══════════════════════════════════════════
+  // ── PEST LIST ADMIN (crop-specific CRUD) ──
+  // ══════════════════════════════════════════
+
+  function showPestListAdmin(preselectedCrop) {
+    loadPestLists().then(function() {
+      var crops = getAllCropTypes();
+      var selectedCrop = preselectedCrop || crops[0] || '_default';
+
+      var cropTabs = '';
+      // _default tab
+      cropTabs += '<button class="plCropTab' + (selectedCrop === '_default' ? ' active' : '') + '" data-crop="_default" style="padding:6px 12px;border-radius:8px;border:1px solid #ddd;background:' + (selectedCrop === '_default' ? '#2e7d32;color:white;' : '#f5f5f5;') + 'font-family:inherit;font-size:0.78rem;cursor:pointer;font-weight:600;">' + tt('ברירת מחדל', 'ค่าเริ่มต้น', 'افتراضي') + '</button>';
+      crops.forEach(function(c) {
+        var isActive = c === selectedCrop;
+        cropTabs += '<button class="plCropTab' + (isActive ? ' active' : '') + '" data-crop="' + c + '" style="padding:6px 12px;border-radius:8px;border:1px solid #ddd;background:' + (isActive ? '#2e7d32;color:white;' : '#f5f5f5;') + 'font-family:inherit;font-size:0.78rem;cursor:pointer;">🌱 ' + c + '</button>';
+      });
+      // "Add crop" button
+      cropTabs += '<button onclick="FieldReport._addCropList()" style="padding:6px 10px;border-radius:8px;border:2px dashed #aaa;background:transparent;font-family:inherit;font-size:0.78rem;cursor:pointer;color:#999;">➕</button>';
+
+      var data = getListForCrop(selectedCrop);
+      var pestsHtml = _renderListItems(data.pests || [], 'pest', selectedCrop);
+      var diseasesHtml = _renderListItems(data.diseases || [], 'disease', selectedCrop);
+
+      var copyFromOpts = '<option value="">' + tt('— העתק מגידול —', '— คัดลอกจากพืช —', '— نسخ من محصول —') + '</option>';
+      Object.keys(pestLists).forEach(function(k) {
+        if (k !== selectedCrop) copyFromOpts += '<option value="' + k + '">' + (k === '_default' ? tt('ברירת מחדל', 'ค่าเริ่มต้น', 'افتراضي') : k) + '</option>';
+      });
+
+      var modal = document.getElementById('modalContainer');
+      modal.innerHTML = '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;">' +
+        '<div style="background:white;border-radius:16px;padding:20px;width:95%;max-width:550px;max-height:90vh;overflow-y:auto;">' +
+          '<h3 style="font-weight:700;margin-bottom:10px;">⚙️ ' + tt('ניהול מזיקים ומחלות', 'จัดการศัตรูพืชและโรค', 'إدارة الآفات والأمراض') + '</h3>' +
+          
+          // Crop tabs
+          '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;">' + cropTabs + '</div>' +
+
+          // Copy from another crop
+          '<div style="margin-bottom:14px;display:flex;gap:6px;align-items:center;">' +
+            '<select id="plCopyFrom" style="flex:1;padding:6px 10px;border-radius:8px;border:1px solid #ddd;font-family:inherit;font-size:0.8rem;">' + copyFromOpts + '</select>' +
+            '<button onclick="FieldReport._copyFromCrop(\'' + selectedCrop + '\')" style="padding:6px 12px;border-radius:8px;border:none;background:#1565c0;color:white;font-family:inherit;font-weight:600;font-size:0.8rem;cursor:pointer;">📋 ' + tt('העתק', 'คัดลอก', 'نسخ') + '</button>' +
+          '</div>' +
+
+          // Pests section
+          '<div style="margin-bottom:16px;">' +
+            '<div style="font-weight:700;font-size:0.85rem;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;">🐛 ' + tt('מזיקים', 'ศัตรูพืช', 'آفات') +
+            '<button onclick="FieldReport._addItem(\'' + selectedCrop + '\',\'pest\')" style="border:none;background:#4caf50;color:white;border-radius:6px;padding:4px 10px;font-family:inherit;font-size:0.75rem;font-weight:600;cursor:pointer;">➕</button></div>' +
+            '<div id="plPestList">' + pestsHtml + '</div>' +
+          '</div>' +
+
+          // Diseases section
+          '<div style="margin-bottom:16px;">' +
+            '<div style="font-weight:700;font-size:0.85rem;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;">🦠 ' + tt('מחלות', 'โรค', 'أمراض') +
+            '<button onclick="FieldReport._addItem(\'' + selectedCrop + '\',\'disease\')" style="border:none;background:#4caf50;color:white;border-radius:6px;padding:4px 10px;font-family:inherit;font-size:0.75rem;font-weight:600;cursor:pointer;">➕</button></div>' +
+            '<div id="plDiseaseList">' + diseasesHtml + '</div>' +
+          '</div>' +
+
+          '<button onclick="FieldReport.showNewReport()" style="width:100%;padding:10px;border-radius:10px;border:none;background:#eee;font-family:inherit;cursor:pointer;">' + tt('חזרה לדוח', 'กลับรายงาน', 'العودة للتقرير') + '</button>' +
+        '</div></div>';
+
+      // Crop tab click handlers
+      modal.querySelectorAll('.plCropTab').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          showPestListAdmin(this.getAttribute('data-crop'));
+        });
+      });
+    });
+  }
+
+  function _renderListItems(items, type, crop) {
+    if (!items.length) return '<div style="color:#999;font-size:0.8rem;padding:8px;text-align:center;">' + tt('רשימה ריקה', 'รายการว่าง', 'القائمة فارغة') + '</div>';
+    var html = '';
+    items.forEach(function(item, i) {
+      html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;padding:6px 8px;background:#f9f9f9;border-radius:8px;">';
+      html += '<div style="flex:1;font-size:0.82rem;">';
+      html += '<div style="font-weight:600;">' + item.he + '</div>';
+      var subs = [];
+      if (item.th) subs.push('🇹🇭 ' + item.th);
+      if (item.ar) subs.push('🇸🇦 ' + item.ar);
+      if (subs.length) html += '<div style="font-size:0.7rem;color:#999;">' + subs.join(' &nbsp; ') + '</div>';
+      html += '</div>';
+      html += '<button onclick="FieldReport._editItem(\'' + crop + '\',\'' + type + '\',' + i + ')" style="border:none;background:none;cursor:pointer;font-size:0.85rem;" title="' + tt('ערוך', 'แก้ไข', 'تعديل') + '">✏️</button>';
+      html += '<button onclick="FieldReport._removeItem(\'' + crop + '\',\'' + type + '\',' + i + ')" style="border:none;background:none;cursor:pointer;font-size:0.85rem;">🗑️</button>';
+      html += '</div>';
+    });
+    return html;
+  }
+
+  function _addItem(crop, type) {
+    _showItemEditor(crop, type, -1, { he: '', th: '', ar: '' });
+  }
+
+  function _editItem(crop, type, index) {
+    var data = getListForCrop(crop);
+    var list = type === 'pest' ? data.pests : data.diseases;
+    if (!list || !list[index]) return;
+    _showItemEditor(crop, type, index, list[index]);
+  }
+
+  function _showItemEditor(crop, type, index, item) {
+    var isNew = index === -1;
+    var title = isNew ? tt('הוסף', 'เพิ่ม', 'إضافة') : tt('ערוך', 'แก้ไข', 'تعديل');
+    var typeLabel = type === 'pest' ? tt('מזיק', 'ศัตรูพืช', 'آفة') : tt('מחלה', 'โรค', 'مرض');
+
+    var editorHtml = '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:999999;display:flex;align-items:center;justify-content:center;">' +
+      '<div style="background:white;border-radius:14px;padding:18px;width:90%;max-width:360px;">' +
+        '<h4 style="font-weight:700;margin-bottom:10px;">' + title + ' ' + typeLabel + '</h4>' +
+        '<div style="display:grid;gap:8px;">' +
+          '<div><label style="font-size:0.72rem;color:#666;">🇮🇱 ' + tt('עברית', 'ฮีบรู', 'عبري') + ' *</label>' +
+          '<input id="plItemHe" value="' + (item.he || '') + '" style="width:100%;padding:8px;border-radius:8px;border:1px solid #ddd;font-family:inherit;" placeholder="' + tt('שם בעברית', 'ชื่อภาษาฮีบรู', 'الاسم بالعبرية') + '"></div>' +
+          '<div><label style="font-size:0.72rem;color:#666;">🇹🇭 ' + tt('תאילנדית', 'ไทย', 'تايلاندي') + '</label>' +
+          '<input id="plItemTh" value="' + (item.th || '') + '" style="width:100%;padding:8px;border-radius:8px;border:1px solid #ddd;font-family:inherit;" placeholder="' + tt('אופציונלי', 'ไม่บังคับ', 'اختياري') + '"></div>' +
+          '<div><label style="font-size:0.72rem;color:#666;">🇸🇦 ' + tt('ערבית', 'อาหรับ', 'عربي') + '</label>' +
+          '<input id="plItemAr" value="' + (item.ar || '') + '" style="width:100%;padding:8px;border-radius:8px;border:1px solid #ddd;font-family:inherit;" placeholder="' + tt('אופציונלי', 'ไม่บังคับ', 'اختياري') + '"></div>' +
+          '<div style="display:flex;gap:8px;margin-top:4px;">' +
+            '<button id="plItemSave" style="flex:1;padding:10px;border-radius:10px;border:none;background:#4caf50;color:white;font-family:inherit;font-weight:700;cursor:pointer;">💾 ' + tt('שמור', 'บันทึก', 'حفظ') + '</button>' +
+            '<button id="plItemCancel" style="flex:1;padding:10px;border-radius:10px;border:none;background:#eee;font-family:inherit;cursor:pointer;">' + tt('ביטול', 'ยกเลิก', 'إلغاء') + '</button>' +
+          '</div>' +
+        '</div>' +
+      '</div></div>';
+
+    // Append editor overlay
+    var editorDiv = document.createElement('div');
+    editorDiv.id = 'plItemEditorOverlay';
+    editorDiv.innerHTML = editorHtml;
+    document.body.appendChild(editorDiv);
+
+    document.getElementById('plItemSave').addEventListener('click', function() {
+      var he = document.getElementById('plItemHe').value.trim();
+      if (!he) return;
+      var newItem = { he: he, th: document.getElementById('plItemTh').value.trim(), ar: document.getElementById('plItemAr').value.trim() };
+      
+      // Ensure crop entry exists
+      if (!pestLists[crop]) pestLists[crop] = { pests: [], diseases: [] };
+      var list = type === 'pest' ? pestLists[crop].pests : pestLists[crop].diseases;
+      if (isNew) { list.push(newItem); }
+      else { list[index] = newItem; }
+      savePestLists();
+
+      document.getElementById('plItemEditorOverlay').remove();
+      showPestListAdmin(crop);
+    });
+
+    document.getElementById('plItemCancel').addEventListener('click', function() {
+      document.getElementById('plItemEditorOverlay').remove();
+    });
+  }
+
+  function _removeItem(crop, type, index) {
+    if (!confirm(tt('למחוק?', 'ลบ?', 'حذف؟'))) return;
+    if (!pestLists[crop]) return;
+    var list = type === 'pest' ? pestLists[crop].pests : pestLists[crop].diseases;
+    list.splice(index, 1);
+    savePestLists();
+    showPestListAdmin(crop);
+  }
+
+  function _addCropList() {
+    var name = prompt(tt('שם הגידול:', 'ชื่อพืช:', 'اسم المحصول:'));
+    if (!name || !name.trim()) return;
+    name = name.trim();
+    if (!pestLists[name]) {
+      pestLists[name] = { pests: [], diseases: [] };
+      savePestLists();
+    }
+    showPestListAdmin(name);
+  }
+
+  function _copyFromCrop(targetCrop) {
+    var sel = document.getElementById('plCopyFrom');
+    var source = sel ? sel.value : '';
+    if (!source || !pestLists[source]) return;
+    if (!pestLists[targetCrop]) pestLists[targetCrop] = { pests: [], diseases: [] };
+    // Deep copy and append
+    var srcData = pestLists[source];
+    (srcData.pests || []).forEach(function(p) {
+      var exists = pestLists[targetCrop].pests.some(function(x) { return x.he === p.he; });
+      if (!exists) pestLists[targetCrop].pests.push(JSON.parse(JSON.stringify(p)));
+    });
+    (srcData.diseases || []).forEach(function(d) {
+      var exists = pestLists[targetCrop].diseases.some(function(x) { return x.he === d.he; });
+      if (!exists) pestLists[targetCrop].diseases.push(JSON.parse(JSON.stringify(d)));
+    });
+    savePestLists();
+    showPestListAdmin(targetCrop);
+    if (typeof showToast === 'function') showToast('📋 ' + tt('הועתק', 'คัดลอกแล้ว', 'تم النسخ'));
   }
 
   // ── Photo handling ──
@@ -270,6 +541,7 @@ var FieldReport = (function() {
       inspector: document.getElementById('frInspector').value.trim(),
       plotId: plotId,
       plotName: plotName.trim(),
+      cropType: getCropForPlot(plotId),
       pest: pest || '',
       disease: disease || '',
       severity: parseInt(document.getElementById('frSeverity').value) || 0,
@@ -317,7 +589,6 @@ var FieldReport = (function() {
         el.innerHTML = '<div style="padding:24px;text-align:center;color:#999;"><div style="font-size:2rem;margin-bottom:8px;">🔬</div>' + tt('אין דוחות עדיין', 'ยังไม่มีรายงาน', 'لا توجد تقارير بعد') + '</div>';
         return;
       }
-
       var html = '';
       reports.forEach(function(r) {
         var sev = SEVERITY_LEVELS[r.severity] || SEVERITY_LEVELS[0];
@@ -325,7 +596,7 @@ var FieldReport = (function() {
         html += '<div style="display:flex;justify-content:space-between;align-items:center;">';
         html += '<div>';
         html += '<div style="font-weight:700;font-size:0.9rem;">' + (r.pest || r.disease || '—') + '</div>';
-        html += '<div style="font-size:0.75rem;color:#666;">' + (r.plotName || '') + ' &nbsp; 📅 ' + r.date + '</div>';
+        html += '<div style="font-size:0.75rem;color:#666;">' + (r.plotName || '') + (r.cropType ? ' · ' + r.cropType : '') + ' &nbsp; 📅 ' + r.date + '</div>';
         html += '</div>';
         html += '<span style="font-size:1.2rem;">' + sev.icon + '</span>';
         html += '</div></div>';
@@ -340,7 +611,6 @@ var FieldReport = (function() {
     loadReports().then(function(reports) {
       var r = reports.find(function(rep) { return rep.id === reportId; });
       if (!r) return;
-      
       var sev = SEVERITY_LEVELS[r.severity] || SEVERITY_LEVELS[0];
       var sevLabel = tt(sev.label, sev.labelTh, sev.labelAr);
       
@@ -348,28 +618,23 @@ var FieldReport = (function() {
       var html = '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;">' +
         '<div style="background:white;border-radius:16px;padding:20px;width:95%;max-width:500px;max-height:85vh;overflow-y:auto;">' +
           '<h3 style="font-weight:700;margin-bottom:14px;">🔬 ' + tt('דוח סיור', 'รายงานตรวจ', 'تقرير فحص') + '</h3>' +
-          
           '<div style="display:grid;gap:8px;font-size:0.85rem;">' +
             '<div style="display:flex;justify-content:space-between;padding:8px;background:var(--g6);border-radius:8px;">' +
               '<span>📅 ' + r.date + ' ' + (r.time || '') + '</span>' +
               '<span>👤 ' + (r.inspector || '') + '</span>' +
             '</div>' +
-            '<div style="padding:8px;background:var(--g6);border-radius:8px;">📍 ' + (r.plotName || tt('לא צוין', 'ไม่ระบุ', 'غير محدد')) + '</div>' +
-            
+            '<div style="padding:8px;background:var(--g6);border-radius:8px;">📍 ' + (r.plotName || tt('לא צוין', 'ไม่ระบุ', 'غير محدد')) + (r.cropType ? ' · 🌱 ' + r.cropType : '') + '</div>' +
             (r.pest ? '<div style="padding:8px;background:#fff3e0;border-radius:8px;">🐛 <strong>' + tt('מזיק', 'ศัตรูพืช', 'آفة') + ':</strong> ' + r.pest + '</div>' : '') +
             (r.disease ? '<div style="padding:8px;background:#fce4ec;border-radius:8px;">🦠 <strong>' + tt('מחלה', 'โรค', 'مرض') + ':</strong> ' + r.disease + '</div>' : '') +
-            
             '<div style="padding:10px;background:' + sev.color + '22;border-radius:8px;border:1px solid ' + sev.color + ';">' +
               '<span style="font-size:1.2rem;">' + sev.icon + '</span> <strong>' + tt('חומרה', 'ความรุนแรง', 'شدة') + ':</strong> ' + sevLabel +
               (r.infectionPercent ? ' — ' + r.infectionPercent + '%' : '') +
               (r.affectedTrees ? ' — ' + r.affectedTrees + ' ' + tt('עצים', 'ต้น', 'أشجار') : '') +
             '</div>' +
-            
-            (r.locations ? '<div style="padding:8px;background:var(--g6);border-radius:8px;">📌 ' + tt('מיקום', 'ตำแหน่ง', 'موقع') + ': ' + r.locations.split(',').join(', ') + '</div>' : '') +
+            (r.locations ? '<div style="padding:8px;background:var(--g6);border-radius:8px;">📌 ' + tt('מיקום', 'ตำแหน่ง', 'موقع') + ': ' + translateLocs(r.locations) + '</div>' : '') +
             (r.recommendation ? '<div style="padding:8px;background:#e8f5e9;border-radius:8px;">💊 <strong>' + tt('המלצה', 'คำแนะนำ', 'توصية') + ':</strong> ' + r.recommendation + '</div>' : '') +
             (r.notes ? '<div style="padding:8px;background:var(--g6);border-radius:8px;">📝 ' + r.notes + '</div>' : '') +
           '</div>' +
-          
           '<div style="display:flex;gap:8px;margin-top:14px;">' +
             '<button onclick="FieldReport._exportPDF(' + r.id + ')" style="flex:1;padding:10px;border-radius:10px;border:none;background:#1565c0;color:white;font-family:inherit;font-weight:700;cursor:pointer;">📄 PDF</button>' +
             '<button onclick="FieldReport._shareReport(' + r.id + ')" style="flex:1;padding:10px;border-radius:10px;border:none;background:#7e57c2;color:white;font-family:inherit;font-weight:700;cursor:pointer;">📤 ' + tt('שתף', 'แชร์', 'مشاركة') + '</button>' +
@@ -388,39 +653,36 @@ var FieldReport = (function() {
       var r = reports.find(function(rep) { return rep.id === reportId; });
       if (!r) return;
       var sev = SEVERITY_LEVELS[r.severity] || SEVERITY_LEVELS[0];
-
-      var htmlContent = '<!DOCTYPE html><html dir="rtl"><head><meta charset="utf-8"><title>דוח סיור - ' + r.date + '</title>' +
-        '<style>body{font-family:Arial,sans-serif;padding:30px;max-width:700px;margin:0 auto;direction:rtl;}' +
+      var htmlContent = '<!DOCTYPE html><html dir="' + tt('rtl','ltr','rtl') + '"><head><meta charset="utf-8"><title>' + tt('דוח סיור','รายงานตรวจ','تقرير فحص') + ' - ' + r.date + '</title>' +
+        '<style>body{font-family:Arial,sans-serif;padding:30px;max-width:700px;margin:0 auto;direction:' + tt('rtl','ltr','rtl') + ';}' +
         'h1{color:#2e7d32;border-bottom:3px solid #2e7d32;padding-bottom:10px;}' +
         'table{width:100%;border-collapse:collapse;margin:16px 0;}' +
-        'td,th{padding:8px 12px;border:1px solid #ddd;text-align:right;}' +
+        'td,th{padding:8px 12px;border:1px solid #ddd;text-align:' + tt('right','left','right') + ';}' +
         'th{background:#f5f5f5;font-weight:700;width:120px;}' +
         '.severity{display:inline-block;padding:4px 12px;border-radius:6px;color:white;font-weight:700;background:' + sev.color + ';}' +
         '.footer{margin-top:30px;padding-top:10px;border-top:1px solid #ddd;font-size:0.8em;color:#999;}</style></head><body>' +
-        '<h1>🔬 דוח סיור שדה</h1>' +
+        '<h1>🔬 ' + tt('דוח סיור שדה', 'รายงานตรวจสนาม', 'تقرير فحص ميداني') + '</h1>' +
         '<table>' +
-          '<tr><th>תאריך</th><td>' + r.date + ' ' + (r.time || '') + '</td></tr>' +
-          '<tr><th>סוקר</th><td>' + (r.inspector || '') + '</td></tr>' +
-          '<tr><th>חלקה</th><td>' + (r.plotName || '') + '</td></tr>' +
-          (r.pest ? '<tr><th>מזיק</th><td>' + r.pest + '</td></tr>' : '') +
-          (r.disease ? '<tr><th>מחלה</th><td>' + r.disease + '</td></tr>' : '') +
-          '<tr><th>חומרה</th><td><span class="severity">' + sev.icon + ' ' + sev.label + '</span></td></tr>' +
-          (r.infectionPercent ? '<tr><th>אחוז נגיעות</th><td>' + r.infectionPercent + '%</td></tr>' : '') +
-          (r.affectedTrees ? '<tr><th>עצים נגועים</th><td>' + r.affectedTrees + '</td></tr>' : '') +
-          (r.locations ? '<tr><th>מיקום בעץ</th><td>' + r.locations.split(',').join(', ') + '</td></tr>' : '') +
-          (r.recommendation ? '<tr><th>המלצות טיפול</th><td>' + r.recommendation + '</td></tr>' : '') +
-          (r.notes ? '<tr><th>הערות</th><td>' + r.notes + '</td></tr>' : '') +
+          '<tr><th>' + tt('תאריך','วันที่','تاريخ') + '</th><td>' + r.date + ' ' + (r.time || '') + '</td></tr>' +
+          '<tr><th>' + tt('סוקר','ผู้ตรวจ','المفتش') + '</th><td>' + (r.inspector || '') + '</td></tr>' +
+          '<tr><th>' + tt('חלקה','แปลง','قطعة') + '</th><td>' + (r.plotName || '') + (r.cropType ? ' (' + r.cropType + ')' : '') + '</td></tr>' +
+          (r.pest ? '<tr><th>' + tt('מזיק','ศัตรูพืช','آفة') + '</th><td>' + r.pest + '</td></tr>' : '') +
+          (r.disease ? '<tr><th>' + tt('מחלה','โรค','مرض') + '</th><td>' + r.disease + '</td></tr>' : '') +
+          '<tr><th>' + tt('חומרה','ความรุนแรง','شدة') + '</th><td><span class="severity">' + sev.icon + ' ' + tt(sev.label, sev.labelTh, sev.labelAr) + '</span></td></tr>' +
+          (r.infectionPercent ? '<tr><th>' + tt('אחוז נגיעות','เปอร์เซ็นต์','نسبة الإصابة') + '</th><td>' + r.infectionPercent + '%</td></tr>' : '') +
+          (r.affectedTrees ? '<tr><th>' + tt('עצים נגועים','ต้นติดเชื้อ','أشجار مصابة') + '</th><td>' + r.affectedTrees + '</td></tr>' : '') +
+          (r.locations ? '<tr><th>' + tt('מיקום בעץ','ตำแหน่ง','موقع في الشجرة') + '</th><td>' + translateLocs(r.locations) + '</td></tr>' : '') +
+          (r.recommendation ? '<tr><th>' + tt('המלצות טיפול','คำแนะนำ','توصيات العلاج') + '</th><td>' + r.recommendation + '</td></tr>' : '') +
+          (r.notes ? '<tr><th>' + tt('הערות','หมายเหตุ','ملاحظات') + '</th><td>' + r.notes + '</td></tr>' : '') +
         '</table>' +
-        '<div class="footer">שורשים פלוס — דוח סיור שדה | נוצר ' + new Date().toLocaleDateString('he-IL') + '</div>' +
+        '<div class="footer">' + tt('שורשים פלוס — דוח סיור שדה', 'Shorashim Plus — รายงานตรวจ', 'شوراشيم بلس — تقرير فحص') + ' | ' + tt('נוצר','สร้างเมื่อ','أُنشئ') + ' ' + new Date().toLocaleDateString(tt('he-IL','th-TH','ar-SA')) + '</div>' +
         '</body></html>';
-
       var blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
-      var url = URL.createObjectURL(blob);
       var a = document.createElement('a');
-      a.href = url;
+      a.href = URL.createObjectURL(blob);
       a.download = 'field-report-' + r.date + '.html';
       a.click();
-      URL.revokeObjectURL(url);
+      URL.revokeObjectURL(a.href);
       if (typeof showToast === 'function') showToast('📄 ' + tt('דוח הורד', 'ดาวน์โหลดรายงานแล้ว', 'تم تنزيل التقرير'));
     });
   }
@@ -432,21 +694,19 @@ var FieldReport = (function() {
       var r = reports.find(function(rep) { return rep.id === reportId; });
       if (!r) return;
       var sev = SEVERITY_LEVELS[r.severity] || SEVERITY_LEVELS[0];
-
-      var text = '🔬 דוח סיור שדה\n' +
+      var text = '🔬 ' + tt('דוח סיור שדה', 'รายงานตรวจสนาม', 'تقرير فحص ميداني') + '\n' +
         '📅 ' + r.date + (r.time ? ' ' + r.time : '') + '\n' +
         '👤 ' + (r.inspector || '') + '\n' +
-        '📍 ' + (r.plotName || '') + '\n' +
-        (r.pest ? '🐛 מזיק: ' + r.pest + '\n' : '') +
-        (r.disease ? '🦠 מחלה: ' + r.disease + '\n' : '') +
-        sev.icon + ' חומרה: ' + sev.label + (r.infectionPercent ? ' (' + r.infectionPercent + '%)' : '') + '\n' +
-        (r.locations ? '📌 מיקום: ' + r.locations.split(',').join(', ') + '\n' : '') +
-        (r.recommendation ? '💊 המלצה: ' + r.recommendation + '\n' : '') +
+        '📍 ' + (r.plotName || '') + (r.cropType ? ' (' + r.cropType + ')' : '') + '\n' +
+        (r.pest ? '🐛 ' + tt('מזיק','ศัตรูพืช','آفة') + ': ' + r.pest + '\n' : '') +
+        (r.disease ? '🦠 ' + tt('מחלה','โรค','مرض') + ': ' + r.disease + '\n' : '') +
+        sev.icon + ' ' + tt('חומרה','ความรุนแรง','شدة') + ': ' + tt(sev.label, sev.labelTh, sev.labelAr) + (r.infectionPercent ? ' (' + r.infectionPercent + '%)' : '') + '\n' +
+        (r.locations ? '📌 ' + tt('מיקום','ตำแหน่ง','موقع') + ': ' + translateLocs(r.locations) + '\n' : '') +
+        (r.recommendation ? '💊 ' + tt('המלצה','คำแนะนำ','توصية') + ': ' + r.recommendation + '\n' : '') +
         (r.notes ? '📝 ' + r.notes + '\n' : '') +
-        '\n— שורשים פלוס';
-
+        '\n— ' + tt('שורשים פלוס', 'Shorashim Plus', 'شوراشيم بلس');
       if (navigator.share) {
-        navigator.share({ title: 'דוח סיור - ' + r.date, text: text }).catch(function() {});
+        navigator.share({ title: tt('דוח סיור','รายงานตรวจ','تقرير فحص') + ' - ' + r.date, text: text }).catch(function() {});
       } else {
         navigator.clipboard.writeText(text).then(function() {
           if (typeof showToast === 'function') showToast('📋 ' + tt('הועתק ללוח', 'คัดลอกแล้ว', 'تم النسخ'));
@@ -472,10 +732,17 @@ var FieldReport = (function() {
     showNewReport: showNewReport,
     showReportsList: showReportsList,
     showReportDetail: showReportDetail,
+    showPestListAdmin: showPestListAdmin,
     _handlePhotos: _handlePhotos,
     _saveReport: _saveReport,
     _exportPDF: _exportPDF,
     _shareReport: _shareReport,
-    _deleteReport: _deleteReport
+    _deleteReport: _deleteReport,
+    _addItem: _addItem,
+    _editItem: _editItem,
+    _removeItem: _removeItem,
+    _addCropList: _addCropList,
+    _copyFromCrop: _copyFromCrop,
+    _refreshPestDropdowns: _refreshPestDropdowns
   };
 })();
