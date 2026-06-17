@@ -1,8 +1,75 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function getRole() {
+      // During transition, users without custom claims get null
+      return request.auth.token.role;
+    }
+    function isAdmin() {
+      return isSignedIn() && getRole() == 'admin';
+    }
+    function isOperatorOrAbove() {
+      return isSignedIn() && getRole() in ['admin', 'operator'];
+    }
+    function isWorkerOrAbove() {
+      return isSignedIn() && getRole() in ['admin', 'operator', 'worker'];
+    }
+    // Transition: allow if user has no role yet (custom claims not set)
+    // Remove this function after all users have logged in once
+    function noRoleYet() {
+      return isSignedIn() && getRole() == null;
+    }
+
+    // ── appData collection ──
+    match /appData/{docId} {
+      allow read: if isSignedIn();
+      
+      // Admin-only: user management, settings, talgil config
+      allow write: if (isAdmin() || noRoleYet()) && docId in [
+        'shorashim-users',
+        'shorashim-talgil-config',
+        'shorashim-talgil-cache',
+        'shorashim-apps-script-url',
+        'shorashim-valve-plot-map',
+        'shorashim-crop-types'
+      ];
+      
+      // Operator+: operational data
+      allow write: if (isOperatorOrAbove() || noRoleYet()) && docId in [
+        'plotMapperSprayData',
+        'shorashim-tasks',
+        'shorashim-field-reports',
+        'shorashim-pest-lists',
+        'shorashim-custom-actions',
+        'shorashim-custom-worker-groups',
+        'shorashim-workers',
+        'shorashim-receipts'
+      ];
+      
+      // Worker+: worklogs
+      allow write: if (isWorkerOrAbove() || noRoleYet()) && docId.matches('shorashim-worklog.*');
+    }
+    
+    // ── timeclock collection ──
+    match /timeclock/{recordId} {
+      allow read: if isSignedIn();
+      
+      // Workers create/update their own records
+      allow create: if (isWorkerOrAbove() || noRoleYet());
+      allow update: if (isWorkerOrAbove() || noRoleYet()) && 
+        resource.data.username == request.auth.token.email;
+      
+      // Admin can edit/delete any record
+      allow update, delete: if isAdmin();
+    }
+
+    // Deny everything else
     match /{document=**} {
-      allow read, write: if request.auth != null;
+      allow read, write: if false;
     }
   }
 }

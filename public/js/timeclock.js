@@ -287,6 +287,7 @@ var TimeClock = (function() {
     }
 
     html += '<button onclick="location.reload(true)" style="display:block;width:100%;padding:12px;margin-top:12px;border-radius:10px;border:none;background:#e3f2fd;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:center;">' + tt('🔄 רענן אפליקציה', '🔄 รีเฟรชแอป', '🔄 تحديث التطبيق') + '</button>';
+    html += '<button onclick="TimeClock.logout()" style="display:block;width:100%;padding:12px;margin-top:6px;border-radius:10px;border:none;background:#ffebee;color:#c62828;font-family:inherit;font-size:0.9rem;font-weight:700;cursor:pointer;text-align:center;">' + tt('🚪 התנתק', '🚪 ออกจากระบบ', '🚪 تسجيل خروج') + '</button>';
     html += '<button onclick="TimeClock.closeMenu()" style="display:block;width:100%;padding:12px;margin-top:6px;border-radius:10px;border:none;background:#f5f5f5;font-family:inherit;font-size:0.9rem;cursor:pointer;text-align:center;">' + tt('סגור', 'ปิด', 'إغلاق') + '</button>';
     html += '<div style="text-align:center;margin-top:8px;font-size:0.65rem;color:#bbb;">v1.0.0</div>';
     html += '</div>';
@@ -880,6 +881,19 @@ var TimeClock = (function() {
     showCropAdmin();
   }
 
+  function logout() {
+    if (confirm(tt('להתנתק מהמערכת?', 'ออกจากระบบ?', 'تسجيل الخروج؟'))) {
+      closeMenu();
+      if (typeof firebase !== 'undefined' && firebase.auth) {
+        firebase.auth().signOut().then(function() {
+          location.reload();
+        });
+      } else {
+        location.reload();
+      }
+    }
+  }
+
   // ── Public API ──
   return {
     init: init,
@@ -887,6 +901,7 @@ var TimeClock = (function() {
     punchOut: punchOut,
     toggleMenu: toggleMenu,
     closeMenu: closeMenu,
+    logout: logout,
     showMyRecords: showMyRecords,
     showAllRecords: showAllRecords,
     showWorkplaceAdmin: showWorkplaceAdmin,

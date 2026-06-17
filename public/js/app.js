@@ -6067,7 +6067,57 @@
   // ── TALGIL IRRIGATION ──
   var talgilValves = [];
   var talgilPrograms = [];
-  var valvePlotMap = JSON.parse(localStorage.getItem('shorashim-valve-plot-map') || '{}');
+  var valvePlotMap = {};
+  var talgilDataLoaded = false;
+
+  // Load cached Talgil data from Firestore on init
+  function loadTalgilCache() {
+    return Promise.all([
+      DB.loadAsync('shorashim-valve-plot-map').then(function(data) {
+        if (data && typeof data === 'object') valvePlotMap = data;
+      }),
+      DB.loadAsync('shorashim-talgil-cache').then(function(data) {
+        if (data) {
+          if (Array.isArray(data.valves) && data.valves.length) talgilValves = data.valves;
+          if (Array.isArray(data.programs) && data.programs.length) talgilPrograms = data.programs;
+          talgilDataLoaded = true;
+        }
+      })
+    ]).catch(function(e) { console.warn('Talgil cache load:', e.message); });
+  }
+
+  // Save valve/program data to Firestore cache after each fetch
+  function saveTalgilCache() {
+    try {
+      DB.save('shorashim-talgil-cache', {
+        valves: talgilValves,
+        programs: talgilPrograms,
+        lastFetch: Date.now()
+      });
+    } catch(e) { console.warn('Talgil cache save:', e.message); }
+  }
+
+  // Auto-reconnect: if config exists, fetch fresh data silently
+  function talgilAutoReconnect() {
+    var cfg = getTalgilConfig();
+    if (!cfg.host || !cfg.controllerId || !cfg.apiKey || !cfg.user) return;
+    // Only auto-reconnect if we have cached data (user connected before)
+    if (!talgilDataLoaded) return;
+    // Silently refresh in background
+    talgilFetch('valves', 'uid|name|nomFlow|area|line|state').then(function(data) {
+      if (Array.isArray(data)) {
+        talgilValves = data;
+        talgilFetch('programs', 'uid|name|state|sequence|startTime|daysCycle|runList|valves|waterPlanned|waterDosageMode').then(function(pdata) {
+          if (Array.isArray(pdata)) talgilPrograms = pdata;
+          saveTalgilCache();
+          // Re-render if irrigation tab is active
+          if (document.querySelector('.tab-content.active #irrigationContent')) {
+            renderPlotIrrigationView();
+          }
+        });
+      }
+    }).catch(function(e) { console.warn('Talgil auto-reconnect:', e.message); });
+  }
 
   function safeProgramsList() {
     return Array.isArray(talgilPrograms) ? talgilPrograms : [];
@@ -6352,6 +6402,7 @@
       renderPlotIrrigationView();
       renderProgramsList();
       renderMappingUI();
+      saveTalgilCache();
     } catch (e) {
       statusEl.textContent = '❌ ' + t('שגיאה') + ': ' + e.message;
       statusEl.style.color = 'var(--danger)';
@@ -6367,6 +6418,7 @@
       renderPlotIrrigationView();
       renderProgramsList();
       renderMappingUI();
+      saveTalgilCache();
       showToast('🔄 ' + t('נתונים עודכנו'));
     } catch (e) {
       showToast('❌ ' + e.message);
@@ -6709,7 +6761,27 @@
     });
 
     DB.listen('shorashim-valve-plot-map', function(data) {
-      if (data) valvePlotMap = data;
+      if (data) {
+        valvePlotMap = data;
+        // Re-render irrigation if tab is active
+        if (document.querySelector('.tab-content.active #irrigationContent')) {
+          renderPlotIrrigationView();
+          renderMappingUI();
+        }
+      }
+    });
+
+    DB.listen('shorashim-talgil-cache', function(data) {
+      if (data) {
+        if (Array.isArray(data.valves) && data.valves.length) talgilValves = data.valves;
+        if (Array.isArray(data.programs) && data.programs.length) talgilPrograms = data.programs;
+        talgilDataLoaded = true;
+      }
+    });
+
+    // Load Talgil cache and auto-reconnect
+    loadTalgilCache().then(function() {
+      talgilAutoReconnect();
     });
 
     DB.listen('shorashim-crop-types', function(data) {
