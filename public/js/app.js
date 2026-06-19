@@ -763,6 +763,7 @@
     'תפקיד': { th: 'ตำแหน่ง', ar: 'وظيفة' },
     'עובד': { th: 'คนงาน', ar: 'عامل' },
     'המשתמש יתחבר עם האימייל שהוזן. בכניסה הראשונה יצר חשבון אוטומטית עם הסיסמה שיבחר.': { th: 'ผู้ใช้จะเข้าสู่ระบบด้วยอีเมลที่กรอก ครั้งแรกจะสร้างบัญชีอัตโนมัติด้วยรหัสผ่านที่เลือก', ar: 'المستخدم سيسجل بالبريد المدخل. في الدخول الأول سينشئ حساباً تلقائياً بكلمة المرور التي يختارها.' },
+    'מומלץ להשתמש בכתובת Gmail של העובד — כך יוכל להתחבר בלחיצה אחת עם Google': { th: 'แนะนำใช้ Gmail ของคนงาน — จะเข้าสู่ระบบด้วย Google ได้ในคลิกเดียว', ar: 'يُفضل استخدام Gmail العامل — سيتمكن من تسجيل الدخول بنقرة واحدة عبر Google' },
     'המשתמש יתחבר עם האימייל שהזנת. אם זה משתמש חדש, הסיסמה הראשונית תהיה האימייל עצמו.': { th: 'ผู้ใช้จะเข้าสู่ระบบด้วยอีเมลที่กรอก หากเป็นผู้ใช้ใหม่ รหัสผ่านเริ่มต้นจะเป็นอีเมลนั้น', ar: 'سيسجل المستخدم بالبريد المدخل. إذا كان جديداً، كلمة المرور الأولية ستكون البريد نفسه.' },
     'משתמש נוסף — יוכל להתחבר עם': { th: 'เพิ่มผู้ใช้แล้ว — เข้าสู่ระบบด้วย', ar: 'تمت إضافة المستخدم — يمكنه تسجيل الدخول بـ' },
     'למחוק את מטע': { th: 'ลบสวน', ar: 'حذف بستان' },
@@ -967,6 +968,7 @@
     'הוסף חומר': { th: 'เพิ่มสารเคมี', ar: 'إضافة مبيد' },
     'חיבור תלגיל': { th: 'เชื่อมต่อ Talgil', ar: 'اتصال Talgil' },
     'התחבר': { th: 'เชื่อมต่อ', ar: 'اتصال' },
+    'הגדרות חיבור': { th: 'ตั้งค่าการเชื่อมต่อ', ar: 'إعدادات الاتصال' },
     'שיוך מגופים לחלקות': { th: 'ผูกวาล์วกับแปลง', ar: 'ربط الصمامات بالقطع' },
     'שמור שיוך': { th: 'บันทึกการผูก', ar: 'حفظ الربط' },
     'השקיה לפי חלקה': { th: 'การให้น้ำตามแปลง', ar: 'ري حسب القطعة' },
@@ -1965,6 +1967,7 @@
             '<span>📍 ' + p.vertices + ' ' + t('נקודות') + '</span>' +
             (p.tree_count ? '<span>🌴 ' + p.tree_count + '</span>' : '') +
           '</div>' +
+          getPlotIrrigationBadge(p.id) +
           '<div class="plot-nav">' + t('לחץ לפרטי חלקה →') + '</div>' +
         '</div>' +
         '<button class="plot-delete" data-delete-id="' + p.id + '">🗑</button>' +
@@ -2810,7 +2813,7 @@
             '</select>' +
           '</div>' +
           farmCheckboxes +
-          '<div style="font-size:0.75rem;color:#999;padding:8px;background:#fff3e0;border-radius:8px;margin-bottom:12px;">💡 ' + t('המשתמש יתחבר עם האימייל שהוזן. בכניסה הראשונה יצר חשבון אוטומטית עם הסיסמה שיבחר.') + '</div>' +
+          '<div style="font-size:0.75rem;color:#999;padding:8px;background:#fff3e0;border-radius:8px;margin-bottom:12px;">💡 ' + t('מומלץ להשתמש בכתובת Gmail של העובד — כך יוכל להתחבר בלחיצה אחת עם Google') + '</div>' +
           '<div class="modal-buttons">' +
             '<button class="btn btn-primary" onclick="window.saveUserModal()">' + t('שמור') + '</button>' +
             '<button class="btn btn-secondary" onclick="window.cancelUserModal()">' + t('ביטול') + '</button>' +
@@ -6208,60 +6211,120 @@
     return result;
   }
 
-  function getValvePrograms(valveUid) {
+  // Compact irrigation summary for plot cards in מטעים tab
+  // (old getPlotIrrigationBadge removed — new version below with robust matching)
+
+  // Normalize valve UID and program sequence labels to a common format for matching
+  // Valve UIDs: "11:1", "11:16" etc. Sequence labels: "1.1", "1.16", "11:1" etc.
+  function normalizeValveId(id) {
+    if (!id) return '';
+    // Strip any leading zeros, normalize separator to '.'
+    return String(id).replace(/:/g, '.').replace(/^0+/, '');
+  }
+
+  function valveMatchesSeqLabel(valveUid, seqLabel) {
+    var a = normalizeValveId(valveUid);
+    var b = normalizeValveId(seqLabel);
+    if (a === b) return true;
+    // Also try: if valve UID has a long prefix (e.g. "11:1") and seq uses short ("1.1")
+    // Strip the first digit from the valve prefix: "11" → "1"
+    var aParts = a.split('.');
+    var bParts = b.split('.');
+    if (aParts.length === 2 && bParts.length === 2) {
+      // Compare just the line and valve numbers, ignoring leading digits on line
+      if (aParts[1] === bParts[1]) {
+        // Check if one line is a suffix of the other
+        if (aParts[0].endsWith(bParts[0]) || bParts[0].endsWith(aParts[0])) return true;
+      }
+    }
+    return false;
+  }
+
+  // Find all programs that reference a specific valve
+  function getValveProgramEntries(valveUid) {
     var result = [];
     safeProgramsList().filter(function(p) { return isProgramActive(p.state); }).forEach(function(prog) {
-      var seqParts = prog.sequence.split(' > ');
-      if (prog.valves) {
-        prog.valves.forEach(function(pv, i) {
-          var seqLabel = seqParts[i] || '';
-          // Match valve uid like "11:2" to sequence label like "1.2"
-          var uidNorm = valveUid.replace(':', '.');
-          var labelParts = seqLabel.split('.');
-          if (seqLabel === uidNorm || seqLabel.replace('11:', '1.') === uidNorm) {
-            result.push({ program: prog, valveData: pv, seqLabel: seqLabel });
-          }
-        });
-      }
+      var seqParts = prog.sequence ? prog.sequence.split(' > ') : [];
+      if (!prog.valves) return;
+      prog.valves.forEach(function(pv, i) {
+        var seqLabel = (seqParts[i] || '').trim();
+        if (valveMatchesSeqLabel(valveUid, seqLabel)) {
+          result.push({
+            progName: prog.name,
+            groupLabel: seqLabel,
+            groupIndex: i,
+            totalGroups: prog.valves.length,
+            water: pv.waterPlanned,
+            mode: pv.waterDosageMode != null ? pv.waterDosageMode : prog.waterDosageMode,
+            cycle: prog.daysCycle,
+            start: formatStartTime(prog.startTime),
+            sequence: prog.sequence
+          });
+        }
+      });
     });
     return result;
   }
 
-  function getPlotIrrigationHtml(plotId) {
+  // Compact irrigation summary for plot cards in מטעים tab
+  function getPlotIrrigationBadge(plotId) {
     var pValves = getPlotValves(plotId);
-    if (pValves.length === 0) {
-      return '<div style="padding: 10px; text-align: center; color: var(--text-muted); font-size: 0.82rem;">' + t('אין מגופים משויכים') + '</div>';
-    }
-    var html = '';
-    pValves.forEach(function(v) {
-      var stateColor = v.state === 1 ? '#4caf50' : v.state === 5 ? '#f44336' : '#9e9e9e';
-      html += '<div style="padding: 8px; background: var(--g6); border-radius: 8px; margin-bottom: 6px; border-right: 3px solid ' + stateColor + ';">';
-      html += '<div style="display: flex; justify-content: space-between; align-items: center;">';
-      html += '<span style="font-weight: 600; font-size: 0.85rem;">' + v.name + '</span>';
-      html += '<span style="font-size: 0.78rem;">' + valveStateText(v.state) + '</span>';
-      html += '</div>';
-      html += '<div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 2px;">' + t('ספיקה:') + ' ' + v.nomFlow + ' ' + t('קוב/ש') + ' &nbsp;|&nbsp; ' + t('שטח:') + ' ' + v.area + ' ' + t('ד\'') + '</div>';
+    if (pValves.length === 0) return '';
 
-      // Programs
-      var vProgs = [];
-      safeProgramsList().filter(function(p) { return isProgramActive(p.state); }).forEach(function(prog) {
-        var seqParts = prog.sequence.split(' > ');
-        seqParts.forEach(function(label, i) {
-          var uidDot = v.uid.replace('11:', '1.');
-          if (label === uidDot && prog.valves && prog.valves[i]) {
-            vProgs.push({ name: prog.name, water: prog.valves[i].waterPlanned, mode: prog.valves[i].waterDosageMode, start: formatStartTime(prog.startTime), cycle: prog.daysCycle });
-          }
-        });
+    // Collect all program entries for all valves in this plot
+    var allEntries = [];
+    pValves.forEach(function(v) {
+      getValveProgramEntries(v.uid).forEach(function(entry) {
+        entry.valveName = v.name;
+        entry.valveUid = v.uid;
+        entry.valveState = v.state;
+        allEntries.push(entry);
       });
-      if (vProgs.length > 0) {
-        vProgs.forEach(function(vp) {
-          html += '<div style="font-size: 0.72rem; color: #1565c0; margin-top: 3px;">📋 ' + vp.name + ': ' + vp.water + ' ' + dosageModeText(vp.mode) + ' 🕐' + vp.start;
-          if (vp.cycle > 0) html += ' (' + t('כל') + ' ' + vp.cycle + ' ' + t('ימים') + ')';
-          html += '</div>';
-        });
-      }
+    });
+
+    if (allEntries.length === 0) {
+      // Has valves but no active programs — show valve dots
+      var statesHtml = '';
+      pValves.forEach(function(v) {
+        var sColor = v.state === 1 ? '#4caf50' : v.state === 5 ? '#f44336' : '#bbb';
+        statesHtml += '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + sColor + ';margin-left:2px;"></span>';
+      });
+      return '<div style="display:flex;align-items:center;gap:4px;margin-top:4px;font-size:0.72rem;color:var(--text-muted);">💧 ' + pValves.length + ' ' + t('מגופים') + ' ' + statesHtml + '</div>';
+    }
+
+    // Group entries by program
+    var byProg = {};
+    allEntries.forEach(function(e) {
+      if (!byProg[e.progName]) byProg[e.progName] = { entries: [], cycle: e.cycle, start: e.start, sequence: e.sequence };
+      byProg[e.progName].entries.push(e);
+    });
+
+    var html = '';
+    Object.keys(byProg).forEach(function(progName) {
+      var pg = byProg[progName];
+      html += '<div style="margin-top:4px;padding:5px 8px;background:rgba(74,144,217,0.08);border-radius:8px;border-right:3px solid var(--water);">';
+      
+      // Program header: name + cycle
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;font-size:0.72rem;">';
+      html += '<span style="color:var(--water);font-weight:800;">💧 ' + progName + '</span>';
+      html += '<span style="color:var(--text-muted);">';
+      if (pg.cycle > 0) html += t('כל') + ' ' + pg.cycle + ' ' + t('ימים') + ' · ';
+      html += '🕐 ' + pg.start;
+      html += '</span></div>';
+      
+      // Groups: G1 → G2 with dosage for this plot's valves
+      html += '<div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:3px;">';
+      pg.entries.forEach(function(entry, i) {
+        var modeLabel = entry.mode === 2 ? t('קוב') + '/' + t("ד'") : entry.mode === 1 ? t('קוב') : t('דקות');
+        var groupNum = 'G' + (entry.groupIndex + 1);
+        html += '<span style="background:rgba(74,144,217,0.12);color:#0d47a1;padding:2px 7px;border-radius:5px;font-size:0.7rem;font-weight:700;">';
+        html += groupNum + ': ' + entry.water + ' ' + modeLabel;
+        html += '</span>';
+      });
+      html += '</div>';
       html += '</div>';
     });
+
     return html;
   }
 
@@ -6293,23 +6356,15 @@
         html += '<div style="font-size: 0.75rem; color: var(--text-muted);">';
         html += t('ספיקה:') + ' ' + v.nomFlow + ' ' + t('קוב/ש') + ' &nbsp;|&nbsp; ' + t('שטח:') + ' ' + v.area + ' ' + t("ד'");        html += '</div>';
 
-        // Find programs for this valve
-        var vProgs = [];
-        safeProgramsList().filter(function(p) { return isProgramActive(p.state); }).forEach(function(prog) {
-          var seqParts = prog.sequence.split(' > ');
-          seqParts.forEach(function(label, i) {
-            var uidDot = v.uid.replace('11:', '1.');
-            if (label === uidDot && prog.valves && prog.valves[i]) {
-              vProgs.push({ name: prog.name, water: prog.valves[i].waterPlanned, mode: prog.valves[i].waterDosageMode, start: formatStartTime(prog.startTime), cycle: prog.daysCycle });
-            }
-          });
-        });
+        // Find programs for this valve using robust matching
+        var vProgs = getValveProgramEntries(v.uid);
 
         if (vProgs.length > 0) {
           html += '<div style="margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px;">';
           vProgs.forEach(function(vp) {
+            var groupLabel = 'G' + (vp.groupIndex + 1);
             html += '<span style="background: #e3f2fd; color: #1565c0; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem;">';
-            html += vp.name + ': ' + vp.water + ' ' + dosageModeText(vp.mode) + ' 🕐' + vp.start;
+            html += vp.progName + ' ' + groupLabel + ': ' + vp.water + ' ' + dosageModeText(vp.mode) + ' 🕐' + vp.start;
             if (vp.cycle > 0) html += ' (' + t('כל') + ' ' + vp.cycle + ' ' + t('ימים') + ')';
             html += '</span>';
           });

@@ -1,6 +1,6 @@
 {
   "name": "shorashim-plus-functions",
-  "description": "Talgil API proxy for Shorashim Plus",
+  "description": "Shorashim Plus Cloud Functions",
   "engines": { "node": "22" },
   "main": "index.js",
   "dependencies": {

@@ -1,18 +1,21 @@
 {
-  "name": "שורשים פלוס",
+  "name": "שורשים פלוס — ניהול מטעים",
   "short_name": "שורשים+",
-  "description": "פלטפורמה לניהול חקלאי",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#1a3c1a",
-  "theme_color": "#2e7d32",
   "orientation": "portrait",
+  "background_color": "#1b5e20",
+  "theme_color": "#1b5e20",
   "icons": [
     {
-      "src": "/icon.png",
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icons/icon-512.png",
       "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any maskable"
+      "type": "image/png"
     }
   ]
 }

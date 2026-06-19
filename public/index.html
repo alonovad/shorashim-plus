@@ -3,11 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>שורשים פלוס</title>
+<title>שורשים+</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
 <link rel="stylesheet" href="css/style.css"/>
 <link rel="manifest" href="/manifest.json">
-<meta name="theme-color" content="#2e7d32">
+<meta name="theme-color" content="#1b5e20">
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
@@ -31,8 +31,8 @@
 <body>
 
 <!-- Login Screen -->
-<div id="loginScreen" style="position: fixed; inset: 0; background: linear-gradient(168deg, #0d1f0d 0%, #1a3c1a 30%, #245a28 60%, #2a6830 100%); display: none; align-items: center; justify-content: center; z-index: 99999;">
-  <div style="background: white; border-radius: 24px; padding: 40px 32px; width: 90%; max-width: 400px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+<div id="loginScreen" style="position: fixed; inset: 0; background: linear-gradient(168deg, #14341e 0%, #1b5e20 35%, #2e7d32 65%, #43a047 100%); display: none; align-items: center; justify-content: center; z-index: 99999;">
+  <div style="background: rgba(255,255,255,0.95); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-radius: 28px; padding: 40px 28px; width: 90%; max-width: 400px; box-shadow: 0 20px 60px rgba(0,0,0,0.25), 0 0 120px rgba(46,125,50,0.15);">
     <div style="text-align: center; margin-bottom: 32px;">
       <svg width="60" height="60" viewBox="0 0 100 100" style="margin: 0 auto 16px;">
         <polygon points="50,8 92,82 8,82" fill="#a5d6a7" opacity="0.7"/>
@@ -45,9 +45,9 @@
     </div>
     
     <div style="display: flex; flex-direction: column; gap: 16px;">
-      <!-- Google Sign-In Button -->
-      <button id="googleLoginBtn" style="width: 100%; padding: 12px; background: white; border: 2px solid #ddd; border-radius: 12px; font-family: Heebo, sans-serif; font-size: 0.95rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px; color: #444;">
-        <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+      <!-- Google Sign-In Button — PRIMARY -->
+      <button id="googleLoginBtn" style="width: 100%; padding: 14px; background: white; border: 2px solid #ddd; border-radius: 14px; font-family: Heebo, sans-serif; font-size: 1rem; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px; color: #333; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
+        <svg width="22" height="22" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
         <span id="googleBtnText">התחבר עם Google</span>
       </button>
 
@@ -57,6 +57,11 @@
         <div style="flex: 1; height: 1px; background: #ddd;"></div>
       </div>
 
+      <!-- Email/Password — SECONDARY (collapsible) -->
+      <button onclick="var d=document.getElementById('emailLoginFields');d.style.display=d.style.display==='none'?'block':'none'" style="width:100%;padding:10px;background:transparent;border:1.5px solid #ccc;border-radius:12px;font-family:Heebo,sans-serif;font-size:0.88rem;color:#666;cursor:pointer;" id="emailToggleBtn">✉️ <span id="emailToggleText">התחבר עם אימייל וסיסמה</span></button>
+      
+      <div id="emailLoginFields" style="display:none;">
+      <div style="display:flex;flex-direction:column;gap:12px;">
       <div>
         <label id="loginEmailLabel" style="display: block; font-size: 0.85rem; font-weight: 600; color: #1b2e1b; margin-bottom: 6px;">אימייל</label>
         <input type="email" id="loginEmail" placeholder="email@example.com" autocomplete="email" style="width: 100%; padding: 12px 16px; border: 2px solid #a5d6a7; border-radius: 12px; font-family: Heebo, sans-serif; font-size: 1rem; direction: ltr; text-align: left; outline: none;">
@@ -65,7 +70,10 @@
         <label id="loginPassLabel" style="display: block; font-size: 0.85rem; font-weight: 600; color: #1b2e1b; margin-bottom: 6px;">סיסמה</label>
         <input type="password" id="loginPassword" placeholder="סיסמה" data-t-placeholder="סיסמה" autocomplete="current-password" style="width: 100%; padding: 12px 16px; border: 2px solid #a5d6a7; border-radius: 12px; font-family: Heebo, sans-serif; font-size: 1rem; direction: rtl; outline: none;">
       </div>
-      <button id="loginBtn" style="width: 100%; padding: 14px; background: linear-gradient(135deg, #245a28, #2e7d32); color: white; border: none; border-radius: 12px; font-family: Heebo, sans-serif; font-size: 1rem; font-weight: 700; cursor: pointer; margin-top: 8px; box-shadow: 0 4px 16px rgba(15,31,15,0.4);" id-label="loginBtnText">התחבר</button>
+      <button id="loginBtn" style="width: 100%; padding: 14px; background: linear-gradient(135deg, #2e7d32, #43a047); color: white; border: none; border-radius: 14px; font-family: Heebo, sans-serif; font-size: 1rem; font-weight: 700; cursor: pointer; box-shadow: 0 4px 16px rgba(46,125,50,0.35);" id-label="loginBtnText">התחבר</button>
+      </div>
+      </div>
+
       <div id="loginError" style="color: #c62828; font-size: 0.85rem; font-weight: 600; text-align: center; min-height: 20px;"></div>
       <div style="text-align: center; margin-top: 4px;">
         <a href="#" id="forgotPassLink" style="font-size: 0.8rem; color: #5a7a5a; text-decoration: underline; cursor: pointer;">שכחתי סיסמה</a>
@@ -79,9 +87,9 @@
   (function() {
     var lang = (navigator.language || navigator.userLanguage || 'he').toLowerCase();
     var loginText = {
-      th: { subtitle: 'แพลตฟอร์มบริหารเกษตร', email: 'อีเมล', pass: 'รหัสผ่าน', btn: 'เข้าสู่ระบบ', google: 'เข้าสู่ระบบด้วย Google', or: 'หรือ' },
-      ar: { subtitle: 'منصة إدارة زراعية', email: 'بريد إلكتروني', pass: 'كلمة مرور', btn: 'تسجيل دخول', google: 'تسجيل دخول مع Google', or: 'أو' },
-      en: { subtitle: 'Farm Management Platform', email: 'Email', pass: 'Password', btn: 'Sign In', google: 'Sign in with Google', or: 'or' }
+      th: { subtitle: 'แพลตฟอร์มบริหารเกษตร', email: 'อีเมล', pass: 'รหัสผ่าน', btn: 'เข้าสู่ระบบ', google: 'เข้าสู่ระบบด้วย Google', or: 'หรือ', emailToggle: 'เข้าสู่ระบบด้วยอีเมลและรหัสผ่าน' },
+      ar: { subtitle: 'منصة إدارة زراعية', email: 'بريد إلكتروني', pass: 'كلمة مرور', btn: 'تسجيل دخول', google: 'تسجيل دخول مع Google', or: 'أو', emailToggle: 'تسجيل دخول بالبريد وكلمة المرور' },
+      en: { subtitle: 'Farm Management Platform', email: 'Email', pass: 'Password', btn: 'Sign In', google: 'Sign in with Google', or: 'or', emailToggle: 'Sign in with email & password' }
     };
     var t = null;
     var forgot = document.getElementById('forgotPassLink');
@@ -96,6 +104,7 @@
       set('loginPassLabel', t.pass);
       set('googleBtnText', t.google);
       set('loginOrText', t.or);
+      set('emailToggleText', t.emailToggle);
       var btn = document.getElementById('loginBtn');
       if (btn) btn.textContent = t.btn;
     }
@@ -532,11 +541,15 @@
   <div class="admin-container">
     <!-- Admin: Talgil Connection Settings -->
     <div class="section-card admin-only" id="talgilSettingsCard" style="display: none;">
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
         <h3 style="font-weight: 700; font-size: 1.1rem;" data-t-key="חיבור תלגיל">⚙️ חיבור תלגיל</h3>
         <button id="talgilConnectBtn" onclick="talgilConnect()" style="padding: 6px 16px; border-radius: 8px; border: none; background: var(--g3); color: white; font-family: inherit; font-weight: 600; cursor: pointer;" data-t-key="התחבר">התחבר</button>
       </div>
-      <div style="display: grid; gap: 8px;">
+      <div id="talgilStatus" style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 4px;"></div>
+      <button onclick="var d=document.getElementById('talgilCredentials');d.style.display=d.style.display==='none'?'grid':'none';this.querySelector('.chev').textContent=d.style.display==='none'?'▸':'▾'" style="border:none;background:none;color:var(--text-muted);font-family:inherit;font-size:0.78rem;cursor:pointer;padding:4px 0;display:flex;align-items:center;gap:4px;">
+        <span class="chev">▸</span> <span data-t-key="הגדרות חיבור">הגדרות חיבור</span>
+      </button>
+      <div id="talgilCredentials" style="display: none; gap: 8px; margin-top: 6px;">
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
           <input id="talgilHost" placeholder="Server (dev.talgil.com)" style="padding: 8px 12px; border-radius: 8px; border: 1px solid #ddd; font-family: inherit; direction: ltr; text-align: left;" />
           <input id="talgilControllerId" placeholder="Controller ID" style="padding: 8px 12px; border-radius: 8px; border: 1px solid #ddd; font-family: inherit; direction: ltr; text-align: left;" />
@@ -545,29 +558,30 @@
         <input id="talgilPass" type="password" placeholder="Password" style="padding: 8px 12px; border-radius: 8px; border: 1px solid #ddd; font-family: inherit; direction: ltr; text-align: left;" />
         <input id="talgilApiKey" placeholder="API Key" style="padding: 8px 12px; border-radius: 8px; border: 1px solid #ddd; font-family: inherit; direction: ltr; text-align: left; font-size: 0.75rem;" />
       </div>
-      <div id="talgilStatus" style="margin-top: 8px; font-size: 0.85rem; color: var(--text-muted);"></div>
     </div>
 
     <!-- Admin: Valve-to-Plot Mapping -->
     <div class="section-card admin-only" id="mappingCard" style="display: none;">
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
-        <h3 style="font-weight: 700; font-size: 1.1rem;" data-t-key="שיוך מגופים לחלקות">🗺️ שיוך מגופים לחלקות</h3>
-        <button onclick="talgilRefreshValves()" style="padding: 4px 12px; border-radius: 8px; border: 1px solid var(--g4); background: transparent; color: var(--g3); font-family: inherit; font-size: 0.8rem; cursor: pointer;" data-t-key="רענן">🔄 רענן</button>
+      <div onclick="var d=document.getElementById('mappingContent');d.style.display=d.style.display==='none'?'block':'none';document.getElementById('mappingChev').textContent=d.style.display==='none'?'▸':'▾'" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; cursor: pointer;">
+        <h3 style="font-weight: 700; font-size: 1.1rem;"><span id="mappingChev">▸</span> <span data-t-key="שיוך מגופים לחלקות">🗺️ שיוך מגופים לחלקות</span></h3>
+        <button onclick="event.stopPropagation();talgilRefreshValves()" style="padding: 4px 12px; border-radius: 8px; border: 1px solid var(--g4); background: transparent; color: var(--g3); font-family: inherit; font-size: 0.8rem; cursor: pointer;" data-t-key="רענן">🔄 רענן</button>
       </div>
-      <div id="mappingList"></div>
-      <button onclick="saveValvePlotMapping()" style="margin-top: 12px; padding: 8px 20px; border-radius: 8px; border: none; background: var(--g3); color: white; font-family: inherit; font-weight: 600; cursor: pointer; width: 100%;" data-t-key="שמור שיוך">💾 שמור שיוך</button>
+      <div id="mappingContent" style="display: none;">
+        <div id="mappingList"></div>
+        <button onclick="saveValvePlotMapping()" style="margin-top: 12px; padding: 8px 20px; border-radius: 8px; border: none; background: var(--g3); color: white; font-family: inherit; font-weight: 600; cursor: pointer; width: 100%;" data-t-key="שמור שיוך">💾 שמור שיוך</button>
+      </div>
     </div>
 
     <!-- All Users: Per-Plot Irrigation View -->
     <div class="section-card" id="plotIrrigationView">
-      <h3 style="font-weight: 700; font-size: 1.1rem; margin-bottom: 12px;" data-t-key="השקיה לפי חלקה">💧 השקיה לפי חלקה</h3>
+      <h3 onclick="var d=document.getElementById('plotIrrigationList');d.style.display=d.style.display==='none'?'block':'none';document.getElementById('irrigChev').textContent=d.style.display==='none'?'▸':'▾'" style="font-weight: 700; font-size: 1.1rem; margin-bottom: 12px; cursor: pointer;"><span id="irrigChev">▾</span> <span data-t-key="השקיה לפי חלקה">💧 השקיה לפי חלקה</span></h3>
       <div id="plotIrrigationList"></div>
     </div>
 
     <!-- All Users: Programs Overview -->
     <div class="section-card" id="programsCard" style="display: none;">
-      <h3 style="font-weight: 700; font-size: 1.1rem; margin-bottom: 12px;" data-t-key="תוכניות השקיה">📋 תוכניות השקיה</h3>
-      <div id="programsList"></div>
+      <h3 onclick="var d=document.getElementById('programsList');d.style.display=d.style.display==='none'?'block':'none';document.getElementById('progsChev').textContent=d.style.display==='none'?'▸':'▾'" style="font-weight: 700; font-size: 1.1rem; margin-bottom: 12px; cursor: pointer;"><span id="progsChev">▸</span> <span data-t-key="תוכניות השקיה">📋 תוכניות השקיה</span></h3>
+      <div id="programsList" style="display: none;"></div>
     </div>
   </div>
 </div>
