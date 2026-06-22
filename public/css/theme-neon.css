@@ -1,0 +1,658 @@
+/* ═══════════════════════════════════════════════════════════════
+   SHORASHIM PLUS — NEON FOREST THEME OVERLAY
+   Layer this AFTER style.css — overrides everything to dark glass
+   Selected: Neon Forest + Glass cards + Outline buttons + Orbs
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Dark palette override ── */
+:root {
+  --g1: #0d2818;
+  --g2: #39ff14;
+  --g3: #2bc410;
+  --g4: #39ff14;
+  --g5: rgba(57,255,20,0.2);
+  --g6: rgba(255,255,255,0.05);
+  --dark: #030a07;
+  --text: #e8ffe8;
+  --text-muted: rgba(255,255,255,0.45);
+  --bg: #030a07;
+  --card: rgba(255,255,255,0.07);
+  --card-solid: rgba(15,25,18,0.95);
+  --danger: #ff4757;
+  --danger-light: rgba(255,71,87,0.15);
+  --water: #4fc3f7;
+  --accent: #ff9f43;
+  --accent-light: rgba(255,159,67,0.12);
+  --shadow: 0 2px 16px rgba(0,0,0,0.3);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.4);
+  --radius: 16px;
+  --gradient-deep: radial-gradient(ellipse at 50% 0%, #0d2818 0%, #071510 40%, #030a07 100%);
+  --gradient-header: linear-gradient(135deg, #071510 0%, #0d2818 50%, #0f3320 100%);
+  --transition: 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* New theme tokens */
+  --primary: #39ff14;
+  --primary-dim: #2bc410;
+  --primary-faded: rgba(57,255,20,0.12);
+  --primary-glow: rgba(57,255,20,0.3);
+  --primary-glow-sm: rgba(57,255,20,0.15);
+  --border: rgba(255,255,255,0.08);
+  --border-light: rgba(255,255,255,0.04);
+  --surface-glass: rgba(255,255,255,0.07);
+  --surface-input: rgba(255,255,255,0.05);
+  --leaf-color: #39ff14;
+  --spark-color: #76ff03;
+  --orb1: #39ff14;
+  --orb2: #00e676;
+}
+
+/* ── Body: dark gradient ── */
+body {
+  background: var(--gradient-deep) !important;
+  color: var(--text);
+}
+
+/* ── Background orb layer (injected by effects.js) ── */
+.bg-layer {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+.bg-orb {
+  position: absolute;
+  border-radius: 50%;
+  transform: translate(-50%,-50%);
+  animation: orbFloat 8s ease-in-out infinite;
+}
+.bg-orb--1 { left:20%;top:30%;width:200px;height:200px;background:var(--orb1);filter:blur(80px);opacity:0.3;animation-duration:8s; }
+.bg-orb--2 { left:75%;top:60%;width:160px;height:160px;background:var(--orb2);filter:blur(70px);opacity:0.25;animation-duration:10s;animation-delay:2s; }
+.bg-orb--3 { left:50%;top:85%;width:100px;height:100px;background:var(--orb1);filter:blur(60px);opacity:0.2;animation-duration:12s;animation-delay:4s; }
+
+/* ── Ensure content floats above bg ── */
+#mainApp, #loginScreen { position: relative; z-index: 1; }
+
+/* ── Header: dark glass ── */
+.header {
+  background: rgba(7,21,16,0.8) !important;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: 0 4px 24px rgba(0,0,0,0.4), inset 0 -1px 0 var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.header h1 { color: var(--text) !important; text-shadow: 0 0 20px rgba(57,255,20,0.15); }
+.header .subtitle { color: var(--text-muted) !important; }
+
+.hdr-btn {
+  background: rgba(255,255,255,0.06) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text-muted) !important;
+}
+.hdr-btn:active { background: rgba(255,255,255,0.12) !important; }
+
+/* Header logo SVG override */
+.header-logo svg polygon { opacity: 0.25; }
+.header-logo svg polygon:nth-child(2) { opacity: 0.4; fill: var(--primary); }
+.header-logo svg polygon:nth-child(3) { opacity: 0.6; fill: var(--primary); }
+.header-logo svg polygon:nth-child(4) { fill: var(--primary); opacity: 0.85; }
+
+/* ── Tab bar: dark glass ── */
+.tab-bar {
+  background: rgba(7,21,16,0.7) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  border-bottom: 1px solid var(--border) !important;
+}
+.tab {
+  color: var(--text-muted) !important;
+}
+.tab.active {
+  color: var(--primary) !important;
+}
+.tab.active::after {
+  background: linear-gradient(90deg, var(--primary), var(--accent)) !important;
+}
+.tab:active { background: rgba(57,255,20,0.06) !important; }
+
+/* ── Cards & sections: dark glass ── */
+.section-card {
+  background: var(--surface-glass) !important;
+  backdrop-filter: blur(18px) !important;
+  -webkit-backdrop-filter: blur(18px) !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.2) !important;
+  color: var(--text);
+}
+.section-card:hover {
+  background: rgba(255,255,255,0.09) !important;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.25) !important;
+}
+
+.section-title { color: var(--primary) !important; }
+
+/* ── Form inputs: dark ── */
+.form-input, .modal input, .modal textarea, select, textarea, input[type="text"],
+input[type="email"], input[type="password"], input[type="number"], input[type="date"],
+input[type="time"], input[type="tel"] {
+  background: var(--surface-input) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text) !important;
+}
+.form-input:focus, .modal input:focus, .modal textarea:focus,
+select:focus, input:focus, textarea:focus {
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 10px var(--primary-glow-sm) !important;
+}
+.form-input::placeholder, input::placeholder, textarea::placeholder {
+  color: var(--text-muted) !important;
+}
+.form-label { color: var(--text-muted) !important; }
+
+/* Select dropdowns */
+select {
+  background: var(--surface-input) !important;
+  color: var(--text) !important;
+  border: 1px solid var(--border) !important;
+}
+select option {
+  background: #0a1a10;
+  color: var(--text);
+}
+
+/* ── Buttons: outline glow ── */
+.btn-submit {
+  background: transparent !important;
+  border: 1.5px solid var(--primary) !important;
+  color: var(--primary) !important;
+  box-shadow: 0 0 10px var(--primary-glow-sm) !important;
+}
+.btn-submit:hover {
+  background: var(--primary-faded) !important;
+  box-shadow: 0 0 20px var(--primary-glow) !important;
+}
+
+.btn-primary {
+  background: transparent !important;
+  border: 1.5px solid var(--primary) !important;
+  color: var(--primary) !important;
+  box-shadow: 0 0 8px var(--primary-glow-sm) !important;
+}
+.btn-secondary {
+  background: rgba(255,255,255,0.05) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text) !important;
+}
+
+.btn-admin {
+  background: transparent !important;
+  border: 1.5px solid var(--primary) !important;
+  color: var(--primary) !important;
+  box-shadow: 0 0 8px var(--primary-glow-sm) !important;
+}
+.btn-admin.active {
+  background: var(--primary-faded) !important;
+  box-shadow: 0 0 16px var(--primary-glow) !important;
+}
+
+/* ── Plot cards ── */
+.plot-card {
+  background: var(--surface-glass) !important;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--border) !important;
+  border-right: 4px solid var(--primary) !important;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.2) !important;
+}
+.plot-card:active { background: rgba(255,255,255,0.1) !important; }
+.plot-name { color: var(--text) !important; }
+.plot-meta { color: var(--text-muted) !important; }
+.plot-nav { color: var(--primary) !important; }
+.plot-delete {
+  background: rgba(255,71,87,0.15) !important;
+  color: var(--danger) !important;
+  border: 1px solid rgba(255,71,87,0.2);
+}
+
+/* ── History items ── */
+.history-item {
+  background: var(--surface-glass) !important;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--border) !important;
+  border-right: 4px solid var(--accent) !important;
+  color: var(--text);
+}
+.history-date { color: var(--text) !important; }
+.history-operator { color: var(--text-muted) !important; }
+.history-plots { color: var(--primary) !important; }
+.history-pesticides { color: var(--text-muted) !important; }
+
+/* ── Calc results ── */
+.calc-results {
+  background: rgba(57,255,20,0.08) !important;
+  border: 1px solid rgba(57,255,20,0.2);
+  color: var(--text) !important;
+}
+.calc-row { border-bottom-color: rgba(255,255,255,0.08) !important; }
+
+/* ── Containers (spray, history, admin) ── */
+.spray-container, .history-container, .admin-container {
+  background: transparent;
+  color: var(--text);
+}
+
+/* ── Pesticide items ── */
+.pesticide-item {
+  background: rgba(255,255,255,0.04) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text);
+}
+.pesticide-item.selected {
+  background: var(--accent-light) !important;
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 12px rgba(255,159,67,0.15);
+}
+.pesticide-name { color: var(--text) !important; }
+.pesticide-active { color: var(--text-muted) !important; }
+
+.pesticide-admin-item {
+  background: var(--surface-glass) !important;
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+.pesticide-admin-name { color: var(--text) !important; }
+.pesticide-admin-details { color: var(--text-muted) !important; }
+
+.btn-icon.edit {
+  background: rgba(255,159,67,0.15) !important;
+  color: var(--accent) !important;
+}
+.btn-icon.delete {
+  background: rgba(255,71,87,0.15) !important;
+  color: var(--danger) !important;
+}
+
+/* ── Plot checkbox items ── */
+.plot-checkbox-item {
+  background: rgba(255,255,255,0.04) !important;
+  color: var(--text);
+}
+.plot-checkbox-item:active { background: rgba(255,255,255,0.08) !important; }
+.plot-checkbox-label { color: var(--text) !important; }
+.plot-checkbox-area { color: var(--text-muted) !important; }
+
+/* ── Modals: dark glass ── */
+.modal-overlay {
+  background: rgba(3,10,7,0.7) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+}
+.modal {
+  background: rgba(15,25,18,0.92) !important;
+  backdrop-filter: blur(24px) !important;
+  -webkit-backdrop-filter: blur(24px) !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5) !important;
+  color: var(--text) !important;
+}
+.modal h2 { color: var(--primary) !important; }
+.modal p { color: var(--text-muted) !important; }
+
+/* JS-generated modals via modalContainer */
+#modalContainer > div > div,
+#modalContainer [style*="background:white"],
+#modalContainer [style*="background: white"] {
+  background: rgba(15,25,18,0.95) !important;
+  backdrop-filter: blur(24px) !important;
+  -webkit-backdrop-filter: blur(24px) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text) !important;
+}
+#modalContainer h3, #modalContainer h2 { color: var(--primary) !important; }
+#modalContainer input, #modalContainer textarea, #modalContainer select {
+  background: var(--surface-input) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text) !important;
+}
+#modalContainer button {
+  font-family: 'Nunito', 'Heebo', sans-serif;
+}
+/* Green save buttons in modals */
+#modalContainer [style*="background:#4caf50"],
+#modalContainer [style*="background: #4caf50"] {
+  background: transparent !important;
+  border: 1.5px solid var(--primary) !important;
+  color: var(--primary) !important;
+  box-shadow: 0 0 8px var(--primary-glow-sm);
+}
+/* Gray cancel/close buttons in modals */
+#modalContainer [style*="background:#eee"],
+#modalContainer [style*="background: #eee"] {
+  background: rgba(255,255,255,0.05) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text) !important;
+}
+/* Red delete buttons in modals */
+#modalContainer [style*="background:#f44336"],
+#modalContainer [style*="background: #f44336"],
+#modalContainer [style*="background:#c62828"],
+#modalContainer [style*="background:red"] {
+  background: rgba(255,71,87,0.15) !important;
+  border: 1.5px solid var(--danger) !important;
+  color: var(--danger) !important;
+}
+
+/* ── Hamburger menu: dark glass ── */
+.hamburger-panel {
+  background: rgba(10,18,12,0.95) !important;
+  backdrop-filter: blur(24px) !important;
+  -webkit-backdrop-filter: blur(24px) !important;
+  border-left: 1px solid var(--border) !important;
+  box-shadow: -8px 0 40px rgba(0,0,0,0.5) !important;
+  color: var(--text);
+}
+.hamburger-overlay {
+  background: rgba(3,10,7,0.5) !important;
+  backdrop-filter: blur(4px) !important;
+  -webkit-backdrop-filter: blur(4px) !important;
+}
+/* Menu items generated by JS with background:white etc */
+.hamburger-panel div[style*="background"],
+.hamburger-panel button {
+  color: var(--text) !important;
+}
+.hamburger-panel h3, .hamburger-panel h4 { color: var(--primary) !important; }
+.hamburger-panel hr { border-color: var(--border) !important; }
+
+/* ── Clock bar: glow ── */
+.clock-bar {
+  background: rgba(57,255,20,0.08) !important;
+  border-bottom: 1px solid rgba(57,255,20,0.15);
+  color: var(--text) !important;
+}
+.clock-bar * { color: var(--text) !important; }
+
+/* ── Panel (bottom drawer): dark glass ── */
+.panel {
+  background: rgba(10,18,12,0.92) !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  border-top: 1px solid var(--border);
+}
+.panel-title { color: var(--primary) !important; }
+.panel-handle::before { background: rgba(255,255,255,0.15) !important; }
+.plot-count {
+  background: var(--primary-faded) !important;
+  color: var(--primary) !important;
+  border: 1px solid rgba(57,255,20,0.2);
+}
+
+/* ── FABs: glow effect ── */
+.fab-main {
+  background: transparent !important;
+  border: 2px solid var(--primary) !important;
+  color: var(--primary) !important;
+  box-shadow: 0 0 20px var(--primary-glow), 0 4px 16px rgba(0,0,0,0.3) !important;
+}
+.fab-main.open {
+  border-color: var(--danger) !important;
+  color: var(--danger) !important;
+  box-shadow: 0 0 20px rgba(255,71,87,0.3), 0 4px 16px rgba(0,0,0,0.3) !important;
+}
+.fab-main.drawing {
+  border-color: var(--water) !important;
+  color: var(--water) !important;
+  box-shadow: 0 0 20px rgba(79,195,247,0.3), 0 4px 16px rgba(0,0,0,0.3) !important;
+}
+
+.fab-quick {
+  background: rgba(57,255,20,0.1) !important;
+  border: 1px solid rgba(57,255,20,0.2) !important;
+  color: var(--primary) !important;
+  box-shadow: 0 0 12px var(--primary-glow-sm) !important;
+}
+.fab-quick.open {
+  background: rgba(255,71,87,0.1) !important;
+  border-color: rgba(255,71,87,0.3) !important;
+  color: var(--danger) !important;
+}
+
+.fab-farms {
+  background: rgba(57,255,20,0.08) !important;
+  border: 1px solid rgba(57,255,20,0.15) !important;
+  color: var(--text) !important;
+  box-shadow: 0 0 10px var(--primary-glow-sm) !important;
+}
+
+.fab-quick-options, .fab-farms-menu {
+  background: rgba(10,18,12,0.95) !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  border: 1px solid var(--border) !important;
+}
+.fab-quick-option, .fab-farms-menu-item {
+  background: transparent !important;
+  color: var(--text) !important;
+}
+.fab-quick-option:active, .fab-farms-menu-item:active {
+  background: rgba(255,255,255,0.05) !important;
+}
+.fab-option {
+  background: rgba(10,18,12,0.9) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text) !important;
+}
+.fab-option-text { color: var(--text) !important; }
+.fab-option-sub { color: var(--text-muted) !important; }
+.fab-option-icon { border: 1px solid var(--border); }
+.fab-option-icon.polygon { background: var(--primary-faded) !important; color: var(--primary) !important; }
+.fab-option-icon.rect { background: rgba(79,195,247,0.12) !important; color: var(--water) !important; }
+
+/* ── Toast: dark ── */
+.toast {
+  background: rgba(15,25,18,0.95) !important;
+  color: var(--text) !important;
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.4), 0 0 10px var(--primary-glow-sm) !important;
+}
+
+/* ── Undo bar ── */
+.undo-bar {
+  background: rgba(15,25,18,0.95) !important;
+  border: 1px solid var(--border);
+  color: var(--text) !important;
+}
+.undo-bar-btn {
+  background: var(--primary-faded) !important;
+  color: var(--primary) !important;
+}
+
+/* ── Draw banner ── */
+.draw-banner {
+  background: rgba(79,195,247,0.15) !important;
+  border: 1px solid rgba(79,195,247,0.3);
+  color: var(--text) !important;
+}
+
+/* ── Table: dark ── */
+.sheet-table th {
+  background: rgba(57,255,20,0.1) !important;
+  color: var(--primary) !important;
+  border-bottom: 1px solid rgba(57,255,20,0.2);
+}
+.sheet-table td {
+  border-bottom-color: var(--border) !important;
+  color: var(--text);
+}
+.sheet-table tr:nth-child(even) td { background: rgba(255,255,255,0.02) !important; }
+.sheet-table tr:hover td { background: rgba(255,255,255,0.05) !important; }
+
+/* Badge types: dark tints */
+.wl-type-badge.irrigation { background: rgba(79,195,247,0.12) !important; color: var(--water) !important; }
+.wl-type-badge.spray { background: rgba(255,71,87,0.12) !important; color: var(--danger) !important; }
+.wl-type-badge.fertilize { background: var(--primary-faded) !important; color: var(--primary) !important; }
+.wl-type-badge.pruning { background: var(--accent-light) !important; color: var(--accent) !important; }
+.wl-type-badge.harvest { background: rgba(156,39,176,0.12) !important; color: #ce93d8 !important; }
+.wl-type-badge.maintenance { background: rgba(255,255,255,0.06) !important; color: var(--text-muted) !important; }
+.wl-type-badge.other { background: rgba(255,255,255,0.04) !important; color: var(--text-muted) !important; }
+
+/* ── Autocomplete: dark ── */
+.pest-ac-item { border-bottom-color: var(--border) !important; color: var(--text); }
+.pest-ac-item:active, .pest-ac-item:hover { background: rgba(255,255,255,0.05) !important; }
+.pest-ac-item .ac-name { color: var(--text) !important; }
+.pest-ac-item .ac-detail { color: var(--text-muted) !important; }
+
+/* ── Offline bar ── */
+#offlineBar {
+  background: rgba(255,71,87,0.15) !important;
+  border: 1px solid rgba(255,71,87,0.3);
+  color: var(--danger) !important;
+}
+
+/* ── Viewer clock dashboard ── */
+#tabViewerClock .section-card { color: var(--text); }
+#viewerClockTime { color: var(--text) !important; }
+#viewerClockStatus { color: var(--text-muted) !important; }
+#viewerPunchBtn {
+  background: transparent !important;
+  border: 2px solid var(--primary) !important;
+  color: var(--primary) !important;
+  box-shadow: 0 0 20px var(--primary-glow) !important;
+}
+#viewerTaskBtn {
+  border-color: var(--accent) !important;
+  color: var(--accent) !important;
+}
+
+/* Stats grid items */
+#viewerStats > div {
+  background: rgba(255,255,255,0.04) !important;
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+#viewerStats > div > div:first-child { color: var(--text-muted) !important; }
+#viewerStats > div > div:last-child { color: var(--text) !important; text-shadow: 0 0 10px rgba(57,255,20,0.15); }
+
+/* ── Skeleton loading: dark ── */
+.skeleton {
+  background: linear-gradient(90deg, rgba(255,255,255,0.03) 25%, rgba(255,255,255,0.06) 50%, rgba(255,255,255,0.03) 75%) !important;
+}
+
+/* ── Scrollbar: subtle ── */
+::-webkit-scrollbar-thumb { background: rgba(57,255,20,0.12) !important; }
+::-webkit-scrollbar-thumb:hover { background: rgba(57,255,20,0.2) !important; }
+
+/* ── Empty state ── */
+.empty-state { color: var(--text-muted) !important; }
+
+/* ── General color overrides for JS inline styles ── */
+[style*="color:#666"], [style*="color: #666"] { color: var(--text-muted) !important; }
+[style*="color:#999"], [style*="color: #999"] { color: var(--text-muted) !important; }
+[style*="color:#333"], [style*="color: #333"] { color: var(--text) !important; }
+[style*="color:#1b2e1b"], [style*="color: #1b2e1b"] { color: var(--text) !important; }
+[style*="color:#1b5e20"], [style*="color: #1b5e20"] { color: var(--primary) !important; }
+
+/* ── Button press animation ── */
+.btn:active, .btn-submit:active, .btn-admin:active, .btn-primary:active {
+  animation: btnPress 0.2s ease;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   ANIMATIONS
+   ═══════════════════════════════════════════════════════════════ */
+
+@keyframes orbFloat {
+  0%, 100% { transform: translate(-50%,-50%) scale(1); }
+  50% { transform: translate(-50%,-50%) scale(1.15); }
+}
+
+@keyframes float1 {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-12px) rotate(5deg); }
+}
+
+@keyframes float2 {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-8px) rotate(-4deg); }
+}
+
+@keyframes float3 {
+  0%, 100% { transform: translateY(0) rotate(0deg) scale(1); }
+  50% { transform: translateY(-15px) rotate(8deg) scale(1.05); }
+}
+
+@keyframes sparkle {
+  0% { opacity:0; transform:scale(0) rotate(0deg); }
+  50% { opacity:1; transform:scale(1) rotate(180deg); }
+  100% { opacity:0; transform:scale(0) rotate(360deg); }
+}
+
+@keyframes glowPulse {
+  0%, 100% { box-shadow: 0 0 8px var(--primary-glow-sm); }
+  50% { box-shadow: 0 0 20px var(--primary-glow), 0 0 40px rgba(57,255,20,0.1); }
+}
+
+@keyframes btnPress {
+  0% { transform: scale(1); }
+  50% { transform: scale(0.96); }
+  100% { transform: scale(1); }
+}
+
+@keyframes sparkBurst {
+  0% { opacity:1; transform:translate(0,0) scale(1); }
+  100% { opacity:0; transform:translate(var(--sx),var(--sy)) scale(0); }
+}
+
+@keyframes leafDrift {
+  0% { transform:translateY(0) translateX(0) rotate(0deg); opacity:0; }
+  10% { opacity:0.35; }
+  90% { opacity:0.35; }
+  100% { transform:translateY(100vh) translateX(60px) rotate(180deg); opacity:0; }
+}
+
+/* Botanical positioning */
+.botanical {
+  position: absolute;
+  pointer-events: none;
+  z-index: 0;
+}
+.botanical--float1 { animation: float1 8s ease-in-out infinite; }
+.botanical--float2 { animation: float2 10s 1s ease-in-out infinite; }
+.botanical--float3 { animation: float3 7s 2s ease-in-out infinite; }
+
+/* Sparkle layer */
+.sparkle-layer, .falling-leaves-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ── Login screen override (handled mostly in HTML, but fallback here) ── */
+#loginScreen {
+  background: var(--gradient-deep) !important;
+}
+
+/* ── Print: override back to readable ── */
+@media print {
+  :root {
+    --text: #000;
+    --text-muted: #666;
+    --bg: #fff;
+    --card: #fff;
+  }
+  body { background: white !important; color: black !important; }
+  .bg-layer, .sparkle-layer, .falling-leaves-layer, .botanical { display: none !important; }
+}
+
+/* ── Reduced motion ── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .bg-orb, .botanical, .sparkle-layer, .falling-leaves-layer { display: none !important; }
+}

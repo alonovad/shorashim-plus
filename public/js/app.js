@@ -949,6 +949,9 @@
     'שוחזר': { th: 'กู้คืนแล้ว', ar: 'تمت الاستعادة' },
     'לא ניתן למחוק': { th: 'ไม่สามารถลบได้', ar: 'لا يمكن الحذف' },
     'במטע זה': { th: 'ในสวนนี้', ar: 'في هذا البستان' },
+    'הצג היסטוריה מלאה': { th: 'ดูประวัติทั้งหมด', ar: 'عرض السجل الكامل' },
+    'רשומות נוספות': { th: 'รายการเพิ่มเติม', ar: 'سجلات إضافية' },
+    'רשומות': { th: 'รายการ', ar: 'سجلات' },
     'כתובת לא תקינה': { th: 'URL ไม่ถูกต้อง', ar: 'عنوان غير صالح' },
 
 
@@ -3649,6 +3652,124 @@
     return colors[type] || '#616161';
   }
 
+  // ── Plot Worklog Summary (for plot detail popup) ──
+
+  function getPlotWorklogSummary(plotId, plotName) {
+    var plotEntries = worklogEntries.filter(function(e) { return e.plot_id === plotId; });
+
+    if (plotEntries.length === 0) {
+      return '<div style="padding: 8px; text-align: center; color: var(--text-muted); font-size: 0.8rem;">' + t('אין רשומות') + '</div>';
+    }
+
+    // Sort by date desc
+    plotEntries.sort(function(a, b) { return (b.date || '').localeCompare(a.date || ''); });
+
+    // Totals
+    var totalHours = 0, totalTrees = 0, totalEntries = plotEntries.length;
+    plotEntries.forEach(function(e) {
+      totalHours += (e.hours || 0);
+      totalTrees += (e.trees_completed || 0);
+    });
+
+    // Summary stats bar
+    var html = '<div style="display: flex; gap: 8px; margin-bottom: 8px;">';
+    html += '<div style="flex:1; background: var(--g6); padding: 6px 8px; border-radius: 8px; text-align: center;">';
+    html += '<div style="font-size: 0.6rem; color: var(--text-muted);">' + t('רשומות') + '</div>';
+    html += '<div style="font-size: 0.95rem; font-weight: 700; color: var(--g1);">' + totalEntries + '</div></div>';
+    html += '<div style="flex:1; background: var(--g6); padding: 6px 8px; border-radius: 8px; text-align: center;">';
+    html += '<div style="font-size: 0.6rem; color: var(--text-muted);">' + t('שעות') + '</div>';
+    html += '<div style="font-size: 0.95rem; font-weight: 700; color: var(--g1);">' + totalHours.toFixed(1) + '</div></div>';
+    if (totalTrees > 0) {
+      html += '<div style="flex:1; background: #e8f5e9; padding: 6px 8px; border-radius: 8px; text-align: center;">';
+      html += '<div style="font-size: 0.6rem; color: var(--text-muted);">🌴 ' + t('עצים') + '</div>';
+      html += '<div style="font-size: 0.95rem; font-weight: 700; color: var(--g1);">' + totalTrees + '</div></div>';
+    }
+    html += '</div>';
+
+    // Last 3 entries compact
+    var recent = plotEntries.slice(0, 3);
+    recent.forEach(function(entry) {
+      html += '<div style="padding: 6px 8px; background: var(--g6); border-radius: 8px; margin-bottom: 4px; border-right: 3px solid ' + getTypeColor(entry.type) + '; font-size: 0.78rem;">';
+      html += '<div style="display: flex; justify-content: space-between; align-items: center;">';
+      html += '<span style="font-weight: 700;">' + (entry.description || t(WL_TYPES[entry.type] || entry.type)) + '</span>';
+      html += '<span style="color: var(--text-muted); font-size: 0.72rem;">' + entry.date + '</span>';
+      html += '</div>';
+      var details = [];
+      if (entry.hours) details.push('⏱' + entry.hours + t('שעות'));
+      if (entry.worker_count > 1) details.push('👥' + entry.worker_count);
+      if (entry.trees_completed) details.push('🌴' + entry.trees_completed);
+      if (entry.workers) details.push('👷' + entry.workers);
+      if (details.length) html += '<div style="color: var(--text-muted); font-size: 0.7rem; margin-top: 2px;">' + details.join(' &nbsp; ') + '</div>';
+      html += '</div>';
+    });
+
+    // "Show full history" button
+    if (plotEntries.length > 3) {
+      html += '<div style="text-align: center; margin-top: 4px;">';
+      html += '<span style="font-size: 0.72rem; color: var(--text-muted);">' + (plotEntries.length - 3) + ' ' + t('רשומות נוספות') + '</span>';
+      html += '</div>';
+    }
+    html += '<button onclick="showPlotWorklogHistory(' + plotId + ',\'' + (plotName || '').replace(/'/g, "\\'") + '\')" style="width:100%;margin-top:6px;padding:8px;border-radius:8px;border:none;background:var(--g6);font-family:inherit;font-size:0.8rem;font-weight:600;color:var(--g2);cursor:pointer;">📊 ' + t('הצג היסטוריה מלאה') + '</button>';
+
+    return html;
+  }
+
+  window.showPlotWorklogHistory = function(plotId, plotName) {
+    var plotEntries = worklogEntries.filter(function(e) { return e.plot_id === plotId; });
+    plotEntries.sort(function(a, b) { return (b.date || '').localeCompare(a.date || ''); });
+
+    var modal = document.getElementById('modalContainer');
+    var html = '<div class="modal-overlay" onclick="if(event.target===this) document.getElementById(\'modalContainer\').innerHTML=\'\'">';
+    html += '<div class="modal" style="max-width: 550px; max-height: 85vh; overflow-y: auto;">';
+    html += '<h2 style="margin-bottom: 12px;">📝 ' + t('יומן עבודה') + ' — ' + (plotName || '') + '</h2>';
+
+    if (plotEntries.length === 0) {
+      html += '<div style="padding: 20px; text-align: center; color: var(--text-muted);">' + t('אין רשומות') + '</div>';
+    } else {
+      // Stats summary
+      var totalHours = 0, totalTrees = 0;
+      plotEntries.forEach(function(e) { totalHours += (e.hours || 0); totalTrees += (e.trees_completed || 0); });
+
+      html += '<div style="display:flex;gap:8px;margin-bottom:14px;">';
+      html += '<div style="flex:1;background:var(--g6);padding:10px;border-radius:10px;text-align:center;"><div style="font-size:0.65rem;color:var(--text-muted);">' + t('רשומות') + '</div><div style="font-size:1.1rem;font-weight:700;color:var(--g1);">' + plotEntries.length + '</div></div>';
+      html += '<div style="flex:1;background:var(--g6);padding:10px;border-radius:10px;text-align:center;"><div style="font-size:0.65rem;color:var(--text-muted);">' + t('שעות') + '</div><div style="font-size:1.1rem;font-weight:700;color:var(--g1);">' + totalHours.toFixed(1) + '</div></div>';
+      if (totalTrees > 0) {
+        html += '<div style="flex:1;background:#e8f5e9;padding:10px;border-radius:10px;text-align:center;"><div style="font-size:0.65rem;color:var(--text-muted);">🌴</div><div style="font-size:1.1rem;font-weight:700;color:var(--g1);">' + totalTrees + '</div></div>';
+        var avgProd = totalHours > 0 ? (totalTrees / totalHours).toFixed(1) : '—';
+        html += '<div style="flex:1;background:#fff8e1;padding:10px;border-radius:10px;text-align:center;"><div style="font-size:0.65rem;color:var(--text-muted);">⚡/' + t('שעה') + '</div><div style="font-size:1.1rem;font-weight:700;color:#e65100;">' + avgProd + '</div></div>';
+      }
+      html += '</div>';
+
+      // Full entry list
+      plotEntries.forEach(function(entry) {
+        html += '<div style="padding:10px;background:var(--card);border-radius:10px;margin-bottom:8px;box-shadow:var(--shadow);border-right:3px solid ' + getTypeColor(entry.type) + ';">';
+        html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">';
+        html += '<span class="wl-type-badge ' + entry.type + '" style="font-size:0.75rem;">' + t(WL_TYPES[entry.type] || entry.type) + '</span>';
+        html += '<span style="font-size:0.78rem;color:var(--text-muted);">' + entry.date + '</span>';
+        html += '</div>';
+        html += '<div style="font-size:0.88rem;font-weight:500;margin-bottom:4px;">' + (entry.description || '') + '</div>';
+        html += '<div style="font-size:0.75rem;color:var(--text-muted);display:flex;gap:10px;flex-wrap:wrap;">';
+        if (entry.hours) html += '<span>⏱ ' + entry.hours + ' ' + t('שעות') + '</span>';
+        if (entry.worker_count > 1) html += '<span>👥 ' + entry.worker_count + '</span>';
+        if (entry.trees_completed) html += '<span>🌴 ' + entry.trees_completed + '</span>';
+        if (entry.workers) html += '<span>👷 ' + entry.workers + '</span>';
+        html += '<span>👤 ' + entry.operator + '</span>';
+        html += '</div>';
+        if (entry.trees_completed && entry.hours) {
+          html += '<div style="font-size:0.72rem;color:var(--g2);margin-top:4px;font-weight:600;">⚡ ' + (entry.trees_completed / entry.hours).toFixed(1) + ' ' + t('עצים/שעה');
+          if (entry.worker_count > 1) html += ' • ' + (entry.trees_completed / (entry.hours * entry.worker_count)).toFixed(1) + ' ' + t('עצים/עובד×שעה');
+          html += '</div>';
+        }
+        if (entry.notes) html += '<div style="font-size:0.75rem;color:var(--text-muted);margin-top:4px;font-style:italic;">📝 ' + entry.notes + '</div>';
+        html += '</div>';
+      });
+    }
+
+    html += '<button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'" style="width:100%;margin-top:12px;padding:10px;border-radius:10px;border:none;background:#eee;font-family:inherit;cursor:pointer;">' + t('סגור') + '</button>';
+    html += '</div></div>';
+    modal.innerHTML = html;
+  };
+
   // ── Worklog Chart ──
   var CHART_COLORS = ['#2e7d32','#1565c0','#c62828','#6a1b9a','#ef6c00','#00838f','#ad1457','#4e342e','#455a64','#ff6f00'];
   
@@ -4661,6 +4782,9 @@
           
           '<div class="section-title" style="margin-top: 4px;">💧 ' + t('השקיה') + '</div>' +
           getPlotIrrigationHtml(plot.id) +
+
+          '<div class="section-title" style="margin-top: 4px;">📝 ' + t('יומן עבודה') + '</div>' +
+          getPlotWorklogSummary(plot.id, plot.name) +
 
           '<div class="section-title" style="margin-top: 4px;">📋 ' + t('היסטוריית ריסוס') + '</div>' +
           sprayHistoryHtml +
@@ -6213,6 +6337,40 @@
 
   // Compact irrigation summary for plot cards in מטעים tab
   // (old getPlotIrrigationBadge removed — new version below with robust matching)
+
+  // Detailed irrigation view for plot detail popup
+  function getPlotIrrigationHtml(plotId) {
+    var pValves = getPlotValves(plotId);
+    if (pValves.length === 0) {
+      return '<div style="padding: 10px; text-align: center; color: var(--text-muted); font-size: 0.82rem;">' + t('אין מגופים משויכים') + '</div>';
+    }
+    var html = '';
+    pValves.forEach(function(v) {
+      var stateColor = v.state === 1 ? '#4caf50' : v.state === 5 ? '#f44336' : '#9e9e9e';
+      html += '<div style="padding: 8px; background: var(--g6); border-radius: 8px; margin-bottom: 6px; border-right: 3px solid ' + stateColor + ';">';
+      html += '<div style="display: flex; justify-content: space-between; align-items: center;">';
+      html += '<span style="font-weight: 600; font-size: 0.85rem;">' + v.name + '</span>';
+      html += '<span style="font-size: 0.78rem;">' + valveStateText(v.state) + '</span>';
+      html += '</div>';
+      html += '<div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 2px;">' + t('ספיקה:') + ' ' + v.nomFlow + ' ' + t('קוב/ש') + ' &nbsp;|&nbsp; ' + t('שטח:') + ' ' + v.area + ' ' + t("ד'") + '</div>';
+
+      var vProgs = getValveProgramEntries(v.uid);
+      if (vProgs.length > 0) {
+        html += '<div style="margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px;">';
+        vProgs.forEach(function(vp) {
+          var groupLabel = 'G' + (vp.groupIndex + 1);
+          html += '<span style="background: #e3f2fd; color: #1565c0; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem;">';
+          html += vp.progName + ' ' + groupLabel + ': ' + vp.water + ' ' + dosageModeText(vp.mode) + ' 🕐' + vp.start;
+          if (vp.cycle > 0) html += ' (' + t('כל') + ' ' + vp.cycle + ' ' + t('ימים') + ')';
+          html += '</span>';
+        });
+        html += '</div>';
+      }
+
+      html += '</div>';
+    });
+    return html;
+  }
 
   // Normalize valve UID and program sequence labels to a common format for matching
   // Valve UIDs: "11:1", "11:16" etc. Sequence labels: "1.1", "1.16", "11:1" etc.
