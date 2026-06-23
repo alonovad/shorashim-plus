@@ -362,8 +362,24 @@ select option {
 .hamburger-panel button {
   color: var(--text) !important;
 }
+/* Override ALL inline pastel backgrounds on menu buttons */
+.hamburger-panel button[style*="background"] {
+  background: rgba(255,255,255,0.05) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text) !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.hamburger-panel button[style*="background"]:active {
+  background: var(--primary-faded) !important;
+  border-color: rgba(57,255,20,0.2) !important;
+}
 .hamburger-panel h3, .hamburger-panel h4 { color: var(--primary) !important; }
 .hamburger-panel hr { border-color: var(--border) !important; }
+.hamburger-panel span[style*="color:#999"],
+.hamburger-panel div[style*="color:#999"] { color: var(--text-muted) !important; }
+.hamburger-panel span[style*="color:#666"],
+.hamburger-panel div[style*="color:#666"] { color: var(--text-muted) !important; }
 
 /* ── Clock bar: glow ── */
 .clock-bar {
@@ -630,10 +646,48 @@ select option {
   z-index: 0;
 }
 
-/* ── Login screen override (handled mostly in HTML, but fallback here) ── */
+/* ── Login screen override ── */
 #loginScreen {
   background: var(--gradient-deep) !important;
 }
+#loginScreen > div {
+  background: rgba(255,255,255,0.07) !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  border: 1px solid rgba(255,255,255,0.08) !important;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.4) !important;
+  color: var(--text) !important;
+}
+#loginScreen h1 { color: #e8ffe8 !important; text-shadow: 0 0 30px rgba(57,255,20,0.3); }
+#loginScreen p { color: rgba(255,255,255,0.45) !important; }
+#loginScreen label { color: rgba(255,255,255,0.45) !important; }
+#loginScreen input {
+  background: rgba(255,255,255,0.05) !important;
+  border: 1px solid rgba(255,255,255,0.08) !important;
+  color: #e8ffe8 !important;
+}
+#loginScreen input:focus {
+  border-color: #39ff14 !important;
+  box-shadow: 0 0 10px rgba(57,255,20,0.15) !important;
+}
+#loginScreen button { color: var(--text) !important; }
+#googleLoginBtn {
+  background: rgba(255,255,255,0.06) !important;
+  border: 1px solid rgba(255,255,255,0.1) !important;
+  color: #e8ffe8 !important;
+}
+#loginBtn {
+  background: transparent !important;
+  border: 1.5px solid #39ff14 !important;
+  color: #39ff14 !important;
+  box-shadow: 0 0 15px rgba(57,255,20,0.2) !important;
+}
+#emailToggleBtn {
+  border: 1px solid rgba(255,255,255,0.1) !important;
+  color: rgba(255,255,255,0.5) !important;
+}
+#forgotPassLink { color: #39ff14 !important; }
+#loginError { color: #ff4757 !important; }
 
 /* ── Print: override back to readable ── */
 @media print {

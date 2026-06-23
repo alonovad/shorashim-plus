@@ -311,6 +311,7 @@ var TimeClock = (function() {
 
     // ── Bottom actions ──
     html += '<div style="margin-top:14px;padding-top:10px;border-top:1px solid #eee;">';
+    html += '<button onclick="DisplaySettings.showSettings();TimeClock.closeMenu()" style="' + menuBtn + 'background:#e0f7fa;text-align:center;">' + tt('🎨 הגדרות תצוגה', '🎨 การตั้งค่าการแสดงผล', '🎨 إعدادات العرض') + '</button>';
     html += '<button onclick="location.reload(true)" style="' + menuBtn + 'background:#e3f2fd;text-align:center;">' + tt('🔄 רענן אפליקציה', '🔄 รีเฟรชแอป', '🔄 تحديث التطبيق') + '</button>';
     html += '<button onclick="TimeClock.logout()" style="' + menuBtn + 'background:#ffebee;color:#c62828;font-weight:700;text-align:center;">' + tt('🚪 התנתק', '🚪 ออกจากระบบ', '🚪 تسجيل خروج') + '</button>';
     html += '<button onclick="TimeClock.closeMenu()" style="' + menuBtn + 'background:#f5f5f5;text-align:center;font-weight:400;">' + tt('סגור', 'ปิด', 'إغلاق') + '</button>';
