@@ -7,6 +7,11 @@ var DisplaySettings = (function() {
 
   // ── Predefined Themes ──
   var THEMES = {
+    classic: {
+      name: { he: '☀️ קלאסי (בהיר)', th: '☀️ คลาสสิก (สว่าง)', ar: '☀️ كلاسيكي (فاتح)' },
+      vars: {},
+      dark: false
+    },
     neonForest: {
       name: { he: '🌿 יער ניאון', th: '🌿 ป่านีออน', ar: '🌿 غابة نيون' },
       vars: {
@@ -163,6 +168,40 @@ var DisplaySettings = (function() {
     if (!theme) return;
 
     var root = document.documentElement;
+    var themeLink = document.querySelector('link[href*="theme-neon"]');
+
+    // ── Classic (light) mode: disable dark overlay entirely ──
+    if (!theme.dark) {
+      if (themeLink) themeLink.disabled = true;
+      document.body.classList.add('theme-classic');
+      document.body.style.background = '';
+      // Clear all custom properties we may have set
+      var allProps = ['--g1','--g2','--g3','--g4','--g5','--g6','--dark','--text','--text-muted',
+        '--primary','--primary-dim','--primary-faded','--primary-glow','--primary-glow-sm',
+        '--accent','--accent-light','--danger','--water','--border','--border-light',
+        '--surface-glass','--surface-input','--gradient-deep','--orb1','--orb2',
+        '--leaf-color','--spark-color','--card','--card-solid','--bg',
+        '--danger-light','--accent-light','--shadow','--shadow-lg'];
+      allProps.forEach(function(p) { root.style.removeProperty(p); });
+      // Hide effects
+      document.querySelectorAll('.bg-layer, .sparkle-layer, .falling-leaves-layer, .botanical').forEach(function(el) {
+        el.style.display = 'none';
+      });
+      // Restore meta theme color
+      var meta = document.querySelector('meta[name="theme-color"]');
+      if (meta) meta.setAttribute('content', '#1b5e20');
+      return;
+    }
+
+    // ── Dark theme: enable overlay and apply variables ──
+    if (themeLink) themeLink.disabled = false;
+    document.body.classList.remove('theme-classic');
+
+    // Re-show effect layers that classic mode hid
+    document.querySelectorAll('.bg-layer, .sparkle-layer, .falling-leaves-layer, .botanical').forEach(function(el) {
+      el.style.display = '';
+    });
+
     var vars = theme.vars;
     for (var prop in vars) {
       root.style.setProperty(prop, vars[prop]);
@@ -260,20 +299,35 @@ var DisplaySettings = (function() {
     var modal = document.getElementById('modalContainer');
     if (!modal) return;
 
+    var isClassic = !THEMES[settings.theme] || !THEMES[settings.theme].dark;
+    // Adaptive colors so settings panel works in both light and dark mode
+    var C = {
+      bg: isClassic ? 'white' : 'rgba(15,25,18,0.95)',
+      overlay: isClassic ? 'rgba(0,0,0,0.4)' : 'rgba(3,10,7,0.7)',
+      text: isClassic ? '#1b2e1b' : '#e8ffe8',
+      muted: isClassic ? '#666' : 'rgba(255,255,255,0.45)',
+      border: isClassic ? '#ddd' : 'rgba(255,255,255,0.08)',
+      cardBg: isClassic ? '#f5f7f5' : 'rgba(255,255,255,0.03)',
+      activeBg: isClassic ? 'rgba(46,125,50,0.08)' : '',
+      heading: isClassic ? '#1b5e20' : (THEMES[settings.theme] ? THEMES[settings.theme].vars['--primary'] : '#39ff14'),
+      accent: isClassic ? '#2e7d32' : (THEMES[settings.theme] ? THEMES[settings.theme].vars['--primary'] : '#39ff14'),
+    };
+
     var themeButtons = '';
     Object.keys(THEMES).forEach(function(key) {
       var theme = THEMES[key];
       var isActive = settings.theme === key;
-      var primaryColor = theme.vars['--primary'];
+      var primaryColor = theme.dark ? theme.vars['--primary'] : '#2e7d32';
+      var dotBg = theme.dark ? theme.vars['--primary'] : 'linear-gradient(135deg, #43a047, #2e7d32)';
       themeButtons += '<button data-theme="' + key + '" style="' +
         'display:flex;align-items:center;gap:10px;width:100%;padding:12px 14px;' +
-        'border-radius:12px;border:1.5px solid ' + (isActive ? primaryColor : 'var(--border)') + ';' +
-        'background:' + (isActive ? 'var(--primary-faded)' : 'rgba(255,255,255,0.03)') + ';' +
-        'color:var(--text);cursor:pointer;font-family:inherit;font-size:0.9rem;' +
+        'border-radius:12px;border:1.5px solid ' + (isActive ? primaryColor : C.border) + ';' +
+        'background:' + (isActive ? (theme.dark ? primaryColor + '18' : 'rgba(46,125,50,0.08)') : C.cardBg) + ';' +
+        'color:' + C.text + ';cursor:pointer;font-family:inherit;font-size:0.9rem;' +
         'margin-bottom:6px;text-align:right;transition:all 0.2s;' +
         (isActive ? 'box-shadow:0 0 12px ' + primaryColor + '33;' : '') +
         '">' +
-        '<span style="width:20px;height:20px;border-radius:50%;background:' + primaryColor + ';' +
+        '<span style="width:20px;height:20px;border-radius:50%;background:' + dotBg + ';' +
         'box-shadow:0 0 8px ' + primaryColor + '55;flex-shrink:0;"></span>' +
         '<span style="flex:1;">' + tName(theme.name) + '</span>' +
         (isActive ? '<span style="color:' + primaryColor + ';">✓</span>' : '') +
@@ -282,11 +336,11 @@ var DisplaySettings = (function() {
 
     function toggle(key) {
       return '<label style="display:flex;align-items:center;justify-content:space-between;' +
-        'padding:10px 14px;border-radius:10px;background:rgba(255,255,255,0.03);' +
-        'border:1px solid var(--border);margin-bottom:6px;cursor:pointer;">' +
-        '<span style="color:var(--text);font-size:0.88rem;">' + key.label + '</span>' +
+        'padding:10px 14px;border-radius:10px;background:' + C.cardBg + ';' +
+        'border:1px solid ' + C.border + ';margin-bottom:6px;cursor:pointer;">' +
+        '<span style="color:' + C.text + ';font-size:0.88rem;">' + key.label + '</span>' +
         '<input type="checkbox" data-effect="' + key.id + '" ' + (settings.effects[key.id] !== false ? 'checked' : '') +
-        ' style="width:20px;height:20px;accent-color:var(--primary);cursor:pointer;">' +
+        ' style="width:20px;height:20px;accent-color:' + C.accent + ';cursor:pointer;">' +
         '</label>';
     }
 
@@ -309,46 +363,46 @@ var DisplaySettings = (function() {
       var isActive = settings.glowIntensity === level;
       glowOptions += '<button data-glow="' + level + '" style="' +
         'flex:1;padding:8px 4px;border-radius:8px;font-family:inherit;font-size:0.8rem;cursor:pointer;' +
-        'border:1px solid ' + (isActive ? 'var(--primary)' : 'var(--border)') + ';' +
-        'background:' + (isActive ? 'var(--primary-faded)' : 'rgba(255,255,255,0.03)') + ';' +
-        'color:' + (isActive ? 'var(--primary)' : 'var(--text-muted)') + ';' +
+        'border:1px solid ' + (isActive ? C.accent : C.border) + ';' +
+        'background:' + (isActive ? (isClassic ? 'rgba(46,125,50,0.08)' : C.accent + '18') : C.cardBg) + ';' +
+        'color:' + (isActive ? C.accent : C.muted) + ';' +
         'font-weight:' + (isActive ? '700' : '400') + ';' +
         '">' + labels[level] + '</button>';
     });
 
-    modal.innerHTML = '<div style="position:fixed;inset:0;background:rgba(3,10,7,0.7);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);z-index:99999;display:flex;align-items:center;justify-content:center;" onclick="if(event.target===this)document.getElementById(\'modalContainer\').innerHTML=\'\'">' +
-      '<div style="background:rgba(15,25,18,0.95);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(255,255,255,0.08);border-radius:20px;padding:24px 20px;width:92%;max-width:440px;max-height:85vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.5);color:var(--text);">' +
+    modal.innerHTML = '<div style="position:fixed;inset:0;background:' + C.overlay + ';backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);z-index:99999;display:flex;align-items:center;justify-content:center;" onclick="if(event.target===this)document.getElementById(\'modalContainer\').innerHTML=\'\'">' +
+      '<div style="background:' + C.bg + ';' + (isClassic ? '' : 'backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);') + 'border:1px solid ' + C.border + ';border-radius:20px;padding:24px 20px;width:92%;max-width:440px;max-height:85vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,' + (isClassic ? '0.15' : '0.5') + ');color:' + C.text + ';">' +
 
         // Header
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">' +
-          '<h3 style="font-weight:700;font-size:1.1rem;color:var(--primary);margin:0;">🎨 ' + tt('הגדרות תצוגה', 'การตั้งค่าการแสดงผล', 'إعدادات العرض') + '</h3>' +
-          '<button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'" style="background:none;border:none;color:var(--text-muted);font-size:1.3rem;cursor:pointer;padding:4px;">✕</button>' +
+          '<h3 style="font-weight:700;font-size:1.1rem;color:' + C.heading + ';margin:0;">🎨 ' + tt('הגדרות תצוגה', 'การตั้งค่าการแสดงผล', 'إعدادات العرض') + '</h3>' +
+          '<button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'" style="background:none;border:none;color:' + C.muted + ';font-size:1.3rem;cursor:pointer;padding:4px;">✕</button>' +
         '</div>' +
 
         // Theme section
         '<div style="margin-bottom:20px;">' +
-          '<div style="font-size:0.75rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;">' + tt('ערכת נושא', 'ธีม', 'السمة') + '</div>' +
+          '<div style="font-size:0.75rem;font-weight:700;color:' + C.muted + ';text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;">' + tt('ערכת נושא', 'ธีม', 'السمة') + '</div>' +
           '<div id="dsThemeList">' + themeButtons + '</div>' +
         '</div>' +
 
         // Effects section
         '<div style="margin-bottom:20px;">' +
-          '<div style="font-size:0.75rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;">' + tt('אפקטים', 'เอฟเฟกต์', 'التأثيرات') + '</div>' +
-          '<div id="dsEffects">' + effectToggles + '</div>' +
+          '<div style="font-size:0.75rem;font-weight:700;color:' + C.muted + ';text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;">' + tt('אפקטים', 'เอฟเฟกต์', 'التأثيرات') + (isClassic ? ' <span style="font-size:0.65rem;font-weight:400;">(' + tt('פעיל רק במצב כהה', 'ใช้ได้เฉพาะโหมดมืด', 'متاح فقط في الوضع الداكن') + ')</span>' : '') + '</div>' +
+          '<div id="dsEffects" style="' + (isClassic ? 'opacity:0.4;pointer-events:none;' : '') + '">' + effectToggles + '</div>' +
         '</div>' +
 
         // Glow section
         '<div style="margin-bottom:20px;">' +
-          '<div style="font-size:0.75rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;">' + tt('עוצמת זוהר', 'ความเข้มของแสง', 'شدة التوهج') + '</div>' +
-          '<div id="dsGlow" style="display:flex;gap:6px;">' + glowOptions + '</div>' +
+          '<div style="font-size:0.75rem;font-weight:700;color:' + C.muted + ';text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;">' + tt('עוצמת זוהר', 'ความเข้มของแสง', 'شدة التوهج') + '</div>' +
+          '<div id="dsGlow" style="display:flex;gap:6px;' + (isClassic ? 'opacity:0.4;pointer-events:none;' : '') + '">' + glowOptions + '</div>' +
         '</div>' +
 
         // Reset button
-        '<button onclick="DisplaySettings.resetDefaults()" style="width:100%;padding:10px;border-radius:10px;border:1px solid var(--border);background:rgba(255,255,255,0.03);color:var(--text-muted);font-family:inherit;font-size:0.85rem;cursor:pointer;margin-top:4px;">' +
+        '<button onclick="DisplaySettings.resetDefaults()" style="width:100%;padding:10px;border-radius:10px;border:1px solid ' + C.border + ';background:' + C.cardBg + ';color:' + C.muted + ';font-family:inherit;font-size:0.85rem;cursor:pointer;margin-top:4px;">' +
           '🔄 ' + tt('איפוס לברירת מחדל', 'รีเซ็ตเป็นค่าเริ่มต้น', 'إعادة تعيين') +
         '</button>' +
 
-        '<div style="text-align:center;margin-top:12px;font-size:0.7rem;color:var(--text-muted);">' +
+        '<div style="text-align:center;margin-top:12px;font-size:0.7rem;color:' + C.muted + ';">' +
           tt('השינויים נשמרים אוטומטית', 'บันทึกอัตโนมัติ', 'يتم الحفظ تلقائيًا') +
         '</div>' +
 

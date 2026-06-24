@@ -259,7 +259,7 @@
   var worklogEntries = [];
   var currentUser = null;
   var undoStack = [];
-  var isSatellite = false;
+  var isSatellite = true;
   var activeTab = 'map';
 
   // ══════════════════════════════════
@@ -1008,11 +1008,11 @@
 
   var satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
     attribution: 'Esri', maxZoom: 19
-  });
+  }).addTo(map);
 
   var streetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: 'OpenStreetMap', maxZoom: 19
-  }).addTo(map);
+  });
 
   var drawnItems = new L.FeatureGroup();
   map.addLayer(drawnItems);
@@ -6090,12 +6090,19 @@
     currentLang = LANGUAGES[(idx + 1) % LANGUAGES.length];
     localStorage.setItem('shorashim-lang', currentLang);
     applyTranslations();
+    // Re-render dynamically generated elements that use tt()/t()
+    if (typeof TimeClock !== 'undefined' && TimeClock.renderClockBar) TimeClock.renderClockBar();
+    if (typeof renderViewerDashboard === 'function') renderViewerDashboard();
     showToast(currentLang === 'he' ? '🇮🇱 עברית' : currentLang === 'th' ? '🇹🇭 ภาษาไทย' : '🇸🇦 العربية');
   });
   
   // Apply saved language on load
   if (currentLang !== 'he') {
-    setTimeout(function() { applyTranslations(); }, 300);
+    setTimeout(function() {
+      applyTranslations();
+      if (typeof TimeClock !== 'undefined' && TimeClock.renderClockBar) TimeClock.renderClockBar();
+      if (typeof renderViewerDashboard === 'function') renderViewerDashboard();
+    }, 300);
   }
 
   // ── Sound System (Web Audio API — tiny procedural sounds, no files needed) ──
