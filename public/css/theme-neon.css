@@ -513,37 +513,39 @@ select option {
 
 /* ── FABs: glow effect ── */
 .fab-main {
-  background: transparent !important;
+  background: rgba(3,10,7,0.85) !important;
   border: 2px solid var(--primary) !important;
   color: var(--primary) !important;
   box-shadow: 0 0 20px var(--primary-glow), 0 4px 16px rgba(0,0,0,0.3) !important;
 }
 .fab-main.open {
+  background: rgba(3,10,7,0.85) !important;
   border-color: var(--danger) !important;
   color: var(--danger) !important;
   box-shadow: 0 0 20px rgba(255,71,87,0.3), 0 4px 16px rgba(0,0,0,0.3) !important;
 }
 .fab-main.drawing {
+  background: rgba(3,10,7,0.85) !important;
   border-color: var(--water) !important;
   color: var(--water) !important;
   box-shadow: 0 0 20px rgba(79,195,247,0.3), 0 4px 16px rgba(0,0,0,0.3) !important;
 }
 
 .fab-quick {
-  background: rgba(57,255,20,0.1) !important;
-  border: 1px solid rgba(57,255,20,0.2) !important;
+  background: rgba(3,10,7,0.8) !important;
+  border: 1.5px solid rgba(57,255,20,0.4) !important;
   color: var(--primary) !important;
   box-shadow: 0 0 12px var(--primary-glow-sm) !important;
 }
 .fab-quick.open {
-  background: rgba(255,71,87,0.1) !important;
-  border-color: rgba(255,71,87,0.3) !important;
+  background: rgba(3,10,7,0.8) !important;
+  border-color: rgba(255,71,87,0.4) !important;
   color: var(--danger) !important;
 }
 
 .fab-farms {
-  background: rgba(57,255,20,0.08) !important;
-  border: 1px solid rgba(57,255,20,0.15) !important;
+  background: rgba(3,10,7,0.8) !important;
+  border: 1.5px solid rgba(57,255,20,0.3) !important;
   color: var(--text) !important;
   box-shadow: 0 0 10px var(--primary-glow-sm) !important;
 }
@@ -571,6 +573,15 @@ select option {
 .fab-option-icon { border: 1px solid var(--border); }
 .fab-option-icon.polygon { background: var(--primary-faded) !important; color: var(--primary) !important; }
 .fab-option-icon.rect { background: rgba(79,195,247,0.12) !important; color: var(--water) !important; }
+
+/* Map controls: opaque dark backgrounds so visible on any map tile */
+.layer-toggle {
+  background: rgba(3,10,7,0.8) !important;
+  color: var(--text) !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.3) !important;
+}
+.layer-toggle:active { background: rgba(3,10,7,0.9) !important; }
 
 /* ── Toast: dark ── */
 .toast {
