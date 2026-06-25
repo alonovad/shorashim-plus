@@ -6,13 +6,20 @@ var Maintenance = (function() {
 
   var UNITS = ["יח'", "מ'", 'מ"ר', 'מ"ק', 'ק"ג', 'טון', 'ליטר', 'שק', 'אריזה', 'קרטון', 'משטח', 'צינור', 'גליל'];
   var STATUSES = [
-    { value: 'draft', label: 'טיוטה', color: '#999' },
-    { value: 'sent', label: 'נשלח ללקוח', color: '#1565c0' },
-    { value: 'approved', label: 'מאושר', color: '#2e7d32' },
-    { value: 'in_progress', label: 'בביצוע', color: '#ef6c00' },
-    { value: 'completed', label: 'הושלם', color: '#4caf50' },
+    { value: 'draft', label: tt('טיוטה','แบบร่าง','مسودة'), color: '#999' },
+    { value: 'sent', label: tt('נשלח ללקוח','ส่งให้ลูกค้าแล้ว','أُرسل للعميل'), color: '#1565c0' },
+    { value: 'approved', label: tt('מאושר','อนุมัติแล้ว','موافق عليه'), color: '#2e7d32' },
+    { value: 'in_progress', label: tt('בביצוע','กำลังดำเนินการ','قيد التنفيذ'), color: '#ef6c00' },
+    { value: 'completed', label: tt('הושלם','เสร็จสมบูรณ์','مكتمل'), color: '#4caf50' },
   ];
-  var VAT_RATE = 0.17;
+  var VAT_RATE = 0.18;
+
+  function tt(he, th, ar) {
+    var lang = (typeof currentLang !== 'undefined') ? currentLang : 'he';
+    if (lang === 'th') return th || he;
+    if (lang === 'ar') return ar || he;
+    return he;
+  }
 
   function saveProjects(projects) {
     if (typeof DB !== 'undefined') DB.save('shorashim-maintenance', projects);
@@ -44,12 +51,12 @@ var Maintenance = (function() {
 
   // ── PROJECTS LIST ──
   function showProjectsList() {
-    if (!isAdmin()) { if (typeof showToast === 'function') showToast('⛔ אין הרשאה'); return; }
+    if (!isAdmin()) { if (typeof showToast === 'function') showToast(tt('⛔ אין הרשאה','⛔ ไม่มีสิทธิ์','⛔ لا إذن')); return; }
     var modal = document.getElementById('modalContainer');
     modal.innerHTML = '<div style="' + modalBg + '"><div style="' + modalCard + '600px;max-height:85vh;overflow-y:auto;">' +
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">' +
-        '<h3 style="font-weight:700;margin:0;">🔧 תחזוקה — פרויקטים</h3>' +
-        '<button onclick="Maintenance.showNewProject()" style="padding:6px 14px;border-radius:8px;border:none;background:#4caf50;color:white;font-family:inherit;font-weight:700;cursor:pointer;">➕ חדש</button>' +
+        '<h3 style="font-weight:700;margin:0;">🔧 ' + tt('תחזוקה — פרויקטים','ซ่อมบำรุง — โครงการ','صيانة — مشاريع') + '</h3>' +
+        '<button onclick="Maintenance.showNewProject()" style="padding:6px 14px;border-radius:8px;border:none;background:#4caf50;color:white;font-family:inherit;font-weight:700;cursor:pointer;">➕ ' + tt('חדש','ใหม่','جديد') + '</button>' +
       '</div><div id="maintList" style="color:#999;text-align:center;padding:16px;">טוען...</div>' +
       '<button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'" style="margin-top:12px;width:100%;padding:10px;border-radius:10px;border:none;background:#eee;font-family:inherit;cursor:pointer;">סגור</button>' +
     '</div></div>';
@@ -79,14 +86,14 @@ var Maintenance = (function() {
       var sOpts = ''; STATUSES.forEach(function(s) { sOpts += '<option value="' + s.value + '"' + (p.status === s.value ? ' selected' : '') + '>' + s.label + '</option>'; });
       var modal = document.getElementById('modalContainer');
       modal.innerHTML = '<div style="' + modalBg + '"><div style="' + modalCard + '450px;max-height:85vh;overflow-y:auto;">' +
-        '<h3 style="font-weight:700;margin-bottom:14px;">🔧 ' + (existingId ? 'עריכת פרויקט' : 'פרויקט חדש') + '</h3><div style="display:grid;gap:10px;">' +
+        '<h3 style="font-weight:700;margin-bottom:14px;">🔧 ' + (existingId ? tt('עריכת פרויקט','แก้ไขโครงการ','تعديل المشروع') : tt('פרויקט חדש','โครงการใหม่','مشروع جديد')) + '</h3><div style="display:grid;gap:10px;">' +
         '<div><label style="' + lblS + '">שם הפרויקט *</label><input id="mpName" value="' + (p.name || '') + '" placeholder="למשל: תחזוקת משרד" style="' + inputS + '"></div>' +
         '<div><label style="' + lblS + '">לקוח</label><input id="mpClient" value="' + (p.client || '') + '" style="' + inputS + '"></div>' +
         '<div><label style="' + lblS + '">תיאור</label><textarea id="mpDesc" rows="2" style="' + inputS + 'resize:vertical;">' + (p.description || '') + '</textarea></div>' +
         '<div style="display:flex;gap:8px;"><div style="flex:1;"><label style="' + lblS + '">סטטוס</label><select id="mpStatus" style="' + inputS + '">' + sOpts + '</select></div>' +
         '<div style="flex:1;"><label style="' + lblS + '">תוספת %</label><input id="mpMarkup" type="number" value="' + (p.markup || 0) + '" min="0" max="100" style="' + inputS + '"></div></div>' +
-        '<label style="display:flex;align-items:center;gap:8px;font-size:0.88rem;cursor:pointer;"><input type="checkbox" id="mpVat"' + (p.includeVat !== false ? ' checked' : '') + ' style="width:18px;height:18px;accent-color:#2e7d32;"> כולל מע"מ (17%)</label>' +
-        '<div style="display:flex;gap:8px;"><button onclick="Maintenance._saveProject(' + (existingId || 0) + ')" style="' + btnSave + '">💾 שמור</button>' +
+        '<label style="display:flex;align-items:center;gap:8px;font-size:0.88rem;cursor:pointer;"><input type="checkbox" id="mpVat"' + (p.includeVat !== false ? ' checked' : '') + ' style="width:18px;height:18px;accent-color:#2e7d32;"> ' + tt('כולל מע"מ (18%)','รวม VAT (18%)','شامل ضريبة (18%)') + '</label>' +
+        '<div style="display:flex;gap:8px;"><button onclick="Maintenance._saveProject(' + (existingId || 0) + ')" style="' + btnSave + '">💾 ' + tt('שמור','บันทึก','حفظ') + '</button>' +
         '<button onclick="' + (existingId ? 'Maintenance.showDetail(' + existingId + ')' : 'Maintenance.showProjectsList()') + '" style="' + btnCancel + '">ביטול</button></div>' +
         '</div></div></div>';
     });
@@ -94,7 +101,7 @@ var Maintenance = (function() {
 
   function _saveProject(eid) {
     var name = document.getElementById('mpName').value.trim();
-    if (!name) { if (typeof showToast === 'function') showToast('❌ חובה למלא שם'); return; }
+    if (!name) { if (typeof showToast === 'function') showToast(tt('❌ חובה למלא שם','❌ ต้องกรอกชื่อ','❌ يجب إدخال الاسم')); return; }
     loadProjects().then(function(projects) {
       var p = eid ? projects.find(function(x) { return x.id === eid; }) : null;
       if (!p) { p = { id: Date.now(), materials: [], labor: [], shipments: [], created: Date.now() }; projects.push(p); }
@@ -102,7 +109,7 @@ var Maintenance = (function() {
       p.description = document.getElementById('mpDesc').value.trim(); p.status = document.getElementById('mpStatus').value;
       p.markup = parseFloat(document.getElementById('mpMarkup').value) || 0; p.includeVat = document.getElementById('mpVat').checked;
       p.updated = Date.now(); saveProjects(projects);
-      if (typeof showToast === 'function') showToast('✅ נשמר'); showDetail(p.id);
+      if (typeof showToast === 'function') showToast(tt('✅ נשמר','✅ บันทึกแล้ว','✅ تم الحفظ')); showDetail(p.id);
     });
   }
 
@@ -145,31 +152,31 @@ var Maintenance = (function() {
         '</div><span style="font-size:0.72rem;padding:4px 10px;border-radius:6px;background:' + st.color + '22;color:' + st.color + ';font-weight:600;white-space:nowrap;">' + st.label + '</span></div>' +
 
         // Materials
-        '<div style="margin-bottom:18px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">' + sectTitle('📦', 'חומרים') + addBtn('הוסף', '_addMat') + '</div>' +
+        '<div style="margin-bottom:18px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">' + sectTitle('📦', tt('חומרים','วัสดุ','مواد')) + addBtn(tt('הוסף','เพิ่ม','إضافة'), '_addMat') + '</div>' +
         (!(p.materials || []).length ? '<div style="text-align:center;color:#999;padding:12px;">אין חומרים</div>' :
-          tblWrap('<th style="' + thS + 'text-align:right;">חומר</th><th style="' + thS + '">כמות</th><th style="' + thS + '">מחיר ליח\'</th><th style="' + thS + '">סה"כ</th><th style="' + thS + 'width:60px;"></th>',
+          tblWrap('<th style="' + thS + 'text-align:right;">' + tt('חומר','วัสดุ','مادة') + '</th><th style="' + thS + '">' + tt('כמות','จำนวน','كمية') + '</th><th style="' + thS + '">מחיר ליח\'</th><th style="' + thS + '">' + tt('סה"כ','รวม','المجموع') + '</th><th style="' + thS + 'width:60px;"></th>',
             matH, 'סה"כ חומרים', fmt(tot.materialsTotal), '#2e7d32')) + '</div>' +
 
         // Labor
-        '<div style="margin-bottom:18px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">' + sectTitle('👷', 'עבודה') + addBtn('הוסף', '_addLab') + '</div>' +
+        '<div style="margin-bottom:18px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">' + sectTitle('👷', tt('עבודה','แรงงาน','عمالة')) + addBtn(tt('הוסף','เพิ่ม','إضافة'), '_addLab') + '</div>' +
         (!(p.labor || []).length ? '<div style="text-align:center;color:#999;padding:8px;">אין פריטי עבודה</div>' :
-          tblWrap('<th style="' + thS + 'text-align:right;">תיאור</th><th style="' + thS + '">שעות</th><th style="' + thS + '">₪/שעה</th><th style="' + thS + '">סה"כ</th><th style="' + thS + 'width:60px;"></th>',
+          tblWrap('<th style="' + thS + 'text-align:right;">תיאור</th><th style="' + thS + '">' + tt('שעות','ชั่วโมง','ساعات') + '</th><th style="' + thS + '">₪/שעה</th><th style="' + thS + '">' + tt('סה"כ','รวม','المجموع') + '</th><th style="' + thS + 'width:60px;"></th>',
             labH, 'סה"כ עבודה', fmt(tot.laborTotal), '#ef6c00')) + '</div>' +
 
         // Summary
-        '<div style="background:#f5f7f5;border-radius:12px;padding:14px;margin-bottom:18px;">' + sectTitle('💰', 'סיכום עלויות') +
+        '<div style="background:#f5f7f5;border-radius:12px;padding:14px;margin-bottom:18px;">' + sectTitle('💰', tt('סיכום עלויות','สรุปต้นทุน','ملخص التكاليف')) +
         '<div style="display:grid;gap:4px;font-size:0.88rem;margin-top:8px;">' +
           '<div style="display:flex;justify-content:space-between;"><span>חומרים</span><span>₪' + fmt(tot.materialsTotal) + '</span></div>' +
           '<div style="display:flex;justify-content:space-between;"><span>עבודה</span><span>₪' + fmt(tot.laborTotal) + '</span></div>' +
           '<div style="display:flex;justify-content:space-between;border-top:1px solid #ddd;padding-top:4px;"><span>סכום ביניים</span><span>₪' + fmt(tot.subtotal) + '</span></div>' +
           (p.markup ? '<div style="display:flex;justify-content:space-between;"><span>תוספת ' + p.markup + '%</span><span>₪' + fmt(tot.markup) + '</span></div>' : '') +
           '<div style="display:flex;justify-content:space-between;"><span>לפני מע"מ</span><span style="font-weight:600;">₪' + fmt(tot.beforeVat) + '</span></div>' +
-          (p.includeVat ? '<div style="display:flex;justify-content:space-between;"><span>מע"מ 17%</span><span>₪' + fmt(tot.vat) + '</span></div>' : '') +
+          (p.includeVat ? '<div style="display:flex;justify-content:space-between;"><span>מע"מ 18%</span><span>₪' + fmt(tot.vat) + '</span></div>' : '') +
           '<div style="display:flex;justify-content:space-between;font-size:1.1rem;font-weight:800;color:#1b5e20;border-top:2px solid #2e7d32;padding-top:6px;margin-top:4px;"><span>סה"כ</span><span>₪' + fmt(tot.total) + '</span></div>' +
         '</div></div>' +
 
         // Shipments
-        '<div style="margin-bottom:18px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">' + sectTitle('🚚', 'יומן משלוחים') + addBtn('הוסף', '_addShip') + '</div>' +
+        '<div style="margin-bottom:18px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">' + sectTitle('🚚', tt('יומן משלוחים','บันทึกการจัดส่ง','سجل الشحنات')) + addBtn(tt('הוסף','เพิ่ม','إضافة'), '_addShip') + '</div>' +
         (!(p.shipments || []).length ? '<div style="text-align:center;color:#999;padding:8px;">אין משלוחים</div>' : shipH) + '</div>' +
 
         // Actions
@@ -192,18 +199,18 @@ var Maintenance = (function() {
       var m = (idx >= 0) ? p.materials[idx] : { name: '', quantity: 1, unit: "יח'", unitPrice: 0, supplier: '' };
       var uOpts = UNITS.map(function(u) { return '<option' + (m.unit === u ? ' selected' : '') + '>' + u + '</option>'; }).join('');
       document.getElementById('modalContainer').innerHTML = '<div style="' + modalBg + '"><div style="' + modalCard + '400px;">' +
-        '<h3 style="font-weight:700;margin-bottom:12px;">📦 ' + (idx >= 0 ? 'עריכת חומר' : 'הוספת חומר') + '</h3><div style="display:grid;gap:10px;">' +
+        '<h3 style="font-weight:700;margin-bottom:12px;">📦 ' + (idx >= 0 ? tt('עריכת חומר','แก้ไขวัสดุ','تعديل مادة') : tt('הוספת חומר','เพิ่มวัสดุ','إضافة مادة')) + '</h3><div style="display:grid;gap:10px;">' +
         '<div><label style="' + lblS + '">שם החומר *</label><input id="mmN" value="' + (m.name || '') + '" style="' + inputS + '"></div>' +
         '<div style="display:flex;gap:8px;"><div style="flex:1;"><label style="' + lblS + '">כמות</label><input id="mmQ" type="number" value="' + (m.quantity || 1) + '" min="0" step="0.1" style="' + inputS + '"></div>' +
         '<div style="flex:1;"><label style="' + lblS + '">יחידה</label><select id="mmU" style="' + inputS + '">' + uOpts + '</select></div>' +
         '<div style="flex:1;"><label style="' + lblS + '">מחיר ₪</label><input id="mmP" type="number" value="' + (m.unitPrice || 0) + '" min="0" step="0.01" style="' + inputS + '"></div></div>' +
         '<div><label style="' + lblS + '">ספק</label><input id="mmS" value="' + (m.supplier || '') + '" style="' + inputS + '"></div>' +
-        '<div style="display:flex;gap:8px;"><button onclick="Maintenance._saveMat(' + pid + ',' + (idx >= 0 ? idx : -1) + ')" style="' + btnSave + '">💾 שמור</button>' +
+        '<div style="display:flex;gap:8px;"><button onclick="Maintenance._saveMat(' + pid + ',' + (idx >= 0 ? idx : -1) + ')" style="' + btnSave + '">💾 ' + tt('שמור','บันทึก','حفظ') + '</button>' +
         '<button onclick="Maintenance.showDetail(' + pid + ')" style="' + btnCancel + '">ביטול</button></div></div></div></div>';
     });
   }
   function _saveMat(pid, idx) {
-    var n = document.getElementById('mmN').value.trim(); if (!n) { showToast('❌ חובה שם'); return; }
+    var n = document.getElementById('mmN').value.trim(); if (!n) { showToast(tt(tt('❌ חובה למלא שם','❌ ต้องกรอกชื่อ','❌ يجب إدخال الاسم'),'❌ ต้องกรอกชื่อ','❌ يجب إدخال الاسم')); return; }
     loadProjects().then(function(projects) {
       var p = projects.find(function(x) { return x.id === pid; }); if (!p) return;
       var m = { name: n, quantity: parseFloat(document.getElementById('mmQ').value) || 0, unit: document.getElementById('mmU').value, unitPrice: parseFloat(document.getElementById('mmP').value) || 0, supplier: document.getElementById('mmS').value.trim() };
@@ -212,7 +219,7 @@ var Maintenance = (function() {
     });
   }
   function _editMat(pid, i) { _addMat(pid, i); }
-  function _delMat(pid, i) { if (!confirm('למחוק חומר?')) return; loadProjects().then(function(ps) { var p = ps.find(function(x) { return x.id === pid; }); if (!p) return; p.materials.splice(i, 1); p.updated = Date.now(); saveProjects(ps); showDetail(pid); }); }
+  function _delMat(pid, i) { if (!confirm(tt('למחוק חומר?','ลบวัสดุ?','حذف المادة؟'))) return; loadProjects().then(function(ps) { var p = ps.find(function(x) { return x.id === pid; }); if (!p) return; p.materials.splice(i, 1); p.updated = Date.now(); saveProjects(ps); showDetail(pid); }); }
 
   // ── LABOR CRUD ──
   function _addLab(pid, idx) {
@@ -220,16 +227,16 @@ var Maintenance = (function() {
       var p = projects.find(function(x) { return x.id === pid; }); if (!p) return;
       var l = (idx >= 0) ? p.labor[idx] : { description: '', hours: 1, hourlyRate: 50 };
       document.getElementById('modalContainer').innerHTML = '<div style="' + modalBg + '"><div style="' + modalCard + '400px;">' +
-        '<h3 style="font-weight:700;margin-bottom:12px;">👷 ' + (idx >= 0 ? 'עריכת עבודה' : 'הוספת עבודה') + '</h3><div style="display:grid;gap:10px;">' +
+        '<h3 style="font-weight:700;margin-bottom:12px;">👷 ' + (idx >= 0 ? tt('עריכת עבודה','แก้ไขงาน','تعديل عمل') : tt('הוספת עבודה','เพิ่มงาน','إضافة عمل')) + '</h3><div style="display:grid;gap:10px;">' +
         '<div><label style="' + lblS + '">תיאור *</label><input id="mlD" value="' + (l.description || '') + '" style="' + inputS + '"></div>' +
         '<div style="display:flex;gap:8px;"><div style="flex:1;"><label style="' + lblS + '">שעות</label><input id="mlH" type="number" value="' + (l.hours || 1) + '" min="0" step="0.5" style="' + inputS + '"></div>' +
         '<div style="flex:1;"><label style="' + lblS + '">₪/שעה</label><input id="mlR" type="number" value="' + (l.hourlyRate || 50) + '" min="0" style="' + inputS + '"></div></div>' +
-        '<div style="display:flex;gap:8px;"><button onclick="Maintenance._saveLab(' + pid + ',' + (idx >= 0 ? idx : -1) + ')" style="' + btnSave + '">💾 שמור</button>' +
+        '<div style="display:flex;gap:8px;"><button onclick="Maintenance._saveLab(' + pid + ',' + (idx >= 0 ? idx : -1) + ')" style="' + btnSave + '">💾 ' + tt('שמור','บันทึก','حفظ') + '</button>' +
         '<button onclick="Maintenance.showDetail(' + pid + ')" style="' + btnCancel + '">ביטול</button></div></div></div></div>';
     });
   }
   function _saveLab(pid, idx) {
-    var d = document.getElementById('mlD').value.trim(); if (!d) { showToast('❌ חובה תיאור'); return; }
+    var d = document.getElementById('mlD').value.trim(); if (!d) { showToast(tt('❌ חובה למלא תיאור','❌ ต้องกรอกรายละเอียด','❌ يجب إدخال الوصف')); return; }
     loadProjects().then(function(ps) { var p = ps.find(function(x) { return x.id === pid; }); if (!p) return;
       var l = { description: d, hours: parseFloat(document.getElementById('mlH').value) || 0, hourlyRate: parseFloat(document.getElementById('mlR').value) || 0 };
       if (idx >= 0) p.labor[idx] = l; else { if (!p.labor) p.labor = []; p.labor.push(l); }
@@ -252,7 +259,7 @@ var Maintenance = (function() {
         '<div style="display:flex;gap:8px;"><div style="flex:1;"><label style="' + lblS + '">כמות</label><input id="msQ" type="number" value="1" min="0" step="0.1" style="' + inputS + '"></div>' +
         '<div style="flex:1;"><label style="' + lblS + '">ספק</label><input id="msSup" style="' + inputS + '"></div></div>' +
         '<div><label style="' + lblS + '">הערות</label><input id="msN" style="' + inputS + '"></div>' +
-        '<div style="display:flex;gap:8px;"><button onclick="Maintenance._saveShip(' + pid + ')" style="' + btnSave + '">💾 שמור</button>' +
+        '<div style="display:flex;gap:8px;"><button onclick="Maintenance._saveShip(' + pid + ')" style="' + btnSave + '">💾 ' + tt('שמור','บันทึก','حفظ') + '</button>' +
         '<button onclick="Maintenance.showDetail(' + pid + ')" style="' + btnCancel + '">ביטול</button></div></div></div></div>';
     });
   }
@@ -264,7 +271,7 @@ var Maintenance = (function() {
     });
   }
   function _delShip(pid, i) { if (!confirm('למחוק?')) return; loadProjects().then(function(ps) { var p = ps.find(function(x) { return x.id === pid; }); if (!p) return; p.shipments.splice(i, 1); p.updated = Date.now(); saveProjects(ps); showDetail(pid); }); }
-  function _delProj(pid) { if (!confirm('למחוק פרויקט שלם?')) return; loadProjects().then(function(ps) { saveProjects(ps.filter(function(x) { return x.id !== pid; })); showToast('🗑️ נמחק'); showProjectsList(); }); }
+  function _delProj(pid) { if (!confirm(tt('למחוק פרויקט שלם?','ลบโครงการทั้งหมด?','حذف المشروع بالكامل؟'))) return; loadProjects().then(function(ps) { saveProjects(ps.filter(function(x) { return x.id !== pid; })); showToast(tt('🗑️ נמחק','🗑️ ลบแล้ว','🗑️ تم الحذف')); showProjectsList(); }); }
 
   // ── PDF EXPORT: QUOTE ──
   function _quotePDF(pid) {
@@ -279,37 +286,37 @@ var Maintenance = (function() {
       var html = '<!DOCTYPE html><html dir="rtl"><head><meta charset="utf-8"><title>הצעת מחיר — ' + p.name + '</title><style>' + css + '</style></head><body>' +
         '<div class="header"><h1>🔧 הצעת מחיר</h1><div class="meta">' + p.name + (p.client ? ' · לכבוד: ' + p.client : '') + ' · ' + today + '</div></div><div class="content">' +
         (p.description ? '<div style="font-size:.88rem;color:#555;margin-bottom:14px;">' + p.description + '</div>' : '') +
-        ((p.materials||[]).length ? '<div class="section">📦 חומרים</div><table><thead><tr><th>#</th><th>חומר</th><th>כמות</th><th>מחיר ליח\'</th><th>סה"כ</th></tr></thead><tbody>' + matR + '</tbody><tfoot><tr><td colspan="4">סה"כ חומרים</td><td>₪' + fmt(tot.materialsTotal) + '</td></tr></tfoot></table>' : '') +
-        ((p.labor||[]).length ? '<div class="section">👷 עבודה</div><table><thead><tr><th>#</th><th>תיאור</th><th>כמות</th><th>מחיר</th><th>סה"כ</th></tr></thead><tbody>' + labR + '</tbody><tfoot><tr><td colspan="4">סה"כ עבודה</td><td>₪' + fmt(tot.laborTotal) + '</td></tr></tfoot></table>' : '') +
+        ((p.materials||[]).length ? '<div class="section">📦 חומרים</div><table><thead><tr><th>#</th><th>' + tt('חומר','วัสดุ','مادة') + '</th><th>' + tt('כמות','จำนวน','كمية') + '</th><th>מחיר ליח\'</th><th>' + tt('סה"כ','รวม','المجموع') + '</th></tr></thead><tbody>' + matR + '</tbody><tfoot><tr><td colspan="4">סה"כ חומרים</td><td>₪' + fmt(tot.materialsTotal) + '</td></tr></tfoot></table>' : '') +
+        ((p.labor||[]).length ? '<div class="section">👷 עבודה</div><table><thead><tr><th>#</th><th>תיאור</th><th>' + tt('כמות','จำนวน','كمية') + '</th><th>מחיר</th><th>' + tt('סה"כ','รวม','المجموع') + '</th></tr></thead><tbody>' + labR + '</tbody><tfoot><tr><td colspan="4">סה"כ עבודה</td><td>₪' + fmt(tot.laborTotal) + '</td></tr></tfoot></table>' : '') +
         '<div class="summary"><div style="font-weight:700;margin-bottom:8px;">💰 סיכום</div>' +
           '<div class="sr"><span>חומרים</span><span>₪' + fmt(tot.materialsTotal) + '</span></div>' +
           '<div class="sr"><span>עבודה</span><span>₪' + fmt(tot.laborTotal) + '</span></div>' +
           (p.markup ? '<div class="sr"><span>תוספת ' + p.markup + '%</span><span>₪' + fmt(tot.markup) + '</span></div>' : '') +
           '<div class="sr"><span>לפני מע"מ</span><span>₪' + fmt(tot.beforeVat) + '</span></div>' +
-          (p.includeVat ? '<div class="sr"><span>מע"מ 17%</span><span>₪' + fmt(tot.vat) + '</span></div>' : '') +
+          (p.includeVat ? '<div class="sr"><span>מע"מ 18%</span><span>₪' + fmt(tot.vat) + '</span></div>' : '') +
           '<div class="sr st"><span>סה"כ לתשלום</span><span>₪' + fmt(tot.total) + '</span></div></div>' +
         '<div style="font-size:.82rem;color:#666;margin-top:16px;"><strong>תנאים:</strong> הצעה תקפה ל-30 יום. מחירים אינם כוללים שינויים שלא סוכמו מראש.</div>' +
         '</div><div class="footer"><span style="color:#2d6a4f;font-weight:700;">🌿 שורשים פלוס</span> · הצעת מחיר · ' + today + '</div></body></html>';
 
       var blob = new Blob([html], { type: 'text/html;charset=utf-8' }); var a = document.createElement('a');
       a.href = URL.createObjectURL(blob); a.download = 'quote-' + p.name.replace(/\s+/g, '-') + '-' + new Date().toISOString().slice(0,10) + '.html';
-      a.click(); URL.revokeObjectURL(a.href); showToast('📄 הצעת מחיר הורדה');
+      a.click(); URL.revokeObjectURL(a.href); showToast(tt('📄 הצעת מחיר הורדה','📄 ดาวน์โหลดใบเสนอราคาแล้ว','📄 تم تنزيل عرض السعر'));
     });
   }
 
   // ── PDF EXPORT: SHIPMENT LOG ──
   function _shipPDF(pid) {
     loadProjects().then(function(projects) {
-      var p = projects.find(function(x) { return x.id === pid; }); if (!p || !(p.shipments||[]).length) { showToast('📦 אין משלוחים'); return; }
+      var p = projects.find(function(x) { return x.id === pid; }); if (!p || !(p.shipments||[]).length) { showToast(tt('📦 אין משלוחים','📦 ไม่มีจัดส่ง','📦 لا شحنات')); return; }
       var today = new Date().toLocaleDateString('he-IL');
       var rows = ''; p.shipments.forEach(function(s, i) { rows += '<tr><td>' + (i+1) + '</td><td>' + s.date + '</td><td>' + s.materialName + '</td><td>' + s.quantity + '</td><td>' + (s.supplier||'—') + '</td><td>' + (s.notes||'—') + '</td></tr>'; });
       var html = '<!DOCTYPE html><html dir="rtl"><head><meta charset="utf-8"><title>יומן משלוחים — ' + p.name + '</title><style>@page{margin:15mm}body{font-family:-apple-system,"Segoe UI",Arial,sans-serif;color:#222;direction:rtl;line-height:1.6;margin:0}.header{background:linear-gradient(135deg,#4a148c,#7e57c2);color:white;padding:28px 32px;border-radius:0 0 16px 16px;margin-bottom:24px}.header h1{font-size:1.4rem;margin:0 0 4px}.header .meta{font-size:.85rem;opacity:.85}.content{padding:0 24px}table{width:100%;border-collapse:collapse;font-size:.85rem}th{background:#ede7f6;padding:8px 10px;text-align:right;font-weight:700;font-size:.78rem}td{padding:8px 10px;border-bottom:1px solid #eee}tr:nth-child(even) td{background:#fafafa}.footer{text-align:center;padding:20px;margin-top:24px;font-size:.78rem;color:#888;border-top:1px solid #eee}</style></head><body>' +
         '<div class="header"><h1>🚚 יומן משלוחים</h1><div class="meta">' + p.name + (p.client ? ' · ' + p.client : '') + ' · ' + today + '</div></div>' +
-        '<div class="content"><table><thead><tr><th>#</th><th>תאריך</th><th>חומר</th><th>כמות</th><th>ספק</th><th>הערות</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+        '<div class="content"><table><thead><tr><th>#</th><th>תאריך</th><th>' + tt('חומר','วัสดุ','مادة') + '</th><th>' + tt('כמות','จำนวน','كمية') + '</th><th>ספק</th><th>הערות</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
         '<div class="footer"><span style="color:#7e57c2;font-weight:700;">🌿 שורשים פלוס</span> · יומן משלוחים · ' + today + '</div></body></html>';
       var blob = new Blob([html], { type: 'text/html;charset=utf-8' }); var a = document.createElement('a');
       a.href = URL.createObjectURL(blob); a.download = 'shipments-' + p.name.replace(/\s+/g, '-') + '-' + new Date().toISOString().slice(0,10) + '.html';
-      a.click(); URL.revokeObjectURL(a.href); showToast('🚚 יומן הורד');
+      a.click(); URL.revokeObjectURL(a.href); showToast(tt('🚚 יומן הורד','🚚 ดาวน์โหลดบันทึกแล้ว','🚚 تم تنزيل السجل'));
     });
   }
 
