@@ -2278,44 +2278,21 @@
       }), event);
       return;
     }
-    // Fallback (legacy): actual PDF via html2pdf if Export missing
+    // Fallback (legacy): use browser native print-to-PDF via Export module
     var html = generatePdfHtml();
-    var container = document.createElement('div');
-    container.className = 'export-print-root';
-    container.innerHTML = html;
-    container.style.cssText = 'position:fixed;top:0;left:0;width:210mm;max-height:100vh;overflow:hidden;z-index:2147483645;background:#fff;color:#111;';
-    document.body.appendChild(container);
-    var overlay = document.createElement('div');
-    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:2147483646;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);font-family:"Heebo","Assistant",sans-serif;';
-    overlay.innerHTML = '<div style="background:rgba(15,25,18,0.97);padding:28px 40px;border-radius:14px;border:1px solid rgba(57,255,20,0.35);box-shadow:0 0 32px rgba(57,255,20,0.2);text-align:center;color:#e8ffe8;"><div style="font-size:2.5rem;margin-bottom:10px;animation:sspin 1.4s linear infinite;display:inline-block;">📄</div><div style="font-size:1.1rem;font-weight:600;">' + t('יוצר PDF…') + '</div></div><style>@keyframes sspin{from{transform:rotate(0)}to{transform:rotate(360deg)}}</style>';
-    document.body.appendChild(overlay);
-    if (typeof html2pdf !== 'undefined') {
-      var fontsReady = (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
-      fontsReady.then(function() {
-        return new Promise(function(resolve) { requestAnimationFrame(function() { resolve(); }); });
-      }).then(function() {
-        return html2pdf().set({
-          margin: [10, 8, 12, 8],
-          filename: t('יומן ריסוסים').replace(/ /g, '_') + '_' + new Date().toISOString().split('T')[0] + '.pdf',
-          html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false },
-          jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape', compress: true },
-          pagebreak: { mode: ['css', 'legacy'], avoid: ['tr'] }
-        }).from(container).save();
-      }).then(function(){
-        if (container.parentNode) container.parentNode.removeChild(container);
-        if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
-        showToast('📄 ' + t('PDF הורד'));
-      }).catch(function(err){
-        try{ if (container.parentNode) container.parentNode.removeChild(container); }catch(e){}
-        try{ if (overlay.parentNode) overlay.parentNode.removeChild(overlay); }catch(e){}
-        console.error(err);
-        showToast('❌ ' + t('יצירת PDF נכשלה'));
+    if (typeof Export !== 'undefined' && Export.printHTML) {
+      Export.printHTML(html, {
+        title: t('יומן ריסוסים').replace(/ /g, '_') + '_' + new Date().toISOString().split('T')[0],
+        landscape: true
       });
-    } else {
-      document.body.removeChild(container);
-      document.body.removeChild(overlay);
-      showToast('❌ ' + t('html2pdf לא נטען'));
+      showToast('📄 ' + t('פותח חלון הדפסה'));
+      return;
     }
+    // Last-resort fallback
+    var w = window.open('about:blank', '_blank');
+    if (!w) { showToast('❌ ' + t('חוסם חלונות קופצים פעיל')); return; }
+    w.document.open(); w.document.write(html); w.document.close();
+    setTimeout(function () { try { w.focus(); w.print(); } catch (e) {} }, 400);
   });
 
   function generatePdfHtml() {

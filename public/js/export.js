@@ -110,210 +110,257 @@ var Export = (function () {
   // ═══════════════════════════════════════════════════════════════════════
   //  PDF — print-isolated, theme variables explicitly reset
   // ═══════════════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════
+  //  PDF — uses browser's native print-to-PDF (window.print)
+  //  ─────────────────────────────────────────────────────────────────────
+  //  After 5 rounds of fighting html2pdf.js (which the author admits has a
+  //  buggy DOM clone), this approach ships today. The browser renders Hebrew
+  //  RTL natively, produces real searchable text, and never returns blank.
+  //  The user picks "Save as PDF" in the print dialog (Chrome's default
+  //  destination since v70 — usually one click).
+  // ═══════════════════════════════════════════════════════════════════════
   function exportPDF(dataset, opts) {
     dataset = _normalize(dataset); opts = opts || {};
-    if (typeof html2pdf === 'undefined') {
-      _toast('❌ html2pdf לא נטען');
-      console.error('Export.exportPDF: html2pdf undefined');
-      return Promise.reject();
+
+    // Open the popup SYNCHRONOUSLY in the click handler — otherwise browsers
+    // block it. Show a quick loading placeholder until we write the real HTML.
+    var w = window.open('about:blank', '_blank', 'width=900,height=700');
+    if (!w || w.closed || typeof w.closed === 'undefined') {
+      _toast('❌ ' + _t('חוסם חלונות קופצים פעיל — אפשר חלונות לאתר',
+                       'Popup blocker active — allow popups for this site',
+                       'مانع النوافذ المنبثقة نشط'));
+      return;
     }
+    w.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>...</title></head><body style="font-family:sans-serif;padding:40px;text-align:center;color:#444">📄</body></html>');
 
     var landscape = opts.landscape != null ? opts.landscape : dataset.columns.length > 6;
-    var container = _buildPrintContainer(dataset, { landscape: landscape });
-    document.body.appendChild(container);
+    var html = _buildPrintDocument(dataset, { landscape: landscape });
 
-    // Loading overlay — covers the container so user only sees a "generating" state
-    var overlay = document.createElement('div');
-    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.8);' +
-      'z-index:2147483646;display:flex;align-items:center;justify-content:center;' +
-      'backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);' +
-      'font-family:"Heebo","Assistant",sans-serif;';
-    overlay.innerHTML =
-      '<div style="background:rgba(15,25,18,0.97);padding:28px 40px;border-radius:14px;' +
-      'border:1px solid rgba(57,255,20,0.35);box-shadow:0 0 32px rgba(57,255,20,0.2);' +
-      'text-align:center;color:#e8ffe8;">' +
-        '<div style="font-size:2.5rem;margin-bottom:10px;animation:spin 1.4s linear infinite;display:inline-block;">📄</div>' +
-        '<div style="font-size:1.1rem;font-weight:600;">' +
-          _t('יוצר PDF…', 'กำลังสร้าง PDF…', 'إنشاء PDF…') +
-        '</div>' +
-        '<div style="font-size:0.85rem;color:rgba(232,255,232,0.6);margin-top:6px;">' +
-          _t('אנא המתן', 'โปรดรอ', 'يرجى الانتظار') +
-        '</div>' +
-      '</div>' +
-      '<style>@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}</style>';
-    document.body.appendChild(overlay);
+    // Replace placeholder with real document
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
 
-    // Wait for fonts AND a render frame before capture
-    var fontsReady = (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
-    return fontsReady.then(function () {
-      return new Promise(function (resolve) { requestAnimationFrame(function () { resolve(); }); });
-    }).then(function () {
-      var rect = container.getBoundingClientRect();
-      console.log('[Export PDF] container dims:', {
-        offsetW: container.offsetWidth, offsetH: container.offsetHeight,
-        scrollW: container.scrollWidth, scrollH: container.scrollHeight,
-        clientRect: { w: rect.width, h: rect.height, top: rect.top, left: rect.left }
-      });
-      return html2pdf().set({
-        margin:   [10, 8, 12, 8],
-        filename: _filename(dataset, 'pdf'),
-        image:    { type: 'jpeg', quality: 0.96 },
-        html2canvas: {
-          scale: 2,
-          useCORS: true,
-          logging: false,
-          backgroundColor: '#ffffff'
-        },
-        jsPDF: {
-          unit: 'mm', format: 'a4',
-          orientation: landscape ? 'landscape' : 'portrait',
-          compress: true
-        },
-        pagebreak: { mode: ['css', 'legacy'], avoid: ['tr', '.no-break'] }
-      }).from(container).save();
-    }).then(function () {
-      if (container.parentNode) container.parentNode.removeChild(container);
-      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
-      _toast('✅ ' + _t('PDF נשמר', 'บันทึก PDF', 'تم حفظ PDF'));
-    }).catch(function (err) {
-      try { if (container.parentNode) container.parentNode.removeChild(container); } catch (e) {}
-      try { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); } catch (e) {}
-      console.error('[Export PDF] failed:', err);
-      _toast('❌ ' + _t('יצירת PDF נכשלה — ראה console', 'PDF ล้มเหลว', 'فشل PDF'));
-    });
-  }
+    _toast('📄 ' + _t('בחר "שמור כ-PDF" בחלון ההדפסה',
+                     'Choose "Save as PDF" in the print dialog',
+                     'اختر "حفظ كـ PDF" في حوار الطباعة'));
 
-  function _buildPrintContainer(dataset, opts) {
-    var root = document.createElement('div');
-    root.className = 'export-print-root';
-    root.setAttribute('dir', 'rtl');
-
-    // Fully visible at top of viewport — overlay covers it so user doesn't see content flash.
-    // No opacity tricks (html2canvas respects opacity and produces blank canvas).
-    // No offscreen positioning (html2canvas skips elements outside viewport).
-    var widthMm = opts.landscape ? 277 : 210;
-    root.style.cssText = [
-      'position:fixed',
-      'top:0',
-      'left:0',
-      'width:' + widthMm + 'mm',
-      'max-height:100vh',
-      'overflow:hidden',
-      'z-index:2147483645',  // just below the overlay
-      'background:#ffffff',
-      'color:#111111',
-      'font-family:"Heebo","Assistant","Noto Sans Hebrew","Segoe UI",Arial,sans-serif',
-      'direction:rtl',
-      'text-align:right',
-      'padding:0',
-      'margin:0'
-    ].join(';');
-
-    // Header strip
-    var h = document.createElement('div');
-    h.className = 'no-break';
-    h.innerHTML =
-      '<div style="border-bottom:2px solid #2d6a4f;padding:0 0 10px 0;margin-bottom:12px;background:#fff">' +
-        '<div style="display:flex;justify-content:space-between;align-items:flex-end">' +
-          '<div>' +
-            '<div style="font-size:18pt;font-weight:700;color:#1b4332;background:#fff">' + _esc(dataset.title) + '</div>' +
-            (dataset.subtitle ? '<div style="font-size:11pt;color:#444;margin-top:2px;background:#fff">' + _esc(dataset.subtitle) + '</div>' : '') +
-          '</div>' +
-          '<div style="font-size:9pt;color:#555;text-align:left;direction:ltr;background:#fff">' +
-            '🌿 Shorashim Plus<br>' + _fmtDateTime(new Date()) +
-          '</div>' +
-        '</div>' +
-        _renderMeta(dataset.meta) +
-      '</div>';
-    root.appendChild(h);
-
-    // Table
-    var table = document.createElement('table');
-    table.style.cssText = 'width:100%;border-collapse:collapse;font-size:10pt;background:#fff';
-    var thead = document.createElement('thead');
-    thead.style.cssText = 'display:table-header-group';
-    var trh = document.createElement('tr');
-    dataset.columns.forEach(function (c) {
-      var th = document.createElement('th');
-      th.textContent = c.label || c.key;
-      th.style.cssText = 'background:#2d6a4f !important;color:#ffffff !important;padding:6px 8px;text-align:' +
-        (c.align || 'right') + ';font-weight:600;border:1px solid #1b4332;font-size:10pt';
-      if (c.width) th.style.width = c.width + 'px';
-      trh.appendChild(th);
-    });
-    thead.appendChild(trh);
-    table.appendChild(thead);
-
-    var tbody = document.createElement('tbody');
-    dataset.rows.forEach(function (row, idx) {
-      var tr = document.createElement('tr');
-      var bg = idx % 2 ? '#f4f9f6' : '#ffffff';
-      tr.style.cssText = 'page-break-inside:avoid;background:' + bg + ' !important';
-      dataset.columns.forEach(function (col) {
-        var td = document.createElement('td');
-        td.textContent = _renderCell(row, col);
-        td.style.cssText = 'padding:5px 8px;border:1px solid #cfd9d3;text-align:' +
-          (col.align || 'right') + ';color:#111 !important;font-size:9.5pt;vertical-align:top;background:' +
-          bg + ' !important';
-        tr.appendChild(td);
-      });
-      tbody.appendChild(tr);
-    });
-    table.appendChild(tbody);
-    root.appendChild(table);
-
-    if (!dataset.rows.length) {
-      var empty = document.createElement('div');
-      empty.style.cssText = 'padding:30px;text-align:center;color:#777;font-size:11pt;background:#fff';
-      empty.textContent = _t('אין נתונים להצגה', 'ไม่มีข้อมูล', 'لا توجد بيانات');
-      root.appendChild(empty);
-    }
-
-    if (dataset.summary && dataset.summary.length) {
-      var sum = document.createElement('div');
-      sum.className = 'no-break';
-      sum.style.cssText = 'margin-top:14px;padding:10px;background:#e8f3ec !important;' +
-        'border:1px solid #95c9a9;border-radius:6px;page-break-inside:avoid';
-      var html = '<div style="font-weight:700;color:#1b4332;margin-bottom:6px;font-size:11pt">' +
-        _t('סיכום', 'สรุป', 'ملخص') + '</div><table style="width:100%;font-size:10pt"><tbody>';
-      dataset.summary.forEach(function (s) {
-        html += '<tr><td style="padding:3px 8px;color:#444;background:#e8f3ec">' + _esc(s.label) +
-          '</td><td style="padding:3px 8px;text-align:left;font-weight:600;color:#111;background:#e8f3ec">' +
-          _esc(s.value) + '</td></tr>';
-      });
-      html += '</tbody></table>';
-      sum.innerHTML = html;
-      root.appendChild(sum);
-    }
-
-    var foot = document.createElement('div');
-    foot.style.cssText = 'margin-top:18px;padding-top:6px;border-top:1px solid #ccc;' +
-      'font-size:8pt;color:#888;text-align:center;direction:ltr;background:#fff';
-    foot.textContent = 'shorashim-plus.web.app · ' + _fmtDateTime(new Date());
-    root.appendChild(foot);
-    return root;
-  }
-
-  function _renderMeta(meta) {
-    var keys = Object.keys(meta || {});
-    var labels = {
-      farm: _t('חווה','ฟาร์ม','مزرعة'),
-      plot: _t('חלקה','แปลง','قطعة'),
-      worker: _t('עובד','คนงาน','عامل'),
-      generatedBy: _t('הופק על ידי','สร้างโดย','أنشأ بواسطة'),
-      dateRange: _t('טווח תאריכים','ช่วงวันที่','نطاق التواريخ'),
-      project: _t('פרויקט','โครงการ','مشروع'),
-      client: _t('לקוח','ลูกค้า','عميل')
+    // Wait for content + fonts to render, then auto-trigger the print dialog
+    var triggerPrint = function () {
+      try {
+        w.focus();
+        var fontsReady = (w.document.fonts && w.document.fonts.ready) ? w.document.fonts.ready : Promise.resolve();
+        fontsReady.then(function () {
+          setTimeout(function () {
+            try { w.print(); } catch (e) { console.warn('print() failed:', e); }
+            // Close window after the print dialog closes
+            var closed = false;
+            w.onafterprint = function () {
+              if (!closed) { closed = true; setTimeout(function () { try { w.close(); } catch (e) {} }, 200); }
+            };
+            // Fallback: close after 5 min if user never closes the dialog
+            setTimeout(function () { if (!closed) { try { w.close(); } catch (e) {} } }, 300000);
+          }, 200);
+        });
+      } catch (e) {
+        console.error('[Export PDF]', e);
+      }
     };
-    var parts = keys.filter(function (k) { return meta[k] != null && meta[k] !== ''; })
-      .map(function (k) {
-        return '<span style="display:inline-block;margin-left:14px;background:#fff">' +
-          '<b style="color:#1b4332">' + _esc(labels[k] || k) + ':</b> ' +
-          '<span style="color:#333">' + _esc(meta[k]) + '</span></span>';
-      });
-    if (!parts.length) return '';
-    return '<div style="margin-top:8px;font-size:9.5pt;color:#444;background:#fff">' + parts.join('') + '</div>';
+
+    // Some browsers fire load before document is fully styled — wait both events
+    if (w.document.readyState === 'complete') triggerPrint();
+    else w.onload = triggerPrint;
   }
+
+  // Expose for other modules (maintenance, fieldreport, app spray) to use:
+  // Takes raw HTML body content (no doctype/html/body tags) or a full HTML doc.
+  // If it starts with <!DOCTYPE or <html, treats as a complete doc; otherwise
+  // wraps it in the standard print template.
+  function printHTML(htmlOrBody, options) {
+    options = options || {};
+    var w = window.open('about:blank', '_blank', 'width=900,height=700');
+    if (!w || w.closed) {
+      _toast('❌ ' + _t('חוסם חלונות קופצים פעיל','Popup blocked','مانع نوافذ منبثقة'));
+      return;
+    }
+    w.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>📄</body></html>');
+
+    var fullHTML;
+    if (/^\s*<(!doctype|html)/i.test(htmlOrBody)) {
+      fullHTML = htmlOrBody; // already a complete doc
+    } else {
+      fullHTML = _wrapBodyInPrintDoc(htmlOrBody, options);
+    }
+    w.document.open();
+    w.document.write(fullHTML);
+    w.document.close();
+
+    _toast('📄 ' + _t('בחר "שמור כ-PDF" בחלון ההדפסה',
+                     'Choose "Save as PDF" in the print dialog',
+                     'اختر "حفظ كـ PDF"'));
+
+    var trigger = function () {
+      try {
+        w.focus();
+        var fontsReady = (w.document.fonts && w.document.fonts.ready) ? w.document.fonts.ready : Promise.resolve();
+        fontsReady.then(function () {
+          setTimeout(function () {
+            try { w.print(); } catch (e) { console.warn('print() failed:', e); }
+            var closed = false;
+            w.onafterprint = function () { if (!closed) { closed = true; setTimeout(function () { try { w.close(); } catch (e) {} }, 200); } };
+            setTimeout(function () { if (!closed) try { w.close(); } catch (e) {} }, 300000);
+          }, 200);
+        });
+      } catch (e) { console.error('[Export PDF]', e); }
+    };
+    if (w.document.readyState === 'complete') trigger();
+    else w.onload = trigger;
+  }
+
+  function _wrapBodyInPrintDoc(bodyHTML, options) {
+    var landscape = !!options.landscape;
+    var title = options.title || 'Shorashim Plus';
+    return [
+      '<!DOCTYPE html>',
+      '<html lang="he" dir="rtl">',
+      '<head>',
+      '<meta charset="UTF-8">',
+      '<title>' + _esc(title) + '</title>',
+      '<link rel="preconnect" href="https://fonts.googleapis.com">',
+      '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>',
+      '<link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;600;700;800&family=Assistant:wght@400;600;700&display=swap" rel="stylesheet">',
+      '<style>',
+      '@page { size: A4 ' + (landscape ? 'landscape' : 'portrait') + '; margin: 12mm 10mm; }',
+      '* { box-sizing: border-box; }',
+      'html, body { margin:0; padding:0; background:#fff; color:#111;',
+      '  font-family:"Heebo","Assistant","Noto Sans Hebrew","Segoe UI",Arial,sans-serif;',
+      '  direction:rtl; text-align:right; line-height:1.5; -webkit-print-color-adjust:exact; print-color-adjust:exact; }',
+      '@media print { .no-print { display:none !important; } }',
+      '.print-hint { position:sticky; top:0; padding:12px 16px; background:#2d6a4f; color:#fff;',
+      '  text-align:center; font-weight:600; font-size:14px; box-shadow:0 2px 8px rgba(0,0,0,0.15); }',
+      '.print-hint button { background:#fff; color:#2d6a4f; border:none; padding:6px 14px;',
+      '  border-radius:6px; font-weight:700; cursor:pointer; margin-right:10px; font-family:inherit; }',
+      '</style>',
+      '</head>',
+      '<body>',
+      '<div class="print-hint no-print">',
+        '<button onclick="window.print()">📄 ' + _esc(_t('שמור כ-PDF','Save as PDF','حفظ كـ PDF')) + '</button>',
+        _esc(_t('או לחץ Ctrl+P · בחר "שמור כ-PDF" כיעד',
+                'or Ctrl+P · choose "Save as PDF" as destination',
+                'أو Ctrl+P · اختر "حفظ كـ PDF"')),
+      '</div>',
+      bodyHTML,
+      '</body>',
+      '</html>'
+    ].join('\n');
+  }
+
+  function _buildPrintDocument(dataset, opts) {
+    var landscape = opts.landscape;
+
+    // Header cells
+    var headerCells = dataset.columns.map(function (c) {
+      var w = c.width ? 'width:' + c.width + 'px;' : '';
+      return '<th style="text-align:' + (c.align || 'right') + ';' + w + '">' + _esc(c.label || c.key) + '</th>';
+    }).join('');
+
+    // Data rows
+    var rowsHTML = dataset.rows.map(function (row) {
+      return '<tr>' + dataset.columns.map(function (c) {
+        return '<td style="text-align:' + (c.align || 'right') + '">' + _esc(_renderCell(row, c)) + '</td>';
+      }).join('') + '</tr>';
+    }).join('');
+
+    // Meta strip
+    var metaHTML = '';
+    var metaKeys = Object.keys(dataset.meta || {});
+    if (metaKeys.length) {
+      var labels = {
+        farm: _t('חווה','ฟาร์ม','مزرعة'),
+        plot: _t('חלקה','แปลง','قطعة'),
+        worker: _t('עובד','คนงาน','عامل'),
+        generatedBy: _t('הופק על ידי','สร้างโดย','أنشأ بواسطة'),
+        dateRange: _t('טווח תאריכים','ช่วงวันที่','نطاق التواريخ'),
+        project: _t('פרויקט','โครงการ','مشروع'),
+        client: _t('לקוח','ลูกค้า','عميل'),
+        season: _t('עונה','ฤดู','موسم')
+      };
+      var parts = metaKeys.filter(function (k) { return dataset.meta[k] != null && dataset.meta[k] !== ''; })
+        .map(function (k) {
+          return '<span class="meta-item"><b>' + _esc(labels[k] || k) + ':</b> ' + _esc(dataset.meta[k]) + '</span>';
+        });
+      if (parts.length) metaHTML = '<div class="meta-row">' + parts.join('') + '</div>';
+    }
+
+    // Summary
+    var summaryHTML = '';
+    if (dataset.summary && dataset.summary.length) {
+      var rows = dataset.summary.map(function (s) {
+        return '<tr><td class="sum-label">' + _esc(s.label) + '</td><td class="sum-value">' + _esc(s.value) + '</td></tr>';
+      }).join('');
+      summaryHTML = '<div class="summary">' +
+        '<div class="summary-title">' + _esc(_t('סיכום','สรุป','ملخص')) + '</div>' +
+        '<table class="summary-table">' + rows + '</table></div>';
+    }
+
+    // Empty state
+    var emptyHTML = '';
+    if (!dataset.rows.length) {
+      emptyHTML = '<div class="empty">' + _esc(_t('אין נתונים להצגה','ไม่มีข้อมูล','لا توجد بيانات')) + '</div>';
+    }
+
+    var bodyHTML = [
+      '<div class="header">',
+        '<div>',
+          '<h1>' + _esc(dataset.title) + '</h1>',
+          (dataset.subtitle ? '<div class="subtitle">' + _esc(dataset.subtitle) + '</div>' : ''),
+        '</div>',
+        '<div class="brand">🌿 Shorashim Plus<br><span style="color:#777">' + _esc(_fmtDateTime(new Date())) + '</span></div>',
+      '</div>',
+      metaHTML,
+      (dataset.rows.length ?
+        '<table class="data"><thead><tr>' + headerCells + '</tr></thead><tbody>' + rowsHTML + '</tbody></table>'
+        : emptyHTML),
+      summaryHTML,
+      '<div class="footer">shorashim-plus.web.app · ' + _esc(_fmtDateTime(new Date())) + '</div>'
+    ].join('\n');
+
+    // Wrap with full doc + extra report-specific styles
+    var extraCSS = [
+      '.header { border-bottom:2px solid #2d6a4f; padding:0 0 10px; margin-bottom:12px;',
+      '  display:flex; justify-content:space-between; align-items:flex-end; }',
+      '.header h1 { font-size:20pt; font-weight:700; color:#1b4332; margin:0 0 2px; }',
+      '.header .subtitle { font-size:12pt; color:#444; margin-top:2px; }',
+      '.header .brand { font-size:10pt; color:#555; text-align:left; direction:ltr; line-height:1.4; }',
+      '.meta-row { margin-bottom:12px; font-size:10pt; color:#444; }',
+      '.meta-item { display:inline-block; margin-left:14px; }',
+      '.meta-item b { color:#1b4332; }',
+      'table.data { width:100%; border-collapse:collapse; font-size:10pt; margin-top:8px; }',
+      'table.data thead { display:table-header-group; }',
+      'table.data th { background:#2d6a4f !important; color:#fff !important; padding:6px 8px;',
+      '  font-weight:600; border:1px solid #1b4332; font-size:10pt; }',
+      'table.data td { padding:5px 8px; border:1px solid #cfd9d3; color:#111; font-size:9.5pt;',
+      '  vertical-align:top; }',
+      'table.data tr:nth-child(even) td { background:#f4f9f6 !important; }',
+      'table.data tr { page-break-inside:avoid; }',
+      '.summary { margin-top:14px; padding:10px 14px; background:#e8f3ec !important;',
+      '  border:1px solid #95c9a9; border-radius:6px; page-break-inside:avoid; }',
+      '.summary-title { font-weight:700; color:#1b4332; font-size:12pt; margin-bottom:6px; }',
+      '.summary-table { width:100%; font-size:10pt; }',
+      '.summary-table td { padding:3px 8px; }',
+      '.sum-label { color:#444; }',
+      '.sum-value { text-align:left; font-weight:600; color:#111; }',
+      '.empty { padding:40px; text-align:center; color:#888; font-size:12pt; border:1px dashed #ccc; border-radius:6px; }',
+      '.footer { margin-top:18px; padding-top:6px; border-top:1px solid #ccc;',
+      '  font-size:8pt; color:#888; text-align:center; direction:ltr; }'
+    ].join('\n');
+
+    return _wrapBodyInPrintDoc('<style>' + extraCSS + '</style>' + bodyHTML, {
+      title: dataset.title,
+      landscape: landscape
+    });
+  }
+
 
   // ═══════════════════════════════════════════════════════════════════════
   //  CSV — UTF-8 BOM (so Excel reads Hebrew correctly)
@@ -811,6 +858,7 @@ var Export = (function () {
   return {
     showMenu:   showMenu,
     exportPDF:  exportPDF,
+    printHTML:  printHTML,
     exportCSV:  exportCSV,
     exportJSON: exportJSON,
     exportXLSX: exportXLSX,

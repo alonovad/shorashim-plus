@@ -671,42 +671,22 @@ var FieldReport = (function() {
         '<div style="text-align:center;padding:20px;margin-top:24px;font-size:0.78rem;color:#888;border-top:1px solid #e0e0e0;background:#fff;"><span style="color:#2d6a4f;font-weight:700;">🌿 ' + tt('שורשים פלוס', 'Shorashim Plus', 'شوراشيم بلس') + '</span> · ' + tt('דוח סיור שדה','รายงานตรวจสนาม','تقرير فحص ميداني') + ' · ' + new Date().toLocaleDateString(tt('he-IL','th-TH','ar-SA')) + '</div>' +
         '</div>';
 
-      if (typeof html2pdf === 'undefined') {
-        if (typeof showToast === 'function') showToast('❌ html2pdf לא נטען');
+      // Use Export module's window.print() — reliable Hebrew RTL via browser native print
+      if (typeof Export !== 'undefined' && Export.printHTML) {
+        Export.printHTML(htmlContent, { title: 'field-report-' + r.date, landscape: false });
+        if (typeof showToast === 'function') showToast('📄 ' + tt('פותח חלון הדפסה — בחר "שמור כ-PDF"', 'เปิดหน้าต่างพิมพ์', 'فتح حوار الطباعة'));
         return;
       }
-      var container = document.createElement('div');
-      container.innerHTML = htmlContent;
-      container.style.cssText = 'position:fixed;top:0;left:0;width:210mm;max-height:100vh;overflow:hidden;z-index:2147483645;background:#fff;';
-      document.body.appendChild(container);
-
-      var overlay = document.createElement('div');
-      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:2147483646;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);font-family:"Heebo","Assistant",sans-serif;';
-      overlay.innerHTML = '<div style="background:rgba(15,25,18,0.97);padding:28px 40px;border-radius:14px;border:1px solid rgba(57,255,20,0.35);box-shadow:0 0 32px rgba(57,255,20,0.2);text-align:center;color:#e8ffe8;"><div style="font-size:2.5rem;margin-bottom:10px;animation:fspin 1.4s linear infinite;display:inline-block;">📄</div><div style="font-size:1.1rem;font-weight:600;">' + tt('יוצר PDF…','กำลังสร้าง PDF…','إنشاء PDF…') + '</div></div><style>@keyframes fspin{from{transform:rotate(0)}to{transform:rotate(360deg)}}</style>';
-      document.body.appendChild(overlay);
-
-      var fontsReady = (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
-      fontsReady.then(function() {
-        return new Promise(function(resolve) { requestAnimationFrame(function() { resolve(); }); });
-      }).then(function() {
-        return html2pdf().set({
-          margin: [10, 8, 12, 8],
-          filename: 'field-report-' + r.date + '.pdf',
-          image: { type: 'jpeg', quality: 0.96 },
-          html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false },
-          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait', compress: true },
-          pagebreak: { mode: ['css', 'legacy'], avoid: ['tr', '.no-break'] }
-        }).from(container).save();
-      }).then(function() {
-        if (container.parentNode) container.parentNode.removeChild(container);
-        if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
-        if (typeof showToast === 'function') showToast('📄 ' + tt('דוח הורד', 'ดาวน์โหลดรายงานแล้ว', 'تم تنزيل التقرير'));
-      }).catch(function(err) {
-        try { if (container.parentNode) container.parentNode.removeChild(container); } catch(e) {}
-        try { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); } catch(e) {}
-        console.error('PDF failed:', err);
-        if (typeof showToast === 'function') showToast('❌ ' + tt('יצירת PDF נכשלה','สร้าง PDF ล้มเหลว','فشل إنشاء PDF'));
-      });
+      // Fallback if Export module isn't loaded
+      var w = window.open('about:blank', '_blank');
+      if (!w) {
+        if (typeof showToast === 'function') showToast('❌ ' + tt('חוסם חלונות קופצים פעיל','Popup blocked','نوافذ منبثقة محظورة'));
+        return;
+      }
+      w.document.open();
+      w.document.write(htmlContent);
+      w.document.close();
+      setTimeout(function () { try { w.focus(); w.print(); } catch (e) {} }, 400);
     });
   }
 
