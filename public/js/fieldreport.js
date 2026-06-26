@@ -675,7 +675,9 @@ var FieldReport = (function() {
         if (typeof showToast === 'function') showToast('❌ html2pdf לא נטען');
         return;
       }
+      var containerId = 'field-pdf-' + Date.now();
       var container = document.createElement('div');
+      container.id = containerId;
       container.innerHTML = htmlContent;
       container.style.cssText = 'position:fixed;top:0;left:0;width:210mm;opacity:0;pointer-events:none;z-index:-1;background:#fff;';
       document.body.appendChild(container);
@@ -688,7 +690,19 @@ var FieldReport = (function() {
           margin: [10, 8, 12, 8],
           filename: 'field-report-' + r.date + '.pdf',
           image: { type: 'jpeg', quality: 0.96 },
-          html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false },
+          html2canvas: {
+            scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false,
+            onclone: function(clonedDoc) {
+              var cloned = clonedDoc.getElementById(containerId);
+              if (cloned) {
+                cloned.style.opacity = '1';
+                cloned.style.position = 'static';
+                cloned.style.left = 'auto';
+                cloned.style.top = 'auto';
+                cloned.style.zIndex = 'auto';
+              }
+            }
+          },
           jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait', compress: true },
           pagebreak: { mode: ['css', 'legacy'], avoid: ['tr', '.no-break'] }
         }).from(container).save();

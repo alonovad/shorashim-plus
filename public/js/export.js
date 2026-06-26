@@ -119,7 +119,9 @@ var Export = (function () {
     }
 
     var landscape = opts.landscape != null ? opts.landscape : dataset.columns.length > 6;
+    var containerId = 'export-print-' + Date.now() + '-' + Math.floor(Math.random() * 10000);
     var container = _buildPrintContainer(dataset, { landscape: landscape });
+    container.id = containerId;
     document.body.appendChild(container);
 
     _toast('📄 ' + _t('יוצר PDF…', 'กำลังสร้าง PDF…', 'إنشاء PDF…'));
@@ -147,7 +149,20 @@ var Export = (function () {
           scale: 2,
           useCORS: true,
           logging: false,
-          backgroundColor: '#ffffff'
+          backgroundColor: '#ffffff',
+          // CRITICAL: live container is opacity:0 so user can't see it.
+          // In html2canvas's cloned DOM, un-hide it so rendering captures real content.
+          onclone: function (clonedDoc) {
+            var cloned = clonedDoc.getElementById(containerId);
+            if (cloned) {
+              cloned.style.opacity = '1';
+              cloned.style.zIndex = 'auto';
+              cloned.style.pointerEvents = 'auto';
+              cloned.style.position = 'static';
+              cloned.style.left = 'auto';
+              cloned.style.top = 'auto';
+            }
+          }
         },
         jsPDF: {
           unit: 'mm', format: 'a4',

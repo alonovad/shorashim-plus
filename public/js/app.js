@@ -2280,7 +2280,9 @@
     }
     // Fallback (legacy): actual PDF via html2pdf if Export missing
     var html = generatePdfHtml();
+    var containerId = 'spray-pdf-' + Date.now();
     var container = document.createElement('div');
+    container.id = containerId;
     container.className = 'export-print-root';
     container.innerHTML = html;
     container.style.cssText = 'position:fixed;top:0;left:0;width:210mm;opacity:0;pointer-events:none;z-index:-1;background:#fff;color:#111;';
@@ -2293,7 +2295,19 @@
         return html2pdf().set({
           margin: [10, 8, 12, 8],
           filename: t('יומן ריסוסים').replace(/ /g, '_') + '_' + new Date().toISOString().split('T')[0] + '.pdf',
-          html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false },
+          html2canvas: {
+            scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false,
+            onclone: function(clonedDoc) {
+              var cloned = clonedDoc.getElementById(containerId);
+              if (cloned) {
+                cloned.style.opacity = '1';
+                cloned.style.position = 'static';
+                cloned.style.left = 'auto';
+                cloned.style.top = 'auto';
+                cloned.style.zIndex = 'auto';
+              }
+            }
+          },
           jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape', compress: true },
           pagebreak: { mode: ['css', 'legacy'], avoid: ['tr'] }
         }).from(container).save();
