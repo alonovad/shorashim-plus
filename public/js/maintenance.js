@@ -446,11 +446,14 @@ var Maintenance = (function() {
         tabH += '</div>';
 
         // ── Header ──
-        var headerH = '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;"><div>' +
+        var headerH = '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;gap:8px;"><div style="flex:1;min-width:0;">' +
           '<h3 style="font-weight:700;margin:0 0 4px;">🔧 ' + p.name + '</h3>' +
           (p.client ? '<div style="font-size:0.82rem;color:var(--text-muted, #666);">👤 ' + p.client + '</div>' : '') +
           (p.description ? '<div style="font-size:0.78rem;color:var(--text-muted, #999);margin-top:2px;">' + p.description + '</div>' : '') +
-        '</div><span style="font-size:0.72rem;padding:4px 10px;border-radius:6px;background:' + st.color + '22;color:' + st.color + ';font-weight:600;white-space:nowrap;">' + st.label + '</span></div>';
+        '</div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0;">' +
+          '<button onclick="Maintenance.showProjectsList()" title="' + tt('סגור','ปิด','إغلاق') + '" style="background:none;border:none;font-size:1.3rem;cursor:pointer;color:var(--text-muted, #888);padding:2px 6px;line-height:1;border-radius:6px;">✕</button>' +
+          '<span style="font-size:0.72rem;padding:4px 10px;border-radius:6px;background:' + st.color + '22;color:' + st.color + ';font-weight:600;white-space:nowrap;">' + st.label + '</span>' +
+        '</div></div>';
 
         var bodyH = '';
 
@@ -502,10 +505,6 @@ var Maintenance = (function() {
             '<button onclick="Maintenance._quotePDF(' + pid + ')" style="flex:1;padding:10px;border-radius:10px;border:none;background:#1565c0;color:white;font-family:inherit;font-weight:700;cursor:pointer;font-size:0.85rem;">📄 ' + tt('הצעת מחיר','ใบเสนอราคา','عرض سعر') + '</button>' +
             '<button onclick="Maintenance._shipPDF(' + pid + ')" style="flex:1;padding:10px;border-radius:10px;border:none;background:#7e57c2;color:white;font-family:inherit;font-weight:700;cursor:pointer;font-size:0.85rem;">🚚 ' + tt('יומן משלוחים','บันทึกจัดส่ง','سجل الشحنات') + '</button>' +
             (canEdit ? '<button onclick="Maintenance.showNewProject(' + pid + ')" style="flex:1;padding:10px;border-radius:10px;border:none;background:#ff9800;color:white;font-family:inherit;font-weight:700;cursor:pointer;font-size:0.85rem;">✏️ ' + tt('עריכה','แก้ไข','تعديل') + '</button>' : '') +
-          '</div>' +
-          '<div style="display:flex;gap:6px;margin-top:6px;">' +
-            (canEdit ? '<button onclick="Maintenance._delProj(' + pid + ')" style="padding:10px 16px;border-radius:10px;border:none;background:#f44336;color:white;font-family:inherit;font-weight:700;cursor:pointer;">🗑️</button>' : '') +
-            '<button onclick="Maintenance.showProjectsList()" style="flex:1;padding:10px;border-radius:10px;border:none;background:var(--surface-glass, #eee);color:var(--text, inherit);font-family:inherit;cursor:pointer;">' + tt('חזרה לרשימה','กลับ','العودة للقائمة') + '</button>' +
           '</div>';
         }
 
@@ -663,9 +662,15 @@ var Maintenance = (function() {
           }
         }
 
+        // ── Universal footer (shows on every tab) ──
+        var footerH = '<div style="display:flex;gap:6px;margin-top:14px;padding-top:12px;border-top:1px solid var(--border, #ddd);">' +
+          (canEdit ? '<button onclick="Maintenance._delProj(' + pid + ')" style="padding:10px 16px;border-radius:10px;border:none;background:#f44336;color:white;font-family:inherit;font-weight:700;cursor:pointer;" title="' + tt('מחק פרויקט','ลบโครงการ','حذف المشروع') + '">🗑️</button>' : '') +
+          '<button onclick="Maintenance.showProjectsList()" style="flex:1;padding:10px;border-radius:10px;border:none;background:var(--surface-glass, #eee);color:var(--text, inherit);font-family:inherit;font-weight:600;cursor:pointer;">✖ ' + tt('סגור','ปิด','إغلاق') + '</button>' +
+        '</div>';
+
         // ── Render ──
         var modal = document.getElementById('modalContainer');
-        modal.innerHTML = '<div style="' + modalBg + '"><div data-maint-project-id="' + pid + '" data-maint-active-tab="' + _activeTab + '" style="' + modalCard + '700px;max-height:90vh;overflow-y:auto;">' + headerH + tabH + bodyH + '</div></div>';
+        modal.innerHTML = '<div style="' + modalBg + '"><div data-maint-project-id="' + pid + '" data-maint-active-tab="' + _activeTab + '" style="' + modalCard + '700px;max-height:90vh;overflow-y:auto;">' + headerH + tabH + bodyH + footerH + '</div></div>';
       });
     });
   }
@@ -999,18 +1004,27 @@ var Maintenance = (function() {
     var container = document.createElement('div');
     container.className = 'export-print-root';
     container.innerHTML = html;
-    container.style.cssText = 'position:fixed;left:-9999px;top:0;width:210mm;background:#ffffff;color:#111;';
+    container.style.cssText = 'position:fixed;left:-9999px;top:0;width:210mm;background:#ffffff;color:#111;z-index:-1;';
     document.body.appendChild(container);
-    html2pdf().set({
-      margin: [10, 10, 14, 10],
-      filename: filename.replace(/\.html$/, '.pdf'),
-      html2canvas: { scale: 2, useCORS: true, letterRendering: true, backgroundColor: '#ffffff' },
-      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait', compress: true },
-      pagebreak: { mode: ['css', 'legacy'], avoid: ['tr', '.no-break', '.summary'] }
-    }).from(container).save().then(function() {
-      document.body.removeChild(container);
+
+    // Wait for fonts + a render frame BEFORE capture — blank PDFs come from
+    // html2canvas capturing the container before its layout has settled.
+    var fontsReady = (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
+    fontsReady.then(function() {
+      return new Promise(function(resolve) { requestAnimationFrame(function() { resolve(); }); });
+    }).then(function() {
+      return html2pdf().set({
+        margin: [10, 10, 14, 10],
+        filename: filename.replace(/\.html$/, '.pdf'),
+        image: { type: 'jpeg', quality: 0.96 },
+        html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait', compress: true },
+        pagebreak: { mode: ['css', 'legacy'], avoid: ['tr', '.no-break', '.summary'] }
+      }).from(container).save();
+    }).then(function() {
+      if (container.parentNode) container.parentNode.removeChild(container);
     }).catch(function(err) {
-      document.body.removeChild(container);
+      try { if (container.parentNode) container.parentNode.removeChild(container); } catch(e) {}
       console.error('PDF generation failed:', err);
       // Fallback to HTML download
       var blob = new Blob([html], { type: 'text/html;charset=utf-8' }); var a = document.createElement('a');

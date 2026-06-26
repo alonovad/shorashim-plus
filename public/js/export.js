@@ -124,26 +124,33 @@ var Export = (function () {
 
     _toast('📄 ' + _t('יוצר PDF…', 'กำลังสร้าง PDF…', 'إنشاء PDF…'));
 
-    return html2pdf().set({
-      margin:   [10, 8, 12, 8],
-      filename: _filename(dataset, 'pdf'),
-      image:    { type: 'jpeg', quality: 0.96 },
-      html2canvas: {
-        scale: 2, useCORS: true, letterRendering: true, logging: false,
-        backgroundColor: '#ffffff',
-        windowWidth: container.scrollWidth
-      },
-      jsPDF: {
-        unit: 'mm', format: 'a4',
-        orientation: landscape ? 'landscape' : 'portrait',
-        compress: true
-      },
-      pagebreak: { mode: ['css', 'legacy'], avoid: ['tr', '.no-break'] }
-    }).from(container).save().then(function () {
-      document.body.removeChild(container);
+    // Wait for fonts AND a render frame before capture — prevents blank canvas
+    var fontsReady = (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
+    return fontsReady.then(function () {
+      return new Promise(function (resolve) { requestAnimationFrame(function () { resolve(); }); });
+    }).then(function () {
+      return html2pdf().set({
+        margin:   [10, 8, 12, 8],
+        filename: _filename(dataset, 'pdf'),
+        image:    { type: 'jpeg', quality: 0.96 },
+        html2canvas: {
+          scale: 2,
+          useCORS: true,
+          logging: false,
+          backgroundColor: '#ffffff'
+        },
+        jsPDF: {
+          unit: 'mm', format: 'a4',
+          orientation: landscape ? 'landscape' : 'portrait',
+          compress: true
+        },
+        pagebreak: { mode: ['css', 'legacy'], avoid: ['tr', '.no-break'] }
+      }).from(container).save();
+    }).then(function () {
+      if (container.parentNode) container.parentNode.removeChild(container);
       _toast('✅ ' + _t('PDF נשמר', 'บันทึก PDF', 'تم حفظ PDF'));
     }).catch(function (err) {
-      try { document.body.removeChild(container); } catch (e) {}
+      try { if (container.parentNode) container.parentNode.removeChild(container); } catch (e) {}
       console.error('PDF failed:', err);
       _toast('❌ ' + _t('יצירת PDF נכשלה', 'PDF ล้มเหลว', 'فشل PDF'));
     });
@@ -154,22 +161,22 @@ var Export = (function () {
     root.className = 'export-print-root';
     root.setAttribute('dir', 'rtl');
 
-    // Inline theme-variable RESET + inline styling to defeat Neon Forest :root vars
+    // Use position:fixed with modest offset — html2canvas reliably captures this.
+    // (position:absolute + extreme offset = blank canvas in some browsers.)
     var widthMm = opts.landscape ? 277 : 194;
     root.style.cssText = [
-      'position:absolute', 'left:-99999px', 'top:0',
+      'position:fixed',
+      'left:-9999px',
+      'top:0',
       'width:' + widthMm + 'mm',
-      'background:#ffffff !important', 'color:#111111 !important',
+      'background:#ffffff',
+      'color:#111111',
       'font-family:"Heebo","Assistant","Noto Sans Hebrew","Segoe UI",Arial,sans-serif',
-      'direction:rtl', 'text-align:right',
-      'padding:0', 'margin:0',
-      // Reset every CSS var the maintenance PDFs use:
-      '--text:#111', '--text-muted:#555', '--border:#cccccc',
-      '--surface-glass:#f5f7f5', '--primary:#1b5e20',
-      '--card:#ffffff', '--card-solid:#ffffff', '--bg:#ffffff',
-      '--g1:#1a5632', '--g2:#2d6a4f', '--g3:#1b5e20', '--g4:#2d6a4f',
-      '--g5:#e8f5e9', '--g6:#f5f7f5',
-      '--shadow:none', '--shadow-lg:none'
+      'direction:rtl',
+      'text-align:right',
+      'padding:0',
+      'margin:0',
+      'z-index:-1'
     ].join(';');
 
     // Header strip

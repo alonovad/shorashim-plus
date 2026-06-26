@@ -2283,17 +2283,22 @@
     var container = document.createElement('div');
     container.className = 'export-print-root';
     container.innerHTML = html;
-    container.style.cssText = 'position:fixed;left:-9999px;top:0;width:210mm;background:#fff;color:#111;';
+    container.style.cssText = 'position:fixed;left:-9999px;top:0;width:210mm;background:#fff;color:#111;z-index:-1;';
     document.body.appendChild(container);
     if (typeof html2pdf !== 'undefined') {
-      html2pdf().set({
-        margin: [10, 8, 12, 8],
-        filename: t('יומן ריסוסים').replace(/ /g, '_') + '_' + new Date().toISOString().split('T')[0] + '.pdf',
-        html2canvas: { scale: 2, useCORS: true, letterRendering: true, backgroundColor: '#ffffff' },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape', compress: true },
-        pagebreak: { mode: ['css', 'legacy'], avoid: ['tr'] }
-      }).from(container).save().then(function(){ document.body.removeChild(container); showToast('📄 ' + t('PDF הורד')); })
-        .catch(function(err){ try{document.body.removeChild(container);}catch(e){} console.error(err); showToast('❌ ' + t('יצירת PDF נכשלה')); });
+      var fontsReady = (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
+      fontsReady.then(function() {
+        return new Promise(function(resolve) { requestAnimationFrame(function() { resolve(); }); });
+      }).then(function() {
+        return html2pdf().set({
+          margin: [10, 8, 12, 8],
+          filename: t('יומן ריסוסים').replace(/ /g, '_') + '_' + new Date().toISOString().split('T')[0] + '.pdf',
+          html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false },
+          jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape', compress: true },
+          pagebreak: { mode: ['css', 'legacy'], avoid: ['tr'] }
+        }).from(container).save();
+      }).then(function(){ if (container.parentNode) container.parentNode.removeChild(container); showToast('📄 ' + t('PDF הורד')); })
+        .catch(function(err){ try{if (container.parentNode) container.parentNode.removeChild(container);}catch(e){} console.error(err); showToast('❌ ' + t('יצירת PDF נכשלה')); });
     } else {
       document.body.removeChild(container);
       showToast('❌ ' + t('html2pdf לא נטען'));

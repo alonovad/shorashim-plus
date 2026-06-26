@@ -677,20 +677,26 @@ var FieldReport = (function() {
       }
       var container = document.createElement('div');
       container.innerHTML = htmlContent;
-      container.style.cssText = 'position:fixed;left:-9999px;top:0;width:210mm;background:#fff;';
+      container.style.cssText = 'position:fixed;left:-9999px;top:0;width:210mm;background:#fff;z-index:-1;';
       document.body.appendChild(container);
-      html2pdf().set({
-        margin: [10, 8, 12, 8],
-        filename: 'field-report-' + r.date + '.pdf',
-        image: { type: 'jpeg', quality: 0.96 },
-        html2canvas: { scale: 2, useCORS: true, letterRendering: true, backgroundColor: '#ffffff' },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait', compress: true },
-        pagebreak: { mode: ['css', 'legacy'], avoid: ['tr', '.no-break'] }
-      }).from(container).save().then(function() {
-        document.body.removeChild(container);
+
+      var fontsReady = (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
+      fontsReady.then(function() {
+        return new Promise(function(resolve) { requestAnimationFrame(function() { resolve(); }); });
+      }).then(function() {
+        return html2pdf().set({
+          margin: [10, 8, 12, 8],
+          filename: 'field-report-' + r.date + '.pdf',
+          image: { type: 'jpeg', quality: 0.96 },
+          html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false },
+          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait', compress: true },
+          pagebreak: { mode: ['css', 'legacy'], avoid: ['tr', '.no-break'] }
+        }).from(container).save();
+      }).then(function() {
+        if (container.parentNode) container.parentNode.removeChild(container);
         if (typeof showToast === 'function') showToast('📄 ' + tt('דוח הורד', 'ดาวน์โหลดรายงานแล้ว', 'تم تنزيل التقرير'));
       }).catch(function(err) {
-        try { document.body.removeChild(container); } catch(e) {}
+        try { if (container.parentNode) container.parentNode.removeChild(container); } catch(e) {}
         console.error('PDF failed:', err);
         if (typeof showToast === 'function') showToast('❌ ' + tt('יצירת PDF נכשלה','สร้าง PDF ล้มเหลว','فشل إنشاء PDF'));
       });
