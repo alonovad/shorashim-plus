@@ -155,17 +155,7 @@ var Export = (function () {
           compress: true
         },
         pagebreak: { mode: ['css', 'legacy'], avoid: ['tr', '.no-break'] }
-      }).from(container).toCanvas().then(function (canvas) {
-        console.log('[Export PDF] canvas dims:', canvas.width, 'x', canvas.height);
-        if (canvas.width === 0 || canvas.height === 0) {
-          throw new Error('Canvas has zero dimensions — capture failed');
-        }
-        return html2pdf().set({
-          margin:   [10, 8, 12, 8],
-          filename: _filename(dataset, 'pdf'),
-          jsPDF: { unit: 'mm', format: 'a4', orientation: landscape ? 'landscape' : 'portrait', compress: true }
-        }).from(canvas).toPdf().save();
-      });
+      }).from(container).save();
     }).then(function () {
       if (container.parentNode) container.parentNode.removeChild(container);
       _toast('✅ ' + _t('PDF נשמר', 'บันทึก PDF', 'تم حفظ PDF'));

@@ -1,4 +1,4 @@
-var CACHE_NAME = 'shorashim-v3';
+var CACHE_NAME = 'shorashim-v4';
 
 // CDN libs — these never change, safe to cache-first
 var CDN_URLS = [
@@ -60,6 +60,9 @@ self.addEventListener('activate', function(event) {
 self.addEventListener('fetch', function(event) {
   if (event.request.method !== 'GET') return;
   var url = event.request.url;
+
+  // Cache API only supports http/https — skip chrome-extension://, blob:, data:, etc.
+  if (!url.startsWith('http://') && !url.startsWith('https://')) return;
 
   // Skip Firebase/API — let them pass through
   if (url.indexOf('firestore.googleapis.com') !== -1) return;
