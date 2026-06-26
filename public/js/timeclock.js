@@ -669,17 +669,31 @@ var TimeClock = (function() {
 
   function showExportMenu() {
     var modal = document.getElementById('modalContainer');
+    var hasExport = (typeof Export !== 'undefined');
+    var formatRow = function(type, label, color) {
+      if (!hasExport) {
+        return '<button onclick="TimeClock._exportCSV(\'' + type + '\')" style="padding:12px;border-radius:10px;border:none;background:' + color + ';font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">' + label + ' (CSV)</button>';
+      }
+      return '<div style="display:flex;gap:4px;align-items:stretch;">' +
+        '<button onclick="TimeClock._exportMenu(\'' + type + '\', event)" style="flex:1;padding:12px;border-radius:10px;border:none;background:' + color + ';font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">' + label + '</button>' +
+        '<button title="' + tt('PDF','PDF','PDF') + '" onclick="TimeClock._export(\'' + type + '\',\'pdf\')" style="padding:12px 10px;border-radius:10px;border:none;background:' + color + ';font-family:inherit;cursor:pointer;">📄</button>' +
+        '<button title="Excel" onclick="TimeClock._export(\'' + type + '\',\'xlsx\')" style="padding:12px 10px;border-radius:10px;border:none;background:' + color + ';font-family:inherit;cursor:pointer;">📈</button>' +
+        '<button title="CSV" onclick="TimeClock._export(\'' + type + '\',\'csv\')" style="padding:12px 10px;border-radius:10px;border:none;background:' + color + ';font-family:inherit;cursor:pointer;">📊</button>' +
+        '<button title="JSON" onclick="TimeClock._export(\'' + type + '\',\'json\')" style="padding:12px 10px;border-radius:10px;border:none;background:' + color + ';font-family:inherit;cursor:pointer;">🔧</button>' +
+        '</div>';
+    };
     modal.innerHTML = '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;">' +
-      '<div style="background:white;border-radius:16px;padding:20px;width:90%;max-width:400px;max-height:85vh;overflow-y:auto;">' +
-        '<h3 style="font-weight:700;margin-bottom:12px;">📥 ' + tt('ייצוא נתונים', 'ส่งออกข้อมูล', 'تصدير البيانات') + '</h3>' +
+      '<div style="background:white;border-radius:16px;padding:20px;width:90%;max-width:480px;max-height:85vh;overflow-y:auto;">' +
+        '<h3 style="font-weight:700;margin-bottom:12px;color:#222;">📥 ' + tt('ייצוא נתונים', 'ส่งออกข้อมูล', 'تصدير البيانات') + '</h3>' +
+        (hasExport ? '<div style="font-size:0.78rem;color:#666;margin-bottom:10px;text-align:right;">' + tt('בחר פורמט: 📄PDF · 📈Excel · 📊CSV · 🔧JSON','เลือกรูปแบบ','اختر التنسيق') + '</div>' : '') +
         '<div style="display:grid;gap:8px;">' +
-          '<button onclick="TimeClock._exportCSV(\'timeclock\')" style="padding:12px;border-radius:10px;border:none;background:#e8f5e9;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">' + tt('🕐 שעות עבודה (CSV)', '🕐 ชั่วโมงทำงาน (CSV)', '🕐 ساعات العمل (CSV)') + '</button>' +
-          '<button onclick="TimeClock._exportCSV(\'spray\')" style="padding:12px;border-radius:10px;border:none;background:#e3f2fd;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">' + tt('💧 יומן ריסוס (CSV)', '💧 บันทึกพ่นยา (CSV)', '💧 سجل الرش (CSV)') + '</button>' +
-          '<button onclick="TimeClock._exportCSV(\'worklog\')" style="padding:12px;border-radius:10px;border:none;background:#fff3e0;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">' + tt('📝 יומן עבודה (CSV)', '📝 บันทึกงาน (CSV)', '📝 سجل العمل (CSV)') + '</button>' +
-          '<button onclick="TimeClock._exportCSV(\'tasks\')" style="padding:12px;border-radius:10px;border:none;background:#f3e5f5;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">' + tt('📋 משימות (CSV)', '📋 งาน (CSV)', '📋 المهام (CSV)') + '</button>' +
+          formatRow('timeclock', '🕐 ' + tt('שעות עבודה', 'ชั่วโมงทำงาน', 'ساعات العمل'), '#e8f5e9') +
+          formatRow('spray',     '💧 ' + tt('יומן ריסוס', 'บันทึกพ่นยา', 'سجل الرش'), '#e3f2fd') +
+          formatRow('worklog',   '📝 ' + tt('יומן עבודה', 'บันทึกงาน', 'سجل العمل'), '#fff3e0') +
+          formatRow('tasks',     '📋 ' + tt('משימות', 'งาน', 'المهام'), '#f3e5f5') +
         '</div>' +
         '<div style="margin-top:16px;padding-top:16px;border-top:2px solid #eee;">' +
-          '<h4 style="font-weight:700;font-size:0.9rem;margin-bottom:8px;">💾 ' + tt('גיבוי ושחזור', 'สำรองและกู้คืน', 'نسخ احتياطي واستعادة') + '</h4>' +
+          '<h4 style="font-weight:700;font-size:0.9rem;margin-bottom:8px;color:#222;">💾 ' + tt('גיבוי ושחזור', 'สำรองและกู้คืน', 'نسخ احتياطي واستعادة') + '</h4>' +
           '<div style="display:grid;gap:8px;">' +
             '<button onclick="TimeClock._backupAll()" style="padding:12px;border-radius:10px;border:none;background:#1565c0;color:white;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">' + tt('⬇️ הורד גיבוי מלא (JSON)', '⬇️ ดาวน์โหลดสำรองทั้งหมด (JSON)', '⬇️ تنزيل نسخة كاملة (JSON)') + '</button>' +
             '<label style="padding:12px;border-radius:10px;border:2px dashed #999;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;display:block;color:#666;">' + tt('⬆️ שחזר מגיבוי', '⬆️ กู้คืนจากสำรอง', '⬆️ استعادة من نسخة') + '<input type="file" accept=".json" onchange="TimeClock._restoreBackup(this.files[0])" style="display:none;"></label>' +
@@ -687,6 +701,60 @@ var TimeClock = (function() {
         '</div>' +
         '<button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'" style="margin-top:12px;width:100%;padding:10px;border-radius:10px;border:none;background:#eee;font-family:inherit;cursor:pointer;">' + tt('סגור', 'ปิด', 'إغلاق') + '</button>' +
       '</div></div>';
+  }
+
+  // Universal export — fetches data + delegates to Export module in chosen format
+  function _export(type, format) {
+    if (typeof Export === 'undefined') { _exportCSV(type); return; }
+    _gatherDataset(type).then(function(dataset) {
+      if (!dataset || !dataset.rows.length) {
+        if (typeof showToast === 'function') showToast('📭 ' + tt('אין נתונים לייצוא','ไม่มีข้อมูล','لا توجد بيانات'));
+        return;
+      }
+      if (format === 'pdf')  Export.exportPDF(dataset);
+      else if (format === 'xlsx') Export.exportXLSX(dataset);
+      else if (format === 'json') Export.exportJSON(dataset);
+      else                        Export.exportCSV(dataset);
+    });
+  }
+
+  // Show 4-format popup menu anchored to clicked button
+  function _exportMenu(type, event) {
+    if (typeof Export === 'undefined') { _exportCSV(type); return; }
+    _gatherDataset(type).then(function(dataset) {
+      if (!dataset || !dataset.rows.length) {
+        if (typeof showToast === 'function') showToast('📭 ' + tt('אין נתונים לייצוא','ไม่มีข้อมูล','لا توجد بيانات'));
+        return;
+      }
+      Export.showMenu(dataset, event);
+    });
+  }
+
+  // Gather data + run through correct adapter based on type
+  function _gatherDataset(type) {
+    if (type === 'timeclock') {
+      if (typeof db === 'undefined') return Promise.resolve(null);
+      return db.collection('timeclock').orderBy('punchIn', 'desc').limit(500).get().then(function(snap) {
+        var records = [];
+        snap.forEach(function(doc) { records.push(doc.data()); });
+        return Export.adapters.timeclock(records, {
+          generatedBy: (typeof currentUser !== 'undefined' && currentUser ? currentUser.name : '') || ''
+        });
+      });
+    }
+    if (type === 'spray') {
+      var data = JSON.parse(localStorage.getItem('plotMapperSprayData') || '{}');
+      return Promise.resolve(Export.adapters.sprayFlat(data.sprayEvents || []));
+    }
+    if (type === 'worklog') {
+      var data2 = JSON.parse(localStorage.getItem('plotMapperSprayData') || '{}');
+      return Promise.resolve(Export.adapters.worklog(data2.worklogEntries || []));
+    }
+    if (type === 'tasks') {
+      var tasks = JSON.parse(localStorage.getItem('shorashim-tasks') || '[]');
+      return Promise.resolve(Export.adapters.tasks(tasks));
+    }
+    return Promise.resolve(null);
   }
 
   function _exportCSV(type) {
@@ -948,6 +1016,8 @@ var TimeClock = (function() {
     _saveProfile: _saveProfile,
     _changePassword: _changePassword,
     _exportCSV: _exportCSV,
+    _export: _export,
+    _exportMenu: _exportMenu,
     _backupAll: _backupAll,
     _restoreBackup: _restoreBackup,
     _addCrop: _addCrop,

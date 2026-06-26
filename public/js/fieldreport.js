@@ -654,44 +654,78 @@ var FieldReport = (function() {
       if (!r) return;
       var sev = SEVERITY_LEVELS[r.severity] || SEVERITY_LEVELS[0];
       var dir = tt('rtl','ltr','rtl');
-      var htmlContent = '<!DOCTYPE html><html dir="' + dir + '"><head><meta charset="utf-8"><title>' + tt('דוח סיור','รายงานตรวจ','تقرير فحص') + ' - ' + r.date + '</title>' +
-        '<style>' +
-        '@page { margin: 20mm 15mm; }' +
-        'body { font-family: -apple-system, "Segoe UI", Arial, sans-serif; padding: 0; margin: 0; color: #2b2520; direction: ' + dir + '; line-height: 1.5; }' +
-        '.header { background: linear-gradient(135deg, #1a5632, #2d6a4f, #40916c); color: white; padding: 28px 32px 20px; border-radius: 0 0 20px 20px; margin-bottom: 24px; }' +
-        '.header h1 { font-size: 1.5rem; font-weight: 800; margin: 0 0 4px; letter-spacing: -0.02em; }' +
-        '.header .meta { font-size: 0.85rem; opacity: 0.85; display: flex; gap: 16px; margin-top: 8px; }' +
-        '.content { padding: 0 28px; }' +
-        '.field { display: flex; margin-bottom: 10px; border-radius: 10px; overflow: hidden; box-shadow: 0 1px 4px rgba(43,37,32,0.06); }' +
-        '.field-label { background: #f5f0eb; padding: 10px 16px; font-weight: 700; font-size: 0.82rem; color: #8a8078; min-width: 110px; display: flex; align-items: center; }' +
-        '.field-value { background: white; padding: 10px 16px; flex: 1; font-size: 0.88rem; }' +
-        '.severity-badge { display: inline-block; padding: 6px 16px; border-radius: 50px; color: white; font-weight: 700; font-size: 0.88rem; background: ' + sev.color + '; box-shadow: 0 2px 8px ' + sev.color + '44; }' +
-        '.section-title { font-size: 0.75rem; font-weight: 700; color: #2d6a4f; text-transform: uppercase; letter-spacing: 0.05em; margin: 20px 0 8px; padding-bottom: 4px; border-bottom: 2px solid #d8f3dc; }' +
-        '.footer { text-align: center; padding: 24px; margin-top: 28px; font-size: 0.78rem; color: #8a8078; border-top: 1px solid #f0ebe6; }' +
-        '.footer .brand { color: #2d6a4f; font-weight: 700; }' +
-        '</style></head><body>' +
-        '<div class="header">' +
-          '<h1>🔬 ' + tt('דוח סיור שדה', 'รายงานตรวจสนาม', 'تقرير فحص ميداني') + '</h1>' +
-          '<div class="meta"><span>📅 ' + r.date + ' ' + (r.time || '') + '</span><span>👤 ' + (r.inspector || '') + '</span><span>📍 ' + (r.plotName || '') + (r.cropType ? ' · ' + r.cropType : '') + '</span></div>' +
+      var htmlContent = '<div class="export-print-root" dir="' + dir + '" style="font-family:-apple-system,\'Segoe UI\',Arial,sans-serif;padding:0;margin:0;color:#111;background:#fff;direction:' + dir + ';line-height:1.5;width:194mm;">' +
+        '<div class="no-break" style="background:linear-gradient(135deg,#1a5632,#2d6a4f,#40916c);color:#fff;padding:24px 28px 16px;border-radius:0 0 16px 16px;margin-bottom:18px;">' +
+          '<h1 style="font-size:1.5rem;font-weight:800;margin:0 0 4px;color:#fff;">🔬 ' + tt('דוח סיור שדה','รายงานตรวจสนาม','تقرير فحص ميداني') + '</h1>' +
+          '<div style="font-size:0.85rem;opacity:0.9;margin-top:8px;color:#fff;">📅 ' + r.date + ' ' + (r.time || '') + ' &nbsp; · &nbsp; 👤 ' + (r.inspector || '') + ' &nbsp; · &nbsp; 📍 ' + (r.plotName || '') + (r.cropType ? ' (' + r.cropType + ')' : '') + '</div>' +
         '</div>' +
-        '<div class="content">' +
-          '<div class="section-title">' + tt('ממצאים','ผลตรวจ','النتائج') + '</div>' +
-          (r.pest ? '<div class="field"><div class="field-label">🐛 ' + tt('מזיק','ศัตรูพืช','آفة') + '</div><div class="field-value">' + r.pest + '</div></div>' : '') +
-          (r.disease ? '<div class="field"><div class="field-label">🦠 ' + tt('מחלה','โรค','مرض') + '</div><div class="field-value">' + r.disease + '</div></div>' : '') +
-          '<div class="field"><div class="field-label">' + tt('חומרה','ความรุนแรง','شدة') + '</div><div class="field-value"><span class="severity-badge">' + sev.icon + ' ' + tt(sev.label, sev.labelTh, sev.labelAr) + '</span>' + (r.infectionPercent ? ' &nbsp; ' + r.infectionPercent + '%' : '') + (r.affectedTrees ? ' &nbsp; ' + r.affectedTrees + ' ' + tt('עצים','ต้น','أشجار') : '') + '</div></div>' +
-          (r.locations ? '<div class="field"><div class="field-label">📌 ' + tt('מיקום','ตำแหน่ง','موقع') + '</div><div class="field-value">' + translateLocs(r.locations) + '</div></div>' : '') +
-          (r.recommendation ? '<div class="section-title">' + tt('המלצות','คำแนะนำ','توصيات') + '</div><div class="field"><div class="field-label">💊</div><div class="field-value">' + r.recommendation + '</div></div>' : '') +
-          (r.notes ? '<div class="section-title">' + tt('הערות','หมายเหตุ','ملاحظات') + '</div><div class="field"><div class="field-label">📝</div><div class="field-value">' + r.notes + '</div></div>' : '') +
+        '<div style="padding:0 24px;color:#111;background:#fff;">' +
+          '<div style="font-size:0.78rem;font-weight:700;color:#2d6a4f;text-transform:uppercase;letter-spacing:0.05em;margin:18px 0 8px;padding-bottom:4px;border-bottom:2px solid #d8f3dc;">' + tt('ממצאים','ผลตรวจ','النتائج') + '</div>' +
+          (r.pest ? '<div class="no-break" style="display:flex;margin-bottom:8px;border-radius:8px;overflow:hidden;border:1px solid #e0e0e0;"><div style="background:#f5f0eb;padding:8px 14px;font-weight:700;font-size:0.82rem;color:#555;min-width:110px;">🐛 ' + tt('מזיק','ศัตรูพืช','آفة') + '</div><div style="background:#fff;padding:8px 14px;flex:1;color:#111;">' + r.pest + '</div></div>' : '') +
+          (r.disease ? '<div class="no-break" style="display:flex;margin-bottom:8px;border-radius:8px;overflow:hidden;border:1px solid #e0e0e0;"><div style="background:#f5f0eb;padding:8px 14px;font-weight:700;font-size:0.82rem;color:#555;min-width:110px;">🦠 ' + tt('מחלה','โรค','مرض') + '</div><div style="background:#fff;padding:8px 14px;flex:1;color:#111;">' + r.disease + '</div></div>' : '') +
+          '<div class="no-break" style="display:flex;margin-bottom:8px;border-radius:8px;overflow:hidden;border:1px solid #e0e0e0;"><div style="background:#f5f0eb;padding:8px 14px;font-weight:700;font-size:0.82rem;color:#555;min-width:110px;">' + tt('חומרה','ความรุนแรง','شدة') + '</div><div style="background:#fff;padding:8px 14px;flex:1;color:#111;"><span style="display:inline-block;padding:5px 14px;border-radius:50px;color:#fff;font-weight:700;font-size:0.85rem;background:' + sev.color + ';">' + sev.icon + ' ' + tt(sev.label, sev.labelTh, sev.labelAr) + '</span>' + (r.infectionPercent ? ' &nbsp; ' + r.infectionPercent + '%' : '') + (r.affectedTrees ? ' &nbsp; ' + r.affectedTrees + ' ' + tt('עצים','ต้น','أشجار') : '') + '</div></div>' +
+          (r.locations ? '<div class="no-break" style="display:flex;margin-bottom:8px;border-radius:8px;overflow:hidden;border:1px solid #e0e0e0;"><div style="background:#f5f0eb;padding:8px 14px;font-weight:700;font-size:0.82rem;color:#555;min-width:110px;">📌 ' + tt('מיקום','ตำแหน่ง','موقع') + '</div><div style="background:#fff;padding:8px 14px;flex:1;color:#111;">' + translateLocs(r.locations) + '</div></div>' : '') +
+          (r.recommendation ? '<div style="font-size:0.78rem;font-weight:700;color:#2d6a4f;text-transform:uppercase;letter-spacing:0.05em;margin:18px 0 8px;padding-bottom:4px;border-bottom:2px solid #d8f3dc;">' + tt('המלצות','คำแนะนำ','توصيات') + '</div><div class="no-break" style="display:flex;border-radius:8px;overflow:hidden;border:1px solid #e0e0e0;"><div style="background:#f5f0eb;padding:8px 14px;min-width:50px;">💊</div><div style="background:#fff;padding:8px 14px;flex:1;color:#111;">' + r.recommendation + '</div></div>' : '') +
+          (r.notes ? '<div style="font-size:0.78rem;font-weight:700;color:#2d6a4f;text-transform:uppercase;letter-spacing:0.05em;margin:18px 0 8px;padding-bottom:4px;border-bottom:2px solid #d8f3dc;">' + tt('הערות','หมายเหตุ','ملاحظات') + '</div><div class="no-break" style="display:flex;border-radius:8px;overflow:hidden;border:1px solid #e0e0e0;"><div style="background:#f5f0eb;padding:8px 14px;min-width:50px;">📝</div><div style="background:#fff;padding:8px 14px;flex:1;color:#111;">' + r.notes + '</div></div>' : '') +
         '</div>' +
-        '<div class="footer"><span class="brand">🌿 ' + tt('שורשים פלוס', 'Shorashim Plus', 'شوراشيم بلس') + '</span> · ' + tt('דוח סיור שדה','รายงานตรวจสนาม','تقرير فحص ميداني') + ' · ' + tt('נוצר','สร้างเมื่อ','أُنشئ') + ' ' + new Date().toLocaleDateString(tt('he-IL','th-TH','ar-SA')) + '</div>' +
-        '</body></html>';
-      var blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
-      var a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = 'field-report-' + r.date + '.html';
-      a.click();
-      URL.revokeObjectURL(a.href);
-      if (typeof showToast === 'function') showToast('📄 ' + tt('דוח הורד', 'ดาวน์โหลดรายงานแล้ว', 'تم تنزيل التقرير'));
+        '<div style="text-align:center;padding:20px;margin-top:24px;font-size:0.78rem;color:#888;border-top:1px solid #e0e0e0;background:#fff;"><span style="color:#2d6a4f;font-weight:700;">🌿 ' + tt('שורשים פלוס', 'Shorashim Plus', 'شوراشيم بلس') + '</span> · ' + tt('דוח סיור שדה','รายงานตรวจสนาม','تقرير فحص ميداني') + ' · ' + new Date().toLocaleDateString(tt('he-IL','th-TH','ar-SA')) + '</div>' +
+        '</div>';
+
+      if (typeof html2pdf === 'undefined') {
+        if (typeof showToast === 'function') showToast('❌ html2pdf לא נטען');
+        return;
+      }
+      var container = document.createElement('div');
+      container.innerHTML = htmlContent;
+      container.style.cssText = 'position:fixed;left:-9999px;top:0;width:210mm;background:#fff;';
+      document.body.appendChild(container);
+      html2pdf().set({
+        margin: [10, 8, 12, 8],
+        filename: 'field-report-' + r.date + '.pdf',
+        image: { type: 'jpeg', quality: 0.96 },
+        html2canvas: { scale: 2, useCORS: true, letterRendering: true, backgroundColor: '#ffffff' },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait', compress: true },
+        pagebreak: { mode: ['css', 'legacy'], avoid: ['tr', '.no-break'] }
+      }).from(container).save().then(function() {
+        document.body.removeChild(container);
+        if (typeof showToast === 'function') showToast('📄 ' + tt('דוח הורד', 'ดาวน์โหลดรายงานแล้ว', 'تم تنزيل التقرير'));
+      }).catch(function(err) {
+        try { document.body.removeChild(container); } catch(e) {}
+        console.error('PDF failed:', err);
+        if (typeof showToast === 'function') showToast('❌ ' + tt('יצירת PDF נכשלה','สร้าง PDF ล้มเหลว','فشل إنشاء PDF'));
+      });
+    });
+  }
+
+  // Show 4-format export menu for a single report (PDF/Excel/CSV/JSON)
+  function _exportReportMenu(reportId, event) {
+    if (typeof Export === 'undefined') { _exportPDF(reportId); return; }
+    loadReports().then(function(reports) {
+      var r = reports.find(function(rep) { return rep.id === reportId; });
+      if (!r) return;
+      var sev = SEVERITY_LEVELS[r.severity] || SEVERITY_LEVELS[0];
+      var enriched = Object.assign({}, r, {
+        severityLabel: tt(sev.label, sev.labelTh, sev.labelAr),
+        locationsText: r.locations ? translateLocs(r.locations) : ''
+      });
+      Export.showMenu(Export.adapters.fieldReportDetail(enriched), event);
+    });
+  }
+
+  // Show 4-format export menu for ALL reports as a table
+  function _exportAllMenu(event) {
+    if (typeof Export === 'undefined') return;
+    loadReports().then(function(reports) {
+      var enriched = reports.map(function(r) {
+        var sev = SEVERITY_LEVELS[r.severity] || SEVERITY_LEVELS[0];
+        return Object.assign({}, r, {
+          severity: tt(sev.label, sev.labelTh, sev.labelAr),
+          locations: r.locations ? translateLocs(r.locations) : ''
+        });
+      });
+      Export.showMenu(Export.adapters.fieldReports(enriched, {
+        generatedBy: (typeof currentUser !== 'undefined' && currentUser ? currentUser.name : '') || ''
+      }), event);
     });
   }
 
@@ -744,6 +778,8 @@ var FieldReport = (function() {
     _handlePhotos: _handlePhotos,
     _saveReport: _saveReport,
     _exportPDF: _exportPDF,
+    _exportReportMenu: _exportReportMenu,
+    _exportAllMenu: _exportAllMenu,
     _shareReport: _shareReport,
     _deleteReport: _deleteReport,
     _addItem: _addItem,

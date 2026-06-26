@@ -2266,21 +2266,38 @@
     return d.toLocaleDateString('he-IL', { year: 'numeric', month: 'long', day: 'numeric' });
   }
 
-  document.getElementById('exportPdfBtn').addEventListener('click', function() {
+  document.getElementById('exportPdfBtn').addEventListener('click', function(event) {
     if (sprayEvents.length === 0) {
       showToast('❌ ' + t('אין יומני ריסוס לייצוא'));
       return;
     }
-
+    // 4-format export menu (PDF / Excel / CSV / JSON) using the universal exporter
+    if (typeof Export !== 'undefined') {
+      Export.showMenu(Export.adapters.spray(sprayEvents, plots, {
+        generatedBy: (typeof currentUser !== 'undefined' && currentUser ? currentUser.name : '') || ''
+      }), event);
+      return;
+    }
+    // Fallback (legacy): actual PDF via html2pdf if Export missing
     var html = generatePdfHtml();
-    var blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-    var url = URL.createObjectURL(blob);
-    var a = document.createElement('a');
-    a.href = url;
-    a.download = t('יומן ריסוסים').replace(/ /g, '_') + '_' + new Date().toISOString().split('T')[0] + '.html';
-    a.click();
-    URL.revokeObjectURL(url);
-    showToast('📄 ' + t('קובץ HTML הורד'));
+    var container = document.createElement('div');
+    container.className = 'export-print-root';
+    container.innerHTML = html;
+    container.style.cssText = 'position:fixed;left:-9999px;top:0;width:210mm;background:#fff;color:#111;';
+    document.body.appendChild(container);
+    if (typeof html2pdf !== 'undefined') {
+      html2pdf().set({
+        margin: [10, 8, 12, 8],
+        filename: t('יומן ריסוסים').replace(/ /g, '_') + '_' + new Date().toISOString().split('T')[0] + '.pdf',
+        html2canvas: { scale: 2, useCORS: true, letterRendering: true, backgroundColor: '#ffffff' },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape', compress: true },
+        pagebreak: { mode: ['css', 'legacy'], avoid: ['tr'] }
+      }).from(container).save().then(function(){ document.body.removeChild(container); showToast('📄 ' + t('PDF הורד')); })
+        .catch(function(err){ try{document.body.removeChild(container);}catch(e){} console.error(err); showToast('❌ ' + t('יצירת PDF נכשלה')); });
+    } else {
+      document.body.removeChild(container);
+      showToast('❌ ' + t('html2pdf לא נטען'));
+    }
   });
 
   function generatePdfHtml() {

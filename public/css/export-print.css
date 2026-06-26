@@ -1,0 +1,109 @@
+/* ============================================================================
+ * Shorashim Plus — Export / Print Isolation Stylesheet
+ * ----------------------------------------------------------------------------
+ * Loaded AFTER theme-neon.css so it wins on specificity. Resets every theme
+ * variable on the export container so html2canvas captures clean black-on-white
+ * instead of the dark Neon Forest values.
+ * ========================================================================== */
+
+/* Reset Neon Forest theme variables on the print container ------------------ */
+.export-print-root,
+.export-print-root * {
+  /* Theme tokens reset */
+  --text: #111 !important;
+  --text-muted: #555 !important;
+  --bg: #ffffff !important;
+  --card: #ffffff !important;
+  --card-solid: #ffffff !important;
+  --border: #cccccc !important;
+  --border-light: #e0e0e0 !important;
+  --surface-glass: #f5f7f5 !important;
+  --surface-input: #ffffff !important;
+  --primary: #1b5e20 !important;
+  --primary-dim: #2e7d32 !important;
+  --primary-faded: #e8f5e9 !important;
+  --primary-glow: transparent !important;
+  --primary-glow-sm: transparent !important;
+  --g1: #1a5632 !important;
+  --g2: #2d6a4f !important;
+  --g3: #1b5e20 !important;
+  --g4: #2d6a4f !important;
+  --g5: #e8f5e9 !important;
+  --g6: #f5f7f5 !important;
+  --dark: #ffffff !important;
+  --shadow: none !important;
+  --shadow-lg: none !important;
+  --gradient-deep: none !important;
+  --gradient-header: linear-gradient(135deg, #1a5632, #2d6a4f, #40916c) !important;
+
+  /* Neutralize effects */
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  filter: none !important;
+  animation: none !important;
+  transition: none !important;
+}
+
+.export-print-root {
+  color-scheme: light !important;
+  background: #ffffff !important;
+  color: #111111 !important;
+  font-family: "Heebo", "Assistant", "Noto Sans Hebrew", "Segoe UI", Arial, sans-serif !important;
+}
+
+.export-print-root table {
+  border-collapse: collapse !important;
+}
+
+.export-print-root thead {
+  display: table-header-group; /* repeat header on every PDF page */
+}
+
+.export-print-root tr,
+.export-print-root .no-break {
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+
+/* ── Browser-native print (Ctrl+P fallback) ─────────────────────────────── */
+@media print {
+  /* Strip all Neon Forest effects for native browser printing */
+  *, *::before, *::after {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+    filter: none !important;
+    animation: none !important;
+    transition: none !important;
+  }
+  body {
+    background: #fff !important;
+    color: #111 !important;
+  }
+  @page {
+    size: A4;
+    margin: 12mm 10mm;
+  }
+}
+
+/* ── Optional helper button class for new export buttons ────────────────── */
+.btn-export {
+  background: linear-gradient(135deg, rgba(57,255,20,0.15), rgba(57,255,20,0.05)) !important;
+  border: 1px solid rgba(57,255,20,0.4) !important;
+  color: #e8ffe8 !important;
+  padding: 8px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s;
+}
+.btn-export:hover {
+  background: linear-gradient(135deg, rgba(57,255,20,0.3), rgba(57,255,20,0.15)) !important;
+  box-shadow: 0 0 16px rgba(57,255,20,0.3) !important;
+}

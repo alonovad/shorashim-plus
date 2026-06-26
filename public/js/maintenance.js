@@ -997,15 +997,16 @@ var Maintenance = (function() {
 
   function _downloadPDF(html, filename) {
     var container = document.createElement('div');
+    container.className = 'export-print-root';
     container.innerHTML = html;
-    container.style.cssText = 'position:fixed;left:-9999px;top:0;width:210mm;';
+    container.style.cssText = 'position:fixed;left:-9999px;top:0;width:210mm;background:#ffffff;color:#111;';
     document.body.appendChild(container);
     html2pdf().set({
       margin: [10, 10, 14, 10],
       filename: filename.replace(/\.html$/, '.pdf'),
-      html2canvas: { scale: 2, useCORS: true, letterRendering: true },
-      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-      pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+      html2canvas: { scale: 2, useCORS: true, letterRendering: true, backgroundColor: '#ffffff' },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait', compress: true },
+      pagebreak: { mode: ['css', 'legacy'], avoid: ['tr', '.no-break', '.summary'] }
     }).from(container).save().then(function() {
       document.body.removeChild(container);
     }).catch(function(err) {
