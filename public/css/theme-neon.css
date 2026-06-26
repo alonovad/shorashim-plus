@@ -866,3 +866,59 @@ select option {
   }
   .bg-orb, .botanical, .sparkle-layer, .falling-leaves-layer { display: none !important; }
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   THEME FIXES — Catch remaining inline-style colors
+   Added: maintenance module CSS-var support + safety-net selectors
+   ═══════════════════════════════════════════════════════════════ */
+
+/* New CSS vars for modules using var(--name, fallback) pattern */
+:root {
+  --surface-1: rgba(15,25,18,0.95);  /* modal card background */
+  --surface-2: rgba(255,255,255,0.05); /* content cards */
+  --surface-3: rgba(255,255,255,0.04); /* cancel buttons, subtle bg */
+  --text-primary: #e8ffe8;
+  --text-secondary: rgba(255,255,255,0.55);
+}
+
+/* Safety-net selectors for uncaught inline colors */
+[style*="background:#f5f7f5"], [style*="background: #f5f7f5"] {
+  background: rgba(255,255,255,0.05) !important;
+  color: var(--text) !important;
+}
+[style*="background:#f9f9f9"], [style*="background: #f9f9f9"] {
+  background: rgba(255,255,255,0.04) !important;
+  color: var(--text) !important;
+}
+[style*="background:#efebe9"], [style*="background: #efebe9"] {
+  background: rgba(255,255,255,0.04) !important;
+  color: var(--text) !important;
+}
+[style*="background:#e8eaf6"], [style*="background: #e8eaf6"] {
+  background: rgba(79,195,247,0.08) !important;
+  color: var(--text) !important;
+}
+[style*="color:#222"], [style*="color: #222"] {
+  color: var(--text) !important;
+}
+[style*="color:#555"], [style*="color: #555"] {
+  color: var(--text-muted) !important;
+}
+[style*="color:#bbb"], [style*="color: #bbb"] {
+  color: var(--text-muted) !important;
+}
+
+/* #modalContainer: catch #f5f7f5 and #efebe9 specifically */
+#modalContainer [style*="background:#f5f7f5"],
+#modalContainer [style*="background: #f5f7f5"] {
+  background: rgba(255,255,255,0.05) !important;
+  color: var(--text) !important;
+}
+#modalContainer [style*="color:#222"],
+#modalContainer [style*="color: #222"] {
+  color: var(--text) !important;
+}
+#modalContainer [style*="color:#555"],
+#modalContainer [style*="color: #555"] {
+  color: var(--text-muted) !important;
+}
