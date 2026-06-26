@@ -129,6 +129,16 @@ var Export = (function () {
     return fontsReady.then(function () {
       return new Promise(function (resolve) { requestAnimationFrame(function () { resolve(); }); });
     }).then(function () {
+      // Diagnostic: log what html2canvas will actually see
+      var rect = container.getBoundingClientRect();
+      console.log('[Export PDF] container dims:', {
+        offsetW: container.offsetWidth, offsetH: container.offsetHeight,
+        scrollW: container.scrollWidth, scrollH: container.scrollHeight,
+        clientRect: { w: rect.width, h: rect.height, top: rect.top, left: rect.left }
+      });
+      if (container.offsetHeight === 0) {
+        console.warn('[Export PDF] container has zero height — PDF will be blank');
+      }
       return html2pdf().set({
         margin:   [10, 8, 12, 8],
         filename: _filename(dataset, 'pdf'),
@@ -145,14 +155,24 @@ var Export = (function () {
           compress: true
         },
         pagebreak: { mode: ['css', 'legacy'], avoid: ['tr', '.no-break'] }
-      }).from(container).save();
+      }).from(container).toCanvas().then(function (canvas) {
+        console.log('[Export PDF] canvas dims:', canvas.width, 'x', canvas.height);
+        if (canvas.width === 0 || canvas.height === 0) {
+          throw new Error('Canvas has zero dimensions — capture failed');
+        }
+        return html2pdf().set({
+          margin:   [10, 8, 12, 8],
+          filename: _filename(dataset, 'pdf'),
+          jsPDF: { unit: 'mm', format: 'a4', orientation: landscape ? 'landscape' : 'portrait', compress: true }
+        }).from(canvas).toPdf().save();
+      });
     }).then(function () {
       if (container.parentNode) container.parentNode.removeChild(container);
       _toast('✅ ' + _t('PDF נשמר', 'บันทึก PDF', 'تم حفظ PDF'));
     }).catch(function (err) {
       try { if (container.parentNode) container.parentNode.removeChild(container); } catch (e) {}
-      console.error('PDF failed:', err);
-      _toast('❌ ' + _t('יצירת PDF נכשלה', 'PDF ล้มเหลว', 'فشل PDF'));
+      console.error('[Export PDF] failed:', err);
+      _toast('❌ ' + _t('יצירת PDF נכשלה — ראה console', 'PDF ล้มเหลว', 'فشل PDF'));
     });
   }
 
@@ -161,22 +181,26 @@ var Export = (function () {
     root.className = 'export-print-root';
     root.setAttribute('dir', 'rtl');
 
-    // Use position:fixed with modest offset — html2canvas reliably captures this.
-    // (position:absolute + extreme offset = blank canvas in some browsers.)
+    // CRITICAL: html2canvas in newer versions skips elements positioned outside
+    // the viewport. We must keep the container IN the viewport but invisible
+    // (opacity:0 + z-index:-1 + pointer-events:none). The offscreen-via-left:-9999
+    // trick stopped working in html2canvas 1.4+.
     var widthMm = opts.landscape ? 277 : 194;
     root.style.cssText = [
       'position:fixed',
-      'left:-9999px',
       'top:0',
+      'left:0',
       'width:' + widthMm + 'mm',
+      'opacity:0',
+      'pointer-events:none',
+      'z-index:-1',
       'background:#ffffff',
       'color:#111111',
       'font-family:"Heebo","Assistant","Noto Sans Hebrew","Segoe UI",Arial,sans-serif',
       'direction:rtl',
       'text-align:right',
       'padding:0',
-      'margin:0',
-      'z-index:-1'
+      'margin:0'
     ].join(';');
 
     // Header strip

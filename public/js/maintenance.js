@@ -1004,7 +1004,7 @@ var Maintenance = (function() {
     var container = document.createElement('div');
     container.className = 'export-print-root';
     container.innerHTML = html;
-    container.style.cssText = 'position:fixed;left:-9999px;top:0;width:210mm;background:#ffffff;color:#111;z-index:-1;';
+    container.style.cssText = 'position:fixed;top:0;left:0;width:210mm;opacity:0;pointer-events:none;z-index:-1;background:#ffffff;color:#111;';
     document.body.appendChild(container);
 
     // Wait for fonts + a render frame BEFORE capture — blank PDFs come from

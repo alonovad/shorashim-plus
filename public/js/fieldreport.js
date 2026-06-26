@@ -677,7 +677,7 @@ var FieldReport = (function() {
       }
       var container = document.createElement('div');
       container.innerHTML = htmlContent;
-      container.style.cssText = 'position:fixed;left:-9999px;top:0;width:210mm;background:#fff;z-index:-1;';
+      container.style.cssText = 'position:fixed;top:0;left:0;width:210mm;opacity:0;pointer-events:none;z-index:-1;background:#fff;';
       document.body.appendChild(container);
 
       var fontsReady = (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
