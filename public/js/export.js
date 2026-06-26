@@ -119,28 +119,41 @@ var Export = (function () {
     }
 
     var landscape = opts.landscape != null ? opts.landscape : dataset.columns.length > 6;
-    var containerId = 'export-print-' + Date.now() + '-' + Math.floor(Math.random() * 10000);
     var container = _buildPrintContainer(dataset, { landscape: landscape });
-    container.id = containerId;
     document.body.appendChild(container);
 
-    _toast('📄 ' + _t('יוצר PDF…', 'กำลังสร้าง PDF…', 'إنشاء PDF…'));
+    // Loading overlay — covers the container so user only sees a "generating" state
+    var overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.8);' +
+      'z-index:2147483646;display:flex;align-items:center;justify-content:center;' +
+      'backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);' +
+      'font-family:"Heebo","Assistant",sans-serif;';
+    overlay.innerHTML =
+      '<div style="background:rgba(15,25,18,0.97);padding:28px 40px;border-radius:14px;' +
+      'border:1px solid rgba(57,255,20,0.35);box-shadow:0 0 32px rgba(57,255,20,0.2);' +
+      'text-align:center;color:#e8ffe8;">' +
+        '<div style="font-size:2.5rem;margin-bottom:10px;animation:spin 1.4s linear infinite;display:inline-block;">📄</div>' +
+        '<div style="font-size:1.1rem;font-weight:600;">' +
+          _t('יוצר PDF…', 'กำลังสร้าง PDF…', 'إنشاء PDF…') +
+        '</div>' +
+        '<div style="font-size:0.85rem;color:rgba(232,255,232,0.6);margin-top:6px;">' +
+          _t('אנא המתן', 'โปรดรอ', 'يرجى الانتظار') +
+        '</div>' +
+      '</div>' +
+      '<style>@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}</style>';
+    document.body.appendChild(overlay);
 
-    // Wait for fonts AND a render frame before capture — prevents blank canvas
+    // Wait for fonts AND a render frame before capture
     var fontsReady = (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
     return fontsReady.then(function () {
       return new Promise(function (resolve) { requestAnimationFrame(function () { resolve(); }); });
     }).then(function () {
-      // Diagnostic: log what html2canvas will actually see
       var rect = container.getBoundingClientRect();
       console.log('[Export PDF] container dims:', {
         offsetW: container.offsetWidth, offsetH: container.offsetHeight,
         scrollW: container.scrollWidth, scrollH: container.scrollHeight,
         clientRect: { w: rect.width, h: rect.height, top: rect.top, left: rect.left }
       });
-      if (container.offsetHeight === 0) {
-        console.warn('[Export PDF] container has zero height — PDF will be blank');
-      }
       return html2pdf().set({
         margin:   [10, 8, 12, 8],
         filename: _filename(dataset, 'pdf'),
@@ -149,20 +162,7 @@ var Export = (function () {
           scale: 2,
           useCORS: true,
           logging: false,
-          backgroundColor: '#ffffff',
-          // CRITICAL: live container is opacity:0 so user can't see it.
-          // In html2canvas's cloned DOM, un-hide it so rendering captures real content.
-          onclone: function (clonedDoc) {
-            var cloned = clonedDoc.getElementById(containerId);
-            if (cloned) {
-              cloned.style.opacity = '1';
-              cloned.style.zIndex = 'auto';
-              cloned.style.pointerEvents = 'auto';
-              cloned.style.position = 'static';
-              cloned.style.left = 'auto';
-              cloned.style.top = 'auto';
-            }
-          }
+          backgroundColor: '#ffffff'
         },
         jsPDF: {
           unit: 'mm', format: 'a4',
@@ -173,9 +173,11 @@ var Export = (function () {
       }).from(container).save();
     }).then(function () {
       if (container.parentNode) container.parentNode.removeChild(container);
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
       _toast('✅ ' + _t('PDF נשמר', 'บันทึก PDF', 'تم حفظ PDF'));
     }).catch(function (err) {
       try { if (container.parentNode) container.parentNode.removeChild(container); } catch (e) {}
+      try { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); } catch (e) {}
       console.error('[Export PDF] failed:', err);
       _toast('❌ ' + _t('יצירת PDF נכשלה — ראה console', 'PDF ล้มเหลว', 'فشل PDF'));
     });
@@ -186,19 +188,18 @@ var Export = (function () {
     root.className = 'export-print-root';
     root.setAttribute('dir', 'rtl');
 
-    // CRITICAL: html2canvas in newer versions skips elements positioned outside
-    // the viewport. We must keep the container IN the viewport but invisible
-    // (opacity:0 + z-index:-1 + pointer-events:none). The offscreen-via-left:-9999
-    // trick stopped working in html2canvas 1.4+.
-    var widthMm = opts.landscape ? 277 : 194;
+    // Fully visible at top of viewport — overlay covers it so user doesn't see content flash.
+    // No opacity tricks (html2canvas respects opacity and produces blank canvas).
+    // No offscreen positioning (html2canvas skips elements outside viewport).
+    var widthMm = opts.landscape ? 277 : 210;
     root.style.cssText = [
       'position:fixed',
       'top:0',
       'left:0',
       'width:' + widthMm + 'mm',
-      'opacity:0',
-      'pointer-events:none',
-      'z-index:-1',
+      'max-height:100vh',
+      'overflow:hidden',
+      'z-index:2147483645',  // just below the overlay
       'background:#ffffff',
       'color:#111111',
       'font-family:"Heebo","Assistant","Noto Sans Hebrew","Segoe UI",Arial,sans-serif',

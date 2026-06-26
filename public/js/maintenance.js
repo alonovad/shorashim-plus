@@ -1001,15 +1001,18 @@ var Maintenance = (function() {
   var pdfCss = '@page{margin:15mm}body{font-family:-apple-system,"Segoe UI",Arial,sans-serif;color:var(--text, #222);direction:rtl;line-height:1.6;margin:0}.header{padding:28px 32px;border-radius:0 0 16px 16px;margin-bottom:24px;color:white}.header h1{font-size:1.4rem;margin:0 0 4px}.header .meta{font-size:.85rem;opacity:.85}.content{padding:0 24px}.section{font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;margin:20px 0 8px;padding-bottom:4px;border-bottom:2px solid #ddd}table{width:100%;border-collapse:collapse;font-size:.85rem;margin-bottom:16px}th{padding:8px 10px;text-align:right;font-weight:700;font-size:.78rem}td{padding:8px 10px;border-bottom:1px solid var(--border, #eee)}tfoot td{font-weight:700}.summary{background:var(--surface-glass, #f5f7f5);border-radius:12px;padding:16px;margin:20px 0}.sr{display:flex;justify-content:space-between;padding:4px 0;font-size:.9rem}.st{font-size:1.2rem;font-weight:800;border-top:2px solid;padding-top:8px;margin-top:8px}.footer{text-align:center;padding:20px;margin-top:24px;font-size:.78rem;color:var(--text-muted, #888);border-top:1px solid var(--border, #eee)}';
 
   function _downloadPDF(html, filename) {
-    var containerId = 'maint-pdf-' + Date.now();
     var container = document.createElement('div');
-    container.id = containerId;
     container.className = 'export-print-root';
     container.innerHTML = html;
-    container.style.cssText = 'position:fixed;top:0;left:0;width:210mm;opacity:0;pointer-events:none;z-index:-1;background:#ffffff;color:#111;';
+    container.style.cssText = 'position:fixed;top:0;left:0;width:210mm;max-height:100vh;overflow:hidden;z-index:2147483645;background:#ffffff;color:#111;';
     document.body.appendChild(container);
 
-    // Wait for fonts + a render frame BEFORE capture
+    // Loading overlay — covers the container so user only sees a "generating" state
+    var overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:2147483646;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);font-family:"Heebo","Assistant",sans-serif;';
+    overlay.innerHTML = '<div style="background:rgba(15,25,18,0.97);padding:28px 40px;border-radius:14px;border:1px solid rgba(57,255,20,0.35);box-shadow:0 0 32px rgba(57,255,20,0.2);text-align:center;color:#e8ffe8;"><div style="font-size:2.5rem;margin-bottom:10px;animation:mspin 1.4s linear infinite;display:inline-block;">📄</div><div style="font-size:1.1rem;font-weight:600;">' + tt('יוצר PDF…','กำลังสร้าง PDF…','إنشاء PDF…') + '</div></div><style>@keyframes mspin{from{transform:rotate(0)}to{transform:rotate(360deg)}}</style>';
+    document.body.appendChild(overlay);
+
     var fontsReady = (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
     fontsReady.then(function() {
       return new Promise(function(resolve) { requestAnimationFrame(function() { resolve(); }); });
@@ -1018,27 +1021,16 @@ var Maintenance = (function() {
         margin: [10, 10, 14, 10],
         filename: filename.replace(/\.html$/, '.pdf'),
         image: { type: 'jpeg', quality: 0.96 },
-        html2canvas: {
-          scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false,
-          // Container is opacity:0 so user can't see it. Un-hide its clone for rendering.
-          onclone: function(clonedDoc) {
-            var cloned = clonedDoc.getElementById(containerId);
-            if (cloned) {
-              cloned.style.opacity = '1';
-              cloned.style.position = 'static';
-              cloned.style.left = 'auto';
-              cloned.style.top = 'auto';
-              cloned.style.zIndex = 'auto';
-            }
-          }
-        },
+        html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false },
         jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait', compress: true },
         pagebreak: { mode: ['css', 'legacy'], avoid: ['tr', '.no-break', '.summary'] }
       }).from(container).save();
     }).then(function() {
       if (container.parentNode) container.parentNode.removeChild(container);
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
     }).catch(function(err) {
       try { if (container.parentNode) container.parentNode.removeChild(container); } catch(e) {}
+      try { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); } catch(e) {}
       console.error('PDF generation failed:', err);
       // Fallback to HTML download
       var blob = new Blob([html], { type: 'text/html;charset=utf-8' }); var a = document.createElement('a');
