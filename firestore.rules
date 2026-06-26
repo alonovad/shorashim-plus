@@ -35,7 +35,9 @@ service cloud.firestore {
         'shorashim-talgil-cache',
         'shorashim-apps-script-url',
         'shorashim-valve-plot-map',
-        'shorashim-crop-types'
+        'shorashim-crop-types',
+        'shorashim-maintenance',
+        'shorashim-maintenance-access'
       ];
       
       // Operator+: operational data
