@@ -1,4 +1,4 @@
-var CACHE_NAME = 'shorashim-v16';
+var CACHE_NAME = 'shorashim-v13';
 
 // CDN libs — these never change, safe to cache-first
 var CDN_URLS = [
@@ -24,20 +24,12 @@ var APP_URLS = [
   '/js/schedule.js',
   '/js/leave.js',
   '/js/timeclock.js',
+  '/js/monthly-report.js',
   '/js/taskboard.js',
   '/js/fieldreport.js',
   '/js/display-settings.js',
   '/js/maintenance.js',
-  '/js/effects.js',
-  // Static holiday data (TH and AR for 2026-2029)
-  '/data/holidays/TH-2026.json',
-  '/data/holidays/TH-2027.json',
-  '/data/holidays/TH-2028.json',
-  '/data/holidays/TH-2029.json',
-  '/data/holidays/AR-2026.json',
-  '/data/holidays/AR-2027.json',
-  '/data/holidays/AR-2028.json',
-  '/data/holidays/AR-2029.json'
+  '/js/effects.js'
 ];
 
 // Install — precache CDN libs + app files

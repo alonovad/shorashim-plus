@@ -671,6 +671,7 @@ var TimeClock = (function() {
     html += '<button onclick="Leave.showMyLeave();TimeClock.closeMenu()" style="' + menuBtn + 'background:#fff3e0;">' + tt('🏖️ החופשות שלי', '🏖️ การลาของฉัน', '🏖️ إجازاتي') + '</button>';
     if (isManager) {
       html += '<button onclick="TimeClock.showAllRecords();TimeClock.closeMenu()" style="' + menuBtn + 'background:#e3f2fd;">' + tt('📊 ניהול שעות', '📊 จัดการชั่วโมง', '📊 إدارة الساعات') + '</button>';
+      html += '<button onclick="MonthlyReport.show();TimeClock.closeMenu()" style="' + menuBtn + 'background:#e0f2f1;">' + tt('דוח חודשי 📅', '📅 รายงานรายเดือน', '📅 التقرير الشهري') + '</button>';
       html += '<button onclick="Schedule.showUserPicker();TimeClock.closeMenu()" style="' + menuBtn + 'background:#e8eaf6;">' + tt('🗓 לוחות זמנים', '🗓 ตารางเวลา', '🗓 جداول العمل') + '</button>';
       html += '<button onclick="Leave.showApprovalQueue();TimeClock.closeMenu()" style="' + menuBtn + 'background:#fff8e1;">' + tt('✅ תור אישורים', '✅ คิวอนุมัติ', '✅ قائمة الاعتماد') + '</button>';
       html += '<button onclick="Leave.showHolidayAdmin();TimeClock.closeMenu()" style="' + menuBtn + 'background:#fce4ec;">' + tt('🎉 חגים', '🎉 วันหยุด', '🎉 الأعياد') + '</button>';
