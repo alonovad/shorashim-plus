@@ -39,12 +39,16 @@ service cloud.firestore {
     match /appData/{docId} {
       allow read: if isSignedIn();
 
-      // shorashim-users now writable by operator+ so they can save
-      // schedules and leave balances (which live as properties on each
-      // user). The application UI gates role-changes to admin only.
-      // TODO: long-term split — move schedule+balance to a separate
-      // doc so this rule can revert to admin-only for identity/role.
-      allow write: if (isOperatorOrAbove() || noRoleYet()) && docId == 'shorashim-users';
+      // TEMPORARY (broad grant): any signed-in user may write
+      // shorashim-users. The app writes the WHOLE users blob for ordinary
+      // self-service actions (primary plot, email edit, leave balances),
+      // so operator-only blocked workers. This unblocks all users now.
+      // ⚠ RISK: a worker can overwrite the whole doc, including their own
+      // role → admin. The UI gates role changes, but the rule no longer
+      // does. Proper fix: split self-service fields (primary_plot_id,
+      // email) into per-user docs so workers write only their own record,
+      // then revert this to operator-only for identity/role.
+      allow write: if isSignedIn() && docId == 'shorashim-users';
 
       // Other admin-only docs (settings, config, talgil)
       allow write: if (isAdmin() || noRoleYet()) && docId in [

@@ -3125,6 +3125,7 @@
     // Calculate statistics
     var adminCount = userList.filter(function(u) { return u.role === 'admin'; }).length;
     var operatorCount = userList.filter(function(u) { return u.role === 'operator'; }).length;
+    var workerCount = userList.filter(function(u) { return u.role === 'worker'; }).length;
     var viewerCount = userList.filter(function(u) { return u.role === 'viewer'; }).length;
     
     // Render summary
@@ -3133,12 +3134,13 @@
         '<div><div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">' + t('סה"כ משתמשים') + '</div><div style="font-size: 24px; font-weight: 700; color: var(--primary);">' + userList.length + '</div></div>' +
         '<div><div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">' + t('מנהלים') + '</div><div style="font-size: 24px; font-weight: 700;">' + adminCount + '</div></div>' +
         '<div><div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">' + t('מפעילים') + '</div><div style="font-size: 24px; font-weight: 700;">' + operatorCount + '</div></div>' +
+        '<div><div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">' + t('עובדים') + '</div><div style="font-size: 24px; font-weight: 700;">' + workerCount + '</div></div>' +
         '<div><div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">' + t('צופים') + '</div><div style="font-size: 24px; font-weight: 700;">' + viewerCount + '</div></div>' +
       '</div>';
 
     var html = '';
     userList.forEach(function(user) {
-      var roleText = user.role === 'admin' ? t('מנהל') : user.role === 'operator' ? t('מפעיל') : t('צופה');
+      var roleText = user.role === 'admin' ? t('מנהל') : user.role === 'operator' ? t('מפעיל') : user.role === 'worker' ? t('עובד') : t('צופה');
       
       // Build farm badges with colors
       var farmBadges = '';
@@ -3237,6 +3239,7 @@
               '<option value="worker"' + (isEdit && user.role === 'worker' ? ' selected' : '') + '>' + t('עובד') + '</option>' +
               '<option value="operator"' + (isEdit && user.role === 'operator' ? ' selected' : '') + '>' + t('מפעיל') + '</option>' +
               '<option value="admin"' + (isEdit && user.role === 'admin' ? ' selected' : '') + '>' + t('מנהל') + '</option>' +
+              '<option value="viewer"' + (isEdit && user.role === 'viewer' ? ' selected' : '') + '>' + t('צופה') + '</option>' +
             '</select>' +
           '</div>' +
           '<div class="form-group">' +
@@ -3338,7 +3341,7 @@
     var initial = currentUser.name ? currentUser.name.charAt(0) : '?';
     document.getElementById('profileInitial').textContent = initial;
     document.getElementById('profileName').textContent = currentUser.name;
-    var roleText = currentUser.role === 'admin' ? t('מנהל') : currentUser.role === 'operator' ? t('מפעיל') : t('צופה');
+    var roleText = currentUser.role === 'admin' ? t('מנהל') : currentUser.role === 'operator' ? t('מפעיל') : currentUser.role === 'worker' ? t('עובד') : t('צופה');
     document.getElementById('profileRole').textContent = roleText + ' • ' + currentUser.username;
     
     // ── Farm cards ──

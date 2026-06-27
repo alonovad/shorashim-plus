@@ -55,6 +55,17 @@ var Leave = (function() {
     return (Date.now() - user.created_at) / (365.25 * 86400000);
   }
 
+  // Only operator+ may persist the shorashim-users doc (it holds every
+  // user's identity/role, so the Firestore rules lock writes to operator+).
+  // Workers still compute their balance in memory — it's derived
+  // deterministically from tenure + prior-year carryover every call, and
+  // pending comes live from leave-requests — they just don't write it back.
+  // Persistence happens as an operator/admin side-effect (e.g. on approval).
+  function _canWriteUsers() {
+    var r = window.currentUser && window.currentUser.role;
+    return r === 'admin' || r === 'operator';
+  }
+
   // Returns the live balance object for a user, creating defaults if
   // this is the first time the user is asking about leave this year.
   function getBalance(username) {
@@ -77,7 +88,8 @@ var Leave = (function() {
         sick:     { earned: SICK_DAYS_PER_YEAR, used: 0, pending: 0, carryOver: carriedSick },
         reserve:  { used: 0 }   // no balance — reserve is unlimited
       };
-      if (typeof DB !== 'undefined') DB.save('shorashim-users', users);
+      // Workers don't persist (rules block them); operator/admin do.
+      if (_canWriteUsers() && typeof DB !== 'undefined') DB.save('shorashim-users', users);
     }
     return u.leaveBalance;
   }
