@@ -77,9 +77,12 @@ service cloud.firestore {
       allow create: if (isWorkerOrAbove() || noRoleYet());
 
       // Workers update their own records (Phase 1+ enforces username
-      // matches the prefix of the auth email)
-      allow update: if (isWorkerOrAbove() || noRoleYet()) &&
-                       isOwn(resource.data.username);
+      // matches the prefix of the auth email). Admin bypasses isOwn
+      // because their username field may be manually set (e.g. 'admin')
+      // and not match their email prefix.
+      allow update: if isAdmin() ||
+                       ((isWorkerOrAbove() || noRoleYet()) &&
+                        isOwn(resource.data.username));
 
       // Operator+ can edit/delete any record (force-approve, fix mistakes)
       allow update, delete: if isOperatorOrAbove() || noRoleYet();
@@ -89,10 +92,12 @@ service cloud.firestore {
     // Workers create their own audit entries (for actions like leave
     // submit) — the actor field must match their identity to prevent
     // forgery. Operator+ can create any entry. Admin reads.
+    // Admin bypasses isOwn — see comment on timeclock rule.
     match /audit-log/{entryId} {
       allow read:   if isAdmin();
       allow create: if (isOperatorOrAbove() || noRoleYet()) ||
-                       (isWorkerOrAbove() && isOwn(request.resource.data.actor));
+                       (isWorkerOrAbove() && isOwn(request.resource.data.actor)) ||
+                       isAdmin();
       allow update, delete: if false;
     }
 
@@ -100,21 +105,26 @@ service cloud.firestore {
     match /leave-requests/{requestId} {
       allow read: if isSignedIn();
 
-      // Worker creates own request (username must match identity)
-      allow create: if (isWorkerOrAbove() || noRoleYet()) &&
-                       isOwn(request.resource.data.username);
+      // Worker creates own request (username must match identity).
+      // Admin can create on behalf of anyone (e.g. admin's own username
+      // may not match their email prefix — manual setup).
+      allow create: if isAdmin() ||
+                    ((isWorkerOrAbove() || noRoleYet()) &&
+                     isOwn(request.resource.data.username));
 
       // Operator+ approves/rejects
       allow update: if isOperatorOrAbove() || noRoleYet();
 
       // Worker cancels their own still-pending request — only the
       // status field may change (no sneaking other edits in).
-      allow update: if (isWorkerOrAbove() || noRoleYet()) &&
-                       isOwn(resource.data.username) &&
-                       resource.data.status == 'pending' &&
-                       request.resource.data.status == 'cancelled' &&
-                       request.resource.data.diff(resource.data)
-                         .affectedKeys().hasOnly(['status']);
+      // Admin can cancel any.
+      allow update: if isAdmin() ||
+                    ((isWorkerOrAbove() || noRoleYet()) &&
+                     isOwn(resource.data.username) &&
+                     resource.data.status == 'pending' &&
+                     request.resource.data.status == 'cancelled' &&
+                     request.resource.data.diff(resource.data)
+                       .affectedKeys().hasOnly(['status']));
 
       allow delete: if false;
     }
