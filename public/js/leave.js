@@ -516,7 +516,16 @@ var Leave = (function() {
       d.IL = Array.isArray(d.IL) ? d.IL : [];
       d.TH = Array.isArray(d.TH) ? d.TH : [];
       d.AR = Array.isArray(d.AR) ? d.AR : [];
-      d.importedAt = d.importedAt || {};
+      // importedAt normalization. Old schema stored a single timestamp
+      // (number) when only Hebcal existed. New schema is an object keyed
+      // by source: {IL: ts, TH: ts, AR: ts}. If we read an old doc, we
+      // must convert — `|| {}` doesn't help because a non-zero number
+      // is truthy.
+      if (typeof d.importedAt === 'number') {
+        d.importedAt = { IL: d.importedAt };       // preserve the old timestamp as IL
+      } else if (typeof d.importedAt !== 'object' || d.importedAt === null || Array.isArray(d.importedAt)) {
+        d.importedAt = {};
+      }
       return d;
     }).catch(function() { return _emptyHolidayDoc(year); });
   }
