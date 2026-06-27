@@ -6,8 +6,12 @@ service cloud.firestore {
       return request.auth != null;
     }
     function getRole() {
-      // During transition, users without custom claims get null
-      return request.auth.token.role;
+      // Users without a custom claim must read as null. An ABSENT claim is
+      // not the same as null in rules: request.auth.token.role would be
+      // undefined and `undefined == null` is false, so noRoleYet() never
+      // fired and every claim-less user was denied. .get(key, default)
+      // returns the default when the field is missing — this is the fix.
+      return request.auth.token.get('role', null);
     }
     function isAdmin() {
       return isSignedIn() && getRole() == 'admin';
