@@ -1,4 +1,4 @@
-var CACHE_NAME = 'shorashim-v12';
+var CACHE_NAME = 'shorashim-v13';
 
 // CDN libs — these never change, safe to cache-first
 var CDN_URLS = [

@@ -115,33 +115,53 @@ var Leave = (function() {
 
   // Counts ACTUAL working days in [start, end] inclusive, skipping weekends
   // and known holidays. Half-day options at either end reduce the count.
+  //
+  // Defensive: if the user has no schedule or a malformed schedule, falls
+  // back to a safe default (weekdays count, Saturday off). This prevents
+  // brand-new users from getting "0 work days" and being unable to submit
+  // a leave request.
   function countLeaveDays(startDate, endDate, startHalf, endHalf, schedule, holidayDates) {
     if (!startDate || !endDate || startDate > endDate) return 0;
-    schedule = schedule || null;
     holidayDates = holidayDates || {};
     var s = new Date(startDate + 'T00:00:00');
     var e = new Date(endDate + 'T00:00:00');
     var totalDays = 0;
     var dayKeys = ['sun','mon','tue','wed','thu','fri','sat'];
+
+    // Extract the schedule's per-day map ONCE, and only use it if it
+    // looks valid (object with at least one day defined). Otherwise we
+    // fall back to the safe Saturday-off default.
+    var sched = null;
+    if (schedule && schedule.schedule && typeof schedule.schedule === 'object') {
+      var anyDayDefined = false;
+      for (var i = 0; i < dayKeys.length; i++) {
+        if (schedule.schedule[dayKeys[i]]) { anyDayDefined = true; break; }
+      }
+      if (anyDayDefined) sched = schedule.schedule;
+    }
+
+    function pad(n) { return n < 10 ? '0' + n : '' + n; }
+
     for (var d = new Date(s); d <= e; d.setDate(d.getDate() + 1)) {
-      var ds = d.toISOString().slice(0, 10);
-      if (holidayDates[ds]) continue;                  // public holiday — free
-      if (schedule) {
-        var dk = dayKeys[d.getDay()];
-        if (!schedule.schedule || !schedule.schedule[dk]) continue;   // off-day
+      // Use LOCAL date string (not toISOString — that shifts dates by one
+      // in Israel timezone since local midnight = 21:00 UTC the day before).
+      var ds = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+      if (holidayDates[ds]) continue;
+
+      var dk = dayKeys[d.getDay()];
+      if (sched) {
+        // Respect explicit schedule — only skip days marked off (null/missing)
+        if (!sched[dk]) continue;
       } else {
-        // No schedule supplied — fall back to "Saturday off"
+        // Safe default: Saturday only is off
         if (d.getDay() === 6) continue;
       }
       totalDays += 1;
     }
+
     // Apply half-day reductions if range is non-empty
     if (totalDays > 0) {
       if (startHalf === 'am' || startHalf === 'pm') totalDays -= 0.5;
-      // BUG FIX: previous version had `endHalf === 'am' || endHalf === 'pm' && endDate !== startDate`
-      // which parsed as `am || (pm && multiDay)` due to && binding tighter than ||.
-      // That made a same-day request with endHalf='am' wrongly subtract another 0.5.
-      // The intent is: on a multi-day range, BOTH endpoints can be half-days.
       if (endDate !== startDate && (endHalf === 'am' || endHalf === 'pm')) totalDays -= 0.5;
     }
     return Math.max(0, totalDays);
