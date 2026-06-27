@@ -662,43 +662,51 @@ var TimeClock = (function() {
     }
     html += '</div>';
 
-    // ── My Stuff (always visible, expanded) ──
-    html += '<button onclick="TaskBoard.showMyTasks();TimeClock.closeMenu()" style="' + menuBtn + 'background:#f3e5f5;">' + tt('📋 המשימות שלי', '📋 งานของฉัน', '📋 مهامي') + '</button>';
+    // ── השעות שלי (collapsible) ──
+    html += '<div onclick="var d=document.getElementById(\'menuHours\');var open=d.style.display!==\'block\';d.style.display=open?\'block\':\'none\';this.classList.toggle(\'open\',open);" class="menu-group-head">';
+    html += '<span class="mg-label">🕐 ' + tt('השעות שלי', 'ชั่วโมงของฉัน', 'ساعاتي') + '</span><span class="mg-chev">▸</span>';
+    html += '</div>';
+    html += '<div id="menuHours" style="display:none;">';
     html += '<button onclick="TimeClock.showMyRecords();TimeClock.closeMenu()" style="' + menuBtn + 'background:#e8f5e9;">' + tt('🕐 הדוחות שלי', '🕐 รายงานของฉัน', '🕐 تقاريري') + '</button>';
     html += '<button onclick="Leave.showMyLeave();TimeClock.closeMenu()" style="' + menuBtn + 'background:#fff3e0;">' + tt('🏖️ החופשות שלי', '🏖️ การลาของฉัน', '🏖️ إجازاتي') + '</button>';
-    html += '<button onclick="TimeClock.showProfileEdit();TimeClock.closeMenu()" style="' + menuBtn + 'background:#fce4ec;">' + tt('👤 הפרופיל שלי', '👤 โปรไฟล์ของฉัน', '👤 ملفي الشخصي') + '</button>';
-
     if (isManager) {
-      // ── Management (collapsed) ──
-      html += '<div onclick="var d=document.getElementById(\'menuMgmt\');var open=d.style.display!==\'block\';d.style.display=open?\'block\':\'none\';this.classList.toggle(\'open\',open);" class="menu-group-head">';
-      html += '<span class="mg-label">📋 ' + tt('ניהול', 'จัดการ', 'إدارة') + '</span><span class="mg-chev">▸</span>';
-      html += '</div>';
-      html += '<div id="menuMgmt" style="display:none;">';
       html += '<button onclick="TimeClock.showAllRecords();TimeClock.closeMenu()" style="' + menuBtn + 'background:#e3f2fd;">' + tt('📊 ניהול שעות', '📊 จัดการชั่วโมง', '📊 إدارة الساعات') + '</button>';
       html += '<button onclick="Schedule.showUserPicker();TimeClock.closeMenu()" style="' + menuBtn + 'background:#e8eaf6;">' + tt('🗓 לוחות זמנים', '🗓 ตารางเวลา', '🗓 جداول العمل') + '</button>';
       html += '<button onclick="Leave.showApprovalQueue();TimeClock.closeMenu()" style="' + menuBtn + 'background:#fff8e1;">' + tt('✅ תור אישורים', '✅ คิวอนุมัติ', '✅ قائمة الاعتماد') + '</button>';
-      html += '<button onclick="Leave.showHolidayAdmin();TimeClock.closeMenu()" style="' + menuBtn + 'background:#fce4ec;">' + tt('🎉 חגי ישראל', '🎉 วันหยุดอิสราเอล', '🎉 الأعياد الإسرائيلية') + '</button>';
-      html += '<button onclick="TaskBoard.showTaskManager();TimeClock.closeMenu()" style="' + menuBtn + 'background:#ede7f6;">' + tt('📋 ניהול משימות', '📋 จัดการงาน', '📋 إدارة المهام') + '</button>';
-      html += '<button onclick="TimeClock.showAdminDashboard();TimeClock.closeMenu()" style="' + menuBtn + 'background:#e0f7fa;">' + tt('📊 לוח בקרה', '📊 แดชบอร์ด', '📊 لوحة التحكم') + '</button>';
-      html += '<button onclick="FieldReport.showReportsList();TimeClock.closeMenu()" style="' + menuBtn + 'background:#f9fbe7;">' + tt('🔬 דוחות סיור', '🔬 รายงานสำรวจ', '🔬 تقارير الجولات') + '</button>';
-      html += '<button onclick="Maintenance.showProjectsList();TimeClock.closeMenu()" style="' + menuBtn + 'background:#efebe9;">' + tt('🔧 תחזוקה', '🔧 ซ่อมบำรุง', '🔧 صيانة') + '</button>';
-      html += '</div>';
+      html += '<button onclick="Leave.showHolidayAdmin();TimeClock.closeMenu()" style="' + menuBtn + 'background:#fce4ec;">' + tt('🎉 חגים', '🎉 วันหยุด', '🎉 الأعياد') + '</button>';
+    }
+    html += '</div>';
 
-      // ── Settings (collapsed) ──
-      html += '<div onclick="var d=document.getElementById(\'menuSettings\');var open=d.style.display!==\'block\';d.style.display=open?\'block\':\'none\';this.classList.toggle(\'open\',open);" class="menu-group-head">';
-      html += '<span class="mg-label">⚙️ ' + tt('הגדרות', 'ตั้งค่า', 'إعدادات') + '</span><span class="mg-chev">▸</span>';
-      html += '</div>';
-      html += '<div id="menuSettings" style="display:none;">';
+    if (isManager) {
+      // ── דוחות סיור (standalone) ──
+      html += '<button onclick="FieldReport.showReportsList();TimeClock.closeMenu()" style="' + menuBtn + 'background:#f9fbe7;">' + tt('🔬 דוחות סיור', '🔬 รายงานสำรวจ', '🔬 تقارير الجولات') + '</button>';
+
+      // ── מחלקת תחזוקה (standalone, renamed) ──
+      html += '<button onclick="Maintenance.showProjectsList();TimeClock.closeMenu()" style="' + menuBtn + 'background:#efebe9;">' + tt('🔧 מחלקת תחזוקה', '🔧 แผนกซ่อมบำรุง', '🔧 قسم الصيانة') + '</button>';
+    }
+
+    // ── הגדרות (collapsible) ──
+    html += '<div onclick="var d=document.getElementById(\'menuSettings\');var open=d.style.display!==\'block\';d.style.display=open?\'block\':\'none\';this.classList.toggle(\'open\',open);" class="menu-group-head">';
+    html += '<span class="mg-label">⚙️ ' + tt('הגדרות', 'ตั้งค่า', 'إعدادات') + '</span><span class="mg-chev">▸</span>';
+    html += '</div>';
+    html += '<div id="menuSettings" style="display:none;">';
+    html += '<button onclick="TaskBoard.showMyTasks();TimeClock.closeMenu()" style="' + menuBtn + 'background:#f3e5f5;">' + tt('📋 המשימות שלי', '📋 งานของฉัน', '📋 مهامي') + '</button>';
+    if (isManager) {
+      html += '<button onclick="TaskBoard.showTaskManager();TimeClock.closeMenu()" style="' + menuBtn + 'background:#ede7f6;">' + tt('📋 ניהול משימות', '📋 จัดการงาน', '📋 إدارة المهام') + '</button>';
+    }
+    html += '<button onclick="TimeClock.showProfileEdit();TimeClock.closeMenu()" style="' + menuBtn + 'background:#fce4ec;">' + tt('👤 הפרופיל שלי', '👤 โปรไฟล์ของฉัน', '👤 ملفي الشخصي') + '</button>';
+    if (isManager) {
+      html += '<button onclick="TimeClock.showAdminDashboard();TimeClock.closeMenu()" style="' + menuBtn + 'background:#e0f7fa;">' + tt('📊 לוח בקרה', '📊 แดชบอร์ด', '📊 لوحة التحكم') + '</button>';
       html += '<button onclick="TimeClock.showExportMenu();TimeClock.closeMenu()" style="' + menuBtn + 'background:#f1f8e9;">' + tt('📥 ייצוא נתונים', '📥 ส่งออกข้อมูล', '📥 تصدير البيانات') + '</button>';
       html += '<button onclick="TimeClock.showWorkplaceAdmin();TimeClock.closeMenu()" style="' + menuBtn + 'background:#fff3e0;">' + tt('📍 מקומות עבודה', '📍 สถานที่ทำงาน', '📍 أماكن العمل') + '</button>';
       html += '<button onclick="TimeClock.showCropAdmin();TimeClock.closeMenu()" style="' + menuBtn + 'background:#e8f5e9;">' + tt('🌱 סוגי גידולים', '🌱 ประเภทพืช', '🌱 أنواع المحاصيل') + '</button>';
-      html += '</div>';
     }
+    html += '<button onclick="DisplaySettings.showSettings();TimeClock.closeMenu()" style="' + menuBtn + 'background:#e0f7fa;">' + tt('🎨 הגדרות תצוגה', '🎨 การตั้งค่าการแสดงผล', '🎨 إعدادات العرض') + '</button>';
+    html += '<button onclick="location.reload(true)" style="' + menuBtn + 'background:#e3f2fd;">' + tt('🔄 רענן אפליקציה', '🔄 รีเฟรชแอป', '🔄 تحديث التطبيق') + '</button>';
+    html += '</div>';
 
     // ── Bottom actions ──
     html += '<div style="margin-top:14px;padding-top:10px;border-top:1px solid #eee;">';
-    html += '<button onclick="DisplaySettings.showSettings();TimeClock.closeMenu()" style="' + menuBtn + 'background:#e0f7fa;text-align:center;">' + tt('🎨 הגדרות תצוגה', '🎨 การตั้งค่าการแสดงผล', '🎨 إعدادات العرض') + '</button>';
-    html += '<button onclick="location.reload(true)" style="' + menuBtn + 'background:#e3f2fd;text-align:center;">' + tt('🔄 רענן אפליקציה', '🔄 รีเฟรชแอป', '🔄 تحديث التطبيق') + '</button>';
     html += '<button onclick="TimeClock.logout()" style="' + menuBtn + 'background:#ffebee;color:#c62828;font-weight:700;text-align:center;">' + tt('🚪 התנתק', '🚪 ออกจากระบบ', '🚪 تسجيل خروج') + '</button>';
     html += '<button onclick="TimeClock.closeMenu()" style="' + menuBtn + 'background:#f5f5f5;text-align:center;font-weight:400;">' + tt('סגור', 'ปิด', 'إغلاق') + '</button>';
     html += '</div>';

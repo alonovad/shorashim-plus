@@ -364,79 +364,209 @@ var Leave = (function() {
     return Math.max(0, h);
   }
 
-  // ── Hebcal holiday import ──
-  // Fetches Israeli major holidays for a year and caches in `holidays/{year}`.
-  // Cached docs are used by Sites/Schedule to skip holiday days.
+  // ── Multi-source holiday import (IL / TH / AR) ──
+  //
+  // Storage shape: `holidays/{year}` = {
+  //   year: 2026,
+  //   IL: [{ date, name_he, name_th, name_ar, paid, selected, source }, ...],
+  //   TH: [...],
+  //   AR: [...],
+  //   importedAt: { IL: ts, TH: ts, AR: ts }
+  // }
+  //
+  // Each holiday has a `selected` flag (boolean). Only selected:true holidays
+  // are turned into synthetic timeclock entries by generateHolidayEntries.
+  //
+  // Per-worker filtering: when generating entries, each worker only gets
+  // holidays from the calendar matching their `user.lang` (he/th/ar).
 
-  function fetchAndCacheHolidays(year) {
-    year = year || getCurrentYear();
-    if (typeof db === 'undefined') return Promise.reject(new Error('Offline'));
-    return db.collection('holidays').doc(String(year)).get().then(function(snap) {
-      if (snap.exists) return snap.data();
-      // Not cached yet — fetch from Hebcal. Wrap with a 15s timeout and
-      // explicit error handling so the UI doesn't hang on network failure.
-      var url = 'https://www.hebcal.com/hebcal?v=1&cfg=json&maj=on&mod=on&i=on&year=' + year;
-      var ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
-      var timeoutId = setTimeout(function() { if (ctl) ctl.abort(); }, 15000);
-      var opts = ctl ? { signal: ctl.signal } : {};
-      return fetch(url, opts).then(function(res) {
-        clearTimeout(timeoutId);
-        if (!res.ok) throw new Error('Hebcal HTTP ' + res.status);
-        return res.json();
-      }).then(function(json) {
-        if (!json || !Array.isArray(json.items)) {
-          throw new Error('Hebcal returned malformed response');
-        }
-        var holidays = json.items.filter(function(item) {
-          return item && item.category === 'holiday' && item.yomtov;
-        }).map(function(item) {
-          return {
-            date: (item.date || '').slice(0, 10),
-            name_he: item.hebrew || item.title || '',
-            name_th: item.title || '',
-            name_ar: item.title || '',
-            paid: true,
-            halfDay: false,
-            source: 'hebcal'
-          };
-        });
-        var doc = {
-          year: year,
-          country: 'IL',
-          holidays: holidays,
-          importedAt: Date.now(),
+  // ---- Source 1: Hebcal (Israeli) ----
+  function fetchHolidays_IL(year) {
+    var url = 'https://www.hebcal.com/hebcal?v=1&cfg=json&maj=on&mod=on&i=on&year=' + year;
+    return _fetchJSON(url, 15000, 'Hebcal').then(function(json) {
+      if (!json || !Array.isArray(json.items)) throw new Error('Hebcal: malformed response');
+      return json.items.filter(function(item) {
+        return item && item.category === 'holiday' && item.yomtov;
+      }).map(function(item) {
+        return {
+          date: (item.date || '').slice(0, 10),
+          name_he: item.hebrew || item.title || '',
+          name_th: item.title || '',
+          name_ar: item.title || '',
+          paid: true,
+          selected: false,
           source: 'hebcal'
         };
-        return db.collection('holidays').doc(String(year)).set(doc).then(function() { return doc; });
-      }).catch(function(err) {
-        clearTimeout(timeoutId);
-        var msg = (err && err.name === 'AbortError')
-          ? 'Hebcal request timed out'
-          : (err.message || 'Hebcal fetch failed');
-        console.error(msg, err);
-        throw new Error(msg);
       });
     });
   }
 
-  function loadHolidayMap(year) {
-    year = year || getCurrentYear();
-    if (typeof db === 'undefined') return Promise.resolve({});
-    return db.collection('holidays').doc(String(year)).get().then(function(snap) {
-      if (!snap.exists) return {};
-      var doc = snap.data();
-      var map = {};
-      (doc.holidays || []).forEach(function(h) { map[h.date] = h; });
-      return map;
-    }).catch(function() { return {}; });
+  // ---- Source 2: date.nager.at (Thai public holidays) ----
+  function fetchHolidays_TH(year) {
+    var url = 'https://date.nager.at/api/v3/PublicHolidays/' + year + '/TH';
+    return _fetchJSON(url, 15000, 'Nager-TH').then(function(json) {
+      if (!Array.isArray(json)) throw new Error('Nager-TH: malformed response');
+      return json.map(function(item) {
+        return {
+          date: item.date,
+          name_he: item.name || item.localName || '',
+          name_th: item.localName || item.name || '',
+          name_ar: item.name || item.localName || '',
+          paid: true,
+          selected: false,
+          source: 'nager-th'
+        };
+      });
+    });
   }
 
-  // Generate synthetic timeclock entries for the year's paid holidays for
-  // every active user. Admin-triggered, idempotent (uses deterministic
-  // doc IDs).
+  // ---- Source 3: Aladhan (Islamic religious holidays) ----
+  // Major Muslim holidays have fixed Hijri dates. We convert each to
+  // Gregorian using Aladhan's hToG endpoint.
+  var ISLAMIC_HOLIDAYS = [
+    { hMonth: 1,  hDay: 1,  name_he: 'ראש השנה האסלאמי',  name_ar: 'رأس السنة الهجرية',   name_th: 'ปีใหม่อิสลาม' },
+    { hMonth: 1,  hDay: 10, name_he: 'יום עשוראא׳',         name_ar: 'يوم عاشوراء',          name_th: 'วันอาชูรอ' },
+    { hMonth: 3,  hDay: 12, name_he: 'מולד אלנבי',          name_ar: 'المولد النبوي',        name_th: 'เมาลิด' },
+    { hMonth: 7,  hDay: 27, name_he: 'אסראא ומעראג׳',       name_ar: 'الإسراء والمعراج',     name_th: 'อิสรออ์และเมียะรอจญ์' },
+    { hMonth: 9,  hDay: 1,  name_he: 'תחילת רמדאן',         name_ar: 'بداية رمضان',          name_th: 'เริ่มต้นรอมฎอน' },
+    { hMonth: 9,  hDay: 27, name_he: 'ליל אלקדר',            name_ar: 'ليلة القدر',           name_th: 'ลัยละตุลก็อดร์' },
+    { hMonth: 10, hDay: 1,  name_he: 'עיד אלפיטר',          name_ar: 'عيد الفطر',            name_th: 'อีดิลฟิตริ' },
+    { hMonth: 10, hDay: 2,  name_he: 'עיד אלפיטר (יום 2)',  name_ar: 'عيد الفطر (اليوم 2)', name_th: 'อีดิลฟิตริ วันที่ 2' },
+    { hMonth: 12, hDay: 9,  name_he: 'יום עראפה',           name_ar: 'يوم عرفة',             name_th: 'วันอารอฟะฮ์' },
+    { hMonth: 12, hDay: 10, name_he: 'עיד אלאדחא',          name_ar: 'عيد الأضحى',           name_th: 'อีดิลอัฎฮา' },
+    { hMonth: 12, hDay: 11, name_he: 'עיד אלאדחא (יום 2)', name_ar: 'عيد الأضحى (اليوم 2)','name_th': 'อีดิลอัฎฮา วันที่ 2' }
+  ];
+  function fetchHolidays_AR(year) {
+    // Islamic year roughly = Gregorian - 622. The exact Hijri year that
+    // overlaps Gregorian {year} can span two Hijri years. We do one Hijri
+    // year (Gregorian - 579, the dominant overlap), then filter results
+    // to only keep dates inside the requested Gregorian year. If too few
+    // results, we also do the next Hijri year and merge.
+    var hYearGuess = year - 579;   // approximate
+    function fetchForHijriYear(hYear) {
+      return Promise.all(ISLAMIC_HOLIDAYS.map(function(h) {
+        var url = 'https://api.aladhan.com/v1/hToG/' + h.hDay + '-' + h.hMonth + '-' + hYear;
+        return _fetchJSON(url, 15000, 'Aladhan').then(function(json) {
+          if (!json || !json.data || !json.data.gregorian) return null;
+          var g = json.data.gregorian;     // { date: 'DD-MM-YYYY' }
+          var parts = (g.date || '').split('-');
+          if (parts.length !== 3) return null;
+          return {
+            date: parts[2] + '-' + parts[1] + '-' + parts[0],   // YYYY-MM-DD
+            name_he: h.name_he, name_ar: h.name_ar, name_th: h.name_th,
+            paid: true, selected: false, source: 'aladhan'
+          };
+        }).catch(function() { return null; });
+      })).then(function(results) {
+        return results.filter(function(r) { return r != null; });
+      });
+    }
+    return Promise.all([fetchForHijriYear(hYearGuess), fetchForHijriYear(hYearGuess + 1)])
+      .then(function(both) {
+        var merged = both[0].concat(both[1]);
+        var yearPrefix = String(year) + '-';
+        // Keep only dates inside the requested Gregorian year, dedupe by date
+        var seen = {};
+        return merged.filter(function(h) {
+          if (h.date.indexOf(yearPrefix) !== 0) return false;
+          if (seen[h.date]) return false;
+          seen[h.date] = true;
+          return true;
+        }).sort(function(a, b) { return a.date < b.date ? -1 : 1; });
+      });
+  }
+
+  // ---- Fetcher utility ----
+  function _fetchJSON(url, timeoutMs, label) {
+    var ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    var t = setTimeout(function() { if (ctl) ctl.abort(); }, timeoutMs);
+    var opts = ctl ? { signal: ctl.signal } : {};
+    return fetch(url, opts).then(function(res) {
+      clearTimeout(t);
+      if (!res.ok) throw new Error(label + ' HTTP ' + res.status);
+      return res.json();
+    }).catch(function(err) {
+      clearTimeout(t);
+      throw new Error((err && err.name === 'AbortError')
+        ? (label + ' timed out')
+        : ((err && err.message) || (label + ' failed')));
+    });
+  }
+
+  // ---- Storage helpers ----
+  function loadHolidayDoc(year) {
+    year = year || getCurrentYear();
+    if (typeof db === 'undefined') return Promise.resolve(_emptyHolidayDoc(year));
+    return db.collection('holidays').doc(String(year)).get().then(function(snap) {
+      if (!snap.exists) return _emptyHolidayDoc(year);
+      var d = snap.data() || {};
+      // Backward-compat: old shape was { holidays: [...] } with IL only
+      if (Array.isArray(d.holidays) && !d.IL) {
+        d.IL = d.holidays.map(function(h) {
+          return Object.assign({ selected: false, source: 'hebcal' }, h);
+        });
+        delete d.holidays;
+      }
+      d.year = year;
+      d.IL = Array.isArray(d.IL) ? d.IL : [];
+      d.TH = Array.isArray(d.TH) ? d.TH : [];
+      d.AR = Array.isArray(d.AR) ? d.AR : [];
+      d.importedAt = d.importedAt || {};
+      return d;
+    }).catch(function() { return _emptyHolidayDoc(year); });
+  }
+  function _emptyHolidayDoc(year) {
+    return { year: year, IL: [], TH: [], AR: [], importedAt: {} };
+  }
+  function saveHolidayDoc(doc) {
+    if (typeof db === 'undefined') return Promise.reject(new Error('Offline'));
+    return db.collection('holidays').doc(String(doc.year)).set(doc);
+  }
+
+  // ---- Public fetch+cache helpers (called from admin UI) ----
+  function importHolidays(year, source) {
+    year = year || getCurrentYear();
+    var fetcher = source === 'IL' ? fetchHolidays_IL
+                : source === 'TH' ? fetchHolidays_TH
+                : source === 'AR' ? fetchHolidays_AR
+                : null;
+    if (!fetcher) return Promise.reject(new Error('Unknown source: ' + source));
+    return fetcher(year).then(function(list) {
+      return loadHolidayDoc(year).then(function(doc) {
+        // Preserve `selected` flag for dates that already exist in storage
+        var prevSelected = {};
+        (doc[source] || []).forEach(function(h) {
+          if (h.selected) prevSelected[h.date] = true;
+        });
+        doc[source] = list.map(function(h) {
+          if (prevSelected[h.date]) h.selected = true;
+          return h;
+        });
+        doc.importedAt[source] = Date.now();
+        return saveHolidayDoc(doc).then(function() { return doc[source].length; });
+      });
+    });
+  }
+
+  // ---- Per-worker holiday map (for date counting in leave requests) ----
+  // Returns { 'YYYY-MM-DD': holiday } for holidays applicable to the given
+  // language. Used by countLeaveDays (where we skip days that are
+  // already public holidays).
+  function loadHolidayMap(year, lang) {
+    return loadHolidayDoc(year).then(function(doc) {
+      var key = lang === 'th' ? 'TH' : lang === 'ar' ? 'AR' : 'IL';
+      var map = {};
+      (doc[key] || []).forEach(function(h) {
+        if (h.selected) map[h.date] = h;
+      });
+      return map;
+    });
+  }
+
+  // ---- Generate synthetic timeclock entries (per-worker, by language) ----
   function generateHolidayEntries(year) {
     year = year || getCurrentYear();
-    return loadHolidayMap(year).then(function(map) {
+    return loadHolidayDoc(year).then(function(doc) {
       if (typeof users === 'undefined') return 0;
       var batch = db.batch();
       var writes = 0;
@@ -444,28 +574,37 @@ var Leave = (function() {
         return users[k].role !== 'viewer';
       });
       var dayKeys = ['sun','mon','tue','wed','thu','fri','sat'];
-      Object.keys(map).forEach(function(ds) {
-        var h = map[ds];
-        if (!h.paid) return;
-        var d = new Date(ds + 'T00:00:00');
-        workers.forEach(function(uname) {
-          var u = users[uname];
-          var sched = u.schedule || (typeof Schedule !== 'undefined' ? Schedule.DEFAULT_SCHEDULE : null);
-          if (!sched || !sched.schedule) return;
+
+      workers.forEach(function(uname) {
+        var u = users[uname];
+        var lang = u.lang || 'he';
+        var sourceKey = lang === 'th' ? 'TH' : lang === 'ar' ? 'AR' : 'IL';
+        var holidays = (doc[sourceKey] || []).filter(function(h) {
+          return h.selected && h.paid;
+        });
+        if (holidays.length === 0) return;
+        var sched = u.schedule || (typeof Schedule !== 'undefined' ? Schedule.DEFAULT_SCHEDULE : null);
+        if (!sched || !sched.schedule) return;
+
+        holidays.forEach(function(h) {
+          var d = new Date(h.date + 'T00:00:00');
           var daySched = sched.schedule[dayKeys[d.getDay()]];
-          if (!daySched) return; // already off (e.g. holiday on Saturday — no double-count)
+          if (!daySched) return;          // already off (e.g. weekend) — no double-count
           var expectedH = _scheduleDailyHours(daySched);
           var paidMin = Math.round(expectedH * 60);
-          var punchIn = new Date(ds + 'T' + daySched.start + ':00').getTime();
-          var docId = ds + '_' + uname + '_holiday';
+          var punchIn = new Date(h.date + 'T' + daySched.start + ':00').getTime();
+          var docId = h.date + '_' + uname + '_holiday';
+          var displayName = lang === 'th' ? h.name_th
+                          : lang === 'ar' ? h.name_ar
+                          : h.name_he;
           batch.set(db.collection('timeclock').doc(docId), {
             punchIn: punchIn, punchOut: punchIn + paidMin * 60000,
             username: uname, userName: u.name || uname,
-            workplace: '🎉 ' + h.name_he,
-            shiftIndex: 0, date: ds, duration: paidMin * 60000,
+            workplace: '🎉 ' + displayName,
+            shiftIndex: 0, date: h.date, duration: paidMin * 60000,
             paidMinutes: paidMin, breakMinutes: 0, breaks: [],
             type: 'holiday', status: 'approved',
-            holidayName: h.name_he,
+            holidayName: displayName, holidaySource: sourceKey,
             geoVerified: null, geoWarnings: [], punchInGeo: null, punchOutGeo: null,
             hoursRegular: expectedH, hours125: 0, hours150: 0, hoursNight: 0,
             expectedHours: expectedH, scheduleWarnings: [], offDay: false,
@@ -474,9 +613,15 @@ var Leave = (function() {
           writes++;
         });
       });
+
       if (writes === 0) return 0;
       return batch.commit().then(function() { return writes; });
     });
+  }
+
+  // Backward-compat alias — older code paths in the file still call this.
+  function fetchAndCacheHolidays(year) {
+    return importHolidays(year, 'IL');
   }
 
   // ─────────────────────────────────────────────────────────
@@ -649,7 +794,8 @@ var Leave = (function() {
     var username = window.currentUser && window.currentUser.username;
     var schedule = (typeof Schedule !== 'undefined' && username) ? Schedule.getForUser(username) : null;
 
-    loadHolidayMap().then(function(holMap) {
+    var userLang = (window.currentUser && window.currentUser.lang) || 'he';
+    loadHolidayMap(getCurrentYear(), userLang).then(function(holMap) {
       var days = countLeaveDays(s, e, sh, eh, schedule, holMap);
       c.innerHTML = '📅 ' + _T('סה"כ ימי עבודה','รวมวันทำงาน','إجمالي أيام العمل') + ': <strong>' + days + '</strong>';
     });
@@ -673,7 +819,8 @@ var Leave = (function() {
       return;
     }
     var schedule = (typeof Schedule !== 'undefined') ? Schedule.getForUser(username) : null;
-    loadHolidayMap().then(function(holMap) {
+    var userLang = (window.currentUser && window.currentUser.lang) || 'he';
+    loadHolidayMap(getCurrentYear(), userLang).then(function(holMap) {
       var days = countLeaveDays(startDate, endDate, startDay, endDay, schedule, holMap);
       if (days <= 0) {
         if (typeof showToast === 'function') showToast('❌ ' + _T('אין ימי עבודה בטווח','ไม่มีวันทำงานในช่วงนี้','لا أيام عمل في النطاق'));
@@ -793,39 +940,134 @@ var Leave = (function() {
   }
 
   // ── Admin: holiday calendar import ──
+  // ── Multi-source holiday admin UI ──
+  // Shows three buttons to fetch IL/TH/AR holidays, then renders all
+  // fetched holidays in tabbed sections with a checkbox per holiday.
+  // Admin ticks which should be paid days off, then taps "Generate
+  // records" to create synthetic timeclock entries for selected
+  // holidays, filtered per-worker by language.
+
+  var _holidayActiveTab = 'IL';
+
   function showHolidayAdmin() {
     var modal = document.getElementById('modalContainer');
     if (!modal) return;
     var year = getCurrentYear();
     modal.innerHTML =
       '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;">' +
-      '<div style="background:white;border-radius:16px;padding:20px;width:95%;max-width:440px;max-height:88vh;overflow-y:auto;">' +
-        '<h3 style="font-weight:700;margin-bottom:12px;">🎉 ' + _T('יומן חגי ישראל','ปฏิทินวันหยุดอิสราเอล','تقويم الأعياد الإسرائيلية') + '</h3>' +
-        '<div id="holidayContent" style="color:#999;text-align:center;padding:14px;">' + _T('טוען...','กำลังโหลด...','جاري التحميل...') + '</div>' +
-        '<div style="display:flex;gap:8px;margin-top:12px;">' +
-          '<button onclick="Leave._importHolidaysNow()" style="flex:1;padding:10px;border-radius:10px;border:none;background:#2e7d32;color:white;font-family:inherit;font-weight:700;cursor:pointer;">📥 ' + _T('ייבא מ-Hebcal','นำเข้าจาก Hebcal','استيراد من Hebcal') + '</button>' +
-          '<button onclick="Leave._generateHolidayEntriesNow()" style="flex:1;padding:10px;border-radius:10px;border:none;background:#1565c0;color:white;font-family:inherit;font-weight:700;cursor:pointer;">⚙️ ' + _T('צור רשומות','สร้างรายการ','إنشاء سجلات') + '</button>' +
+      '<div style="background:white;border-radius:16px;padding:18px;width:96%;max-width:520px;max-height:92vh;overflow-y:auto;">' +
+        '<h3 style="font-weight:700;margin-bottom:10px;">🎉 ' + _T('יומן חגים','ปฏิทินวันหยุด','تقويم الأعياد') + ' — ' + year + '</h3>' +
+
+        '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px;">' +
+          '<button onclick="Leave._importHolidaysNow(\'IL\')" style="padding:9px 6px;border-radius:9px;border:none;background:#2e7d32;color:white;font-family:inherit;font-weight:700;font-size:0.78rem;cursor:pointer;">📥 🇮🇱 ' + _T('ישראל','อิสราเอล','إسرائيل') + '</button>' +
+          '<button onclick="Leave._importHolidaysNow(\'TH\')" style="padding:9px 6px;border-radius:9px;border:none;background:#1565c0;color:white;font-family:inherit;font-weight:700;font-size:0.78rem;cursor:pointer;">📥 🇹🇭 ' + _T('תאילנד','ไทย','تايلاند') + '</button>' +
+          '<button onclick="Leave._importHolidaysNow(\'AR\')" style="padding:9px 6px;border-radius:9px;border:none;background:#7e57c2;color:white;font-family:inherit;font-weight:700;font-size:0.78rem;cursor:pointer;">📥 ☪️ ' + _T('איסלאם','อิสลาม','إسلامي') + '</button>' +
         '</div>' +
-        '<button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'" style="margin-top:8px;width:100%;padding:10px;border-radius:10px;border:none;background:#eee;font-family:inherit;cursor:pointer;">' + _T('סגור','ปิด','إغلاق') + '</button>' +
+
+        '<div style="display:flex;gap:4px;border-bottom:2px solid #e0e0e0;margin-bottom:10px;">' +
+          _holidayTab('IL', '🇮🇱 ' + _T('ישראל','อิสราเอล','إسرائيل')) +
+          _holidayTab('TH', '🇹🇭 ' + _T('תאילנד','ไทย','تايلاند')) +
+          _holidayTab('AR', '☪️ ' + _T('איסלאם','อิสลาม','إسلامي')) +
+        '</div>' +
+
+        '<div id="holidayListContent" style="color:#999;text-align:center;padding:14px;font-size:0.85rem;">' + _T('טוען...','กำลังโหลด...','جاري التحميل...') + '</div>' +
+
+        '<div style="display:flex;gap:6px;margin-top:14px;">' +
+          '<button onclick="Leave._saveHolidaySelections()" style="flex:1;padding:11px;border-radius:10px;border:none;background:#2e7d32;color:white;font-family:inherit;font-weight:700;cursor:pointer;">💾 ' + _T('שמור סימונים','บันทึก','حفظ التحديد') + '</button>' +
+          '<button onclick="Leave._generateHolidayEntriesNow()" style="flex:1;padding:11px;border-radius:10px;border:none;background:#ff9800;color:white;font-family:inherit;font-weight:700;cursor:pointer;">⚙️ ' + _T('צור רשומות','สร้างรายการ','إنشاء سجلات') + '</button>' +
+        '</div>' +
+        '<div style="font-size:0.7rem;color:#888;margin-top:8px;text-align:center;">' + _T('כל עובד מקבל רק חגים תואמים לשפה המוגדרת לו','พนักงานแต่ละคนได้รับเฉพาะวันหยุดที่ตรงกับภาษาที่ตั้งไว้','يحصل كل عامل فقط على العطل المطابقة للغته') + '</div>' +
+        '<button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'" style="margin-top:10px;width:100%;padding:10px;border-radius:10px;border:none;background:#eee;font-family:inherit;cursor:pointer;">' + _T('סגור','ปิด','إغلاق') + '</button>' +
       '</div></div>';
-    loadHolidayMap(year).then(function(map) {
-      var c = document.getElementById('holidayContent');
+
+    _renderHolidayList();
+  }
+
+  function _holidayTab(key, label) {
+    var active = _holidayActiveTab === key;
+    return '<button onclick="Leave._switchHolidayTab(\'' + key + '\')" style="flex:1;padding:8px 4px;border:none;background:none;font-family:inherit;font-weight:' + (active ? '700' : '500') + ';color:' + (active ? '#1565c0' : '#666') + ';border-bottom:3px solid ' + (active ? '#1565c0' : 'transparent') + ';cursor:pointer;font-size:0.85rem;">' + label + '</button>';
+  }
+
+  function _switchHolidayTab(key) {
+    _holidayActiveTab = key;
+    showHolidayAdmin();    // re-render to update tab highlight
+  }
+
+  function _renderHolidayList() {
+    var year = getCurrentYear();
+    loadHolidayDoc(year).then(function(doc) {
+      var c = document.getElementById('holidayListContent');
       if (!c) return;
-      var keys = Object.keys(map).sort();
-      if (!keys.length) {
-        c.innerHTML = '<div style="color:#999;">' + _T('לא קיימים נתונים — לחץ "ייבא מ-Hebcal"','ยังไม่มีข้อมูล - กด "นำเข้าจาก Hebcal"','لا توجد بيانات — اضغط "استيراد من Hebcal"') + '</div>';
+      var key = _holidayActiveTab;
+      var list = doc[key] || [];
+      if (list.length === 0) {
+        var srcLabel = key === 'IL' ? _T('ישראל','อิสราเอล','إسرائيل')
+                     : key === 'TH' ? _T('תאילנד','ไทย','تايلاند')
+                                    : _T('איסלאם','อิสลาม','إسلامي');
+        c.innerHTML = '<div style="color:#999;padding:14px;">' + _T('אין נתונים. לחץ "ייבא"','ไม่มีข้อมูล กด "นำเข้า"','لا توجد بيانات — اضغط "استيراد"') + ' (' + srcLabel + ')</div>';
         return;
       }
-      c.innerHTML = '<div style="font-size:0.82rem;text-align:start;">' + keys.map(function(d) {
-        return '<div style="padding:5px 0;border-bottom:1px solid #f0f0f0;">📅 ' + d + ' — ' + (map[d].name_he || '') + '</div>';
-      }).join('') + '</div>';
+      var html = '<div style="text-align:start;max-height:42vh;overflow-y:auto;border:1px solid #e0e0e0;border-radius:10px;padding:6px;">';
+      list.forEach(function(h, idx) {
+        var name = key === 'TH' ? h.name_th : key === 'AR' ? h.name_ar : h.name_he;
+        var checked = h.selected ? 'checked' : '';
+        html += '<label style="display:flex;align-items:center;gap:10px;padding:8px 6px;border-bottom:1px solid #f3f3f3;cursor:pointer;font-size:0.85rem;">' +
+          '<input type="checkbox" class="hol-cb" data-source="' + key + '" data-date="' + h.date + '" ' + checked + ' style="width:18px;height:18px;cursor:pointer;flex-shrink:0;">' +
+          '<span style="color:#666;font-size:0.78rem;min-width:80px;">📅 ' + h.date + '</span>' +
+          '<span style="flex:1;">' + (name || h.date) + '</span>' +
+        '</label>';
+      });
+      html += '</div>';
+      // Bulk-actions
+      html += '<div style="display:flex;gap:6px;margin-top:8px;font-size:0.8rem;">' +
+        '<button onclick="Leave._toggleAllHolidays(\'' + key + '\', true)" style="flex:1;padding:6px;border-radius:6px;border:1px solid #2e7d32;background:transparent;color:#2e7d32;cursor:pointer;font-family:inherit;">✓ ' + _T('סמן הכל','เลือกทั้งหมด','تحديد الكل') + '</button>' +
+        '<button onclick="Leave._toggleAllHolidays(\'' + key + '\', false)" style="flex:1;padding:6px;border-radius:6px;border:1px solid #c62828;background:transparent;color:#c62828;cursor:pointer;font-family:inherit;">✕ ' + _T('נקה הכל','ล้างทั้งหมด','إلغاء الكل') + '</button>' +
+      '</div>';
+      c.innerHTML = html;
     });
   }
 
-  function _importHolidaysNow() {
-    if (typeof showToast === 'function') showToast('📥 ' + _T('מייבא חגי ישראל...','กำลังนำเข้า...','جاري الاستيراد...'));
-    fetchAndCacheHolidays(getCurrentYear()).then(function() {
-      if (typeof showToast === 'function') showToast('✅ ' + _T('הייבוא הושלם','นำเข้าเสร็จสิ้น','اكتمل الاستيراد'));
+  function _toggleAllHolidays(key, value) {
+    document.querySelectorAll('.hol-cb[data-source="' + key + '"]').forEach(function(cb) {
+      cb.checked = value;
+    });
+  }
+
+  function _saveHolidaySelections() {
+    // Collect current checkbox state for the active tab AND persist
+    // (other tabs' state is already in doc and unchanged because we
+    // re-render on tab switch from storage).
+    var year = getCurrentYear();
+    loadHolidayDoc(year).then(function(doc) {
+      ['IL', 'TH', 'AR'].forEach(function(key) {
+        var cbs = document.querySelectorAll('.hol-cb[data-source="' + key + '"]');
+        if (cbs.length === 0) return;     // tab not currently visible
+        var selectedDates = {};
+        cbs.forEach(function(cb) {
+          if (cb.checked) selectedDates[cb.getAttribute('data-date')] = true;
+        });
+        (doc[key] || []).forEach(function(h) {
+          h.selected = !!selectedDates[h.date];
+        });
+      });
+      return saveHolidayDoc(doc);
+    }).then(function() {
+      if (typeof showToast === 'function') showToast('✅ ' + _T('סימונים נשמרו','บันทึกการเลือกแล้ว','تم حفظ التحديد'));
+    }).catch(function(err) {
+      if (typeof showToast === 'function') showToast('❌ ' + err.message);
+    });
+  }
+
+  function _importHolidaysNow(source) {
+    var labels = {
+      IL: _T('מייבא חגים ישראליים...','กำลังนำเข้าวันหยุดอิสราเอล...','جاري استيراد الأعياد الإسرائيلية...'),
+      TH: _T('מייבא חגים תאילנדיים...','กำลังนำเข้าวันหยุดไทย...','جاري استيراد الأعياد التايلاندية...'),
+      AR: _T('מייבא חגי איסלאם...','กำลังนำเข้าวันหยุดอิสลาม...','جاري استيراد الأعياد الإسلامية...')
+    };
+    if (typeof showToast === 'function') showToast('📥 ' + labels[source]);
+    importHolidays(getCurrentYear(), source).then(function(count) {
+      if (typeof showToast === 'function') showToast('✅ ' + count + ' ' + _T('חגים נטענו','วันหยุดถูกโหลด','أعياد تم تحميلها'));
+      _holidayActiveTab = source;
       showHolidayAdmin();
     }).catch(function(err) {
       if (typeof showToast === 'function') showToast('❌ ' + err.message);
@@ -833,7 +1075,7 @@ var Leave = (function() {
   }
 
   function _generateHolidayEntriesNow() {
-    if (!confirm(_T('ליצור רשומות חופש לחגים?','สร้างรายการลาวันหยุด?','إنشاء سجلات إجازة العيد؟'))) return;
+    if (!confirm(_T('ליצור רשומות חופש לחגים המסומנים?','สร้างรายการลาวันหยุดที่เลือก?','إنشاء سجلات إجازة العيد للأعياد المحددة؟'))) return;
     if (typeof showToast === 'function') showToast('⚙️ ' + _T('יוצר רשומות...','กำลังสร้าง...','جاري الإنشاء...'));
     generateHolidayEntries(getCurrentYear()).then(function(count) {
       if (typeof showToast === 'function') showToast('✅ ' + count + ' ' + _T('רשומות נוצרו','สร้างแล้ว','تم إنشاؤها'));
@@ -859,6 +1101,8 @@ var Leave = (function() {
     reject: reject,
     cancel: cancel,
     loadHolidayMap: loadHolidayMap,
+    loadHolidayDoc: loadHolidayDoc,
+    importHolidays: importHolidays,
     fetchAndCacheHolidays: fetchAndCacheHolidays,
     generateHolidayEntries: generateHolidayEntries,
     // UI
@@ -871,6 +1115,9 @@ var Leave = (function() {
     _approveOne: _approveOne,
     _rejectOne: _rejectOne,
     _importHolidaysNow: _importHolidaysNow,
-    _generateHolidayEntriesNow: _generateHolidayEntriesNow
+    _generateHolidayEntriesNow: _generateHolidayEntriesNow,
+    _switchHolidayTab: _switchHolidayTab,
+    _toggleAllHolidays: _toggleAllHolidays,
+    _saveHolidaySelections: _saveHolidaySelections
   };
 })();

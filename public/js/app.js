@@ -102,7 +102,7 @@
   }
 
   // Create user profile in Firestore (admin action)
-  function createUserProfile(email, name, role, farmPermissions) {
+  function createUserProfile(email, name, role, farmPermissions, lang) {
     var username = email.split('@')[0];
     users[username] = {
       id: Date.now(),
@@ -110,6 +110,7 @@
       username: username,
       email: email,
       role: role || 'worker',
+      lang: lang || 'he',
       farm_permissions: farmPermissions || [],
       created_at: Date.now()
     };
@@ -118,58 +119,31 @@
   }
 
   // ── Deep auth refresh ──
-  // Called between Firebase auth success and showing the app. Ensures the
-  // ID token has the correct role custom claim, calling the setUserRole
-  // Cloud Function if needed and force-refreshing the token so subsequent
-  // Firestore writes pass the strict (post-Phase 1 QA) rules instead of
-  // riding on the transitional noRoleYet() escape hatch.
+  // Called between Firebase auth success and showing the app. Forces a
+  // token refresh so server-side custom-claim changes (set by an admin
+  // via the user-management UI, or via Firebase console) are picked up
+  // by this session. Does NOT call setUserRole — that function is
+  // admin-only by design (see functions/index.js). If a user has no
+  // role claim yet, the Firestore rules' noRoleYet() escape hatch
+  // handles them until an admin assigns a role.
   //
-  // Returns Promise<profile>. Never rejects — auth failures surface a toast
-  // and let the user proceed (rules' noRoleYet still works as a fallback).
+  // Returns Promise<profile>. Never rejects — token-refresh failures
+  // are logged but the user is still allowed into the app.
   function ensureFreshAuth(profile) {
     var fbUser = (typeof firebase !== 'undefined' && firebase.auth) ? firebase.auth().currentUser : null;
     if (!fbUser || !profile) return Promise.resolve(profile);
 
-    return fbUser.getIdTokenResult().then(function(tokenResult) {
-      var claimedRole = tokenResult.claims && tokenResult.claims.role;
-      if (claimedRole === profile.role) {
-        // Already in sync. Token will auto-refresh via SDK before expiry.
+    return fbUser.getIdToken(true)        // force refresh — picks up server-side claim changes
+      .then(function() {
         return profile;
-      }
-      // Need to sync — invoke the Cloud Function, then force-refresh.
-      console.log('Auth deep-refresh: syncing claim role=' + profile.role + ' (was ' + claimedRole + ')');
-      var setRole = firebase.functions().httpsCallable('setUserRole');
-      return setRole({ uid: fbUser.uid, role: profile.role })
-        .then(function() { return fbUser.getIdToken(true); })       // force refresh
-        .then(function() { return fbUser.getIdTokenResult(); })     // re-read claims
-        .then(function(refreshed) {
-          if (refreshed.claims && refreshed.claims.role === profile.role) {
-            console.log('Auth deep-refresh: claim now ' + profile.role);
-            return profile;
-          }
-          // Custom claims propagation has a brief lag. Wait once and retry the refresh.
-          return new Promise(function(r) { setTimeout(r, 800); })
-            .then(function() { return fbUser.getIdToken(true); })
-            .then(function() { return fbUser.getIdTokenResult(); })
-            .then(function(again) {
-              if (again.claims && again.claims.role === profile.role) {
-                console.log('Auth deep-refresh: claim landed after retry');
-              } else {
-                console.warn('Auth deep-refresh: claim still not applied — falling back to noRoleYet');
-              }
-              return profile;
-            });
-        });
-    }).catch(function(err) {
-      // Don't block login on auth-sync failure. Surface to user.
-      console.warn('Auth deep-refresh failed:', err && err.message);
-      setTimeout(function() {
-        if (typeof showToast === 'function' && typeof t === 'function') {
-          showToast('⚠️ ' + t('סנכרון הרשאות נכשל — חלק מהפעולות עלולות להיכשל'));
-        }
-      }, 1500);
-      return profile;
-    });
+      })
+      .catch(function(err) {
+        // Token refresh is a best-effort background sync. The user's existing
+        // token is still valid (we only got here because Firebase auth succeeded),
+        // so we don't alarm them with a toast — just log for debugging.
+        console.warn('Token refresh failed (non-fatal):', err && err.message);
+        return profile;
+      });
   }
 
   // Single entry point used by every login flow (auth-state-changed,
@@ -1262,6 +1236,28 @@
     'הרשאות סונכרנו מחדש': { th: 'ซิงค์สิทธิ์ใหม่แล้ว', ar: 'تمت إعادة المزامنة' },
     'חזרה לרשימת פרויקטים': { th: 'กลับไปยังรายการ', ar: 'العودة لقائمة المشاريع' },
     'מחק פרויקט': { th: 'ลบโครงการ', ar: 'حذف المشروع' },
+
+    // ── Menu reorganization + multi-source holidays ──
+    'השעות שלי': { th: 'ชั่วโมงของฉัน', ar: 'ساعاتي' },
+    'מחלקת תחזוקה': { th: 'แผนกซ่อมบำรุง', ar: 'قسم الصيانة' },
+    'חגים': { th: 'วันหยุด', ar: 'الأعياد' },
+    'יומן חגים': { th: 'ปฏิทินวันหยุด', ar: 'تقويم الأعياد' },
+    'ישראל': { th: 'อิสราเอล', ar: 'إسرائيل' },
+    'תאילנד': { th: 'ไทย', ar: 'تايلاند' },
+    'איסלאם': { th: 'อิสลาม', ar: 'إسلامي' },
+    'שמור סימונים': { th: 'บันทึก', ar: 'حفظ التحديد' },
+    'סימונים נשמרו': { th: 'บันทึกการเลือกแล้ว', ar: 'تم حفظ التحديد' },
+    'סמן הכל': { th: 'เลือกทั้งหมด', ar: 'تحديد الكل' },
+    'נקה הכל': { th: 'ล้างทั้งหมด', ar: 'إلغاء الكل' },
+    'אין נתונים. לחץ "ייבא"': { th: 'ไม่มีข้อมูล กด "นำเข้า"', ar: 'لا توجد بيانات — اضغط "استيراد"' },
+    'מייבא חגים ישראליים...': { th: 'กำลังนำเข้าวันหยุดอิสราเอล...', ar: 'جاري استيراد الأعياد الإسرائيلية...' },
+    'מייבא חגים תאילנדיים...': { th: 'กำลังนำเข้าวันหยุดไทย...', ar: 'جاري استيراد الأعياد التايلاندية...' },
+    'מייבא חגי איסלאם...': { th: 'กำลังนำเข้าวันหยุดอิสลาม...', ar: 'جاري استيراد الأعياد الإسلامية...' },
+    'חגים נטענו': { th: 'วันหยุดถูกโหลด', ar: 'أعياد تم تحميلها' },
+    'ליצור רשומות חופש לחגים המסומנים?': { th: 'สร้างรายการลาวันหยุดที่เลือก?', ar: 'إنشاء سجلات إجازة العيد للأعياد المحددة؟' },
+    'כל עובד מקבל רק חגים תואמים לשפה המוגדרת לו': { th: 'พนักงานแต่ละคนได้รับเฉพาะวันหยุดที่ตรงกับภาษาที่ตั้งไว้', ar: 'يحصل كل عامل فقط على العطل المطابقة للغته' },
+    'שפה': { th: 'ภาษา', ar: 'اللغة' },
+    'קובע אילו חגים מופיעים בלוח של העובד': { th: 'กำหนดวันหยุดที่จะแสดงในปฏิทินของพนักงาน', ar: 'يحدد العطل الظاهرة في تقويم العامل' },
 
 
     // ── Toast messages (success/error) ──
@@ -3243,6 +3239,15 @@
               '<option value="admin"' + (isEdit && user.role === 'admin' ? ' selected' : '') + '>' + t('מנהל') + '</option>' +
             '</select>' +
           '</div>' +
+          '<div class="form-group">' +
+            '<label class="form-label">' + t('שפה') + '</label>' +
+            '<select class="form-input" id="userLang" style="cursor: pointer;">' +
+              '<option value="he"' + (isEdit && (user.lang === 'he' || !user.lang) ? ' selected' : '') + '>🇮🇱 עברית</option>' +
+              '<option value="th"' + (isEdit && user.lang === 'th' ? ' selected' : '') + '>🇹🇭 ไทย</option>' +
+              '<option value="ar"' + (isEdit && user.lang === 'ar' ? ' selected' : '') + '>🇸🇦 العربية</option>' +
+            '</select>' +
+            '<div style="font-size:0.7rem;color:#888;margin-top:4px;">' + t('קובע אילו חגים מופיעים בלוח של העובד') + '</div>' +
+          '</div>' +
           farmCheckboxes +
           '<div style="font-size:0.75rem;color:#999;padding:8px;background:#fff3e0;border-radius:8px;margin-bottom:12px;">💡 ' + t('מומלץ להשתמש בכתובת Gmail של העובד — כך יוכל להתחבר בלחיצה אחת עם Google') + '</div>' +
           '<div class="modal-buttons">' +
@@ -3258,6 +3263,7 @@
       var name = document.getElementById('userName').value.trim();
       var email = document.getElementById('userEmail').value.trim();
       var role = document.getElementById('userRole').value;
+      var lang = document.getElementById('userLang').value;
       
       var selectedFarms = [];
       container.querySelectorAll('.farm-permission-cb:checked').forEach(function(cb) {
@@ -3273,6 +3279,7 @@
         if (users[user.username]) {
           users[user.username].name = name;
           users[user.username].role = role;
+          users[user.username].lang = lang;
           users[user.username].farm_permissions = selectedFarms;
           DB.save('shorashim-users', users);
           renderUsersAdminList();
@@ -3295,6 +3302,7 @@
           username: username,
           email: email,
           role: role,
+          lang: lang,
           farm_permissions: selectedFarms,
           created_at: Date.now()
         };
