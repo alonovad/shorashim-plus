@@ -129,8 +129,9 @@ var Leave = (function() {
     var dayKeys = ['sun','mon','tue','wed','thu','fri','sat'];
 
     // Extract the schedule's per-day map ONCE, and only use it if it
-    // looks valid (object with at least one day defined). Otherwise we
-    // fall back to the safe Saturday-off default.
+    // looks valid — meaning at least ONE day has a truthy (non-null)
+    // entry. An all-null map like {sun:null, mon:null, ...} is treated
+    // as no schedule (otherwise every day gets skipped as "off" → 0).
     var sched = null;
     if (schedule && schedule.schedule && typeof schedule.schedule === 'object') {
       var anyDayDefined = false;
@@ -421,79 +422,63 @@ var Leave = (function() {
     });
   }
 
-  // ---- Source 2: date.nager.at (Thai public holidays) ----
+  // ---- Source 2: Thai public holidays (static JSON, bundled in /data/holidays/) ----
+  // No external API — files are hand-curated and shipped with the app.
+  // Admin updates them annually before a new year by editing the JSON.
   function fetchHolidays_TH(year) {
-    var url = 'https://date.nager.at/api/v3/PublicHolidays/' + year + '/TH';
-    return _fetchJSON(url, 15000, 'Nager-TH').then(function(json) {
-      if (!Array.isArray(json)) throw new Error('Nager-TH: malformed response');
-      return json.map(function(item) {
+    return _fetchStaticHolidays('TH', year).then(function(items) {
+      return items.map(function(h) {
         return {
-          date: item.date,
-          name_he: item.name || item.localName || '',
-          name_th: item.localName || item.name || '',
-          name_ar: item.name || item.localName || '',
+          date: h.date,
+          name_he: h.name_he || '',
+          name_th: h.name_th || '',
+          name_ar: h.name_ar || h.name_he || '',
           paid: true,
           selected: false,
-          source: 'nager-th'
+          source: 'static-th'
         };
       });
     });
   }
 
-  // ---- Source 3: Aladhan (Islamic religious holidays) ----
-  // Major Muslim holidays have fixed Hijri dates. We convert each to
-  // Gregorian using Aladhan's hToG endpoint.
-  var ISLAMIC_HOLIDAYS = [
-    { hMonth: 1,  hDay: 1,  name_he: 'ראש השנה האסלאמי',  name_ar: 'رأس السنة الهجرية',   name_th: 'ปีใหม่อิสลาม' },
-    { hMonth: 1,  hDay: 10, name_he: 'יום עשוראא׳',         name_ar: 'يوم عاشوراء',          name_th: 'วันอาชูรอ' },
-    { hMonth: 3,  hDay: 12, name_he: 'מולד אלנבי',          name_ar: 'المولد النبوي',        name_th: 'เมาลิด' },
-    { hMonth: 7,  hDay: 27, name_he: 'אסראא ומעראג׳',       name_ar: 'الإسراء والمعراج',     name_th: 'อิสรออ์และเมียะรอจญ์' },
-    { hMonth: 9,  hDay: 1,  name_he: 'תחילת רמדאן',         name_ar: 'بداية رمضان',          name_th: 'เริ่มต้นรอมฎอน' },
-    { hMonth: 9,  hDay: 27, name_he: 'ליל אלקדר',            name_ar: 'ليلة القدر',           name_th: 'ลัยละตุลก็อดร์' },
-    { hMonth: 10, hDay: 1,  name_he: 'עיד אלפיטר',          name_ar: 'عيد الفطر',            name_th: 'อีดิลฟิตริ' },
-    { hMonth: 10, hDay: 2,  name_he: 'עיד אלפיטר (יום 2)',  name_ar: 'عيد الفطر (اليوم 2)', name_th: 'อีดิลฟิตริ วันที่ 2' },
-    { hMonth: 12, hDay: 9,  name_he: 'יום עראפה',           name_ar: 'يوم عرفة',             name_th: 'วันอารอฟะฮ์' },
-    { hMonth: 12, hDay: 10, name_he: 'עיד אלאדחא',          name_ar: 'عيد الأضحى',           name_th: 'อีดิลอัฎฮา' },
-    { hMonth: 12, hDay: 11, name_he: 'עיד אלאדחא (יום 2)', name_ar: 'عيد الأضحى (اليوم 2)','name_th': 'อีดิลอัฎฮา วันที่ 2' }
-  ];
+  // ---- Source 3: Islamic religious holidays (static JSON, bundled) ----
+  // Sunni dates from standard Hijri calendar. May be ±1 day from
+  // official moon-sighting in a given country — the admin reviews
+  // each entry via the curation UI before generating timeclock records.
   function fetchHolidays_AR(year) {
-    // Islamic year roughly = Gregorian - 622. The exact Hijri year that
-    // overlaps Gregorian {year} can span two Hijri years. We do one Hijri
-    // year (Gregorian - 579, the dominant overlap), then filter results
-    // to only keep dates inside the requested Gregorian year. If too few
-    // results, we also do the next Hijri year and merge.
-    var hYearGuess = year - 579;   // approximate
-    function fetchForHijriYear(hYear) {
-      return Promise.all(ISLAMIC_HOLIDAYS.map(function(h) {
-        var url = 'https://api.aladhan.com/v1/hToG/' + h.hDay + '-' + h.hMonth + '-' + hYear;
-        return _fetchJSON(url, 15000, 'Aladhan').then(function(json) {
-          if (!json || !json.data || !json.data.gregorian) return null;
-          var g = json.data.gregorian;     // { date: 'DD-MM-YYYY' }
-          var parts = (g.date || '').split('-');
-          if (parts.length !== 3) return null;
-          return {
-            date: parts[2] + '-' + parts[1] + '-' + parts[0],   // YYYY-MM-DD
-            name_he: h.name_he, name_ar: h.name_ar, name_th: h.name_th,
-            paid: true, selected: false, source: 'aladhan'
-          };
-        }).catch(function() { return null; });
-      })).then(function(results) {
-        return results.filter(function(r) { return r != null; });
+    return _fetchStaticHolidays('AR', year).then(function(items) {
+      return items.map(function(h) {
+        return {
+          date: h.date,
+          name_he: h.name_he || '',
+          name_th: h.name_th || '',
+          name_ar: h.name_ar || '',
+          paid: true,
+          selected: false,
+          source: 'static-ar'
+        };
       });
-    }
-    return Promise.all([fetchForHijriYear(hYearGuess), fetchForHijriYear(hYearGuess + 1)])
-      .then(function(both) {
-        var merged = both[0].concat(both[1]);
-        var yearPrefix = String(year) + '-';
-        // Keep only dates inside the requested Gregorian year, dedupe by date
-        var seen = {};
-        return merged.filter(function(h) {
-          if (h.date.indexOf(yearPrefix) !== 0) return false;
-          if (seen[h.date]) return false;
-          seen[h.date] = true;
-          return true;
-        }).sort(function(a, b) { return a.date < b.date ? -1 : 1; });
-      });
+    });
+  }
+
+  // Helper: load /data/holidays/{SOURCE}-{year}.json — same-origin so no
+  // CORS issues, cached by the service worker. If the file is missing
+  // (e.g. user picks a year we haven't populated yet), surface a clear
+  // user-facing error.
+  function _fetchStaticHolidays(source, year) {
+    var url = 'data/holidays/' + source + '-' + year + '.json';
+    return fetch(url, { cache: 'no-cache' }).then(function(res) {
+      if (!res.ok) {
+        if (res.status === 404) {
+          throw new Error('No data file for ' + source + ' ' + year + ' — update public/data/holidays/');
+        }
+        throw new Error('Static holiday fetch ' + res.status);
+      }
+      return res.json();
+    }).then(function(json) {
+      if (!Array.isArray(json)) throw new Error('Static holiday file malformed (expected array)');
+      return json;
+    });
   }
 
   // ---- Fetcher utility ----

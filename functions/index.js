@@ -50,6 +50,10 @@ exports.setUserRole = onCall(
 // 2. TALGIL PROXY — with auth verification
 // ═══════════════════════════════════════════
 
+// ═══════════════════════════════════════════
+// 3. TALGIL PROXY — with auth verification
+// ═══════════════════════════════════════════
+
 exports.talgilProxy = onRequest(
   { region: "us-central1", maxInstances: 5 },
   async (req, res) => {
