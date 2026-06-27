@@ -31,6 +31,15 @@
         { "fieldPath": "username", "order": "ASCENDING" },
         { "fieldPath": "status", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "timeclock",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "username", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "DESCENDING" },
+        { "fieldPath": "punchIn", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

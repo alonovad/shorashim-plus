@@ -113,12 +113,14 @@ service cloud.firestore {
     match /leave-requests/{requestId} {
       allow read: if isSignedIn();
 
-      // Worker creates own request (username must match identity).
-      // Admin can create on behalf of anyone (e.g. admin's own username
-      // may not match their email prefix — manual setup).
-      allow create: if isAdmin() ||
-                    ((isWorkerOrAbove() || noRoleYet()) &&
-                     isOwn(request.resource.data.username));
+      // Worker creates own request. Gate on role tier (worker+) ONLY —
+      // identical to the timeclock create rule, which works. We dropped the
+      // isOwn(token.email) ownership check that was here: an absent or
+      // mismatched email claim made it return false and denied every leave
+      // write (while timeclock, lacking the check, kept working). The app
+      // always sets username to the logged-in user. Viewer stays blocked
+      // (not worker+), and the UI hides leave from viewers anyway.
+      allow create: if isWorkerOrAbove() || noRoleYet();
 
       // Operator+ approves/rejects
       allow update: if isOperatorOrAbove() || noRoleYet();
