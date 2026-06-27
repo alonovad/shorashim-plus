@@ -446,11 +446,15 @@ var Maintenance = (function() {
         tabH += '</div>';
 
         // ── Header ──
-        var headerH = '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;"><div>' +
+        var headerH = '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;gap:8px;"><div style="flex:1;min-width:0;">' +
           '<h3 style="font-weight:700;margin:0 0 4px;">🔧 ' + p.name + '</h3>' +
           (p.client ? '<div style="font-size:0.82rem;color:var(--text-muted, #666);">👤 ' + p.client + '</div>' : '') +
           (p.description ? '<div style="font-size:0.78rem;color:var(--text-muted, #999);margin-top:2px;">' + p.description + '</div>' : '') +
-        '</div><span style="font-size:0.72rem;padding:4px 10px;border-radius:6px;background:' + st.color + '22;color:' + st.color + ';font-weight:600;white-space:nowrap;">' + st.label + '</span></div>';
+        '</div>' +
+        '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0;">' +
+          '<button onclick="Maintenance.showProjectsList()" title="' + tt('חזרה לרשימה','กลับ','العودة للقائمة') + '" style="border:none;background:var(--surface-glass, #f0f0f0);color:var(--text, #555);width:32px;height:32px;border-radius:8px;font-size:1.2rem;cursor:pointer;line-height:1;display:flex;align-items:center;justify-content:center;" aria-label="' + tt('סגור','ปิด','إغلاق') + '">✕</button>' +
+          '<span style="font-size:0.72rem;padding:4px 10px;border-radius:6px;background:' + st.color + '22;color:' + st.color + ';font-weight:600;white-space:nowrap;">' + st.label + '</span>' +
+        '</div></div>';
 
         var bodyH = '';
 
@@ -503,10 +507,9 @@ var Maintenance = (function() {
             '<button onclick="Maintenance._shipPDF(' + pid + ')" style="flex:1;padding:10px;border-radius:10px;border:none;background:#7e57c2;color:white;font-family:inherit;font-weight:700;cursor:pointer;font-size:0.85rem;">🚚 ' + tt('יומן משלוחים','บันทึกจัดส่ง','سجل الشحنات') + '</button>' +
             (canEdit ? '<button onclick="Maintenance.showNewProject(' + pid + ')" style="flex:1;padding:10px;border-radius:10px;border:none;background:#ff9800;color:white;font-family:inherit;font-weight:700;cursor:pointer;font-size:0.85rem;">✏️ ' + tt('עריכה','แก้ไข','تعديل') + '</button>' : '') +
           '</div>' +
-          '<div style="display:flex;gap:6px;margin-top:6px;">' +
-            (canEdit ? '<button onclick="Maintenance._delProj(' + pid + ')" style="padding:10px 16px;border-radius:10px;border:none;background:#f44336;color:white;font-family:inherit;font-weight:700;cursor:pointer;">🗑️</button>' : '') +
-            '<button onclick="Maintenance.showProjectsList()" style="flex:1;padding:10px;border-radius:10px;border:none;background:var(--surface-glass, #eee);color:var(--text, inherit);font-family:inherit;cursor:pointer;">' + tt('חזרה לרשימה','กลับ','العودة للقائمة') + '</button>' +
-          '</div>';
+          (canEdit ? '<div style="margin-top:6px;">' +
+            '<button onclick="Maintenance._delProj(' + pid + ')" style="width:100%;padding:10px 16px;border-radius:10px;border:1px solid #f44336;background:transparent;color:#f44336;font-family:inherit;font-weight:700;cursor:pointer;">🗑️ ' + tt('מחק פרויקט','ลบโครงการ','حذف المشروع') + '</button>' +
+          '</div>' : '');
         }
 
         // ──────────────────────
@@ -663,9 +666,14 @@ var Maintenance = (function() {
           }
         }
 
+        // ── Universal back-to-list footer (every tab) ──
+        var backFooter = '<div style="margin-top:18px;padding-top:12px;border-top:1px solid var(--border, #eee);">' +
+          '<button onclick="Maintenance.showProjectsList()" style="width:100%;padding:11px;border-radius:10px;border:none;background:var(--surface-glass, #eee);color:var(--text, inherit);font-family:inherit;font-weight:600;cursor:pointer;">← ' + tt('חזרה לרשימת פרויקטים','กลับไปยังรายการ','العودة لقائمة المشاريع') + '</button>' +
+        '</div>';
+
         // ── Render ──
         var modal = document.getElementById('modalContainer');
-        modal.innerHTML = '<div style="' + modalBg + '"><div data-maint-project-id="' + pid + '" data-maint-active-tab="' + _activeTab + '" style="' + modalCard + '700px;max-height:90vh;overflow-y:auto;">' + headerH + tabH + bodyH + '</div></div>';
+        modal.innerHTML = '<div style="' + modalBg + '"><div data-maint-project-id="' + pid + '" data-maint-active-tab="' + _activeTab + '" style="' + modalCard + '700px;max-height:90vh;overflow-y:auto;">' + headerH + tabH + bodyH + backFooter + '</div></div>';
       });
     });
   }
