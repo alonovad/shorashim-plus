@@ -24,11 +24,15 @@ service cloud.firestore {
       return isSignedIn() && getRole() == null;
     }
     // App stores `username` as the prefix of the user's email (everything
-    // before '@'). Compare via startsWith to be CEL-safe — split() exists
-    // but startsWith is unambiguous and supports all auth domains.
+    // before '@'), via email.split('@')[0] WITHOUT lowercasing — so a
+    // worker with an uppercase email local-part (e.g. Somchai@gmail.com)
+    // gets username "Somchai". Compare both sides lowercased, by EQUALITY
+    // against the email prefix. Equality (not matches) is deliberate:
+    // injecting the username into a regex let a worker set username='.*'
+    // to match any email and forge ownership. split('@')[0] is CEL-safe.
     function isOwn(usernameField) {
       return isSignedIn() && request.auth.token.email != null &&
-             request.auth.token.email.lower().matches('^' + usernameField + '@.*');
+             usernameField.lower() == request.auth.token.email.lower().split('@')[0];
     }
 
     // ── appData collection ──
