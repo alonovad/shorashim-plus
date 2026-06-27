@@ -1286,3 +1286,131 @@ select:focus, textarea:focus, input:focus {
   .tab-content { position: static; display: block !important; overflow: visible; }
   .section-card { backdrop-filter: none; background: white; }
 }
+
+/* ══════════════════════════════════════════════
+   v1.1 patches — tab scroll hint, spray sub-views,
+   hamburger group polish (append-only)
+   ══════════════════════════════════════════════ */
+
+/* ── Tab bar: visual hint that it scrolls sideways ── */
+.tab-bar-wrap {
+  position: relative;
+}
+.tab-bar-wrap::before,
+.tab-bar-wrap::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 36px;
+  pointer-events: none;
+  z-index: 2;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.tab-bar-wrap::before {
+  left: 0;
+  background: linear-gradient(90deg, rgba(255,255,255,0.95), rgba(255,255,255,0));
+}
+.tab-bar-wrap::after {
+  right: 0;
+  background: linear-gradient(270deg, rgba(255,255,255,0.95), rgba(255,255,255,0));
+}
+.tab-bar-wrap.can-scroll-start::before { opacity: 1; }
+.tab-bar-wrap.can-scroll-end::after { opacity: 1; }
+
+/* Chevron pills overlaid on the tab bar — anchored to viewport edges */
+.tab-scroll-hint {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--g2), var(--g3));
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.78rem;
+  font-weight: 800;
+  pointer-events: none;
+  z-index: 3;
+  box-shadow: 0 2px 6px rgba(43,106,79,0.35);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.tab-scroll-hint.start { left: 4px; }
+.tab-scroll-hint.end { right: 4px; }
+.tab-bar-wrap.can-scroll-start .tab-scroll-hint.start { opacity: 0.92; }
+.tab-bar-wrap.can-scroll-end .tab-scroll-hint.end { opacity: 0.92; }
+
+/* Dark theme overrides for the gradient fade */
+body.theme-neon .tab-bar-wrap::before {
+  background: linear-gradient(90deg, rgba(7,21,16,0.95), rgba(7,21,16,0));
+}
+body.theme-neon .tab-bar-wrap::after {
+  background: linear-gradient(270deg, rgba(7,21,16,0.95), rgba(7,21,16,0));
+}
+
+/* ── Spray sub-view toggle ── */
+.spray-subview-toggle {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.spray-subview-toggle .sv-btn {
+  flex: 1;
+  padding: 11px 8px;
+  border-radius: 12px;
+  border: none;
+  background: var(--surface-glass, #f5f7f5);
+  color: var(--text-muted, #666);
+  font-family: inherit;
+  font-size: 0.88rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.spray-subview-toggle .sv-btn.active {
+  background: linear-gradient(135deg, var(--g2), var(--g3));
+  color: white;
+  box-shadow: 0 3px 10px rgba(43,106,79,0.3);
+}
+.spray-subview-toggle .sv-btn:active { transform: scale(0.97); }
+
+/* ── Hamburger group headers (made prominent) ── */
+.menu-group-head {
+  display: flex !important;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px !important;
+  cursor: pointer;
+  margin: 12px 0 8px !important;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #2d6a4f, #40916c) !important;
+  color: white !important;
+  border: none !important;
+  box-shadow: 0 2px 8px rgba(43,106,79,0.25);
+}
+.menu-group-head .mg-label {
+  font-weight: 800 !important;
+  font-size: 0.95rem !important;
+  color: white !important;
+  letter-spacing: 0.01em;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.menu-group-head .mg-chev {
+  font-size: 1rem;
+  opacity: 0.9;
+  transition: transform 0.2s;
+}
+.menu-group-head.open .mg-chev { transform: rotate(90deg); }
+.menu-group-head:active { transform: scale(0.98); }
+body.theme-neon .menu-group-head {
+  background: linear-gradient(135deg, #1a3a2a, #2d6a4f) !important;
+  box-shadow: 0 2px 10px rgba(57,255,20,0.18);
+}
+

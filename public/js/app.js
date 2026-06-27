@@ -1,5 +1,75 @@
   'use strict';
 
+  // ── Util: shared helpers ──
+  // exportReport(html, filename) — universal mobile-friendly export.
+  // Opens the report in a new browser tab so the user can use the browser's
+  // built-in "Print → Save as PDF" flow (works reliably on iOS/Android/desktop).
+  // Falls back to a blob download if popups are blocked.
+  window.Util = window.Util || {};
+  window.Util.exportReport = function(html, filename) {
+    var hebrew = (typeof t === 'function');
+    var btnSave  = hebrew ? t('שמור כ-PDF')  : 'Save as PDF';
+    var btnDl    = hebrew ? t('הורד HTML')   : 'Download HTML';
+    var btnClose = hebrew ? t('סגור')        : 'Close';
+
+    // Inject a no-print toolbar with Save/Print and Download buttons.
+    var toolbar =
+      '<div class="no-print" id="__print_toolbar" style="position:fixed;top:8px;inset-inline-start:8px;display:flex;gap:8px;z-index:99999;direction:rtl;font-family:-apple-system,Segoe UI,Arial,sans-serif;">' +
+        '<button onclick="window.print()" style="padding:11px 18px;background:#2d6a4f;color:#fff;border:none;border-radius:10px;font-weight:800;font-size:0.92rem;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.2);">📄 ' + btnSave + '</button>' +
+        '<button onclick="__doDownload()" style="padding:11px 18px;background:#1565c0;color:#fff;border:none;border-radius:10px;font-weight:800;font-size:0.92rem;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.2);">💾 ' + btnDl + '</button>' +
+        '<button onclick="window.close()" style="padding:11px 14px;background:#777;color:#fff;border:none;border-radius:10px;font-weight:700;font-size:0.92rem;cursor:pointer;">✕ ' + btnClose + '</button>' +
+      '</div>' +
+      '<script>function __doDownload(){var b=new Blob([document.documentElement.outerHTML],{type:"text/html;charset=utf-8"});var a=document.createElement("a");a.href=URL.createObjectURL(b);a.download=' + JSON.stringify(filename || 'report.html') + ';document.body.appendChild(a);a.click();setTimeout(function(){document.body.removeChild(a);URL.revokeObjectURL(a.href);},100);}<\/script>' +
+      '<style>@media print{.no-print,#__print_toolbar{display:none !important;}}</style>';
+
+    // Place the toolbar right after the opening <body> if present, otherwise prepend to body content.
+    var enhanced;
+    if (/<body[^>]*>/i.test(html)) {
+      enhanced = html.replace(/<body([^>]*)>/i, '<body$1>' + toolbar);
+    } else {
+      enhanced = toolbar + html;
+    }
+
+    var w = null;
+    try { w = window.open('', '_blank'); } catch (e) {}
+    if (w && w.document) {
+      try {
+        w.document.open();
+        w.document.write(enhanced);
+        w.document.close();
+        w.focus();
+        return;
+      } catch (e) { /* fall through to blob fallback */ }
+    }
+
+    // Fallback: download as .html (last-resort when popups are blocked)
+    var blob = new Blob([enhanced], { type: 'text/html;charset=utf-8' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename || 'report.html';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function() {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+    }, 100);
+  };
+
+  // localizedName(obj) — returns the language-specific display name for a
+  // user-entered entity (plot, farm, worker group, crop, etc.). Picks
+  // obj.name_th or obj.name_ar when current language matches and the
+  // translation is non-empty, otherwise falls back to obj.name.
+  // Safe for any object — returns '' if obj/name is missing.
+  window.Util.localizedName = function(obj) {
+    if (!obj) return '';
+    var lang = (typeof currentLang !== 'undefined') ? currentLang : 'he';
+    if (lang === 'th' && obj.name_th) return obj.name_th;
+    if (lang === 'ar' && obj.name_ar) return obj.name_ar;
+    return obj.name || '';
+  };
+  // Convenience short alias on window
+  window.locName = window.Util.localizedName;
+
   // ── FIREBASE AUTHENTICATION ──
   var users = {};
   
@@ -47,21 +117,90 @@
     return users[username];
   }
 
-  function showApp(user, farm) {
-    // Sync role to Firebase custom claims (non-blocking)
-    try {
-      var fbUser = firebase.auth().currentUser;
-      if (fbUser && user && user.role) {
-        fbUser.getIdTokenResult().then(function(tokenResult) {
-          if (tokenResult.claims.role !== user.role) {
-            var setRole = firebase.functions().httpsCallable('setUserRole');
-            setRole({ uid: fbUser.uid, role: user.role }).then(function() {
-              fbUser.getIdToken(true); // force refresh
-            }).catch(function(e) { console.warn('Role sync:', e.message); });
-          }
-        });
+  // ── Deep auth refresh ──
+  // Called between Firebase auth success and showing the app. Ensures the
+  // ID token has the correct role custom claim, calling the setUserRole
+  // Cloud Function if needed and force-refreshing the token so subsequent
+  // Firestore writes pass the strict (post-Phase 1 QA) rules instead of
+  // riding on the transitional noRoleYet() escape hatch.
+  //
+  // Returns Promise<profile>. Never rejects — auth failures surface a toast
+  // and let the user proceed (rules' noRoleYet still works as a fallback).
+  function ensureFreshAuth(profile) {
+    var fbUser = (typeof firebase !== 'undefined' && firebase.auth) ? firebase.auth().currentUser : null;
+    if (!fbUser || !profile) return Promise.resolve(profile);
+
+    return fbUser.getIdTokenResult().then(function(tokenResult) {
+      var claimedRole = tokenResult.claims && tokenResult.claims.role;
+      if (claimedRole === profile.role) {
+        // Already in sync. Token will auto-refresh via SDK before expiry.
+        return profile;
       }
-    } catch(e) { /* ignore — non-critical */ }
+      // Need to sync — invoke the Cloud Function, then force-refresh.
+      console.log('Auth deep-refresh: syncing claim role=' + profile.role + ' (was ' + claimedRole + ')');
+      var setRole = firebase.functions().httpsCallable('setUserRole');
+      return setRole({ uid: fbUser.uid, role: profile.role })
+        .then(function() { return fbUser.getIdToken(true); })       // force refresh
+        .then(function() { return fbUser.getIdTokenResult(); })     // re-read claims
+        .then(function(refreshed) {
+          if (refreshed.claims && refreshed.claims.role === profile.role) {
+            console.log('Auth deep-refresh: claim now ' + profile.role);
+            return profile;
+          }
+          // Custom claims propagation has a brief lag. Wait once and retry the refresh.
+          return new Promise(function(r) { setTimeout(r, 800); })
+            .then(function() { return fbUser.getIdToken(true); })
+            .then(function() { return fbUser.getIdTokenResult(); })
+            .then(function(again) {
+              if (again.claims && again.claims.role === profile.role) {
+                console.log('Auth deep-refresh: claim landed after retry');
+              } else {
+                console.warn('Auth deep-refresh: claim still not applied — falling back to noRoleYet');
+              }
+              return profile;
+            });
+        });
+    }).catch(function(err) {
+      // Don't block login on auth-sync failure. Surface to user.
+      console.warn('Auth deep-refresh failed:', err && err.message);
+      setTimeout(function() {
+        if (typeof showToast === 'function' && typeof t === 'function') {
+          showToast('⚠️ ' + t('סנכרון הרשאות נכשל — חלק מהפעולות עלולות להיכשל'));
+        }
+      }, 1500);
+      return profile;
+    });
+  }
+
+  // Single entry point used by every login flow (auth-state-changed,
+  // email/password, Google). Wraps the deep-refresh + the app boot so all
+  // four code paths stay in lockstep.
+  function enterApp(profile) {
+    var errorEl = document.getElementById('loginError');
+    if (errorEl) errorEl.textContent = '🔐 ' + (typeof t === 'function' ? t('מסנכרן הרשאות...') : 'Syncing...');
+    return ensureFreshAuth(profile).then(function(p) {
+      if (errorEl) errorEl.textContent = '';
+      showApp(p, null);
+      initMapAndData();
+    });
+  }
+
+  // Expose the deep-refresh as a global escape hatch. The profile edit
+  // screen and any other UI that wants "re-sync permissions" can call
+  // window.__resyncAuth() to force a fresh token + claim verification.
+  window.__resyncAuth = function() {
+    if (!window.currentUser) return Promise.resolve();
+    if (typeof showToast === 'function' && typeof t === 'function') {
+      showToast('🔐 ' + t('מסנכרן הרשאות...'));
+    }
+    return ensureFreshAuth(window.currentUser).then(function() {
+      if (typeof showToast === 'function' && typeof t === 'function') {
+        showToast('✅ ' + t('הרשאות סונכרנו מחדש'));
+      }
+    });
+  };
+
+  function showApp(user, farm) {
     currentUser = user;
     // Make currentUser available globally
     window.currentUser = user;
@@ -73,6 +212,10 @@
     adminTabs.forEach(function(tab) {
       tab.style.display = (user.role === 'admin' || user.role === 'operator') ? 'block' : 'none';
     });
+    // Re-evaluate scroll-hint affordance after tab visibility may have changed.
+    if (typeof window.__refreshTabScrollHints === 'function') {
+      setTimeout(window.__refreshTabScrollHints, 50);
+    }
 
     // Init time clock
     if (typeof TimeClock !== 'undefined') TimeClock.init();
@@ -112,8 +255,7 @@
           loadUsers().then(function() {
             var profile = getUserByEmail(firebaseUser.email);
             if (profile) {
-              showApp(profile, null);
-              initMapAndData();
+              enterApp(profile);
             } else {
               // User exists in Firebase Auth but no profile — show login screen
               // They need to be added by admin first
@@ -152,8 +294,7 @@
             auth.signOut();
             return;
           }
-          showApp(profile, null);
-          initMapAndData();
+          enterApp(profile);
         });
       })
       .catch(function(err) {
@@ -168,8 +309,7 @@
                   auth.signOut();
                   return;
                 }
-                showApp(profile, null);
-                initMapAndData();
+                enterApp(profile);
               });
             })
             .catch(function(err2) {
@@ -208,8 +348,7 @@
             auth.signOut();
             return;
           }
-          showApp(profile, null);
-          initMapAndData();
+          enterApp(profile);
         });
       })
       .catch(function(err) {
@@ -359,6 +498,8 @@
     'שטח': { th: 'พื้นที่', ar: 'مساحة' },
     'שטח כולל': { th: 'พื้นที่รวม', ar: 'المساحة الإجمالية' },
     'דונם': { th: 'ดูนัม', ar: 'دونم' },
+    "ד'": { th: 'ดูนัม', ar: 'دونم' },
+    "שטח (ד')": { th: 'พื้นที่ (ดูนัม)', ar: 'مساحة (د)' },
     'השקייה': { th: 'ให้น้ำ', ar: 'ري' },
     'קוב לדונם/פתיחה': { th: 'ลบ.ม./ดูนัม', ar: 'كوب/دونم' },
     'ימי השקייה בשבוע': { th: 'วันให้น้ำต่อสัปดาห์', ar: 'أيام ري بالأسبوع' },
@@ -728,7 +869,12 @@
     'מפעיל': { th: 'ผู้ปฏิบัติงาน', ar: 'مشغل' },
     'נפח/עץ': { th: 'ปริมาตร/ต้น', ar: 'حجم/شجرة' },
     'חומר': { th: 'สาร', ar: 'مادة' },
+    'חומרים': { th: 'สารเคมี', ar: 'مواد' },
     'מרסס': { th: 'เครื่องพ่น', ar: 'رشاش' },
+    'ריסוס חדש': { th: 'พ่นยาใหม่', ar: 'رش جديد' },
+    'הדו"ח נפתח — לחץ שמור כ-PDF': { th: 'รายงานเปิดแล้ว — กดบันทึกเป็น PDF', ar: 'فُتح التقرير — اضغط حفظ كـ PDF' },
+    'שמור כ-PDF': { th: 'บันทึกเป็น PDF', ar: 'حفظ كـ PDF' },
+    'הורד HTML': { th: 'ดาวน์โหลด HTML', ar: 'تنزيل HTML' },
 
     // ── Pesticide admin ──
     'עריכת חומר': { th: 'แก้ไขสารเคมี', ar: 'تعديل مبيد' },
@@ -915,6 +1061,205 @@
     'סנסן ודקל': { th: 'ซันซัน เว ดาเคล', ar: 'سنسن ودقل' },
     'אדיר שלמה': { th: 'อาดีร์ ชโลโม', ar: 'أدير شلومو' },
     'יובל בן עמי': { th: 'ยูวาล เบ็น อามี', ar: 'يوفال بن عمي' },
+
+    // ── Missing entries from audit (v1.2) ──
+    'גידולים': { th: 'พืชผล', ar: 'محاصيل' },
+    'גידול': { th: 'พืช', ar: 'محصول' },
+    'גיזום': { th: 'ตัดแต่งกิ่ง', ar: 'تقليم' },
+    'הוסף לרשימה': { th: 'เพิ่มในรายการ', ar: 'إضافة إلى القائمة' },
+    'לא נמצאו תוצאות': { th: 'ไม่พบผลลัพธ์', ar: 'لم يتم العثور على نتائج' },
+    'צפה בתווית הרשמית': { th: 'ดูฉลากทางการ', ar: 'عرض الملصق الرسمي' },
+    'תווית זמינה': { th: 'มีฉลาก', ar: 'الملصق متاح' },
+    'תכשירים': { th: 'สารเคมี', ar: 'مبيدات' },
+    'תכשירים רשומים': { th: 'สารเคมีที่จดทะเบียน', ar: 'مبيدات مسجلة' },
+    'קיוץ': { th: 'ตัดแต่ง', ar: 'تقليم' },
+    'שעה': { th: 'ชั่วโมง', ar: 'ساعة' },
+
+    // ── Name-translation UI (for plots, farms, crops) ──
+    'שם בעברית': { th: 'ชื่อภาษาฮีบรู', ar: 'الاسم بالعبرية' },
+    'שם בתאית': { th: 'ชื่อภาษาไทย', ar: 'الاسم بالتايلاندية' },
+    'שם בערבית': { th: 'ชื่อภาษาอาหรับ', ar: 'الاسم بالعربية' },
+    'תרגומים (אופציונלי)': { th: 'การแปล (ไม่บังคับ)', ar: 'الترجمات (اختياري)' },
+    'תרגומים': { th: 'การแปล', ar: 'الترجمات' },
+    'אופציונלי': { th: 'ไม่บังคับ', ar: 'اختياري' },
+
+    // ── Field-report severity labels ──
+    'נקי': { th: 'สะอาด', ar: 'نظيف' },
+    'קל': { th: 'เล็กน้อย', ar: 'خفيف' },
+    'בינוני': { th: 'ปานกลาง', ar: 'متوسط' },
+    'חמור': { th: 'รุนแรง', ar: 'شديد' },
+    'קריטי': { th: 'วิกฤต', ar: 'حرج' },
+
+    // ── Field-report pest catalogue ──
+    'חיפושית דקל אדומה': { th: 'ด้วงแดงปาล์ม', ar: 'سوسة النخيل الحمراء' },
+    'כנימת מגן': { th: 'เพลี้ยหอย', ar: 'بق دقيقي' },
+    'חדקונית הדקל': { th: 'งวงปาล์ม', ar: 'سوسة النخيل' },
+    'עש התמר': { th: 'ผีเสื้อกลางคืนอินทผลัม', ar: 'فراشة التمر' },
+    'זבוב הפירות': { th: 'แมลงวันผลไม้', ar: 'ذبابة الفاكهة' },
+    'נמלים': { th: 'มด', ar: 'نمل' },
+    'עכבישים אדומים': { th: 'ไรแดง', ar: 'العنكبوت الأحمر' },
+    'כנימת עלה': { th: 'เพลี้ยอ่อน', ar: 'حشرات المن' },
+    'ביוד (Bayoud)': { th: 'ไบยุด (Bayoud)', ar: 'البيوض (Bayoud)' },
+    'כתמי עלים': { th: 'จุดใบ', ar: 'بقع الأوراق' },
+    'הכהיית פרי': { th: 'ผลคล้ำ', ar: 'اسوداد الثمار' },
+
+    // ── Field-report location chips (on the tree/plant) ──
+    'גזע': { th: 'ลำต้น', ar: 'الجذع' },
+    'עלים': { th: 'ใบ', ar: 'الأوراق' },
+    'פרי': { th: 'ผล', ar: 'الثمار' },
+    'צמרת': { th: 'ยอด', ar: 'القمة' },
+    'שורשים': { th: 'ราก', ar: 'الجذور' },
+    'תפרחת': { th: 'ช่อดอก', ar: 'النورة' },
+
+    // ── Display-settings theme names ──
+    'קלאסי (בהיר)': { th: 'คลาสสิก (สว่าง)', ar: 'كلاسيكي (فاتح)' },
+    'יער ניאון': { th: 'ป่านีออน', ar: 'غابة النيون' },
+    'ברקת זוהרת': { th: 'มรกตเรืองแสง', ar: 'زمرد متوهج' },
+    'שעת הזהב': { th: 'ชั่วโมงทอง', ar: 'الساعة الذهبية' },
+    'אוקיינוס עמוק': { th: 'มหาสมุทรลึก', ar: 'المحيط العميق' },
+    'לילות ערבה': { th: 'ค่ำคืนทะเลทราย', ar: 'ليالي العربة' },
+
+    // ── Meckano upgrade — Phase 1 ──
+    'רדיוס גיאופנס לנוכחות': { th: 'รัศมีจีโอเฟนซ์สำหรับเข้างาน', ar: 'نطاق التموقع للحضور' },
+    '(מטר, ברירת מחדל 100)': { th: '(เมตร, ค่าเริ่มต้น 100)', ar: '(متر، الافتراضي 100)' },
+    'רדיוס גיאופנס חייב להיות בין 20 ל-500 מטר': { th: 'รัศมีต้องอยู่ระหว่าง 20-500 เมตร', ar: 'النطاق يجب أن يكون بين 20 و500 متر' },
+    'במצב לא מקוון': { th: 'ออฟไลน์', ar: 'غير متصل' },
+    'הרשומה תסונכרן כשתחזור לאינטרנט': { th: 'จะซิงค์เมื่อกลับมาออนไลน์', ar: 'سيُزامن عند العودة للإنترنت' },
+    'הרשומה סונכרנה': { th: 'ซิงค์รายการแล้ว', ar: 'تمت مزامنة السجل' },
+    'סיבת העריכה': { th: 'เหตุผลในการแก้ไข', ar: 'سبب التعديل' },
+    'אופציונלי - יישמר ביומן הביקורת': { th: 'ไม่บังคับ - บันทึกใน audit log', ar: 'اختياري - يُسجل في سجل التدقيق' },
+    'יומן ביקורת': { th: 'บันทึกการตรวจสอบ', ar: 'سجل التدقيق' },
+
+    // ── Meckano upgrade — Phase 2 (geo + breaks + override) ──
+    'מאתר מיקום...': { th: 'กำลังระบุตำแหน่ง...', ar: 'جاري تحديد الموقع...' },
+    'מחוץ לטווח': { th: 'นอกพื้นที่', ar: 'خارج النطاق' },
+    'ללא GPS': { th: 'ไม่มี GPS', ar: 'بدون GPS' },
+    'דיוק נמוך': { th: 'ความแม่นยำต่ำ', ar: 'دقة منخفضة' },
+    'אושר ידנית': { th: 'อนุมัติด้วยตนเอง', ar: 'تم الاعتماد يدوياً' },
+    'ממתין לאישור': { th: 'รออนุมัติ', ar: 'بانتظار الاعتماد' },
+    'אשר ידנית': { th: 'อนุมัติด้วยตนเอง', ar: 'اعتماد يدوي' },
+    'סיבת אישור ידני (חובה):': { th: 'เหตุผลในการอนุมัติด้วยตนเอง (จำเป็น):', ar: 'سبب الاعتماد اليدوي (مطلوب):' },
+    'חייב לציין סיבה': { th: 'ต้องระบุเหตุผล', ar: 'يجب ذكر السبب' },
+    'מיקום': { th: 'ตำแหน่ง', ar: 'الموقع' },
+    'דיוק': { th: 'ความแม่นยำ', ar: 'الدقة' },
+    'כניסה': { th: 'เข้า', ar: 'دخول' },
+    'יציאה': { th: 'ออก', ar: 'خروج' },
+    // Breaks
+    'הפסקות': { th: 'พัก', ar: 'استراحات' },
+    'הפסקה': { th: 'พัก', ar: 'استراحة' },
+    'סוג הפסקה': { th: 'ประเภทการพัก', ar: 'نوع الاستراحة' },
+    'הפסקת אוכל': { th: 'พักทานข้าว', ar: 'استراحة طعام' },
+    'הפסקה קצרה': { th: 'พักสั้น', ar: 'استراحة قصيرة' },
+    'הפסקה אישית': { th: 'พักส่วนตัว', ar: 'استراحة شخصية' },
+    'בהפסקת אוכל': { th: 'พักทานข้าว', ar: 'في استراحة طعام' },
+    'בהפסקה': { th: 'พัก', ar: 'في استراحة' },
+    'בהפסקה אישית': { th: 'พักส่วนตัว', ar: 'في استراحة شخصية' },
+    'התחל הפסקה': { th: 'เริ่มพัก', ar: 'بدء استراحة' },
+    '▶️ סיים הפסקה': { th: '▶️ สิ้นสุดพัก', ar: '▶️ إنهاء الاستراحة' },
+    'הפסקה הסתיימה': { th: 'สิ้นสุดการพัก', ar: 'انتهت الاستراحة' },
+    'הופחתה הפסקה אוטומטית': { th: 'หักพักอัตโนมัติ', ar: 'تم خصم استراحة تلقائياً' },
+    'אוטומטי': { th: 'อัตโนมัติ', ar: 'تلقائي' },
+    'דקות': { th: 'นาที', ar: 'دقيقة' },
+
+    // ── Meckano upgrade — Phase 3 (schedules + OT) ──
+    'לוח זמנים': { th: 'ตารางเวลา', ar: 'جدول العمل' },
+    'לוחות זמנים': { th: 'ตารางเวลา', ar: 'جداول العمل' },
+    'השבוע שלי': { th: 'สัปดาห์ของฉัน', ar: 'أسبوعي' },
+    'שעות': { th: 'ชั่วโมง', ar: 'ساعات' },
+    'רגיל': { th: 'ปกติ', ar: 'عادي' },
+    'שעות נוספות': { th: 'โอที', ar: 'إضافي' },
+    'איחור': { th: 'สาย', ar: 'تأخر' },
+    'איחורים': { th: 'สาย', ar: 'تأخيرات' },
+    'יציאה מוקדמת': { th: 'ออกก่อน', ar: 'مغادرة مبكرة' },
+    'יציאות מוקדמות': { th: 'ออกก่อน', ar: 'مغادرات مبكرة' },
+    'מגזר (קובע ברירות מחדל למשעות נוספות)': { th: 'ภาคส่วน (กำหนดค่าเริ่มต้น OT)', ar: 'القطاع (يحدد القيم الافتراضية للساعات الإضافية)' },
+    'דקות מרווח לאיחור': { th: 'นาทีผ่อนผันสาย', ar: 'دقائق التسامح' },
+    'כללי שעות נוספות מותאמים אישית': { th: 'กฎโอที กำหนดเอง', ar: 'قواعد ساعات إضافية مخصصة' },
+    'עקוף את ברירות המגזר': { th: 'แทนที่ค่าเริ่มต้นภาคส่วน', ar: 'تجاوز افتراضيات القطاع' },
+    'עד שעות': { th: 'สูงสุดชั่วโมง', ar: 'حتى ساعات' },
+    'שעון לילה (החל מ-)': { th: 'เวลากลางคืน (เริ่ม)', ar: 'بداية الليل' },
+    'שעון לילה (עד)': { th: 'เวลากลางคืน (สิ้น)', ar: 'نهاية الليل' },
+    'תקרה שבועית': { th: 'สูงสุดต่อสัปดาห์', ar: 'الحد الأسبوعي' },
+    'יום חופש': { th: 'วันหยุด', ar: 'يوم عطلة' },
+    'לוח הזמנים נשמר': { th: 'บันทึกตารางแล้ว', ar: 'تم حفظ الجدول' },
+    "א'": { th: 'อา', ar: 'الأحد' },
+    "ב'": { th: 'จ', ar: 'الاثنين' },
+    "ג'": { th: 'อ', ar: 'الثلاثاء' },
+    "ד'": { th: 'พ', ar: 'الأربعاء' },
+    "ה'": { th: 'พฤ', ar: 'الخميس' },
+    "ו'": { th: 'ศ', ar: 'الجمعة' },
+    'שבת': { th: 'ส', ar: 'السبت' },
+    'חופש': { th: 'หยุด', ar: 'عطلة' },
+    'פסקה': { th: 'พัก', ar: 'ك.د' },
+    'טוען...': { th: 'กำลังโหลด...', ar: 'جاري التحميل...' },
+
+    // ── Meckano upgrade — Phase 4 (leave management) ──
+    'החופשות שלי': { th: 'การลาของฉัน', ar: 'إجازاتي' },
+    'חופשות שלי': { th: 'การลาของฉัน', ar: 'إجازاتي' },
+    'תור אישורים': { th: 'คิวอนุมัติ', ar: 'قائمة الاعتماد' },
+    'חגי ישראל': { th: 'วันหยุดอิสราเอล', ar: 'الأعياد الإسرائيلية' },
+    'יומן חגי ישראל': { th: 'ปฏิทินวันหยุดอิสราเอล', ar: 'تقويم الأعياد الإسرائيلية' },
+    'בקשת חופשה חדשה': { th: 'ขอลาใหม่', ar: 'طلب إجازة جديدة' },
+    'בקשת חופשה': { th: 'ขอลา', ar: 'طلب إجازة' },
+    'היסטוריית בקשות': { th: 'ประวัติการลา', ar: 'سجل الطلبات' },
+    'מתאריך': { th: 'จาก', ar: 'من تاريخ' },
+    'עד תאריך': { th: 'ถึง', ar: 'إلى تاريخ' },
+    'יום ראשון': { th: 'วันแรก', ar: 'يوم البداية' },
+    'יום אחרון': { th: 'วันสุดท้าย', ar: 'يوم النهاية' },
+    'יום מלא': { th: 'ทั้งวัน', ar: 'يوم كامل' },
+    'חצי - בוקר': { th: 'ครึ่งเช้า', ar: 'صباحاً' },
+    'חצי - אחה"צ': { th: 'ครึ่งบ่าย', ar: 'بعد الظهر' },
+    'סיבה / פרטים': { th: 'เหตุผล', ar: 'السبب' },
+    'אופציונלי': { th: 'ไม่บังคับ', ar: 'اختياري' },
+    'סה"כ ימי עבודה': { th: 'รวมวันทำงาน', ar: 'إجمالي أيام العمل' },
+    'ימים': { th: 'วัน', ar: 'أيام' },
+    'זמינים': { th: 'ใช้ได้', ar: 'متاح' },
+    'סהכ': { th: 'รวม', ar: 'إجمالي' },
+    'ממתינים': { th: 'รอ', ar: 'قيد الانتظار' },
+    'ממתין': { th: 'รอ', ar: 'قيد الانتظار' },
+    'אושר': { th: 'อนุมัติแล้ว', ar: 'تمت الموافقة' },
+    'נדחה': { th: 'ปฏิเสธ', ar: 'مرفوض' },
+    'בוטל': { th: 'ยกเลิก', ar: 'ملغى' },
+    'הבקשה נשלחה': { th: 'ส่งคำขอแล้ว', ar: 'تم إرسال الطلب' },
+    'אין בקשות': { th: 'ไม่มีคำขอ', ar: 'لا توجد طلبات' },
+    'אין בקשות ממתינות': { th: 'ไม่มีคำขอรอ', ar: 'لا طلبات معلقة' },
+    'בקשת חופש': { th: 'ขอลา', ar: 'طلب إجازة' },
+    'אשר': { th: 'อนุมัติ', ar: 'اعتماد' },
+    'דחה': { th: 'ปฏิเสธ', ar: 'رفض' },
+    'סיבת דחייה (חובה):': { th: 'เหตุผลในการปฏิเสธ (จำเป็น):', ar: 'سبب الرفض (مطلوب):' },
+    'לבטל את הבקשה?': { th: 'ยกเลิกคำขอ?', ar: 'إلغاء الطلب؟' },
+    'יתרת חופשה לא מספיקה': { th: 'พักร้อนไม่พอ', ar: 'رصيد الإجازة غير كافٍ' },
+    'יתרת מחלה לא מספיקה': { th: 'ลาป่วยไม่พอ', ar: 'رصيد المرضية غير كافٍ' },
+    'אין ימי עבודה בטווח': { th: 'ไม่มีวันทำงานในช่วงนี้', ar: 'لا أيام عمل في النطاق' },
+    'חסר תאריך': { th: 'ขาดวันที่', ar: 'تاريخ ناقص' },
+    'תאריך סיום לפני תחילה': { th: 'วันที่สิ้นสุดก่อนเริ่ม', ar: 'تاريخ النهاية قبل البداية' },
+    'מייבא חגי ישראל...': { th: 'กำลังนำเข้า...', ar: 'جاري الاستيراد...' },
+    'הייבוא הושלם': { th: 'นำเข้าเสร็จสิ้น', ar: 'اكتمل الاستيراد' },
+    'ייבא מ-Hebcal': { th: 'นำเข้าจาก Hebcal', ar: 'استيراد من Hebcal' },
+    'צור רשומות': { th: 'สร้างรายการ', ar: 'إنشاء سجلات' },
+    'יוצר רשומות...': { th: 'กำลังสร้าง...', ar: 'جاري الإنشاء...' },
+    'רשומות נוצרו': { th: 'สร้างแล้ว', ar: 'تم إنشاؤها' },
+    'ליצור רשומות חופש לחגים?': { th: 'สร้างรายการลาวันหยุด?', ar: 'إنشاء سجلات إجازة العيد؟' },
+    'לא קיימים נתונים — לחץ "ייבא מ-Hebcal"': { th: 'ยังไม่มีข้อมูล - กด "นำเข้าจาก Hebcal"', ar: 'لا توجد بيانات — اضغط "استيراد من Hebcal"' },
+    'שלח': { th: 'ส่ง', ar: 'إرسال' },
+    'חזור': { th: 'กลับ', ar: 'رجوع' },
+    'בטל': { th: 'ยกเลิก', ar: 'إلغاء' },
+    'סוג': { th: 'ประเภท', ar: 'النوع' },
+    // Leave types
+    'חופשה': { th: 'พักร้อน', ar: 'إجازة سنوية' },
+    'מחלה': { th: 'ลาป่วย', ar: 'إجازة مرضية' },
+    'מילואים': { th: 'รับราชการทหาร', ar: 'احتياط عسكري' },
+    'אישית': { th: 'ลากิจ', ar: 'إجازة شخصية' },
+    'ללא תשלום': { th: 'ลาไม่รับเงิน', ar: 'إجازة بدون راتب' },
+    'לידה': { th: 'ลาคลอด', ar: 'إجازة أمومة' },
+    'אבל': { th: 'ไว้ทุกข์', ar: 'حداد' },
+    'חג': { th: 'วันหยุดราชการ', ar: 'عطلة رسمية' },
+
+    // ── Auth deep-refresh (QA pass) ──
+    'מסנכרן הרשאות...': { th: 'กำลังซิงค์สิทธิ์...', ar: 'مزامنة الصلاحيات...' },
+    'סנכרון הרשאות נכשל — חלק מהפעולות עלולות להיכשל': { th: 'ซิงค์สิทธิ์ไม่สำเร็จ - บางการดำเนินการอาจล้มเหลว', ar: 'فشل مزامنة الصلاحيات — قد تفشل بعض العمليات' },
+    'סנכרן הרשאות מחדש': { th: 'ซิงค์สิทธิ์ใหม่', ar: 'إعادة مزامنة الصلاحيات' },
+    'הרשאות סונכרנו מחדש': { th: 'ซิงค์สิทธิ์ใหม่แล้ว', ar: 'تمت إعادة المزامنة' },
 
 
     // ── Toast messages (success/error) ──
@@ -1124,7 +1469,7 @@
           className: '',
           html: '<div style="background:' + p.color + ';color:white;padding:3px 10px;border-radius:8px;' +
             'font-family:Heebo,sans-serif;font-size:12px;font-weight:700;white-space:nowrap;' +
-            'box-shadow:0 2px 8px rgba(0,0,0,0.3);text-align:center;">' + p.name + '</div>',
+            'box-shadow:0 2px 8px rgba(0,0,0,0.3);text-align:center;">' + locName(p) + '</div>',
           iconAnchor: [0, 0]
         });
         var labelMarker = L.marker(center, { icon: label, interactive: false }).addTo(drawnItems);
@@ -1246,8 +1591,8 @@
         renderPlotCheckboxes();
         renderPesticideList();
         updateCalculations();
-      } else if (targetTab === 'history') {
-        renderHistoryList();
+        // Default to form sub-view whenever the spray tab is opened from the tab bar.
+        showSpraySubview('form');
       } else if (targetTab === 'farms') {
         renderFarmsAdminList();
       } else if (targetTab === 'users') {
@@ -1266,6 +1611,50 @@
       }
     });
   });
+
+  // ── Spray sub-view toggle (form ⇄ history) ──
+  function showSpraySubview(name) {
+    var formEl = document.getElementById('spraySubviewForm');
+    var histEl = document.getElementById('spraySubviewHistory');
+    if (!formEl || !histEl) return;
+    var isHist = (name === 'history');
+    formEl.style.display = isHist ? 'none' : '';
+    histEl.style.display = isHist ? '' : 'none';
+    document.querySelectorAll('.spray-subview-toggle .sv-btn').forEach(function(b) {
+      b.classList.toggle('active', b.getAttribute('data-spray-view') === name);
+    });
+    if (isHist) renderHistoryList();
+  }
+  document.querySelectorAll('.spray-subview-toggle .sv-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      showSpraySubview(this.getAttribute('data-spray-view'));
+    });
+  });
+
+  // ── Tab-bar scroll-hint affordance ──
+  (function wireTabScrollHints() {
+    var wrap = document.getElementById('tabBarWrap');
+    var bar = document.getElementById('tabBar');
+    if (!wrap || !bar) return;
+    function update() {
+      var max = bar.scrollWidth - bar.clientWidth;
+      // For RTL, scrollLeft is 0 at start and -max (or +max depending on browser) at end.
+      // We use absolute value to be browser-agnostic.
+      var sl = Math.abs(bar.scrollLeft);
+      var canStart = sl > 2;
+      var canEnd = sl < max - 2;
+      wrap.classList.toggle('can-scroll-start', canStart);
+      wrap.classList.toggle('can-scroll-end', canEnd && max > 2);
+    }
+    bar.addEventListener('scroll', update, { passive: true });
+    window.addEventListener('resize', update);
+    // Initial + after layout settles (admin tabs may toggle visibility)
+    setTimeout(update, 0);
+    setTimeout(update, 300);
+    setTimeout(update, 1500);
+    // Expose so role-gating code can re-evaluate after showing admin tabs
+    window.__refreshTabScrollHints = update;
+  })();
 
   // ── Layer toggle ──
   document.getElementById('layerBtn').addEventListener('click', function() {
@@ -1590,14 +1979,14 @@
         var center = layer.getBounds().getCenter();
         var labelIcon = L.divIcon({
           className: '',
-          html: '<div style="background:' + plotColor + ';color:white;padding:3px 10px;border-radius:8px;font-family:Heebo,sans-serif;font-size:12px;font-weight:700;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,0.3);text-align:center;">' + plot.name + '</div>',
+          html: '<div style="background:' + plotColor + ';color:white;padding:3px 10px;border-radius:8px;font-family:Heebo,sans-serif;font-size:12px;font-weight:700;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,0.3);text-align:center;">' + locName(plot) + '</div>',
           iconAnchor: [0, 0]
         });
         plot.labelMarker = L.marker(center, { icon: labelIcon, interactive: false }).addTo(drawnItems);
         
         saveData();
         renderPlotList();
-        showToast('✅ ' + plot.name + ' ' + t('עודכן'));
+        showToast('✅ ' + locName(plot) + ' ' + t('עודכן'));
         
         window._redrawPlotId = null;
         window._redrawPlotName = null;
@@ -1725,7 +2114,7 @@
       farmOptions = '<option value="">' + t('אין מטעים זמינים') + '</option>';
     } else {
       userFarms.forEach(function(farm) {
-        farmOptions += '<option value="' + farm.id + '">' + farm.name + '</option>';
+        farmOptions += '<option value="' + farm.id + '">' + locName(farm) + '</option>';
       });
     }
     
@@ -1964,7 +2353,7 @@
       html += '<div class="plot-card" data-plot-id="' + p.id + '">' +
         '<div class="plot-color" style="background:' + p.color + '"></div>' +
         '<div class="plot-info">' +
-          '<div class="plot-name">' + (isPrimary ? '⭐ ' : '') + p.name + '</div>' +
+          '<div class="plot-name">' + (isPrimary ? '⭐ ' : '') + locName(p) + '</div>' +
           '<div class="plot-meta">' +
             '<span>📐 ' + formatArea(p.area) + '</span>' +
             '<span>📍 ' + p.vertices + ' ' + t('נקודות') + '</span>' +
@@ -2014,7 +2403,7 @@
         if (plotIdx !== -1) plots.splice(plotIdx, 1);
         renderPlotList();
         saveData();
-        showToast('🗑 "' + plot.name + '" ' + t('נמחק'));
+        showToast('🗑 "' + locName(plot) + '" ' + t('נמחק'));
       });
     });
   }
@@ -2037,7 +2426,7 @@
     accessiblePlots.forEach(function(p) {
       html += '<label class="plot-checkbox-item">' +
         '<input type="checkbox" class="plot-checkbox" data-plot-id="' + p.id + '">' +
-        '<span class="plot-checkbox-label">' + p.name + '</span>' +
+        '<span class="plot-checkbox-label">' + locName(p) + '</span>' +
         '<span class="plot-checkbox-area">' + formatArea(p.area) + '</span>' +
       '</label>';
     });
@@ -2211,7 +2600,8 @@
     document.querySelectorAll('.pesticide-item').forEach(function(item) { item.classList.remove('selected'); });
     updateCalculations();
 
-    document.querySelector('.tab[data-tab="history"]').click();
+    // History now lives inside the spray tab as a sub-view.
+    showSpraySubview('history');
   });
 
   // ── History ──
@@ -2241,6 +2631,15 @@
         return sum + (p ? p.area : 0);
       }, 0);
 
+      // Collapse all pesticides for this event into one combined list under a single date row.
+      var pestSummary = (event.applications || []).map(function(app) {
+        var parts = [app.productName || ''];
+        if (app.activeIngredient) parts.push('(' + app.activeIngredient + ')');
+        if (app.concentration != null) parts.push('· ' + app.concentration + '%');
+        if (app.target) parts.push('· ' + app.target);
+        return '🧪 ' + parts.join(' ');
+      }).join('<br>');
+
       html += '<div class="history-item">';
       html += '<div class="history-header">';
       html += '<span class="history-date">' + formatDate(event.date) + '</span>';
@@ -2250,10 +2649,8 @@
       html += '<div class="history-meta" style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">';
       html += event.volumePerTree + ' ' + t('ליטר/עץ') + ' • ' + t('מרסס') + ' ' + event.sprayerCapacity + ' ' + t('ליטר');
       html += '</div>';
-      html += '<div class="history-pesticides">';
-      event.applications.forEach(function(app) {
-        html += '<div class="history-pesticide-row">🧪 ' + app.productName + ' (' + app.activeIngredient + ') • ' + app.concentration + '% • ' + app.target + '</div>';
-      });
+      html += '<div class="history-pesticides" style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border, #e0d8d0); font-size: 0.85rem; line-height: 1.7;">';
+      html += pestSummary;
       html += '</div>';
       html += '</div>';
     });
@@ -2266,33 +2663,16 @@
     return d.toLocaleDateString('he-IL', { year: 'numeric', month: 'long', day: 'numeric' });
   }
 
-  document.getElementById('exportPdfBtn').addEventListener('click', function(event) {
+  document.getElementById('exportPdfBtn').addEventListener('click', function() {
     if (sprayEvents.length === 0) {
       showToast('❌ ' + t('אין יומני ריסוס לייצוא'));
       return;
     }
-    // 4-format export menu (PDF / Excel / CSV / JSON) using the universal exporter
-    if (typeof Export !== 'undefined') {
-      Export.showMenu(Export.adapters.spray(sprayEvents, plots, {
-        generatedBy: (typeof currentUser !== 'undefined' && currentUser ? currentUser.name : '') || ''
-      }), event);
-      return;
-    }
-    // Fallback (legacy): use browser native print-to-PDF via Export module
+
     var html = generatePdfHtml();
-    if (typeof Export !== 'undefined' && Export.printHTML) {
-      Export.printHTML(html, {
-        title: t('יומן ריסוסים').replace(/ /g, '_') + '_' + new Date().toISOString().split('T')[0],
-        landscape: true
-      });
-      showToast('📄 ' + t('פותח חלון הדפסה'));
-      return;
-    }
-    // Last-resort fallback
-    var w = window.open('about:blank', '_blank');
-    if (!w) { showToast('❌ ' + t('חוסם חלונות קופצים פעיל')); return; }
-    w.document.open(); w.document.write(html); w.document.close();
-    setTimeout(function () { try { w.focus(); w.print(); } catch (e) {} }, 400);
+    var filename = t('יומן ריסוסים').replace(/ /g, '_') + '_' + new Date().toISOString().split('T')[0] + '.html';
+    window.Util.exportReport(html, filename);
+    showToast('📄 ' + t('הדו"ח נפתח — לחץ שמור כ-PDF'));
   });
 
   function generatePdfHtml() {
@@ -2302,33 +2682,44 @@
 
     var html = '<!DOCTYPE html>\n<html lang="he" dir="rtl">\n<head>\n';
     html += '<meta charset="UTF-8">\n';
+    html += '<meta name="viewport" content="width=device-width,initial-scale=1">\n';
     html += '<title>' + t('יומן ריסוסים') + '</title>\n';
     html += '<style>\n';
-    html += '@page { margin: 20mm 15mm; }\n';
+    html += '@page { margin: 15mm 10mm; size: A4 landscape; }\n';
     html += 'body { font-family: -apple-system, "Segoe UI", Arial, sans-serif; direction: rtl; padding: 0; margin: 0; color: #2b2520; line-height: 1.5; }\n';
-    html += '.header { background: linear-gradient(135deg, #1a5632, #2d6a4f, #40916c); color: white; padding: 28px 32px; border-radius: 0 0 20px 20px; margin-bottom: 24px; }\n';
-    html += '.header h1 { font-size: 1.6rem; font-weight: 800; margin: 0 0 4px 0; letter-spacing: -0.02em; }\n';
-    html += '.header .sub { font-size: 0.85rem; opacity: 0.85; }\n';
-    html += '.meta { display: flex; justify-content: space-between; padding: 0 24px; margin-bottom: 20px; font-size: 0.85rem; color: #8a8078; }\n';
-    html += 'table { width: calc(100% - 48px); margin: 0 24px; border-collapse: separate; border-spacing: 0; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 12px rgba(43,37,32,0.07); }\n';
-    html += 'th { background: #2d6a4f; color: white; padding: 12px 14px; text-align: right; font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; }\n';
-    html += 'td { padding: 10px 14px; border-bottom: 1px solid #f0ebe6; font-size: 0.85rem; }\n';
+    html += '.header { background: linear-gradient(135deg, #1a5632, #2d6a4f, #40916c); color: white; padding: 22px 28px; border-radius: 0 0 20px 20px; margin-bottom: 18px; }\n';
+    html += '.header h1 { font-size: 1.5rem; font-weight: 800; margin: 0 0 4px 0; letter-spacing: -0.02em; }\n';
+    html += '.header .sub { font-size: 0.85rem; opacity: 0.9; }\n';
+    html += '.meta-row { padding: 0 24px 8px; font-size: 0.78rem; color: #8a8078; }\n';
+    html += 'table { width: calc(100% - 32px); margin: 0 16px 20px; border-collapse: separate; border-spacing: 0; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 12px rgba(43,37,32,0.07); }\n';
+    html += 'th { background: #2d6a4f; color: white; padding: 10px 10px; text-align: right; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.02em; }\n';
+    html += 'td { padding: 11px 10px; border-bottom: 1px solid #f0ebe6; font-size: 0.85rem; vertical-align: top; }\n';
     html += 'tr:last-child td { border-bottom: none; }\n';
-    html += '.event-header td { background: #faf8f5; font-weight: 600; }\n';
-    html += '.pesticide-row td { background: white; }\n';
-    html += 'tr:hover td { background: #f5f0eb; }\n';
-    html += '.footer { text-align: center; padding: 24px; margin-top: 24px; font-size: 0.78rem; color: #8a8078; border-top: 1px solid #f0ebe6; }\n';
+    html += 'tr:nth-child(even) td { background: #faf8f5; }\n';
+    html += '.event-date { font-weight: 800; font-size: 0.95rem; color: #1a5632; white-space: nowrap; }\n';
+    html += '.pest-list { display: flex; flex-direction: column; gap: 4px; }\n';
+    html += '.pest-item { background: #e8f5e9; border-right: 3px solid #2d6a4f; padding: 4px 8px; border-radius: 4px; font-size: 0.82rem; }\n';
+    html += '.pest-name { font-weight: 700; color: #1a5632; }\n';
+    html += '.pest-meta { color: #5a7060; font-size: 0.76rem; }\n';
+    html += '.footer { text-align: center; padding: 18px; margin-top: 16px; font-size: 0.78rem; color: #8a8078; border-top: 1px solid #f0ebe6; }\n';
     html += '.footer .brand { color: #2d6a4f; font-weight: 700; }\n';
-    html += '.badge { display: inline-block; padding: 3px 10px; border-radius: 50px; font-size: 0.75rem; font-weight: 600; }\n';
     html += '</style>\n';
     html += '</head>\n<body>\n';
     html += '<div class="header">\n';
     html += '<h1>🌿 ' + t('יומן ריסוסים - שורשים פלוס') + '</h1>\n';
     html += '<div class="sub">' + t('תאריך הפקה:') + ' ' + formatDate(new Date().toISOString().split('T')[0]) + '</div>\n';
     html += '</div>\n';
-    
+
     html += '<table>\n';
-    html += '<thead><tr><th>' + t('תאריך') + '</th><th>' + t('מפעיל') + '</th><th>' + t('חלקות') + '</th><th>' + t('שטח') + '</th><th>' + t('נפח/עץ') + '</th><th>' + t('מרסס') + '</th><th>' + t('חומר') + '</th><th>' + t('ריכוז') + '</th><th>' + t('מטרה') + '</th></tr></thead>\n';
+    html += '<thead><tr>' +
+            '<th style="width:11%;">' + t('תאריך') + '</th>' +
+            '<th style="width:11%;">' + t('מפעיל') + '</th>' +
+            '<th style="width:22%;">' + t('חלקות') + '</th>' +
+            '<th style="width:7%;">' + t('שטח') + '</th>' +
+            '<th style="width:8%;">' + t('נפח/עץ') + '</th>' +
+            '<th style="width:8%;">' + t('מרסס') + '</th>' +
+            '<th style="width:33%;">' + t('חומרים') + '</th>' +
+            '</tr></thead>\n';
     html += '<tbody>\n';
 
     sorted.forEach(function(event) {
@@ -2342,21 +2733,27 @@
         return sum + (p ? p.area : 0);
       }, 0);
 
-      event.applications.forEach(function(app, idx) {
-        html += '<tr' + (idx === 0 ? ' class="event-header"' : ' class="pesticide-row"') + '>\n';
-        if (idx === 0) {
-          html += '<td rowspan="' + event.applications.length + '">' + formatDate(event.date) + '</td>\n';
-          html += '<td rowspan="' + event.applications.length + '">' + event.operator + '</td>\n';
-          html += '<td rowspan="' + event.applications.length + '">' + plotNames + '</td>\n';
-          html += '<td rowspan="' + event.applications.length + '">' + totalArea.toFixed(2) + ' ' + t('דונם') + '</td>\n';
-          html += '<td rowspan="' + event.applications.length + '">' + event.volumePerTree + ' ' + t('ליטר') + '</td>\n';
-          html += '<td rowspan="' + event.applications.length + '">' + event.sprayerCapacity + ' ' + t('ליטר') + '</td>\n';
-        }
-        html += '<td>' + app.productName + ' (' + app.activeIngredient + ')</td>\n';
-        html += '<td>' + app.concentration + '%</td>\n';
-        html += '<td>' + app.target + '</td>\n';
-        html += '</tr>\n';
+      // Combine all pesticides for this event into ONE cell (one row per event).
+      var pestCell = '<div class="pest-list">';
+      (event.applications || []).forEach(function(app) {
+        pestCell += '<div class="pest-item">' +
+          '<span class="pest-name">🧪 ' + (app.productName || '') + '</span>' +
+          (app.activeIngredient ? ' <span class="pest-meta">(' + app.activeIngredient + ')</span>' : '') +
+          ' · <span class="pest-meta">' + (app.concentration != null ? app.concentration + '%' : '') + '</span>' +
+          (app.target ? ' · <span class="pest-meta">' + t('מטרה') + ': ' + app.target + '</span>' : '') +
+          '</div>';
       });
+      pestCell += '</div>';
+
+      html += '<tr>' +
+        '<td class="event-date">' + formatDate(event.date) + '</td>' +
+        '<td>' + (event.operator || '') + '</td>' +
+        '<td>' + plotNames + '</td>' +
+        '<td>' + totalArea.toFixed(2) + ' ' + t('דונם') + '</td>' +
+        '<td>' + event.volumePerTree + ' ' + t('ליטר') + '</td>' +
+        '<td>' + event.sprayerCapacity + ' ' + t('ליטר') + '</td>' +
+        '<td>' + pestCell + '</td>' +
+      '</tr>\n';
     });
 
     html += '</tbody>\n</table>\n';
@@ -2514,7 +2911,7 @@
       
       html += '<div class="pesticide-admin-item" style="border-right: 4px solid ' + farm.color + '; cursor: pointer;" data-farm-detail-id="' + farm.id + '">';
       html += '<div class="pesticide-admin-info">';
-      html += '<div class="pesticide-admin-name">' + farm.name + '</div>';
+      html += '<div class="pesticide-admin-name">' + locName(farm) + '</div>';
       html += '<div class="pesticide-admin-details">' + farmPlots.length + ' ' + t('חלקות') + ' • ' + formatArea(totalArea) + ' • ' + usersWithAccess.length + ' ' + t('עובדים') + '</div>';
       html += '<div style="font-size: 0.7rem; color: var(--g3); margin-top: 3px;">' + t('לחץ לפרטי מטע') + ' →</div>';
       html += '</div>';
@@ -2557,7 +2954,7 @@
           return;
         }
         
-        if (confirm(t('למחוק את מטע') + ' ' + farm.name + '?')) {
+        if (confirm(t('למחוק את מטע') + ' ' + locName(farm) + '?')) {
           farms = farms.filter(function(f) { return f.id !== id; });
           saveData();
           renderFarmsAdminList();
@@ -2594,8 +2991,19 @@
           '<p>' + t('מלא את פרטי המטע') + '</p>' +
           '<div class="form-group">' +
             '<label class="form-label">' + t('שם המטע') + '</label>' +
-            '<input type="text" class="form-input" id="farmName" value="' + (isEdit ? farm.name : '') + '" placeholder="Paran">' +
+            '<input type="text" class="form-input" id="farmName" value="' + (isEdit ? (farm.name || '') : '') + '" placeholder="Paran">' +
           '</div>' +
+          '<details class="form-group" style="margin-top:-4px;">' +
+            '<summary style="cursor:pointer;font-size:0.82rem;color:var(--text-muted,#666);padding:6px 0;">🌐 ' + t('תרגומים (אופציונלי)') + '</summary>' +
+            '<div class="form-group" style="margin-top:8px;">' +
+              '<label class="form-label" style="font-size:0.78rem;">' + t('שם בתאית') + '</label>' +
+              '<input type="text" class="form-input" id="farmNameTh" value="' + (isEdit ? (farm.name_th || '') : '') + '" placeholder="" dir="ltr">' +
+            '</div>' +
+            '<div class="form-group">' +
+              '<label class="form-label" style="font-size:0.78rem;">' + t('שם בערבית') + '</label>' +
+              '<input type="text" class="form-input" id="farmNameAr" value="' + (isEdit ? (farm.name_ar || '') : '') + '" placeholder="" dir="rtl">' +
+            '</div>' +
+          '</details>' +
           '<div class="form-group">' +
             '<label class="form-label">' + t('צבע המטע (כל החלקות יהיו בצבע זה)') + '</label>' +
             '<div class="color-picker">' + colorOptions + '</div>' +
@@ -2612,6 +3020,8 @@
     // Create global save/cancel functions with closure
     window.saveFarmModal = function() {
       var name = document.getElementById('farmName').value.trim();
+      var nameTh = (document.getElementById('farmNameTh') || { value: '' }).value.trim();
+      var nameAr = (document.getElementById('farmNameAr') || { value: '' }).value.trim();
       var selectedColor = container.querySelector('.color-option.selected');
       var color = selectedColor ? selectedColor.getAttribute('data-color') : FARM_COLORS[0];
 
@@ -2631,6 +3041,8 @@
 
       if (isEdit) {
         farm.name = name;
+        farm.name_th = nameTh || null;
+        farm.name_ar = nameAr || null;
         farm.color = color;
         saveData();
         renderFarmsAdminList();
@@ -2645,6 +3057,8 @@
         farms.push({
           id: newId,
           name: name,
+          name_th: nameTh || null,
+          name_ar: nameAr || null,
           color: color,
           created_by: session.id,
           created_at: Date.now()
@@ -2736,7 +3150,7 @@
         user.farm_permissions.forEach(function(fid) {
           var f = farms.find(function(farm) { return farm.id === fid; });
           if (f) {
-            farmBadges += '<span style="display: inline-block; padding: 4px 8px; margin: 2px; background: ' + f.color + '; color: white; border-radius: 6px; font-size: 12px; font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,0.2);">' + f.name + '</span>';
+            farmBadges += '<span style="display: inline-block; padding: 4px 8px; margin: 2px; background: ' + f.color + '; color: white; border-radius: 6px; font-size: 12px; font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,0.2);">' + locName(f) + '</span>';
           }
         });
       }
@@ -2746,7 +3160,7 @@
       if (user.primary_plot_id) {
         var pp = plots.find(function(p) { return p.id === user.primary_plot_id; });
         if (pp) {
-          primaryBadge = '<div style="margin-top: 6px;"><span style="display: inline-block; padding: 3px 8px; background: var(--accent-light); color: var(--accent); border-radius: 6px; font-size: 11px; font-weight: 600;">📍 ' + pp.name + '</span></div>';
+          primaryBadge = '<div style="margin-top: 6px;"><span style="display: inline-block; padding: 3px 8px; background: var(--accent-light); color: var(--accent); border-radius: 6px; font-size: 11px; font-weight: 600;">📍 ' + locName(pp) + '</span></div>';
         }
       }
       
@@ -2802,7 +3216,7 @@
       farmCheckboxes = '<div class="form-group"><label class="form-label">' + t('גישה למטעים') + '</label><div style="display: flex; flex-direction: column; gap: 8px; max-height: 150px; overflow-y: auto; padding: 8px; background: var(--g6); border-radius: 8px;">';
       farms.forEach(function(farm) {
         var checked = isEdit && user.farm_permissions && user.farm_permissions.indexOf(farm.id) !== -1;
-        farmCheckboxes += '<label style="display: flex; align-items: center; gap: 8px; cursor: pointer;"><input type="checkbox" class="farm-permission-cb" data-farm-id="' + farm.id + '"' + (checked ? ' checked' : '') + ' style="width: 18px; height: 18px;"><span>' + farm.name + '</span></label>';
+        farmCheckboxes += '<label style="display: flex; align-items: center; gap: 8px; cursor: pointer;"><input type="checkbox" class="farm-permission-cb" data-farm-id="' + farm.id + '"' + (checked ? ' checked' : '') + ' style="width: 18px; height: 18px;"><span>' + locName(farm) + '</span></label>';
       });
       farmCheckboxes += '</div></div>';
     }
@@ -2935,7 +3349,7 @@
         farmsHtml += '<div class="plot-card profile-farm-card" data-profile-farm-id="' + farm.id + '" style="border-right-color: ' + farm.color + '; cursor: pointer;">' +
           '<div class="plot-color" style="background:' + farm.color + '"></div>' +
           '<div class="plot-info">' +
-            '<div class="plot-name">' + farm.name + '</div>' +
+            '<div class="plot-name">' + locName(farm) + '</div>' +
             '<div class="plot-meta">' +
               '<span>🌳 ' + farmPlots.length + ' ' + t('חלקות') + '</span>' +
               '<span>📐 ' + totalArea.toFixed(1) + ' ' + t('דונם') + '</span>' +
@@ -2981,7 +3395,7 @@
       html += '<div class="plot-checkbox-item primary-plot-option" data-primary-id="' + p.id + '" style="' + (isSelected ? 'background: var(--g5); border: 2px solid var(--g3);' : 'border: 2px solid transparent;') + '">' +
         '<span style="font-size: 1.2rem;">' + (isSelected ? '✅' : '⬜') + '</span>' +
         '<div style="flex: 1;">' +
-          '<div class="plot-checkbox-label">' + p.name + '</div>' +
+          '<div class="plot-checkbox-label">' + locName(p) + '</div>' +
           (farmName ? '<div style="font-size: 0.75rem; color: var(--text-muted);">' + farmName + ' • ' + formatArea(p.area) + '</div>' : '') +
         '</div>' +
       '</div>';
@@ -3242,7 +3656,7 @@
     userFarms.forEach(function(farm) {
       var opt = document.createElement('option');
       opt.value = farm.id;
-      opt.textContent = farm.name;
+      opt.textContent = locName(farm);
       select.appendChild(opt);
     });
     if (currentVal) select.value = currentVal;
@@ -3324,7 +3738,7 @@
       farmPlots.forEach(function(p) {
         var opt = document.createElement('option');
         opt.value = p.id;
-        opt.textContent = p.name;
+        opt.textContent = locName(p);
         plotSelect.appendChild(opt);
       });
     }
@@ -4116,7 +4530,7 @@
       equipment.forEach(function(item) {
         var icon = item.type === 'vehicle' ? '🚜' : item.type === 'sprayer' ? '💨' : '🔧';
         equipHtml += '<span style="display: inline-flex; align-items: center; gap: 4px; padding: 5px 10px; background: var(--g6); border-radius: 8px; font-size: 0.78rem; font-weight: 500;">' +
-          icon + ' ' + item.name +
+          icon + ' ' + locName(item) +
           (item.status === 'broken' ? ' <span style="color: var(--danger);">⛔</span>' : '') +
         '</span>';
       });
@@ -4214,7 +4628,7 @@
         '<div class="modal" style="max-width: 520px;">' +
           '<div style="display: flex; align-items: center; gap: 12px; margin-bottom: 14px;">' +
             '<div style="width: 20px; height: 20px; border-radius: 50%; background: ' + farm.color + '; flex-shrink: 0;"></div>' +
-            '<h2 style="margin: 0;">' + farm.name + '</h2>' +
+            '<h2 style="margin: 0;">' + locName(farm) + '</h2>' +
           '</div>' +
           
           matrixHtml +
@@ -4300,7 +4714,7 @@
     container.innerHTML =
       '<div class="modal-overlay" onclick="if(event.target===this) document.getElementById(\'modalContainer\').innerHTML=\'\'">' +
         '<div class="modal" style="max-width: 500px;">' +
-          '<h2>🚜 ' + t('ציוד ורכבים') + ' — ' + farm.name + '</h2>' +
+          '<h2>🚜 ' + t('ציוד ורכבים') + ' — ' + locName(farm) + '</h2>' +
           '<div id="equipList">' + listHtml + '</div>' +
           '<button class="btn-admin" id="equipAdd" style="width: 100%; margin-top: 8px;">➕ ' + t('הוסף') + '</button>' +
           '<div class="modal-buttons" style="margin-top: 14px;">' +
@@ -4386,7 +4800,7 @@
     container.innerHTML =
       '<div class="modal-overlay" onclick="if(event.target===this) document.getElementById(\'modalContainer\').innerHTML=\'\'">' +
         '<div class="modal" style="max-width: 500px;">' +
-          '<h2>🚛 ' + t('רכבים') + ' — ' + farm.name + '</h2>' +
+          '<h2>🚛 ' + t('רכבים') + ' — ' + locName(farm) + '</h2>' +
           html +
           (currentUser && currentUser.role === 'admin' ? '<button class="btn-admin" id="addVehicleBtn" style="width: 100%; margin-top: 8px;">➕ ' + t('הוסף רכב') + '</button>' : '') +
           '<div class="modal-buttons" style="margin-top: 12px;">' +
@@ -4538,7 +4952,7 @@
     container.innerHTML =
       '<div class="modal-overlay" onclick="if(event.target===this) document.getElementById(\'modalContainer\').innerHTML=\'\'">' +
         '<div class="modal">' +
-          '<h2>💧 ' + t('עדכן השקייה') + ' — ' + farm.name + '</h2>' +
+          '<h2>💧 ' + t('עדכן השקייה') + ' — ' + locName(farm) + '</h2>' +
           '<div class="form-group">' +
             '<label class="form-label">' + t('קוב לדונם/פתיחה') + '</label>' +
             '<input type="number" class="form-input" id="irrCube" value="' + (irr.cube_per_dunam || '') + '" step="0.1" min="0">' +
@@ -4578,7 +4992,7 @@
     container.innerHTML =
       '<div class="modal-overlay" onclick="if(event.target===this) document.getElementById(\'modalContainer\').innerHTML=\'\'">' +
         '<div class="modal">' +
-          '<h2>📦 ' + t('הוסף ת. משלוח') + ' — ' + farm.name + '</h2>' +
+          '<h2>📦 ' + t('הוסף ת. משלוח') + ' — ' + locName(farm) + '</h2>' +
           '<div class="form-group">' +
             '<label class="form-label">' + t('תאריך') + '</label>' +
             '<input type="date" class="form-input" id="delDate" value="' + today + '">' +
@@ -4650,7 +5064,7 @@
     container.innerHTML =
       '<div class="modal-overlay" onclick="if(event.target===this) document.getElementById(\'modalContainer\').innerHTML=\'\'">' +
         '<div class="modal" style="max-width: 500px;">' +
-          '<h2>🧪 ' + t('מלאי חומרי הדברה') + ' — ' + farm.name + '</h2>' +
+          '<h2>🧪 ' + t('מלאי חומרי הדברה') + ' — ' + locName(farm) + '</h2>' +
           '<div style="max-height: 50vh; overflow-y: auto;">' + pestOptions + '</div>' +
           '<div class="modal-buttons">' +
             '<button class="btn btn-primary" id="invSave">' + t('שמור') + '</button>' +
@@ -4731,7 +5145,7 @@
     // Farm selector
     var farmOptions = '';
     farms.forEach(function(f) {
-      farmOptions += '<option value="' + f.id + '"' + (f.id === plot.farm_id ? ' selected' : '') + '>' + f.name + '</option>';
+      farmOptions += '<option value="' + f.id + '"' + (f.id === plot.farm_id ? ' selected' : '') + '>' + locName(f) + '</option>';
     });
     if (!plot.farm_id) farmOptions = '<option value="" selected>—</option>' + farmOptions;
     
@@ -4741,7 +5155,7 @@
         '<div class="modal" style="max-width: 500px;">' +
           '<div style="display: flex; align-items: center; gap: 12px; margin-bottom: 14px;">' +
             '<div style="width: 16px; height: 16px; border-radius: 50%; background: ' + plot.color + '; border: 2px solid rgba(0,0,0,0.1);"></div>' +
-            '<h2 style="margin: 0;">' + plot.name + '</h2>' +
+            '<h2 style="margin: 0;">' + locName(plot) + '</h2>' +
           '</div>' +
           
           '<div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 14px;">' +
@@ -4766,7 +5180,22 @@
             '<div style="font-size: 0.82rem; font-weight: 700; color: var(--g1); margin-bottom: 10px;">✏️ ' + t('עריכת חלקה') + '</div>' +
             '<div class="form-group" style="margin-bottom: 10px;">' +
               '<label class="form-label" style="font-size: 0.78rem;">' + t('שם החלקה') + '</label>' +
-              '<input type="text" class="form-input" id="pdEditName" value="' + plot.name + '" style="font-size: 0.9rem;">' +
+              '<input type="text" class="form-input" id="pdEditName" value="' + (plot.name || '') + '" style="font-size: 0.9rem;">' +
+            '</div>' +
+            '<details style="margin-bottom: 10px;">' +
+              '<summary style="cursor:pointer;font-size:0.74rem;color:var(--text-muted,#666);padding:4px 0;">🌐 ' + t('תרגומים (אופציונלי)') + '</summary>' +
+              '<div class="form-group" style="margin:6px 0;">' +
+                '<label class="form-label" style="font-size: 0.72rem;">' + t('שם בתאית') + '</label>' +
+                '<input type="text" class="form-input" id="pdEditNameTh" value="' + (plot.name_th || '') + '" style="font-size: 0.85rem;" dir="ltr">' +
+              '</div>' +
+              '<div class="form-group" style="margin:6px 0;">' +
+                '<label class="form-label" style="font-size: 0.72rem;">' + t('שם בערבית') + '</label>' +
+                '<input type="text" class="form-input" id="pdEditNameAr" value="' + (plot.name_ar || '') + '" style="font-size: 0.85rem;" dir="rtl">' +
+              '</div>' +
+            '</details>' +
+            '<div class="form-group" style="margin-bottom: 10px;">' +
+              '<label class="form-label" style="font-size: 0.78rem;">📍 ' + t('רדיוס גיאופנס לנוכחות') + ' <span style="color:var(--text-muted,#999);font-weight:400;font-size:0.7rem;">' + t('(מטר, ברירת מחדל 100)') + '</span></label>' +
+              '<input type="number" class="form-input" id="pdEditGeofence" value="' + (plot.geofenceRadiusM != null ? plot.geofenceRadiusM : 100) + '" min="20" max="500" step="10" style="font-size: 0.9rem;">' +
             '</div>' +
             '<div class="form-group" style="margin-bottom: 10px;">' +
               '<label class="form-label" style="font-size: 0.78rem;">🌳 ' + t('מטע') + '</label>' +
@@ -4820,7 +5249,7 @@
             return;
           }
         }
-        if (!confirm(t('למחוק את חלקה') + ' "' + plot.name + '"?')) return;
+        if (!confirm(t('למחוק את חלקה') + ' "' + locName(plot) + '"?')) return;
         
         if (plot.layer) drawnItems.removeLayer(plot.layer);
         if (plot.labelMarker) drawnItems.removeLayer(plot.labelMarker);
@@ -4829,22 +5258,43 @@
         saveData();
         renderPlotList();
         document.getElementById('modalContainer').innerHTML = '';
-        showToast('🗑️ "' + plot.name + '" ' + t('נמחק'));
+        showToast('🗑️ "' + locName(plot) + '" ' + t('נמחק'));
       });
     }
 
     // Save name + farm edit
     document.getElementById('pdSaveEdit').addEventListener('click', function() {
       var newName = document.getElementById('pdEditName').value.trim();
+      var newNameTh = (document.getElementById('pdEditNameTh') || { value: '' }).value.trim();
+      var newNameAr = (document.getElementById('pdEditNameAr') || { value: '' }).value.trim();
       var newFarmId = parseInt(document.getElementById('pdEditFarm').value);
       var newCropType = document.getElementById('pdEditCrop').value || null;
+      var geofenceEl = document.getElementById('pdEditGeofence');
+      var newGeofence = geofenceEl ? parseInt(geofenceEl.value) : null;
+      if (newGeofence != null && (isNaN(newGeofence) || newGeofence < 20 || newGeofence > 500)) {
+        showToast('⚠️ ' + t('רדיוס גיאופנס חייב להיות בין 20 ל-500 מטר'));
+        return;
+      }
       if (!newName) { showToast('❌ ' + t('שם ריק')); return; }
       
       var changed = false;
       
-      // Update name
+      // Update name + translations
       if (newName !== plot.name) {
         plot.name = newName;
+        changed = true;
+      }
+      if ((newNameTh || null) !== (plot.name_th || null)) {
+        plot.name_th = newNameTh || null;
+        changed = true;
+      }
+      if ((newNameAr || null) !== (plot.name_ar || null)) {
+        plot.name_ar = newNameAr || null;
+        changed = true;
+      }
+      // Geofence radius (Phase 1 Meckano upgrade — per-plot attendance proof radius)
+      if (newGeofence != null && newGeofence !== plot.geofenceRadiusM) {
+        plot.geofenceRadiusM = newGeofence;
         changed = true;
       }
       
@@ -4872,14 +5322,14 @@
           var center = plot.layer.getBounds().getCenter();
           var label = L.divIcon({
             className: '',
-            html: '<div style="background:' + plot.color + ';color:white;padding:3px 10px;border-radius:8px;font-family:Heebo,sans-serif;font-size:12px;font-weight:700;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,0.3);text-align:center;">' + plot.name + '</div>',
+            html: '<div style="background:' + plot.color + ';color:white;padding:3px 10px;border-radius:8px;font-family:Heebo,sans-serif;font-size:12px;font-weight:700;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,0.3);text-align:center;">' + locName(plot) + '</div>',
             iconAnchor: [0, 0]
           });
           plot.labelMarker = L.marker(center, { icon: label, interactive: false }).addTo(drawnItems);
         }
         saveData();
         renderPlotList();
-        showToast('✅ ' + plot.name + ' ' + t('עודכן'));
+        showToast('✅ ' + locName(plot) + ' ' + t('עודכן'));
       }
       container.innerHTML = '';
       showPlotDetails(plotId);
@@ -5054,7 +5504,7 @@
           html += '<button class="fab-farms-menu-item" data-fab-farm-id="' + farm.id + '">' +
             '<span style="width: 14px; height: 14px; border-radius: 50%; background: ' + farm.color + '; flex-shrink: 0; display: inline-block;"></span>' +
             '<div style="flex: 1;">' +
-              '<div style="font-weight: 600; font-size: 0.9rem; color: var(--text);">' + farm.name + '</div>' +
+              '<div style="font-weight: 600; font-size: 0.9rem; color: var(--text);">' + locName(farm) + '</div>' +
               '<div style="font-size: 0.72rem; color: var(--text-muted);">' + farmPlots.length + ' ' + t('חלקות') + '</div>' +
             '</div>' +
           '</button>';
@@ -5813,7 +6263,7 @@
     var userFarms = getUserFarms(currentUser);
     var farmOptions = '<option value="">' + t('— בחר מטע —') + '</option>';
     userFarms.forEach(function(farm) {
-      farmOptions += '<option value="' + farm.id + '">' + farm.name + '</option>';
+      farmOptions += '<option value="' + farm.id + '">' + locName(farm) + '</option>';
     });
 
     var container = document.getElementById('modalContainer');
@@ -6064,8 +6514,9 @@
       renderPlotCheckboxes();
       renderPesticideList();
       updateCalculations();
-    } else if (activeTab === 'history') {
-      renderHistoryList();
+      // History sub-view (if currently shown) also needs to refresh on lang change.
+      var histEl = document.getElementById('spraySubviewHistory');
+      if (histEl && histEl.style.display !== 'none') renderHistoryList();
     } else if (activeTab === 'profile') {
       renderProfileTab();
     } else if (activeTab === 'worklog') {
@@ -6519,7 +6970,7 @@
       html += '<div style="background: var(--g6); border-radius: 12px; padding: 14px; margin-bottom: 10px;">';
       html += '<div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">';
       html += '<div style="width: 12px; height: 12px; border-radius: 50%; background: ' + plot.color + ';"></div>';
-      html += '<span style="font-weight: 700; font-size: 1rem;">' + plot.name + '</span>';
+      html += '<span style="font-weight: 700; font-size: 1rem;">' + locName(plot) + '</span>';
       html += '<span style="font-size: 0.75rem; color: var(--text-muted); margin-right: auto;">' + formatArea(plot.area) + '</span>';
       html += '</div>';
 
@@ -6743,7 +7194,7 @@
       html += '<option value="">— ' + t('בחר חלקה') + ' —</option>';
       accessiblePlots.forEach(function(p) {
         var sel = (valvePlotMap[v.uid] == p.id) ? ' selected' : '';
-        html += '<option value="' + p.id + '"' + sel + '>' + p.name + ' (' + p.area.toFixed(1) + ' ' + t('ד\'') + ')</option>';
+        html += '<option value="' + p.id + '"' + sel + '>' + locName(p) + ' (' + p.area.toFixed(1) + ' ' + t('ד\'') + ')</option>';
       });
       html += '</select>';
       html += '</div>';

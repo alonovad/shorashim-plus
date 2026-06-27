@@ -1,4 +1,4 @@
-var CACHE_NAME = 'shorashim-v5';
+var CACHE_NAME = 'shorashim-v8';
 
 // CDN libs — these never change, safe to cache-first
 var CDN_URLS = [
@@ -8,8 +8,7 @@ var CDN_URLS = [
   'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js',
   'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js',
   'https://www.gstatic.com/firebasejs/10.12.2/firebase-functions-compat.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.2/html2pdf.bundle.min.js',
-  'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js'
+  'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.2/html2pdf.bundle.min.js'
 ];
 
 // App files — these change on deploy, need network-first
@@ -18,16 +17,18 @@ var APP_URLS = [
   '/index.html',
   '/css/style.css',
   '/css/theme-neon.css',
-  '/css/export-print.css',
   '/js/app.js',
   '/js/db.js',
+  '/js/audit.js',
+  '/js/sites.js',
+  '/js/schedule.js',
+  '/js/leave.js',
   '/js/timeclock.js',
   '/js/taskboard.js',
   '/js/fieldreport.js',
   '/js/display-settings.js',
   '/js/maintenance.js',
-  '/js/effects.js',
-  '/js/export.js'
+  '/js/effects.js'
 ];
 
 // Install — precache CDN libs + app files
@@ -61,9 +62,6 @@ self.addEventListener('fetch', function(event) {
   if (event.request.method !== 'GET') return;
   var url = event.request.url;
 
-  // Cache API only supports http/https — skip chrome-extension://, blob:, data:, etc.
-  if (!url.startsWith('http://') && !url.startsWith('https://')) return;
-
   // Skip Firebase/API — let them pass through
   if (url.indexOf('firestore.googleapis.com') !== -1) return;
   if (url.indexOf('identitytoolkit.googleapis.com') !== -1) return;
@@ -74,7 +72,6 @@ self.addEventListener('fetch', function(event) {
 
   // CDN libs → cache-first (they never change)
   var isCDN = url.indexOf('cdnjs.cloudflare.com') !== -1 ||
-              url.indexOf('cdn.jsdelivr.net') !== -1 ||
               url.indexOf('gstatic.com/firebasejs') !== -1;
 
   if (isCDN) {

@@ -62,11 +62,81 @@ var TimeClock = (function() {
     // Save to Firestore: timeclock/{date}_{username}_{index}
     var dateStr = new Date(record.punchIn).toISOString().slice(0, 10);
     var docId = dateStr + '_' + record.username + '_' + record.shiftIndex;
+
+    // ── Phase 1 (Meckano upgrade): additive schema ──
+    // All fields default to safe values so the existing aggregation
+    // queries (which only know about punchIn/punchOut/duration/workplace)
+    // keep working untouched. Old records without these fields are read
+    // with the same fallbacks elsewhere in the codebase.
+    var durationMs = record.duration || 0;
+    var durationMin = Math.round(durationMs / 60000);
+    var augmented = Object.assign({}, record, {
+      // Location proof — Phase 2 will populate. Null means "not captured".
+      punchInGeo:  record.punchInGeo  || null,
+      punchOutGeo: record.punchOutGeo || null,
+      geoVerified: record.geoVerified != null ? record.geoVerified : null,
+      geoWarnings: record.geoWarnings || [],
+
+      // Break tracking — Phase 2 will populate. Empty = no breaks taken.
+      breaks: record.breaks || [],
+      paidMinutes:  record.paidMinutes  != null ? record.paidMinutes  : durationMin,
+      breakMinutes: record.breakMinutes != null ? record.breakMinutes : 0,
+
+      // Categorisation — defaults to regular work, no project tag.
+      type: record.type || 'regular',
+      projectCode: record.projectCode || null,
+      taskCode: record.taskCode || null,
+
+      // Approval state — auto_approved keeps existing UX unchanged; Phase 3
+      // introduces the manager approval queue.
+      status: record.status || 'auto_approved',
+      approvedBy: record.approvedBy || null,
+      approvedAt: record.approvedAt || null,
+      rejectionReason: null,
+
+      // OT tiers — Phase 3 computes these from the schedule.
+      hoursRegular: record.hoursRegular != null ? record.hoursRegular : (durationMs / 3600000),
+      hours125: 0,
+      hours150: 0,
+      hoursNight: 0,
+
+      // Verification metadata
+      ipAddress: null, // we don't capture client IP from the browser
+      device: _detectDevice(),
+
+      // Edit audit (only set when an edit happens — see _saveEdit)
+      originalPunchIn: null,
+      originalPunchOut: null,
+      editReason: null,
+
+      // Schema version so future migrations can detect old/new records
+      schemaVersion: 1
+    });
+
     if (typeof db !== 'undefined') {
-      db.collection('timeclock').doc(docId).set(record)
-        .then(function() { console.log('Time record saved:', docId); })
+      db.collection('timeclock').doc(docId).set(augmented)
+        .then(function() {
+          console.log('Time record saved:', docId);
+          if (!navigator.onLine && typeof showToast === 'function') {
+            showToast('📴 ' + tt('הרשומה תסונכרן כשתחזור לאינטרנט',
+                                 'จะซิงค์เมื่อกลับมาออนไลน์',
+                                 'سيُزامن عند العودة للإنترنت'));
+          }
+        })
         .catch(function(err) { console.error('Time record save failed:', err); });
     }
+  }
+
+  // Detect device family — passed into the audit/schema fields.
+  function _detectDevice() {
+    var ua = navigator.userAgent || '';
+    if (/Mobi|Android|iPhone|iPad/i.test(ua)) return 'mobile';
+    return 'web';
+  }
+
+  // Expose custom workplaces for the Sites module
+  function getCustomWorkplaces() {
+    return workplaces.slice();
   }
 
   // ── Workplace List (from farms + custom) ──
@@ -87,6 +157,146 @@ var TimeClock = (function() {
     return options;
   }
 
+  // ─────────────────────────────────────────────────────────────
+  // ── PHASE 2 (Meckano upgrade): geolocation + geofence + breaks
+  // ─────────────────────────────────────────────────────────────
+
+  // Get a GPS fix as a Promise. Resolves to {lat,lng,accuracy,source} on
+  // success, or null on timeout/denial/error. Never rejects — the caller
+  // gets null and decides how to proceed (we never block a punch on geo).
+  function getGeoFix(timeoutMs) {
+    timeoutMs = timeoutMs || 10000;
+    if (!navigator.geolocation) return Promise.resolve(null);
+    return new Promise(function(resolve) {
+      var done = false;
+      var timer = setTimeout(function() {
+        if (done) return;
+        done = true;
+        resolve(null);
+      }, timeoutMs);
+      navigator.geolocation.getCurrentPosition(
+        function(pos) {
+          if (done) return;
+          done = true;
+          clearTimeout(timer);
+          resolve({
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+            accuracy: pos.coords.accuracy,
+            source: 'gps',
+            ts: Date.now()
+          });
+        },
+        function(err) {
+          if (done) return;
+          done = true;
+          clearTimeout(timer);
+          console.warn('Geo error:', err.code, err.message);
+          resolve(null);
+        },
+        { enableHighAccuracy: true, timeout: timeoutMs, maximumAge: 30000 }
+      );
+    });
+  }
+
+  // Verify a captured geo fix against the workplace's geofence (if any).
+  // Returns:
+  //   { verified: true|false|null, warnings: [...] }
+  // - verified=null: no geofence on the site, or no geo fix captured
+  // - verified=true: GPS point falls inside the polygon (or within the
+  //   per-plot radius buffer)
+  // - verified=false: outside — punch is still allowed but flagged
+  function verifyGeoFix(geoFix, workplaceName) {
+    var warnings = [];
+    if (!geoFix) {
+      warnings.push('no_gps');
+      return { verified: null, warnings: warnings };
+    }
+    if (geoFix.accuracy > 100) {
+      warnings.push('low_accuracy');
+    }
+    if (typeof Sites === 'undefined') return { verified: null, warnings: warnings };
+    var site = Sites.findByName(workplaceName);
+    if (!site || !site.geofence) {
+      // Custom workplace or farm umbrella — no geofence, can't verify.
+      return { verified: null, warnings: warnings };
+    }
+    var inside = Sites.isInside(site, [geoFix.lat, geoFix.lng]);
+    if (!inside) warnings.push('outside_geofence');
+    return { verified: inside, warnings: warnings };
+  }
+
+  // ── Break tracking helpers ──
+  // breaks live on currentShift.breaks = [{ start, end, type, auto }]
+  function getActiveBreak() {
+    if (!currentShift || !currentShift.breaks) return null;
+    for (var i = currentShift.breaks.length - 1; i >= 0; i--) {
+      if (currentShift.breaks[i].end == null) return currentShift.breaks[i];
+    }
+    return null;
+  }
+
+  function totalBreakMinutes(breaks) {
+    if (!Array.isArray(breaks)) return 0;
+    var ms = 0;
+    breaks.forEach(function(b) {
+      if (b && b.start && b.end) ms += (b.end - b.start);
+    });
+    return Math.round(ms / 60000);
+  }
+
+  function startBreak(type) {
+    if (!currentShift) return;
+    if (getActiveBreak()) return; // already on break — ignore
+    currentShift.breaks = currentShift.breaks || [];
+    currentShift.breaks.push({ start: Date.now(), end: null, type: type || 'short', auto: false });
+    saveCurrentShift();
+    renderClockBar();
+    if (typeof showToast === 'function') {
+      var labels = { lunch: tt('הפסקת אוכל','พักทานข้าว','استراحة طعام'),
+                     short: tt('הפסקה קצרה','พักสั้น','استراحة قصيرة'),
+                     personal: tt('הפסקה אישית','พักส่วนตัว','استراحة شخصية') };
+      showToast('☕ ' + (labels[type] || type));
+    }
+  }
+
+  function endBreak() {
+    var active = getActiveBreak();
+    if (!active) return;
+    active.end = Date.now();
+    saveCurrentShift();
+    renderClockBar();
+    var minutes = Math.round((active.end - active.start) / 60000);
+    if (typeof showToast === 'function') {
+      showToast('✅ ' + tt('הפסקה הסתיימה','สิ้นสุดการพัก','انتهت الاستراحة') + ' (' + minutes + ' ' + tt('דקות','นาที','دقيقة') + ')');
+    }
+  }
+
+  // Modal: choose a break type. Called when the ☕ button is tapped.
+  function showBreakTypeModal() {
+    var modal = document.getElementById('modalContainer');
+    var btn = function(type, icon, label) {
+      return '<button onclick="TimeClock.startBreakAndClose(\'' + type + '\')" style="display:flex;align-items:center;gap:10px;width:100%;padding:14px;margin-bottom:6px;border-radius:10px;border:1px solid #e0d8d0;background:#faf8f5;font-family:inherit;font-size:0.95rem;font-weight:600;cursor:pointer;">' +
+        '<span style="font-size:1.4rem;">' + icon + '</span><span style="flex:1;text-align:start;">' + label + '</span></button>';
+    };
+    modal.innerHTML =
+      '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;">' +
+      '<div style="background:white;border-radius:16px;padding:20px;width:90%;max-width:340px;">' +
+        '<h3 style="font-weight:700;margin-bottom:14px;">☕ ' + tt('סוג הפסקה','ประเภทการพัก','نوع الاستراحة') + '</h3>' +
+        btn('lunch',    '🍽️', tt('הפסקת אוכל','พักทานข้าว','استراحة طعام')) +
+        btn('short',    '⏸',  tt('הפסקה קצרה','พักสั้น','استراحة قصيرة')) +
+        btn('personal', '👤', tt('הפסקה אישית','พักส่วนตัว','استراحة شخصية')) +
+        '<button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'" style="margin-top:10px;width:100%;padding:10px;border-radius:10px;border:none;background:#eee;font-family:inherit;cursor:pointer;">' + tt('ביטול','ยกเลิก','إلغاء') + '</button>' +
+      '</div></div>';
+  }
+
+  function startBreakAndClose(type) {
+    document.getElementById('modalContainer').innerHTML = '';
+    startBreak(type);
+  }
+
+  // ── End Phase 2 helpers ──
+
   // ── Clock Bar (persistent top bar) ──
 
   function renderClockBar() {
@@ -100,20 +310,58 @@ var TimeClock = (function() {
 
     bar.style.display = 'flex';
 
+    // Phase 1 (Meckano upgrade): show an offline pill so the user knows
+    // their punch is queued by Firestore's local persistence layer rather
+    // than silently lost. Re-rendered automatically on every state change.
+    var offlinePill = (navigator.onLine === false)
+      ? '<span title="' + tt('הרשומה תסונכרן כשתחזור לאינטרנט',
+                              'จะซิงค์เมื่อกลับมาออนไลน์',
+                              'سيُزامن عند العودة للإنترنت') +
+        '" style="background:#ffb74d;color:#3e2723;font-weight:700;font-size:0.65rem;padding:2px 7px;border-radius:6px;margin-inline-end:6px;">📴 ' +
+        tt('במצב לא מקוון','ออฟไลน์','غير متصل') + '</span>'
+      : '';
+
     if (currentShift) {
       var elapsed = formatDuration(Date.now() - currentShift.punchIn);
-      bar.innerHTML =
-        '<div style="display:flex;align-items:center;gap:8px;flex:1;">' +
-          '<span style="font-size:1.2rem;">🟢</span>' +
-          '<div>' +
-            '<div style="font-weight:700;font-size:0.85rem;" id="clockElapsed">' + elapsed + '</div>' +
-            '<div style="font-size:0.7rem;opacity:0.8;">' + (currentShift.workplace || '') + '</div>' +
+      var active = getActiveBreak();
+      if (active) {
+        // ── On break: show resume + (no punch-out until break ends) ──
+        var breakElapsed = formatDuration(Date.now() - active.start);
+        var breakLabels = {
+          lunch:    tt('בהפסקת אוכל','พักทานข้าว','استراحة طعام'),
+          short:    tt('בהפסקה','พัก','استراحة'),
+          personal: tt('בהפסקה אישית','พักส่วนตัว','استراحة شخصية')
+        };
+        bar.style.background = 'linear-gradient(135deg,#ffb74d,#ff9800)';
+        bar.innerHTML =
+          '<div style="display:flex;align-items:center;gap:8px;flex:1;">' +
+            offlinePill +
+            '<span style="font-size:1.2rem;">☕</span>' +
+            '<div>' +
+              '<div style="font-weight:700;font-size:0.85rem;" id="clockElapsed">' + breakElapsed + '</div>' +
+              '<div style="font-size:0.7rem;opacity:0.9;">' + (breakLabels[active.type] || active.type) + '</div>' +
+            '</div>' +
           '</div>' +
-        '</div>' +
-        '<button onclick="TimeClock.punchOut()" style="padding:6px 14px;border-radius:8px;border:none;background:#f44336;color:white;font-family:inherit;font-weight:700;font-size:0.8rem;cursor:pointer;">' + tt('🔴 יציאה', '🔴 ออกงาน', '🔴 خروج') + '</button>';
+          '<button onclick="TimeClock.endBreak()" style="padding:6px 14px;border-radius:8px;border:none;background:#2e7d32;color:white;font-family:inherit;font-weight:700;font-size:0.8rem;cursor:pointer;">' + tt('▶️ סיים הפסקה','▶️ สิ้นสุดพัก','▶️ إنهاء الاستراحة') + '</button>';
+      } else {
+        bar.style.background = '';
+        bar.innerHTML =
+          '<div style="display:flex;align-items:center;gap:8px;flex:1;">' +
+            offlinePill +
+            '<span style="font-size:1.2rem;">🟢</span>' +
+            '<div>' +
+              '<div style="font-weight:700;font-size:0.85rem;" id="clockElapsed">' + elapsed + '</div>' +
+              '<div style="font-size:0.7rem;opacity:0.8;">' + (currentShift.workplace || '') + '</div>' +
+            '</div>' +
+          '</div>' +
+          '<button onclick="TimeClock.showBreakTypeModal()" title="' + tt('התחל הפסקה','เริ่มพัก','بدء استراحة') + '" style="padding:6px 10px;border-radius:8px;border:none;background:#ff9800;color:white;font-family:inherit;font-weight:700;font-size:0.8rem;cursor:pointer;margin-inline-end:4px;">☕</button>' +
+          '<button onclick="TimeClock.punchOut()" style="padding:6px 14px;border-radius:8px;border:none;background:#f44336;color:white;font-family:inherit;font-weight:700;font-size:0.8rem;cursor:pointer;">' + tt('🔴 יציאה', '🔴 ออกงาน', '🔴 خروج') + '</button>';
+      }
     } else {
+      bar.style.background = '';
       bar.innerHTML =
         '<div style="display:flex;align-items:center;gap:8px;flex:1;">' +
+          offlinePill +
           '<span style="font-size:1.2rem;">⚪</span>' +
           '<div style="font-size:0.85rem;font-weight:600;">' + tt('לא בשעון', 'ไม่ได้เข้างาน', 'غير مسجل') + '</div>' +
         '</div>' +
@@ -125,7 +373,11 @@ var TimeClock = (function() {
     if (clockInterval) clearInterval(clockInterval);
     clockInterval = setInterval(function() {
       var el = document.getElementById('clockElapsed');
-      if (el && currentShift) {
+      if (!el || !currentShift) return;
+      var active = getActiveBreak();
+      if (active) {
+        el.textContent = formatDuration(Date.now() - active.start);
+      } else {
         el.textContent = formatDuration(Date.now() - currentShift.punchIn);
       }
     }, 1000);
@@ -176,17 +428,36 @@ var TimeClock = (function() {
 
   function doPunchIn(workplace) {
     getTodayShiftCount(function(count) {
-      currentShift = {
-        punchIn: Date.now(),
-        workplace: workplace,
-        username: window.currentUser.username,
-        userName: window.currentUser.name,
-        shiftIndex: count
-      };
-      saveCurrentShift();
-      renderClockBar();
-      startTicker();
-      if (typeof showToast === 'function') showToast('🟢 ' + tt('נכנסת', 'เข้างานแล้ว', 'دخلت') + ' — ' + workplace);
+      if (typeof showToast === 'function') {
+        showToast('📍 ' + tt('מאתר מיקום...','กำลังระบุตำแหน่ง...','جاري تحديد الموقع...'));
+      }
+      getGeoFix(10000).then(function(geo) {
+        var v = verifyGeoFix(geo, workplace);
+        currentShift = {
+          punchIn: Date.now(),
+          workplace: workplace,
+          username: window.currentUser.username,
+          userName: window.currentUser.name,
+          shiftIndex: count,
+          // ── Phase 2: geo state carried through the shift ──
+          punchInGeo: geo,
+          geoVerified: v.verified,
+          geoWarnings: v.warnings.slice(),
+          breaks: []
+        };
+        saveCurrentShift();
+        renderClockBar();
+        startTicker();
+        if (typeof showToast === 'function') {
+          var msg = '🟢 ' + tt('נכנסת', 'เข้างานแล้ว', 'دخلت') + ' — ' + workplace;
+          if (v.warnings.indexOf('outside_geofence') !== -1) {
+            msg += ' ⚠️ ' + tt('מחוץ לטווח','นอกพื้นที่','خارج النطاق');
+          } else if (v.warnings.indexOf('no_gps') !== -1) {
+            msg += ' ⚠️ ' + tt('ללא GPS','ไม่มี GPS','بدون GPS');
+          }
+          showToast(msg);
+        }
+      });
     });
   }
 
@@ -209,22 +480,132 @@ var TimeClock = (function() {
 
   function punchOut() {
     if (!currentShift) return;
-    var record = {
-      punchIn: currentShift.punchIn,
-      punchOut: Date.now(),
-      workplace: currentShift.workplace,
-      username: currentShift.username,
-      userName: currentShift.userName,
-      shiftIndex: currentShift.shiftIndex,
-      date: new Date(currentShift.punchIn).toISOString().slice(0, 10),
-      duration: Date.now() - currentShift.punchIn
-    };
-    saveTimeRecord(record);
-    currentShift = null;
-    saveCurrentShift();
-    stopTicker();
-    renderClockBar();
-    if (typeof showToast === 'function') showToast('🔴 ' + tt('יצאת', 'ออกงานแล้ว', 'خرجت') + ' — ' + formatDuration(record.duration));
+    // End any active break automatically — the user is leaving.
+    if (getActiveBreak()) {
+      getActiveBreak().end = Date.now();
+    }
+    if (typeof showToast === 'function') {
+      showToast('📍 ' + tt('מאתר מיקום...','กำลังระบุตำแหน่ง...','جاري تحديد الموقع...'));
+    }
+    var workplace = currentShift.workplace;
+    getGeoFix(10000).then(function(geoOut) {
+      var vOut = verifyGeoFix(geoOut, workplace);
+
+      // Merge warnings from punch-in and punch-out
+      var combinedWarnings = (currentShift.geoWarnings || []).slice();
+      vOut.warnings.forEach(function(w) {
+        if (combinedWarnings.indexOf(w) === -1) combinedWarnings.push(w);
+      });
+
+      // Combined geoVerified: both ends must verify (or be unknown) for the
+      // shift to count as verified overall. Any false ⇒ false; null + true
+      // ⇒ null (uncertain — manager review encouraged).
+      var combinedVerified = null;
+      var inVerified = currentShift.geoVerified;
+      var outVerified = vOut.verified;
+      if (inVerified === true && outVerified === true) combinedVerified = true;
+      else if (inVerified === false || outVerified === false) combinedVerified = false;
+
+      // Compute break totals
+      var breaks = currentShift.breaks || [];
+      var breakMin = totalBreakMinutes(breaks);
+      var durationMs = Date.now() - currentShift.punchIn;
+      var durationMin = Math.round(durationMs / 60000);
+
+      // Auto-break rule: shifts ≥ 6h with no logged break get 30min deducted
+      // as an unpaid lunch. The synthetic break is recorded so the audit
+      // trail is honest about why paidMinutes < duration.
+      var autoBreakApplied = false;
+      if (durationMin >= 360 && breakMin === 0) {
+        var autoStart = currentShift.punchIn + (durationMs / 2) - (15 * 60000);
+        breaks = breaks.concat([{
+          start: autoStart,
+          end: autoStart + (30 * 60000),
+          type: 'lunch',
+          auto: true
+        }]);
+        breakMin = 30;
+        autoBreakApplied = true;
+      }
+      var paidMin = Math.max(0, durationMin - breakMin);
+
+      // ── Phase 3: OT tier calculation using the user's schedule ──
+      // calcOTTiers is a pure function in schedule.js — same input always
+      // gives same output. If the module isn't loaded for any reason we
+      // fall back gracefully to "all hours regular" so the punch still saves.
+      var dateStr = new Date(currentShift.punchIn).toISOString().slice(0, 10);
+      var otTiers = null;
+      if (typeof Schedule !== 'undefined') {
+        try {
+          var sched = Schedule.getForUser(currentShift.username);
+          otTiers = Schedule.calcOTTiers(currentShift.punchIn, Date.now(), paidMin, sched, dateStr);
+        } catch (e) {
+          console.warn('OT calculation failed, defaulting to regular:', e);
+        }
+      }
+      if (!otTiers) {
+        otTiers = {
+          hoursRegular: paidMin / 60, hours125: 0, hours150: 0, hoursNight: 0,
+          expectedHours: 0, late: false, earlyLeave: false, scheduleWarnings: [], offDay: false
+        };
+      }
+
+      // Decide initial approval status: shifts with geo failures OR
+      // schedule warnings default to pending so the manager reviews them.
+      var hasWarnings = (combinedVerified === false) ||
+                        (otTiers.scheduleWarnings && otTiers.scheduleWarnings.length > 0);
+      var status = hasWarnings ? 'pending' : 'auto_approved';
+
+      var record = {
+        punchIn: currentShift.punchIn,
+        punchOut: Date.now(),
+        workplace: workplace,
+        username: currentShift.username,
+        userName: currentShift.userName,
+        shiftIndex: currentShift.shiftIndex,
+        date: new Date(currentShift.punchIn).toISOString().slice(0, 10),
+        duration: durationMs,
+        // ── Phase 2 fields ──
+        punchInGeo: currentShift.punchInGeo || null,
+        punchOutGeo: geoOut || null,
+        geoVerified: combinedVerified,
+        geoWarnings: combinedWarnings,
+        breaks: breaks,
+        paidMinutes: paidMin,
+        breakMinutes: breakMin,
+        status: status,
+        // ── Phase 3 fields ──
+        hoursRegular: otTiers.hoursRegular,
+        hours125: otTiers.hours125,
+        hours150: otTiers.hours150,
+        hoursNight: otTiers.hoursNight,
+        expectedHours: otTiers.expectedHours,
+        scheduleWarnings: otTiers.scheduleWarnings || [],
+        offDay: !!otTiers.offDay
+      };
+
+      saveTimeRecord(record);
+      currentShift = null;
+      saveCurrentShift();
+      stopTicker();
+      renderClockBar();
+
+      if (typeof showToast === 'function') {
+        var msg = '🔴 ' + tt('יצאת', 'ออกงานแล้ว', 'خرجت') + ' — ' + formatDuration(durationMs);
+        if (autoBreakApplied) {
+          msg += ' (☕ ' + tt('הופחתה הפסקה אוטומטית','หักพักอัตโนมัติ','تم خصم استراحة تلقائياً') + ')';
+        }
+        if (otTiers.hours125 > 0 || otTiers.hours150 > 0) {
+          msg += ' · ' + tt('שעות נוספות','โอที','إضافي') + ' ' + (otTiers.hours125 + otTiers.hours150).toFixed(1) + 'h';
+        }
+        if (otTiers.late) msg += ' ⏰ ' + tt('איחור','สาย','تأخر');
+        if (otTiers.earlyLeave) msg += ' ⏰ ' + tt('יציאה מוקדמת','ออกก่อน','مغادرة مبكرة');
+        if (combinedVerified === false) {
+          msg += ' ⚠️ ' + tt('ממתין לאישור','รออนุมัติ','بانتظار الاعتماد');
+        }
+        showToast(msg);
+      }
+    });
   }
 
   // ── Workplace Picker Modal ──
@@ -284,15 +665,19 @@ var TimeClock = (function() {
     // ── My Stuff (always visible, expanded) ──
     html += '<button onclick="TaskBoard.showMyTasks();TimeClock.closeMenu()" style="' + menuBtn + 'background:#f3e5f5;">' + tt('📋 המשימות שלי', '📋 งานของฉัน', '📋 مهامي') + '</button>';
     html += '<button onclick="TimeClock.showMyRecords();TimeClock.closeMenu()" style="' + menuBtn + 'background:#e8f5e9;">' + tt('🕐 הדוחות שלי', '🕐 รายงานของฉัน', '🕐 تقاريري') + '</button>';
+    html += '<button onclick="Leave.showMyLeave();TimeClock.closeMenu()" style="' + menuBtn + 'background:#fff3e0;">' + tt('🏖️ החופשות שלי', '🏖️ การลาของฉัน', '🏖️ إجازاتي') + '</button>';
     html += '<button onclick="TimeClock.showProfileEdit();TimeClock.closeMenu()" style="' + menuBtn + 'background:#fce4ec;">' + tt('👤 הפרופיל שלי', '👤 โปรไฟล์ของฉัน', '👤 ملفي الشخصي') + '</button>';
 
     if (isManager) {
       // ── Management (collapsed) ──
-      html += '<div onclick="var d=document.getElementById(\'menuMgmt\');d.style.display=d.style.display===\'none\'?\'block\':\'none\';this.querySelector(\'.chev\').textContent=d.style.display===\'none\'?\'▸\':\'▾\'" style="' + groupHead + 'margin-top:10px;">';
-      html += '<span style="font-weight:700;font-size:0.85rem;color:#555;"><span class="chev">▸</span> ' + tt('ניהול', 'จัดการ', 'إدارة') + '</span>';
+      html += '<div onclick="var d=document.getElementById(\'menuMgmt\');var open=d.style.display!==\'block\';d.style.display=open?\'block\':\'none\';this.classList.toggle(\'open\',open);" class="menu-group-head">';
+      html += '<span class="mg-label">📋 ' + tt('ניהול', 'จัดการ', 'إدارة') + '</span><span class="mg-chev">▸</span>';
       html += '</div>';
       html += '<div id="menuMgmt" style="display:none;">';
       html += '<button onclick="TimeClock.showAllRecords();TimeClock.closeMenu()" style="' + menuBtn + 'background:#e3f2fd;">' + tt('📊 ניהול שעות', '📊 จัดการชั่วโมง', '📊 إدارة الساعات') + '</button>';
+      html += '<button onclick="Schedule.showUserPicker();TimeClock.closeMenu()" style="' + menuBtn + 'background:#e8eaf6;">' + tt('🗓 לוחות זמנים', '🗓 ตารางเวลา', '🗓 جداول العمل') + '</button>';
+      html += '<button onclick="Leave.showApprovalQueue();TimeClock.closeMenu()" style="' + menuBtn + 'background:#fff8e1;">' + tt('✅ תור אישורים', '✅ คิวอนุมัติ', '✅ قائمة الاعتماد') + '</button>';
+      html += '<button onclick="Leave.showHolidayAdmin();TimeClock.closeMenu()" style="' + menuBtn + 'background:#fce4ec;">' + tt('🎉 חגי ישראל', '🎉 วันหยุดอิสราเอล', '🎉 الأعياد الإسرائيلية') + '</button>';
       html += '<button onclick="TaskBoard.showTaskManager();TimeClock.closeMenu()" style="' + menuBtn + 'background:#ede7f6;">' + tt('📋 ניהול משימות', '📋 จัดการงาน', '📋 إدارة المهام') + '</button>';
       html += '<button onclick="TimeClock.showAdminDashboard();TimeClock.closeMenu()" style="' + menuBtn + 'background:#e0f7fa;">' + tt('📊 לוח בקרה', '📊 แดชบอร์ด', '📊 لوحة التحكم') + '</button>';
       html += '<button onclick="FieldReport.showReportsList();TimeClock.closeMenu()" style="' + menuBtn + 'background:#f9fbe7;">' + tt('🔬 דוחות סיור', '🔬 รายงานสำรวจ', '🔬 تقارير الجولات') + '</button>';
@@ -300,8 +685,8 @@ var TimeClock = (function() {
       html += '</div>';
 
       // ── Settings (collapsed) ──
-      html += '<div onclick="var d=document.getElementById(\'menuSettings\');d.style.display=d.style.display===\'none\'?\'block\':\'none\';this.querySelector(\'.chev\').textContent=d.style.display===\'none\'?\'▸\':\'▾\'" style="' + groupHead + '">';
-      html += '<span style="font-weight:700;font-size:0.85rem;color:#555;"><span class="chev">▸</span> ' + tt('הגדרות', 'ตั้งค่า', 'إعدادات') + '</span>';
+      html += '<div onclick="var d=document.getElementById(\'menuSettings\');var open=d.style.display!==\'block\';d.style.display=open?\'block\':\'none\';this.classList.toggle(\'open\',open);" class="menu-group-head">';
+      html += '<span class="mg-label">⚙️ ' + tt('הגדרות', 'ตั้งค่า', 'إعدادات') + '</span><span class="mg-chev">▸</span>';
       html += '</div>';
       html += '<div id="menuSettings" style="display:none;">';
       html += '<button onclick="TimeClock.showExportMenu();TimeClock.closeMenu()" style="' + menuBtn + 'background:#f1f8e9;">' + tt('📥 ייצוא נתונים', '📥 ส่งออกข้อมูล', '📥 تصدير البيانات') + '</button>';
@@ -350,7 +735,10 @@ var TimeClock = (function() {
   function showMyRecords() {
     var username = window.currentUser ? window.currentUser.username : '';
     var modal = document.getElementById('modalContainer');
-    modal.innerHTML = '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;"><div style="background:white;border-radius:16px;padding:20px;width:95%;max-width:500px;max-height:85vh;overflow-y:auto;"><h3 style="font-weight:700;margin-bottom:12px;">' + tt('🕐 הדוחות שלי', '🕐 รายงานของฉัน', '🕐 تقاريري') + '</h3><div id="myRecordsContent" style="color:#999;text-align:center;padding:16px;">' + tt('טוען...', 'กำลังโหลด...', 'جاري التحميل...') + '</div><button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'" style="margin-top:12px;width:100%;padding:10px;border-radius:10px;border:none;background:#eee;font-family:inherit;cursor:pointer;">' + tt('סגור', 'ปิด', 'إغلาق') + '</button></div></div>';
+    modal.innerHTML = '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;"><div style="background:white;border-radius:16px;padding:20px;width:95%;max-width:500px;max-height:85vh;overflow-y:auto;"><h3 style="font-weight:700;margin-bottom:12px;">' + tt('🕐 הדוחות שלי', '🕐 รายงานของฉัน', '🕐 تقاريري') + '</h3><div id="myProgressCard"></div><div id="myRecordsContent" style="color:#999;text-align:center;padding:16px;">' + tt('טוען...', 'กำลังโหลด...', 'جاري التحميل...') + '</div><button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'" style="margin-top:12px;width:100%;padding:10px;border-radius:10px;border:none;background:#eee;font-family:inherit;cursor:pointer;">' + tt('סגור', 'ปิด', 'إغلาق') + '</button></div></div>';
+
+    // Phase 3: progress widget — current week paid vs expected + OT breakdown
+    if (typeof Schedule !== 'undefined') Schedule.renderProgressCard('myProgressCard', username);
 
     if (typeof db !== 'undefined') {
       db.collection('timeclock')
@@ -437,44 +825,163 @@ var TimeClock = (function() {
       var outTime = pOut ? (pOut.getHours() < 10 ? '0' : '') + pOut.getHours() + ':' + (pOut.getMinutes() < 10 ? '0' : '') + pOut.getMinutes() : '';
 
       var modal = document.getElementById('modalContainer');
+
+      // ── Phase 2: build context panels (geo / breaks / approval state) ──
+      var contextBlocks = '';
+      var geoIn = r.punchInGeo, geoOut = r.punchOutGeo;
+      if (geoIn || geoOut || (r.geoWarnings && r.geoWarnings.length)) {
+        var warnPills = (r.geoWarnings || []).map(function(w) {
+          var labels = {
+            outside_geofence: tt('מחוץ לטווח','นอกพื้นที่','خارج النطاق'),
+            low_accuracy:     tt('דיוק נמוך','ความแม่นยำต่ำ','دقة منخفضة'),
+            no_gps:           tt('ללא GPS','ไม่มี GPS','بدون GPS'),
+            manual_override:  tt('אושר ידנית','อนุมัติด้วยตนเอง','تم الاعتماد يدوياً')
+          };
+          var color = (w === 'manual_override') ? '#2e7d32' : '#ef6c00';
+          return '<span style="display:inline-block;background:' + color + ';color:white;padding:2px 8px;border-radius:6px;font-size:0.7rem;font-weight:700;margin-inline-end:4px;">⚠️ ' + (labels[w] || w) + '</span>';
+        }).join('');
+        var inAcc  = geoIn  ? Math.round(geoIn.accuracy)  + 'm' : '—';
+        var outAcc = geoOut ? Math.round(geoOut.accuracy) + 'm' : '—';
+        contextBlocks +=
+          '<div style="background:#fff8e1;border:1px solid #ffe0b2;border-radius:8px;padding:8px 10px;margin-bottom:10px;font-size:0.78rem;">' +
+            '<div style="font-weight:700;margin-bottom:4px;">📍 ' + tt('מיקום','ตำแหน่ง','الموقع') + '</div>' +
+            warnPills +
+            '<div style="color:#666;margin-top:4px;">' +
+              tt('דיוק','ความแม่นยำ','الدقة') + ': ' + tt('כניסה','เข้า','دخول') + ' ' + inAcc + ' · ' + tt('יציאה','ออก','خروج') + ' ' + outAcc +
+            '</div>' +
+          '</div>';
+      }
+      if (Array.isArray(r.breaks) && r.breaks.length) {
+        var breakRows = r.breaks.map(function(b) {
+          var dur = (b.end && b.start) ? Math.round((b.end - b.start) / 60000) : 0;
+          var icon = b.type === 'lunch' ? '🍽️' : (b.type === 'personal' ? '👤' : '⏸');
+          var auto = b.auto ? ' <span style="color:#999;">(' + tt('אוטומטי','อัตโนมัติ','تلقائي') + ')</span>' : '';
+          return '<div style="font-size:0.78rem;color:#444;">' + icon + ' ' + dur + ' ' + tt('דקות','นาที','دقيقة') + auto + '</div>';
+        }).join('');
+        contextBlocks +=
+          '<div style="background:#f3e5f5;border:1px solid #e1bee7;border-radius:8px;padding:8px 10px;margin-bottom:10px;">' +
+            '<div style="font-weight:700;font-size:0.78rem;margin-bottom:4px;">☕ ' + tt('הפסקות','พัก','استراحات') + ' (' + (r.breakMinutes || 0) + ' ' + tt('דקות','นาที','دقيقة') + ')</div>' +
+            breakRows +
+          '</div>';
+      }
+      // Force-approve button: only when this record needs review.
+      var forceApproveBtn = '';
+      if (r.status === 'pending' || r.geoVerified === false) {
+        forceApproveBtn =
+          '<button onclick="TimeClock._forceApprove(\'' + docId + '\')" style="width:100%;padding:10px;border-radius:10px;border:none;background:#2e7d32;color:white;font-family:inherit;font-weight:700;font-size:0.85rem;cursor:pointer;margin-bottom:8px;">' +
+          '🔓 ' + tt('אשר ידנית','อนุมัติด้วยตนเอง','اعتماد يدوي') + '</button>';
+      }
+
       modal.innerHTML =
         '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;">' +
-        '<div style="background:white;border-radius:16px;padding:20px;width:90%;max-width:360px;">' +
+        '<div style="background:white;border-radius:16px;padding:20px;width:90%;max-width:380px;max-height:90vh;overflow-y:auto;">' +
           '<h3 style="font-weight:700;margin-bottom:12px;">✏️ ' + tt('עריכת רשומה', 'แก้ไขรายการ', 'تعديل سجل') + '</h3>' +
           '<div style="margin-bottom:8px;font-size:0.85rem;font-weight:600;">' + (r.userName || r.username) + ' — ' + (r.workplace || '') + '</div>' +
+          contextBlocks +
+          forceApproveBtn +
           '<label style="font-size:0.8rem;color:#666;">' + tt('תאריך', 'วันที่', 'تاريخ') + '</label>' +
           '<input type="date" id="editDate" value="' + dateStr + '" style="width:100%;padding:8px;border-radius:8px;border:1px solid #ddd;margin-bottom:8px;font-family:inherit;">' +
           '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">' +
             '<div><label style="font-size:0.8rem;color:#666;">' + tt('כניסה', 'เข้า', 'دخول') + '</label><input type="time" id="editIn" value="' + inTime + '" style="width:100%;padding:8px;border-radius:8px;border:1px solid #ddd;font-family:inherit;"></div>' +
             '<div><label style="font-size:0.8rem;color:#666;">' + tt('יציאה', 'ออก', 'خروج') + '</label><input type="time" id="editOut" value="' + outTime + '" style="width:100%;padding:8px;border-radius:8px;border:1px solid #ddd;font-family:inherit;"></div>' +
           '</div>' +
+          '<label style="font-size:0.8rem;color:#666;">' + tt('סיבת העריכה', 'เหตุผลในการแก้ไข', 'سبب التعديل') + '</label>' +
+          '<input type="text" id="editReason" placeholder="' + tt('אופציונלי - יישמר ביומן הביקורת', 'ไม่บังคับ - บันทึกใน audit log', 'اختياري - يُسجل في سجل التدقيق') + '" style="width:100%;padding:8px;border-radius:8px;border:1px solid #ddd;margin-bottom:10px;font-family:inherit;font-size:0.85rem;">' +
           '<div style="display:flex;gap:8px;">' +
             '<button onclick="TimeClock._saveEdit(\'' + docId + '\')" style="flex:1;padding:10px;border-radius:10px;border:none;background:#4caf50;color:white;font-family:inherit;font-weight:700;cursor:pointer;">' + tt('💾 שמור', '💾 บันทึก', '💾 حفظ') + '</button>' +
             '<button onclick="TimeClock._deleteRecord(\'' + docId + '\')" style="padding:10px 16px;border-radius:10px;border:none;background:#f44336;color:white;font-family:inherit;font-weight:700;cursor:pointer;">🗑️</button>' +
             '<button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'" style="flex:1;padding:10px;border-radius:10px;border:none;background:#eee;font-family:inherit;cursor:pointer;">' + tt('ביטול', 'ยกเลิก', 'إلغاء') + '</button>' +
           '</div>' +
         '</div></div>';
+      window.__timeclockEditingRecord = r;
     });
+  }
+
+  // Manager force-approves a flagged punch. Prompts for a reason, then
+  // adds 'manual_override' to warnings, flips status to 'approved', and
+  // writes an audit entry — Phase 1 audit hook is reused.
+  function _forceApprove(docId) {
+    var reason = prompt(tt('סיבת אישור ידני (חובה):','เหตุผลในการอนุมัติด้วยตนเอง (จำเป็น):','سبب الاعتماد اليدوي (مطلوب):'));
+    if (reason == null) return; // cancelled
+    reason = reason.trim();
+    if (!reason) {
+      if (typeof showToast === 'function') showToast('❌ ' + tt('חייב לציין סיבה','ต้องระบุเหตุผล','يجب ذكر السبب'));
+      return;
+    }
+    var before = window.__timeclockEditingRecord || null;
+    var prevWarnings = (before && before.geoWarnings) ? before.geoWarnings.slice() : [];
+    if (prevWarnings.indexOf('manual_override') === -1) prevWarnings.push('manual_override');
+    var update = {
+      status: 'approved',
+      approvedBy: (window.currentUser && window.currentUser.username) || 'unknown',
+      approvedAt: Date.now(),
+      geoWarnings: prevWarnings,
+      editReason: reason
+    };
+    db.collection('timeclock').doc(docId).update(update)
+      .then(function() {
+        document.getElementById('modalContainer').innerHTML = '';
+        if (typeof showToast === 'function') showToast('✅ ' + tt('אושר ידנית','อนุมัติแล้ว','تم الاعتماد'));
+        if (typeof Audit !== 'undefined') {
+          Audit.log('approve', 'timeclock', docId, {
+            targetUser: before ? before.username : null,
+            before: before,
+            after: Object.assign({}, before || {}, update),
+            reason: reason
+          });
+        }
+        window.__timeclockEditingRecord = null;
+        showAllRecords();
+      })
+      .catch(function(err) {
+        if (typeof showToast === 'function') showToast('❌ ' + err.message);
+      });
   }
 
   function _saveEdit(docId) {
     var dateVal = document.getElementById('editDate').value;
     var inVal = document.getElementById('editIn').value;
     var outVal = document.getElementById('editOut').value;
+    var reasonEl = document.getElementById('editReason');
+    var reason = reasonEl ? reasonEl.value.trim() : '';
     if (!dateVal || !inVal) return;
 
+    var before = window.__timeclockEditingRecord || null;
     var punchIn = new Date(dateVal + 'T' + inVal + ':00').getTime();
     var punchOut = outVal ? new Date(dateVal + 'T' + outVal + ':00').getTime() : null;
     var update = { punchIn: punchIn, date: dateVal };
     if (punchOut) {
       update.punchOut = punchOut;
       update.duration = punchOut - punchIn;
+      update.paidMinutes = Math.round((punchOut - punchIn) / 60000);
+      update.hoursRegular = (punchOut - punchIn) / 3600000;
     }
+    // Preserve the original times on first edit (don't clobber on re-edit).
+    if (before && before.originalPunchIn == null) {
+      update.originalPunchIn = before.punchIn;
+      update.originalPunchOut = before.punchOut || null;
+    }
+    if (reason) update.editReason = reason;
+    // An edit invalidates auto-approval — manager must re-approve.
+    // (Phase 3 surfaces this; Phase 1 just records the state change.)
+    update.status = 'pending';
+    update.approvedBy = null;
+    update.approvedAt = null;
 
     db.collection('timeclock').doc(docId).update(update)
       .then(function() {
         document.getElementById('modalContainer').innerHTML = '';
         if (typeof showToast === 'function') showToast('💾 ' + tt('עודכן', 'อัปเดตแล้ว', 'تم التحديث'));
+        // Audit log — fire-and-forget, never blocks the user.
+        if (typeof Audit !== 'undefined') {
+          Audit.log('edit', 'timeclock', docId, {
+            targetUser: before ? before.username : null,
+            before: before,
+            after: Object.assign({}, before || {}, update),
+            reason: reason || null
+          });
+        }
+        window.__timeclockEditingRecord = null;
         showAllRecords();
       })
       .catch(function(err) {
@@ -484,10 +991,20 @@ var TimeClock = (function() {
 
   function _deleteRecord(docId) {
     if (!confirm(tt('למחוק רשומה זו?', 'ลบรายการนี้?', 'حذف هذا السجل؟'))) return;
+    var before = window.__timeclockEditingRecord || null;
     db.collection('timeclock').doc(docId).delete()
       .then(function() {
         document.getElementById('modalContainer').innerHTML = '';
         if (typeof showToast === 'function') showToast('🗑️ ' + tt('נמחק', 'ลบแล้ว', 'تم الحذف'));
+        if (typeof Audit !== 'undefined') {
+          Audit.log('delete', 'timeclock', docId, {
+            targetUser: before ? before.username : null,
+            before: before,
+            after: null,
+            reason: null
+          });
+        }
+        window.__timeclockEditingRecord = null;
         showAllRecords();
       });
   }
@@ -505,7 +1022,7 @@ var TimeClock = (function() {
     if (typeof farms !== 'undefined' && farms.length > 0) {
       html += '<div style="font-size:0.8rem;font-weight:600;margin-bottom:4px;color:#666;">' + tt('מטעים (אוטומטי)', 'สวน (อัตโนมัติ)', 'بساتين (تلقائي)') + ':</div>';
       farms.forEach(function(f) {
-        html += '<div style="padding:6px 10px;background:#e8f5e9;border-radius:6px;margin-bottom:4px;font-size:0.85rem;">🌳 ' + f.name + '</div>';
+        html += '<div style="padding:6px 10px;background:#e8f5e9;border-radius:6px;margin-bottom:4px;font-size:0.85rem;">🌳 ' + (window.locName ? window.locName(f) : f.name) + '</div>';
       });
     }
 
@@ -559,6 +1076,7 @@ var TimeClock = (function() {
           '<div><label style="font-size:0.8rem;color:#666;">' + tt('אימייל', 'อีเมล', 'البريد') + '</label><input id="profEmail" value="' + (user.email || '') + '" readonly style="width:100%;padding:8px 12px;border-radius:8px;border:1px solid #ddd;font-family:inherit;background:#f0f0f0;direction:ltr;text-align:left;"></div>' +
           '<div><label style="font-size:0.8rem;color:#666;">' + tt('תפקיד', 'ตำแหน่ง', 'الوظيفة') + '</label><div style="padding:8px 12px;background:#f0f0f0;border-radius:8px;">' + (user.role || '') + '</div></div>' +
           '<button onclick="TimeClock._changePassword()" style="padding:10px;border-radius:8px;border:1px solid #ff9800;background:transparent;color:#ff9800;font-family:inherit;font-weight:600;cursor:pointer;">🔑 ' + tt('שנה סיסמה', 'เปลี่ยนรหัสผ่าน', 'تغيير كلمة المرور') + '</button>' +
+          '<button onclick="window.__resyncAuth && window.__resyncAuth()" style="padding:10px;border-radius:8px;border:1px solid #1565c0;background:transparent;color:#1565c0;font-family:inherit;font-weight:600;cursor:pointer;">🔄 ' + tt('סנכרן הרשאות מחדש', 'ซิงค์สิทธิ์ใหม่', 'إعادة مزامنة الصلاحيات') + '</button>' +
           '<div style="display:flex;gap:8px;">' +
             '<button onclick="TimeClock._saveProfile()" style="flex:1;padding:10px;border-radius:10px;border:none;background:#4caf50;color:white;font-family:inherit;font-weight:700;cursor:pointer;">' + tt('💾 שמור', '💾 บันทึก', '💾 حفظ') + '</button>' +
             '<button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'" style="flex:1;padding:10px;border-radius:10px;border:none;background:#eee;font-family:inherit;cursor:pointer;">' + tt('סגור', 'ปิด', 'إغلاق') + '</button>' +
@@ -669,31 +1187,17 @@ var TimeClock = (function() {
 
   function showExportMenu() {
     var modal = document.getElementById('modalContainer');
-    var hasExport = (typeof Export !== 'undefined');
-    var formatRow = function(type, label, color) {
-      if (!hasExport) {
-        return '<button onclick="TimeClock._exportCSV(\'' + type + '\')" style="padding:12px;border-radius:10px;border:none;background:' + color + ';font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">' + label + ' (CSV)</button>';
-      }
-      return '<div style="display:flex;gap:4px;align-items:stretch;">' +
-        '<button onclick="TimeClock._exportMenu(\'' + type + '\', event)" style="flex:1;padding:12px;border-radius:10px;border:none;background:' + color + ';font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">' + label + '</button>' +
-        '<button title="' + tt('PDF','PDF','PDF') + '" onclick="TimeClock._export(\'' + type + '\',\'pdf\')" style="padding:12px 10px;border-radius:10px;border:none;background:' + color + ';font-family:inherit;cursor:pointer;">📄</button>' +
-        '<button title="Excel" onclick="TimeClock._export(\'' + type + '\',\'xlsx\')" style="padding:12px 10px;border-radius:10px;border:none;background:' + color + ';font-family:inherit;cursor:pointer;">📈</button>' +
-        '<button title="CSV" onclick="TimeClock._export(\'' + type + '\',\'csv\')" style="padding:12px 10px;border-radius:10px;border:none;background:' + color + ';font-family:inherit;cursor:pointer;">📊</button>' +
-        '<button title="JSON" onclick="TimeClock._export(\'' + type + '\',\'json\')" style="padding:12px 10px;border-radius:10px;border:none;background:' + color + ';font-family:inherit;cursor:pointer;">🔧</button>' +
-        '</div>';
-    };
     modal.innerHTML = '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;">' +
-      '<div style="background:white;border-radius:16px;padding:20px;width:90%;max-width:480px;max-height:85vh;overflow-y:auto;">' +
-        '<h3 style="font-weight:700;margin-bottom:12px;color:#222;">📥 ' + tt('ייצוא נתונים', 'ส่งออกข้อมูล', 'تصدير البيانات') + '</h3>' +
-        (hasExport ? '<div style="font-size:0.78rem;color:#666;margin-bottom:10px;text-align:right;">' + tt('בחר פורמט: 📄PDF · 📈Excel · 📊CSV · 🔧JSON','เลือกรูปแบบ','اختر التنسيق') + '</div>' : '') +
+      '<div style="background:white;border-radius:16px;padding:20px;width:90%;max-width:400px;max-height:85vh;overflow-y:auto;">' +
+        '<h3 style="font-weight:700;margin-bottom:12px;">📥 ' + tt('ייצוא נתונים', 'ส่งออกข้อมูล', 'تصدير البيانات') + '</h3>' +
         '<div style="display:grid;gap:8px;">' +
-          formatRow('timeclock', '🕐 ' + tt('שעות עבודה', 'ชั่วโมงทำงาน', 'ساعات العمل'), '#e8f5e9') +
-          formatRow('spray',     '💧 ' + tt('יומן ריסוס', 'บันทึกพ่นยา', 'سجل الرش'), '#e3f2fd') +
-          formatRow('worklog',   '📝 ' + tt('יומן עבודה', 'บันทึกงาน', 'سجل العمل'), '#fff3e0') +
-          formatRow('tasks',     '📋 ' + tt('משימות', 'งาน', 'المهام'), '#f3e5f5') +
+          '<button onclick="TimeClock._exportCSV(\'timeclock\')" style="padding:12px;border-radius:10px;border:none;background:#e8f5e9;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">' + tt('🕐 שעות עבודה (CSV)', '🕐 ชั่วโมงทำงาน (CSV)', '🕐 ساعات العمل (CSV)') + '</button>' +
+          '<button onclick="TimeClock._exportCSV(\'spray\')" style="padding:12px;border-radius:10px;border:none;background:#e3f2fd;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">' + tt('💧 יומן ריסוס (CSV)', '💧 บันทึกพ่นยา (CSV)', '💧 سجل الرش (CSV)') + '</button>' +
+          '<button onclick="TimeClock._exportCSV(\'worklog\')" style="padding:12px;border-radius:10px;border:none;background:#fff3e0;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">' + tt('📝 יומן עבודה (CSV)', '📝 บันทึกงาน (CSV)', '📝 سجل العمل (CSV)') + '</button>' +
+          '<button onclick="TimeClock._exportCSV(\'tasks\')" style="padding:12px;border-radius:10px;border:none;background:#f3e5f5;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">' + tt('📋 משימות (CSV)', '📋 งาน (CSV)', '📋 المهام (CSV)') + '</button>' +
         '</div>' +
         '<div style="margin-top:16px;padding-top:16px;border-top:2px solid #eee;">' +
-          '<h4 style="font-weight:700;font-size:0.9rem;margin-bottom:8px;color:#222;">💾 ' + tt('גיבוי ושחזור', 'สำรองและกู้คืน', 'نسخ احتياطي واستعادة') + '</h4>' +
+          '<h4 style="font-weight:700;font-size:0.9rem;margin-bottom:8px;">💾 ' + tt('גיבוי ושחזור', 'สำรองและกู้คืน', 'نسخ احتياطي واستعادة') + '</h4>' +
           '<div style="display:grid;gap:8px;">' +
             '<button onclick="TimeClock._backupAll()" style="padding:12px;border-radius:10px;border:none;background:#1565c0;color:white;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">' + tt('⬇️ הורד גיבוי מלא (JSON)', '⬇️ ดาวน์โหลดสำรองทั้งหมด (JSON)', '⬇️ تنزيل نسخة كاملة (JSON)') + '</button>' +
             '<label style="padding:12px;border-radius:10px;border:2px dashed #999;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;display:block;color:#666;">' + tt('⬆️ שחזר מגיבוי', '⬆️ กู้คืนจากสำรอง', '⬆️ استعادة من نسخة') + '<input type="file" accept=".json" onchange="TimeClock._restoreBackup(this.files[0])" style="display:none;"></label>' +
@@ -701,60 +1205,6 @@ var TimeClock = (function() {
         '</div>' +
         '<button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'" style="margin-top:12px;width:100%;padding:10px;border-radius:10px;border:none;background:#eee;font-family:inherit;cursor:pointer;">' + tt('סגור', 'ปิด', 'إغلاق') + '</button>' +
       '</div></div>';
-  }
-
-  // Universal export — fetches data + delegates to Export module in chosen format
-  function _export(type, format) {
-    if (typeof Export === 'undefined') { _exportCSV(type); return; }
-    _gatherDataset(type).then(function(dataset) {
-      if (!dataset || !dataset.rows.length) {
-        if (typeof showToast === 'function') showToast('📭 ' + tt('אין נתונים לייצוא','ไม่มีข้อมูล','لا توجد بيانات'));
-        return;
-      }
-      if (format === 'pdf')  Export.exportPDF(dataset);
-      else if (format === 'xlsx') Export.exportXLSX(dataset);
-      else if (format === 'json') Export.exportJSON(dataset);
-      else                        Export.exportCSV(dataset);
-    });
-  }
-
-  // Show 4-format popup menu anchored to clicked button
-  function _exportMenu(type, event) {
-    if (typeof Export === 'undefined') { _exportCSV(type); return; }
-    _gatherDataset(type).then(function(dataset) {
-      if (!dataset || !dataset.rows.length) {
-        if (typeof showToast === 'function') showToast('📭 ' + tt('אין נתונים לייצוא','ไม่มีข้อมูล','لا توجد بيانات'));
-        return;
-      }
-      Export.showMenu(dataset, event);
-    });
-  }
-
-  // Gather data + run through correct adapter based on type
-  function _gatherDataset(type) {
-    if (type === 'timeclock') {
-      if (typeof db === 'undefined') return Promise.resolve(null);
-      return db.collection('timeclock').orderBy('punchIn', 'desc').limit(500).get().then(function(snap) {
-        var records = [];
-        snap.forEach(function(doc) { records.push(doc.data()); });
-        return Export.adapters.timeclock(records, {
-          generatedBy: (typeof currentUser !== 'undefined' && currentUser ? currentUser.name : '') || ''
-        });
-      });
-    }
-    if (type === 'spray') {
-      var data = JSON.parse(localStorage.getItem('plotMapperSprayData') || '{}');
-      return Promise.resolve(Export.adapters.sprayFlat(data.sprayEvents || []));
-    }
-    if (type === 'worklog') {
-      var data2 = JSON.parse(localStorage.getItem('plotMapperSprayData') || '{}');
-      return Promise.resolve(Export.adapters.worklog(data2.worklogEntries || []));
-    }
-    if (type === 'tasks') {
-      var tasks = JSON.parse(localStorage.getItem('shorashim-tasks') || '[]');
-      return Promise.resolve(Export.adapters.tasks(tasks));
-    }
-    return Promise.resolve(null);
   }
 
   function _exportCSV(type) {
@@ -1016,11 +1466,35 @@ var TimeClock = (function() {
     _saveProfile: _saveProfile,
     _changePassword: _changePassword,
     _exportCSV: _exportCSV,
-    _export: _export,
-    _exportMenu: _exportMenu,
     _backupAll: _backupAll,
     _restoreBackup: _restoreBackup,
     _addCrop: _addCrop,
-    _removeCrop: _removeCrop
+    _removeCrop: _removeCrop,
+    // ── Meckano upgrade — Phase 1 ──
+    getCustomWorkplaces: getCustomWorkplaces,
+    // ── Meckano upgrade — Phase 2 ──
+    showBreakTypeModal: showBreakTypeModal,
+    startBreakAndClose: startBreakAndClose,
+    endBreak: endBreak,
+    _forceApprove: _forceApprove
   };
 })();
+
+// Online/offline listeners — re-render the clock bar so the offline pill
+// appears/disappears in sync with network state. Lives outside the IIFE so
+// it survives the module being re-loaded.
+window.addEventListener('online', function() {
+  if (window.TimeClock && typeof window.TimeClock.renderClockBar === 'function') {
+    window.TimeClock.renderClockBar();
+  }
+  if (typeof showToast === 'function') {
+    showToast('🌐 ' + (typeof tt === 'function'
+      ? tt('הרשומה סונכרנה','ซิงค์รายการแล้ว','تمت مزامنة السجل')
+      : 'Back online'));
+  }
+});
+window.addEventListener('offline', function() {
+  if (window.TimeClock && typeof window.TimeClock.renderClockBar === 'function') {
+    window.TimeClock.renderClockBar();
+  }
+});

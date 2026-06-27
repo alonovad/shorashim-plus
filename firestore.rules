@@ -1,7 +1,7 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
+
     function isSignedIn() {
       return request.auth != null;
     }
@@ -23,14 +23,27 @@ service cloud.firestore {
     function noRoleYet() {
       return isSignedIn() && getRole() == null;
     }
+    // App stores `username` as the prefix of the user's email (everything
+    // before '@'). Compare via startsWith to be CEL-safe — split() exists
+    // but startsWith is unambiguous and supports all auth domains.
+    function isOwn(usernameField) {
+      return isSignedIn() && request.auth.token.email != null &&
+             request.auth.token.email.lower().matches('^' + usernameField + '@.*');
+    }
 
     // ── appData collection ──
     match /appData/{docId} {
       allow read: if isSignedIn();
-      
-      // Admin-only: user management, settings, talgil config
+
+      // shorashim-users now writable by operator+ so they can save
+      // schedules and leave balances (which live as properties on each
+      // user). The application UI gates role-changes to admin only.
+      // TODO: long-term split — move schedule+balance to a separate
+      // doc so this rule can revert to admin-only for identity/role.
+      allow write: if (isOperatorOrAbove() || noRoleYet()) && docId == 'shorashim-users';
+
+      // Other admin-only docs (settings, config, talgil)
       allow write: if (isAdmin() || noRoleYet()) && docId in [
-        'shorashim-users',
         'shorashim-talgil-config',
         'shorashim-talgil-cache',
         'shorashim-apps-script-url',
@@ -39,7 +52,7 @@ service cloud.firestore {
         'shorashim-maintenance',
         'shorashim-maintenance-access'
       ];
-      
+
       // Operator+: operational data
       allow write: if (isOperatorOrAbove() || noRoleYet()) && docId in [
         'plotMapperSprayData',
@@ -51,22 +64,65 @@ service cloud.firestore {
         'shorashim-workers',
         'shorashim-receipts'
       ];
-      
+
       // Worker+: worklogs
       allow write: if (isWorkerOrAbove() || noRoleYet()) && docId.matches('shorashim-worklog.*');
     }
-    
+
     // ── timeclock collection ──
     match /timeclock/{recordId} {
       allow read: if isSignedIn();
-      
-      // Workers create/update their own records
+
+      // Workers create their own records
       allow create: if (isWorkerOrAbove() || noRoleYet());
-      allow update: if (isWorkerOrAbove() || noRoleYet()) && 
-        resource.data.username == request.auth.token.email;
-      
-      // Admin can edit/delete any record
-      allow update, delete: if isAdmin();
+
+      // Workers update their own records (Phase 1+ enforces username
+      // matches the prefix of the auth email)
+      allow update: if (isWorkerOrAbove() || noRoleYet()) &&
+                       isOwn(resource.data.username);
+
+      // Operator+ can edit/delete any record (force-approve, fix mistakes)
+      allow update, delete: if isOperatorOrAbove() || noRoleYet();
+    }
+
+    // ── audit-log collection (Phase 1) ──
+    // Workers create their own audit entries (for actions like leave
+    // submit) — the actor field must match their identity to prevent
+    // forgery. Operator+ can create any entry. Admin reads.
+    match /audit-log/{entryId} {
+      allow read:   if isAdmin();
+      allow create: if (isOperatorOrAbove() || noRoleYet()) ||
+                       (isWorkerOrAbove() && isOwn(request.resource.data.actor));
+      allow update, delete: if false;
+    }
+
+    // ── leave-requests collection (Phase 4) ──
+    match /leave-requests/{requestId} {
+      allow read: if isSignedIn();
+
+      // Worker creates own request (username must match identity)
+      allow create: if (isWorkerOrAbove() || noRoleYet()) &&
+                       isOwn(request.resource.data.username);
+
+      // Operator+ approves/rejects
+      allow update: if isOperatorOrAbove() || noRoleYet();
+
+      // Worker cancels their own still-pending request — only the
+      // status field may change (no sneaking other edits in).
+      allow update: if (isWorkerOrAbove() || noRoleYet()) &&
+                       isOwn(resource.data.username) &&
+                       resource.data.status == 'pending' &&
+                       request.resource.data.status == 'cancelled' &&
+                       request.resource.data.diff(resource.data)
+                         .affectedKeys().hasOnly(['status']);
+
+      allow delete: if false;
+    }
+
+    // ── holidays collection (Phase 4) ──
+    match /holidays/{year} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin() || noRoleYet();
     }
 
     // Deny everything else

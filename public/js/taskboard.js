@@ -225,7 +225,7 @@ var TaskBoard = (function() {
     var workplaceOptions = '<option value="">' + tt('— מקום (אופציונלי) —', '— สถานที่ (ไม่บังคับ) —', '— مكان (اختياري) —') + '</option>';
     if (typeof farms !== 'undefined') {
       farms.forEach(function(f) {
-        workplaceOptions += '<option value="' + f.name + '">' + f.name + '</option>';
+        workplaceOptions += '<option value="' + f.name + '">' + (window.locName ? window.locName(f) : f.name) + '</option>';
       });
     }
 

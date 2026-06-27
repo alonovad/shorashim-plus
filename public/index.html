@@ -7,7 +7,6 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
 <link rel="stylesheet" href="css/style.css"/>
 <link rel="stylesheet" href="css/theme-neon.css"/>
-<link rel="stylesheet" href="css/export-print.css"/>
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#0d2818">
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
@@ -178,18 +177,21 @@
 <div class="hamburger-overlay" id="hamburgerOverlay" onclick="TimeClock.closeMenu();this.style.display='none'"></div>
 <div class="hamburger-panel" id="hamburgerPanel"></div>
 
-<!-- Tab Bar -->
-<div class="tab-bar">
-  <div class="tab active" data-tab="map" data-t-key="מפה">🗺️ מפה</div>
-  <div class="tab" data-tab="spray" data-t-key="ריסוס">💧 ריסוס</div>
-  <div class="tab" data-tab="worklog" data-t-key="יומן">📝 יומן</div>
-  <div class="tab" data-tab="history" data-t-key="היסטוריה">📋 היסטוריה</div>
-  <div class="tab" data-tab="irrigation" data-t-key="השקיה">💧 השקיה</div>
-  <div class="tab" data-tab="profile" data-t-key="אישי">👤 אישי</div>
-  <div class="tab" data-tab="farms" data-t-key="מטעים">🌳 מטעים</div>
-  <div class="tab admin-only" data-tab="users" data-t-key="משתמשים" style="display: none;">👥 משתמשים</div>
-  <div class="tab admin-only" data-tab="admin" data-t-key="חומרים" style="display: none;">🧪 חומרים</div>
-  <div class="tab" data-tab="pestsearch" data-t-key="חיפוש חומרים">🔍 חיפוש חומרים</div>
+<!-- Tab Bar (wrapped for scroll-hint affordance) -->
+<div class="tab-bar-wrap" id="tabBarWrap">
+  <div class="tab-scroll-hint start" aria-hidden="true">‹</div>
+  <div class="tab-scroll-hint end" aria-hidden="true">›</div>
+  <div class="tab-bar" id="tabBar">
+    <div class="tab active" data-tab="map" data-t-key="מפה">🗺️ מפה</div>
+    <div class="tab" data-tab="spray" data-t-key="ריסוס">💧 ריסוס</div>
+    <div class="tab" data-tab="worklog" data-t-key="יומן">📝 יומן</div>
+    <div class="tab" data-tab="irrigation" data-t-key="השקיה">💧 השקיה</div>
+    <div class="tab" data-tab="profile" data-t-key="אישי">👤 אישי</div>
+    <div class="tab" data-tab="farms" data-t-key="מטעים">🌳 מטעים</div>
+    <div class="tab admin-only" data-tab="users" data-t-key="משתמשים" style="display: none;">👥 משתמשים</div>
+    <div class="tab admin-only" data-tab="admin" data-t-key="חומרים" style="display: none;">🧪 חומרים</div>
+    <div class="tab" data-tab="pestsearch" data-t-key="חיפוש חומרים">🔍 חיפוש חומרים</div>
+  </div>
 </div>
 
 <!-- Tabs Wrapper -->
@@ -237,56 +239,65 @@
   </div>
 </div>
 
-<!-- Spray Tab -->
+<!-- Spray Tab (with sub-views: new spray + history) -->
 <div class="tab-content" id="tabSpray">
   <div class="spray-container">
-    <div class="section-card">
-      <div class="section-title" data-t-key="פרטי ריסוס">📅 פרטי ריסוס</div>
-      <div class="form-group">
-        <label class="form-label" data-t-key="תאריך">תאריך</label>
-        <input type="date" class="form-input" id="sprayDate">
+
+    <!-- Sub-view toggle -->
+    <div class="spray-subview-toggle">
+      <button class="sv-btn active" data-spray-view="form" type="button">💧 <span data-t-key="ריסוס חדש">ריסוס חדש</span></button>
+      <button class="sv-btn" data-spray-view="history" type="button">📋 <span data-t-key="היסטוריה">היסטוריה</span></button>
+    </div>
+
+    <!-- FORM SUB-VIEW -->
+    <div id="spraySubviewForm">
+      <div class="section-card">
+        <div class="section-title" data-t-key="פרטי ריסוס">📅 פרטי ריסוס</div>
+        <div class="form-group">
+          <label class="form-label" data-t-key="תאריך">תאריך</label>
+          <input type="date" class="form-input" id="sprayDate">
+        </div>
+        <div class="form-group">
+          <label class="form-label" data-t-key="שם המפעיל">שם המפעיל</label>
+          <input type="text" class="form-input" id="operatorName" placeholder="">
+        </div>
       </div>
-      <div class="form-group">
-        <label class="form-label" data-t-key="שם המפעיל">שם המפעיל</label>
-        <input type="text" class="form-input" id="operatorName" placeholder="">
+
+      <div class="section-card">
+        <div class="section-title" data-t-key="בחירת חלקות">🌳 בחירת חלקות</div>
+        <div id="plotCheckboxList" class="plot-checkbox-list"></div>
       </div>
-    </div>
 
-    <div class="section-card">
-      <div class="section-title" data-t-key="בחירת חלקות">🌳 בחירת חלקות</div>
-      <div id="plotCheckboxList" class="plot-checkbox-list"></div>
-    </div>
-
-    <div class="section-card">
-      <div class="section-title" data-t-key="הגדרות נפח">🚜 הגדרות נפח</div>
-      <div class="form-group">
-        <label class="form-label" data-t-key="נפח לעץ (ליטר)">נפח לעץ (ליטר)</label>
-        <input type="number" class="form-input" id="volumePerTree" value="15" step="0.1" min="0">
+      <div class="section-card">
+        <div class="section-title" data-t-key="הגדרות נפח">🚜 הגדרות נפח</div>
+        <div class="form-group">
+          <label class="form-label" data-t-key="נפח לעץ (ליטר)">נפח לעץ (ליטר)</label>
+          <input type="number" class="form-input" id="volumePerTree" value="15" step="0.1" min="0">
+        </div>
+        <div class="form-group">
+          <label class="form-label" data-t-key="קיבולת מרסס (ליטר)">קיבולת מרסס (ליטר)</label>
+          <input type="number" class="form-input" id="sprayerCapacity" value="1000" step="1" min="0">
+        </div>
       </div>
-      <div class="form-group">
-        <label class="form-label" data-t-key="קיבולת מרסס (ליטר)">קיבולת מרסס (ליטר)</label>
-        <input type="number" class="form-input" id="sprayerCapacity" value="1000" step="1" min="0">
+
+      <div class="section-card">
+        <div class="section-title" data-t-key="בחירת חומרי הדברה">🧪 בחירת חומרי הדברה</div>
+        <div id="pesticideList" class="pesticide-list"></div>
       </div>
+
+      <div id="calcResults"></div>
+
+      <button class="btn-submit" id="submitSpray" data-t-key="שמור יומן ריסוס">שמור יומן ריסוס</button>
     </div>
 
-    <div class="section-card">
-      <div class="section-title" data-t-key="בחירת חומרי הדברה">🧪 בחירת חומרי הדברה</div>
-      <div id="pesticideList" class="pesticide-list"></div>
+    <!-- HISTORY SUB-VIEW -->
+    <div id="spraySubviewHistory" style="display: none;">
+      <div class="section-card" style="margin-bottom: 16px;">
+        <button class="btn-admin" id="exportPdfBtn" style="width: 100%;" data-t-key="ייצא PDF">📄 ייצא PDF</button>
+      </div>
+      <div id="historyList"></div>
     </div>
 
-    <div id="calcResults"></div>
-
-    <button class="btn-submit" id="submitSpray" data-t-key="שמור יומן ריסוס">שמור יומן ריסוס</button>
-  </div>
-</div>
-
-<!-- History Tab -->
-<div class="tab-content" id="tabHistory">
-  <div class="history-container">
-    <div class="section-card" style="margin-bottom: 16px;">
-      <button class="btn-admin" id="exportPdfBtn" style="width: 100%;" data-t-key="ייצא PDF">📄 ייצא PDF</button>
-    </div>
-    <div id="historyList"></div>
   </div>
 </div>
 
@@ -693,14 +704,16 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="js/db.js"></script>
+<script src="js/audit.js"></script>
+<script src="js/sites.js"></script>
+<script src="js/schedule.js"></script>
+<script src="js/leave.js"></script>
 <script src="js/app.js"></script>
 <script src="js/timeclock.js"></script>
 <script src="js/taskboard.js"></script>
 <script src="js/fieldreport.js"></script>
 <script src="js/display-settings.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.2/html2pdf.bundle.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="js/export.js"></script>
 <script src="js/maintenance.js"></script>
 <script src="js/effects.js" type="module"></script>
 <script type="module">
