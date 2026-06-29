@@ -1,5 +1,4 @@
-var CACHE_NAME = 'shorashim-v14';
-
+var CACHE_NAME = 'shorashim-v17';
 // CDN libs — these never change, safe to cache-first
 var CDN_URLS = [
   'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js',
@@ -10,7 +9,6 @@ var CDN_URLS = [
   'https://www.gstatic.com/firebasejs/10.12.2/firebase-functions-compat.js',
   'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.2/html2pdf.bundle.min.js'
 ];
-
 // App files — these change on deploy, need network-first
 var APP_URLS = [
   '/',
@@ -29,9 +27,9 @@ var APP_URLS = [
   '/js/fieldreport.js',
   '/js/display-settings.js',
   '/js/maintenance.js',
+  '/js/maintenance-schedule.js',
   '/js/effects.js'
 ];
-
 // Install — precache CDN libs + app files
 self.addEventListener('install', function(event) {
   event.waitUntil(
@@ -41,7 +39,6 @@ self.addEventListener('install', function(event) {
   );
   self.skipWaiting();
 });
-
 // Activate — purge ALL old caches
 self.addEventListener('activate', function(event) {
   event.waitUntil(
@@ -54,7 +51,6 @@ self.addEventListener('activate', function(event) {
   );
   self.clients.claim();
 });
-
 // Fetch strategy:
 //   CDN libs → cache-first (immutable, versioned URLs)
 //   App files → network-first (deploy changes visible immediately)
@@ -62,12 +58,10 @@ self.addEventListener('activate', function(event) {
 self.addEventListener('fetch', function(event) {
   if (event.request.method !== 'GET') return;
   var url = event.request.url;
-
   // Skip browser-extension requests (Cache API rejects non-http schemes)
   if (url.indexOf('chrome-extension://') === 0) return;
   if (url.indexOf('moz-extension://')    === 0) return;
   if (url.indexOf('safari-extension://') === 0) return;
-
   // Skip Firebase/API — let them pass through
   if (url.indexOf('firestore.googleapis.com') !== -1) return;
   if (url.indexOf('identitytoolkit.googleapis.com') !== -1) return;
@@ -75,11 +69,9 @@ self.addEventListener('fetch', function(event) {
   if (url.indexOf('securetoken.google.com') !== -1) return;
   if (url.indexOf('corsproxy.io') !== -1) return;
   if (url.indexOf('data.gov.il') !== -1) return;
-
   // CDN libs → cache-first (they never change)
   var isCDN = url.indexOf('cdnjs.cloudflare.com') !== -1 ||
               url.indexOf('gstatic.com/firebasejs') !== -1;
-
   if (isCDN) {
     event.respondWith(
       caches.match(event.request).then(function(cached) {
@@ -96,7 +88,6 @@ self.addEventListener('fetch', function(event) {
     );
     return;
   }
-
   // App files → network-first (deploys visible immediately, offline fallback to cache)
   event.respondWith(
     fetch(event.request).then(function(response) {

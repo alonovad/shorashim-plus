@@ -79,6 +79,11 @@ service cloud.firestore {
 
       // Worker+: worklogs
       allow write: if (isWorkerOrAbove() || noRoleYet()) && docId.matches('shorashim-worklog.*');
+
+      // Worker+: shared maintenance calendar. Any role granted maintenance
+      // access (or admin) edits events; the UI enforces the access-map gate.
+      // Worker+ tier avoids silent write failures for access-granted workers.
+      allow write: if (isWorkerOrAbove() || noRoleYet()) && docId == 'shorashim-maintenance-schedule';
     }
 
     // ── timeclock collection ──

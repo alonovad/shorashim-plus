@@ -305,6 +305,7 @@ var Maintenance = (function() {
       var modal = document.getElementById('modalContainer');
       var topBtns = '<button onclick="Maintenance.showNewProject()" style="padding:6px 14px;border-radius:8px;border:none;background:#4caf50;color:white;font-family:inherit;font-weight:700;cursor:pointer;">➕ ' + tt('חדש','ใหม่','جديد') + '</button>';
       topBtns += ' <button onclick="Maintenance.showDashboard()" style="padding:6px 14px;border-radius:8px;border:none;background:#1565c0;color:white;font-family:inherit;font-weight:700;cursor:pointer;">📊 ' + tt('דשבורד','แดชบอร์ด','لوحة التحكم') + '</button>';
+      topBtns += ' <button onclick="MaintSchedule.show()" style="padding:6px 14px;border-radius:8px;border:none;background:#7e57c2;color:white;font-family:inherit;font-weight:700;cursor:pointer;">📅 ' + tt('לוח אחזקה','ปฏิทินซ่อมบำรุง','تقويم الصيانة') + '</button>';
       if (isAdmin()) topBtns += ' <button onclick="Maintenance.showAccessControl()" style="padding:6px 14px;border-radius:8px;border:none;background:#546e7a;color:white;font-family:inherit;font-weight:700;cursor:pointer;">🔐 ' + tt('הרשאות','สิทธิ์','أذونات') + '</button>';
 
       // Status filter options
@@ -1268,6 +1269,7 @@ var Maintenance = (function() {
   //  PUBLIC API
   // ══════════════════════════════════════
   return {
+    hasPerm: hasPerm, loadAccess: loadAccess, loadProjects: loadProjects, isAdmin: isAdmin,
     showProjectsList: showProjectsList, showDetail: showDetail, showNewProject: showNewProject,
     showDashboard: showDashboard, _filterList: _filterList,
     _saveProject: _saveProject,
