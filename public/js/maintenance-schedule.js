@@ -193,6 +193,8 @@ var MaintSchedule = (function() {
   function _render() {
     var modal = document.getElementById('modalContainer');
     if (!modal) return;
+    _ensureStyle();
+    _hideHover();
 
     var seg = function(v, icon, lbl) {
       var on = _view === v;
@@ -201,7 +203,7 @@ var MaintSchedule = (function() {
 
     var header =
       '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;">' +
-        '<h3 style="font-weight:700;margin:0;">📅 ' + T('לוח אחזקה', 'ปฏิทินซ่อมบำรุง', 'تقويم الصيانة') + '</h3>' +
+        '<div style="display:flex;align-items:center;gap:10px;min-width:0;"><img src="' + (window.OGEN_LOGO || '') + '" alt="OGEN" style="height:28px;width:auto;display:block;background:#fff;border-radius:8px;padding:3px 6px;box-shadow:0 1px 4px rgba(0,0,0,0.15);"><h3 style="font-weight:700;margin:0;">📅 ' + T('לוח אחזקה', 'ปฏิทินซ่อมบำรุง', 'تقويم الصيانة') + '</h3></div>' +
         '<div style="display:flex;gap:6px;align-items:center;">' +
           seg('month', '🗓', T('חודש', 'เดือน', 'شهر')) +
           seg('agenda', '📋', T('רשימה', 'รายการ', 'قائمة')) +
@@ -211,7 +213,7 @@ var MaintSchedule = (function() {
 
     var body = _view === 'agenda' ? _renderAgenda() : _renderMonth();
 
-    var closeBtn = '<button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'" style="margin-top:14px;width:100%;padding:10px;border-radius:10px;border:none;background:var(--surface-glass, #eee);color:var(--text, inherit);font-family:inherit;cursor:pointer;">' + T('סגור', 'ปิด', 'إغلاق') + '</button>';
+    var closeBtn = '<button onclick="MaintSchedule._close()" style="margin-top:14px;width:100%;padding:10px;border-radius:10px;border:none;background:var(--surface-glass, #eee);color:var(--text, inherit);font-family:inherit;cursor:pointer;">' + T('סגור', 'ปิด', 'إغلاق') + '</button>';
 
     modal.innerHTML = '<div style="' + BG + '"><div data-msched-root data-msched-view="' + _view + '" style="' + CARD + '">' + header + body + closeBtn + '</div></div>';
   }
@@ -220,6 +222,64 @@ var MaintSchedule = (function() {
   function _prevMonth() { _cursor = new Date(_cursor.getFullYear(), _cursor.getMonth() - 1, 1); _render(); }
   function _nextMonth() { _cursor = new Date(_cursor.getFullYear(), _cursor.getMonth() + 1, 1); _render(); }
   function _today() { _cursor = new Date(); _render(); }
+
+  // ── Hover preview (mouse / hover-capable devices only) ──
+  function _ensureStyle() {
+    if (document.getElementById('mschedStyle')) return;
+    var st = document.createElement('style');
+    st.id = 'mschedStyle';
+    st.textContent =
+      '.msched-cell{transition:transform .12s ease, box-shadow .12s ease;}' +
+      '@media (hover:hover){.msched-cell:hover{transform:translateY(-2px) scale(1.04);box-shadow:0 6px 18px rgba(0,0,0,0.28);position:relative;z-index:3;}}' +
+      '#mschedHover{position:fixed;z-index:100000;pointer-events:none;max-width:240px;background:var(--card-solid,#fff);color:var(--text,inherit);border:1px solid var(--border,#ddd);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,0.35);padding:10px 12px;font-family:inherit;opacity:0;transform:translateY(4px);transition:opacity .12s ease, transform .12s ease;}' +
+      '#mschedHover.show{opacity:1;transform:translateY(0);}';
+    document.head.appendChild(st);
+  }
+
+  function _hideHover() {
+    var el = document.getElementById('mschedHover');
+    if (el && el.parentNode) el.parentNode.removeChild(el);
+  }
+
+  function _hover(cell, ds) {
+    // Hover-capable pointers only; touch devices tap through to the day view.
+    if (!window.matchMedia || !window.matchMedia('(hover: hover)').matches) return;
+    var evs = (_events || []).filter(function(e) { return e.date === ds; })
+      .sort(function(a, b) { return (a.time || '') < (b.time || '') ? -1 : 1; });
+    if (evs.length === 0) { _hideHover(); return; }
+
+    var rows = '';
+    evs.slice(0, 6).forEach(function(e) {
+      rows += '<div style="display:flex;align-items:center;gap:6px;margin:3px 0;">' +
+        '<span style="width:7px;height:7px;border-radius:50%;background:' + catColor(e.cat) + ';flex-shrink:0;"></span>' +
+        '<span style="font-size:0.78rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;' + (e.done ? 'text-decoration:line-through;opacity:0.6;' : '') + '">' +
+          (e.time ? '<span style="color:var(--text-muted,#888);font-weight:400;">' + esc(e.time) + '</span> ' : '') + esc(e.title) +
+        '</span></div>';
+    });
+    if (evs.length > 6) rows += '<div style="font-size:0.7rem;color:var(--text-muted,#999);margin-top:2px;">+' + (evs.length - 6) + '</div>';
+
+    _hideHover();
+    var pop = document.createElement('div');
+    pop.id = 'mschedHover';
+    pop.innerHTML = '<div style="font-size:0.72rem;font-weight:700;color:var(--text-muted,#888);margin-bottom:4px;">' + fmtHuman(ds) + ' \u00b7 ' + evs.length + '</div>' + rows;
+    document.body.appendChild(pop);
+
+    // Centered above the cell; flips below if there is no room; clamped to the viewport.
+    var r = cell.getBoundingClientRect();
+    var pr = pop.getBoundingClientRect();
+    var margin = 8;
+    var left = r.left + (r.width - pr.width) / 2;
+    left = Math.max(margin, Math.min(left, window.innerWidth - pr.width - margin));
+    var top = r.top - pr.height - margin;
+    if (top < margin) top = r.bottom + margin;
+    pop.style.left = Math.round(left) + 'px';
+    pop.style.top = Math.round(top) + 'px';
+    requestAnimationFrame(function() { pop.classList.add('show'); });
+  }
+
+  function _hoverOut() { _hideHover(); }
+
+  function _close() { _hideHover(); var m = document.getElementById('modalContainer'); if (m) m.innerHTML = ''; }
 
   // ── Month grid ──
   function _renderMonth() {
@@ -258,7 +318,7 @@ var MaintSchedule = (function() {
       });
       var moreN = evs.length > 4 ? '<span style="font-size:0.6rem;color:var(--text-muted,#999);">+' + (evs.length - 4) + '</span>' : '';
       grid +=
-        '<div onclick="MaintSchedule._openDay(\'' + ds + '\')" style="min-height:54px;padding:3px;border-radius:8px;cursor:pointer;border:' + (isToday ? '2px solid var(--primary,#2e7d32)' : '1px solid var(--border,#e3e3e3)') + ';background:' + (inMonth ? 'var(--surface-glass,#fafafa)' : 'transparent') + ';opacity:' + (inMonth ? '1' : '0.4') + ';display:flex;flex-direction:column;">' +
+        '<div class="msched-cell" data-ds="' + ds + '" onclick="MaintSchedule._openDay(\'' + ds + '\')" onmouseenter="MaintSchedule._hover(this,\'' + ds + '\')" onmouseleave="MaintSchedule._hoverOut()" style="min-height:54px;padding:3px;border-radius:8px;cursor:pointer;border:' + (isToday ? '2px solid var(--primary,#2e7d32)' : '1px solid var(--border,#e3e3e3)') + ';background:' + (inMonth ? 'var(--surface-glass,#fafafa)' : 'transparent') + ';opacity:' + (inMonth ? '1' : '0.4') + ';display:flex;flex-direction:column;">' +
           '<div style="font-size:0.74rem;font-weight:' + (isToday ? '700' : '500') + ';color:' + (isToday ? 'var(--primary,#1b5e20)' : 'var(--text,#444)') + ';text-align:center;">' + cur.getDate() + '</div>' +
           '<div style="flex:1;display:flex;flex-wrap:wrap;align-content:flex-start;justify-content:center;">' + dots + moreN + '</div>' +
         '</div>';
@@ -315,6 +375,7 @@ var MaintSchedule = (function() {
   function _openDay(ds) {
     var modal = document.getElementById('modalContainer');
     if (!modal) return;
+    _hideHover();
     var evs = (_events || []).filter(function(e) { return e.date === ds; })
       .sort(function(a, b) { return (a.time || '') < (b.time || '') ? -1 : 1; });
 
@@ -463,6 +524,7 @@ var MaintSchedule = (function() {
     _openDay: _openDay,
     _newEvent: _newEvent, _editEvent: _editEvent,
     _saveEvent: _saveEvent, _delEvent: _delEvent, _toggleDone: _toggleDone,
-    _cancel: _cancel
+    _cancel: _cancel,
+    _hover: _hover, _hoverOut: _hoverOut, _close: _close
   };
 })();
