@@ -446,6 +446,7 @@ var TimeClock = (function() {
           breaks: []
         };
         saveCurrentShift();
+        _writePresence(currentShift);
         renderClockBar();
         startTicker();
         if (typeof showToast === 'function') {
@@ -474,6 +475,28 @@ var TimeClock = (function() {
     } else {
       callback(0);
     }
+  }
+
+  // ── Presence (who is currently clocked in) ──
+  // A tiny 'active-shifts' doc per user: written at punch-in, deleted at
+  // punch-out. This is what the admin dashboard reads for 'connected now'.
+  // Best-effort: failures never block the punch. timeclock records are
+  // untouched, so monthly-report/exports are unaffected.
+  function _writePresence(shift) {
+    if (typeof db === 'undefined' || !shift || !shift.username) return;
+    try {
+      db.collection('active-shifts').doc(shift.username).set({
+        username: shift.username,
+        name: shift.userName || shift.username,
+        workplace: shift.workplace || '',
+        since: shift.punchIn || Date.now(),
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      }).catch(function(e) { console.warn('presence set failed:', e && e.message); });
+    } catch (e) {}
+  }
+  function _clearPresence(username) {
+    if (typeof db === 'undefined' || !username) return;
+    try { db.collection('active-shifts').doc(username).delete().catch(function() {}); } catch (e) {}
   }
 
   // ── Punch Out ──
@@ -585,6 +608,7 @@ var TimeClock = (function() {
       };
 
       saveTimeRecord(record);
+      _clearPresence(record.username);
       currentShift = null;
       saveCurrentShift();
       stopTicker();
@@ -1149,7 +1173,7 @@ var TimeClock = (function() {
         .then(function(snap) {
           var todayRecords = [];
           snap.forEach(function(doc) { todayRecords.push(doc.data()); });
-          var clockedIn = todayRecords.filter(function(r) { return !r.punchOut; }).length;
+          var clockedIn = 0; // populated below from the active-shifts presence collection
           var todayWorkers = {};
           todayRecords.forEach(function(r) { todayWorkers[r.username] = true; });
           var todayHours = 0;
@@ -1168,7 +1192,7 @@ var TimeClock = (function() {
                 '<div style="font-size:0.75rem;color:#666;">' + tt('עובדים היום', 'คนงานวันนี้', 'العمال اليوم') + '</div>' +
               '</div>' +
               '<div style="background:#e3f2fd;border-radius:12px;padding:14px;text-align:center;">' +
-                '<div style="font-size:2rem;font-weight:900;">' + clockedIn + '</div>' +
+                '<div style="font-size:2rem;font-weight:900;" id="dashConnectedNum">' + clockedIn + '</div>' +
                 '<div style="font-size:0.75rem;color:#666;">' + tt('מחוברים עכשיו', 'ออนไลน์ตอนนี้', 'متصلون الآن') + '</div>' +
               '</div>' +
               '<div style="background:#fff3e0;border-radius:12px;padding:14px;text-align:center;">' +
@@ -1187,7 +1211,27 @@ var TimeClock = (function() {
                 '<div style="font-size:1.3rem;font-weight:800;">' + plotCount + '</div><div style="font-size:0.7rem;color:#999;">' + tt('חלקות', 'แปลง', 'قطع') + '</div></div>' +
               '<div style="background:var(--g6);border-radius:10px;padding:10px;text-align:center;">' +
                 '<div style="font-size:1.3rem;font-weight:800;">' + sprayCount + '</div><div style="font-size:0.7rem;color:#999;">' + tt('ריסוסים', 'การพ่น', 'رشات') + '</div></div>' +
-            '</div>';
+            '</div>' +
+            '<div id="dashConnectedWho" style="margin-top:10px;text-align:center;"></div>';
+
+          // Presence: who is currently clocked in. Reads active-shifts (set at
+          // punch-in, deleted at punch-out). A forgotten punch-out older than
+          // 18h is ignored so it can't inflate the count forever.
+          if (typeof db !== 'undefined') {
+            db.collection('active-shifts').get().then(function(psnap) {
+              var now = Date.now(), list = [];
+              psnap.forEach(function(d) { var a = d.data(); if (a && (!a.since || (now - a.since) < 18 * 3600000)) list.push(a); });
+              var esc = function(x) { return String(x == null ? '' : x).replace(/[&<>]/g, function(c) { return c === '&' ? '&amp;' : c === '<' ? '&lt;' : '&gt;'; }); };
+              var numEl = document.getElementById('dashConnectedNum');
+              if (numEl) numEl.textContent = list.length;
+              var whoEl = document.getElementById('dashConnectedWho');
+              if (whoEl && list.length) {
+                whoEl.innerHTML = list.sort(function(a, b) { return (a.since || 0) - (b.since || 0); }).map(function(a) {
+                  return '<span style="display:inline-block;background:#e8f5e9;color:#1b5e20;border-radius:8px;padding:3px 10px;margin:2px;font-size:0.78rem;font-weight:600;">🟢 ' + esc(a.name || a.username) + (a.workplace ? ' · ' + esc(a.workplace) : '') + '</span>';
+                }).join('');
+              }
+            }).catch(function() {});
+          }
         });
     }
   }

@@ -154,6 +154,15 @@ service cloud.firestore {
       allow write: if isAdmin() || noRoleYet();
     }
 
+    // ── active-shifts collection (presence: who is currently clocked in) ──
+    // Doc id == username. A worker may write ONLY their own presence doc
+    // (username must match their email prefix); admin bypasses. Written at
+    // punch-in, deleted at punch-out. Read by the admin/operator dashboard.
+    match /active-shifts/{uname} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin() || ((isWorkerOrAbove() || noRoleYet()) && isOwn(uname));
+    }
+
     // Deny everything else
     match /{document=**} {
       allow read, write: if false;
