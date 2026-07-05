@@ -30,6 +30,7 @@ var MaintSchedule = (function() {
   function T(he, th, ar) { return (typeof tt === 'function') ? tt(he, th, ar) : he; }
   function toast(msg) { if (typeof showToast === 'function') showToast(msg); }
   function hasMaint() { return typeof Maintenance !== 'undefined'; }
+  function _mAudit(action, ev) { try { if (typeof Audit !== 'undefined' && Audit.log) { var o = { reason: 'calendar · ' + ((ev && ev.title) || '') }; if (action === 'delete') o.before = ev; else o.after = ev; Audit.log(action, 'maintenance', 'schedule', o); } } catch (e) {} }
 
   // ── State ──
   var _events = null;            // in-memory cache, kept fresh by listener
@@ -439,7 +440,7 @@ var MaintSchedule = (function() {
         '</div>' +
         '<div style="display:flex;gap:8px;margin-top:14px;">' +
           '<button onclick="MaintSchedule._saveEvent(' + (isNew ? 'null' : ev.id) + ',\'' + esc(ev.date) + '\')" style="flex:1;padding:10px;border:none;border-radius:10px;background:var(--primary,#2e7d32);color:#fff;font-family:inherit;font-weight:700;cursor:pointer;">💾 ' + T('שמור', 'บันทึก', 'حفظ') + '</button>' +
-          (isNew ? '' : '<button onclick="MaintSchedule._delEvent(' + ev.id + ')" style="padding:10px 14px;border:none;border-radius:10px;background:#ef5350;color:#fff;font-family:inherit;font-weight:700;cursor:pointer;">🗑️</button>') +
+          (isNew || !_isAdmin() ? '' : '<button onclick="MaintSchedule._delEvent(' + ev.id + ')" style="padding:10px 14px;border:none;border-radius:10px;background:#ef5350;color:#fff;font-family:inherit;font-weight:700;cursor:pointer;">🗑️</button>') +
           '<button onclick="MaintSchedule._cancel(\'' + esc(ev.date) + '\')" style="padding:10px 14px;border:1px solid var(--border,#ddd);border-radius:10px;background:var(--card-solid,#fff);color:var(--text-muted,#666);font-family:inherit;cursor:pointer;">' + T('ביטול', 'ยกเลิก', 'إلغاء') + '</button>' +
         '</div>' +
       '</div></div>';
@@ -487,15 +488,18 @@ var MaintSchedule = (function() {
       }
     }
     saveEvents(evs);
+    _mAudit(id == null ? 'create' : 'edit', rec);
     toast(T('✅ נשמר', '✅ บันทึกแล้ว', '✅ تم الحفظ'));
     _render();
   }
 
   function _delEvent(id) {
-    if (!_canAccess()) { toast(T('⛔ אין הרשאה', '⛔ ไม่มีสิทธิ์', '⛔ لا إذن')); return; }
+    if (!_isAdmin()) { toast(T('⛔ רק מנהל יכול למחוק', '⛔ เฉพาะผู้ดูแลลบได้', '⛔ الحذف للمدير فقط')); return; }
     var ok = (typeof window.confirm === 'function') ? window.confirm(T('למחוק את המשימה?', 'ลบงานนี้?', 'حذف المهمة؟')) : true;
     if (!ok) return;
+    var before = (_events || []).filter(function(e) { return e.id === id; })[0];
     saveEvents((_events || []).filter(function(e) { return e.id !== id; }));
+    _mAudit('delete', before);
     toast(T('🗑️ נמחק', '🗑️ ลบแล้ว', '🗑️ تم الحذف'));
     _render();
   }
