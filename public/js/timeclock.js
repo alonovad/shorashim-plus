@@ -21,6 +21,7 @@ var TimeClock = (function() {
     loadCurrentShift();
     renderClockBar();
     if (currentShift) startTicker();
+    startPresence();
   }
 
   // ── Data ──
@@ -446,7 +447,7 @@ var TimeClock = (function() {
           breaks: []
         };
         saveCurrentShift();
-        _writePresence(currentShift);
+        _presenceBeat();
         renderClockBar();
         startTicker();
         if (typeof showToast === 'function') {
@@ -477,26 +478,45 @@ var TimeClock = (function() {
     }
   }
 
-  // ── Presence (who is currently clocked in) ──
-  // A tiny 'active-shifts' doc per user: written at punch-in, deleted at
-  // punch-out. This is what the admin dashboard reads for 'connected now'.
-  // Best-effort: failures never block the punch. timeclock records are
-  // untouched, so monthly-report/exports are unaffected.
-  function _writePresence(shift) {
-    if (typeof db === 'undefined' || !shift || !shift.username) return;
+  // ── Presence (who currently has the app open) ──
+  // Every logged-in user heartbeats a 'presence/{username}' doc while the app
+  // is open — NOT only when clocked in. The dashboard shows anyone seen within
+  // PRESENCE_ONLINE_MS. If they're also clocked in, their workplace rides along
+  // so the dashboard can mark them. Best-effort; timeclock records untouched.
+  var PRESENCE_BEAT_MS = 90000;      // heartbeat every 90s
+  var _presenceTimer = null;
+  var _presenceWired = false;
+  function _presenceBeat() {
+    if (typeof db === 'undefined' || !window.currentUser) return;
+    var uname = window.currentUser.username;
+    var wp = '';
+    try { var cs = JSON.parse(localStorage.getItem('shorashim-current-shift') || 'null'); if (cs && cs.workplace) wp = cs.workplace; } catch (e) {}
     try {
-      db.collection('active-shifts').doc(shift.username).set({
-        username: shift.username,
-        name: shift.userName || shift.username,
-        workplace: shift.workplace || '',
-        since: shift.punchIn || Date.now(),
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-      }).catch(function(e) { console.warn('presence set failed:', e && e.message); });
+      db.collection('presence').doc(uname).set({
+        username: uname,
+        name: window.currentUser.name || uname,
+        role: window.currentUser.role || '',
+        workplace: wp,
+        lastSeen: Date.now()
+      }, { merge: true }).catch(function() {});
     } catch (e) {}
   }
-  function _clearPresence(username) {
-    if (typeof db === 'undefined' || !username) return;
-    try { db.collection('active-shifts').doc(username).delete().catch(function() {}); } catch (e) {}
+  function startPresence() {
+    if (typeof db === 'undefined' || !window.currentUser) return;
+    _presenceBeat();
+    if (_presenceTimer) clearInterval(_presenceTimer);
+    _presenceTimer = setInterval(_presenceBeat, PRESENCE_BEAT_MS);
+    if (!_presenceWired) {
+      _presenceWired = true;
+      document.addEventListener('visibilitychange', function() { if (!document.hidden) _presenceBeat(); });
+      window.addEventListener('online', _presenceBeat);
+    }
+  }
+  function stopPresence() {
+    if (_presenceTimer) { clearInterval(_presenceTimer); _presenceTimer = null; }
+    if (typeof db !== 'undefined' && window.currentUser) {
+      try { db.collection('presence').doc(window.currentUser.username).delete().catch(function() {}); } catch (e) {}
+    }
   }
 
   // ── Punch Out ──
@@ -608,9 +628,9 @@ var TimeClock = (function() {
       };
 
       saveTimeRecord(record);
-      _clearPresence(record.username);
       currentShift = null;
       saveCurrentShift();
+      _presenceBeat();
       stopTicker();
       renderClockBar();
 
@@ -692,8 +712,8 @@ var TimeClock = (function() {
     html += '</div>';
     html += '<div id="menuHours" style="display:none;">';
     html += '<button onclick="Leave.showMyLeave();TimeClock.closeMenu()" style="' + menuBtn + 'background:#fff3e0;">' + tt('🏖️ החופשות שלי', '🏖️ การลาของฉัน', '🏖️ إجازاتي') + '</button>';
+    html += '<button onclick="MonthlyReport.show();TimeClock.closeMenu()" style="' + menuBtn + 'background:#e0f2f1;">' + tt('דוח חודשי 📅', '📅 รายงานรายเดือน', '📅 التقرير الشهري') + '</button>';
     if (isManager) {
-      html += '<button onclick="MonthlyReport.show();TimeClock.closeMenu()" style="' + menuBtn + 'background:#e0f2f1;">' + tt('דוח חודשי 📅', '📅 รายงานรายเดือน', '📅 التقرير الشهري') + '</button>';
       html += '<button onclick="Leave.showApprovalQueue();TimeClock.closeMenu()" style="' + menuBtn + 'background:#fff8e1;">' + tt('✅ תור אישורים', '✅ คิวอนุมัติ', '✅ قائمة الاعتماد') + '</button>';
       html += '<button onclick="Leave.showHolidayAdmin();TimeClock.closeMenu()" style="' + menuBtn + 'background:#fce4ec;">' + tt('🎉 חגים', '🎉 วันหยุด', '🎉 الأعياد') + '</button>';
     }
@@ -1211,20 +1231,22 @@ var TimeClock = (function() {
             '</div>' +
             '<div id="dashConnectedWho" style="margin-top:10px;text-align:center;"></div>';
 
-          // Presence: who is currently clocked in. Reads active-shifts (set at
-          // punch-in, deleted at punch-out). A forgotten punch-out older than
-          // 18h is ignored so it can't inflate the count forever.
+          // Presence: who currently has the app open. Reads the presence
+          // collection (heartbeat while the app is open) and counts anyone seen
+          // within the last 4 minutes. Clocked-in users (workplace set) get a
+          // green dot; app-open-only users get a grey dot.
           if (typeof db !== 'undefined') {
-            db.collection('active-shifts').get().then(function(psnap) {
+            db.collection('presence').get().then(function(psnap) {
               var now = Date.now(), list = [];
-              psnap.forEach(function(d) { var a = d.data(); if (a && (!a.since || (now - a.since) < 18 * 3600000)) list.push(a); });
+              psnap.forEach(function(d) { var a = d.data(); if (a && a.lastSeen && (now - a.lastSeen) < 240000) list.push(a); });
               var esc = function(x) { return String(x == null ? '' : x).replace(/[&<>]/g, function(c) { return c === '&' ? '&amp;' : c === '<' ? '&lt;' : '&gt;'; }); };
               var numEl = document.getElementById('dashConnectedNum');
               if (numEl) numEl.textContent = list.length;
               var whoEl = document.getElementById('dashConnectedWho');
               if (whoEl && list.length) {
-                whoEl.innerHTML = list.sort(function(a, b) { return (a.since || 0) - (b.since || 0); }).map(function(a) {
-                  return '<span style="display:inline-block;background:#e8f5e9;color:#1b5e20;border-radius:8px;padding:3px 10px;margin:2px;font-size:0.78rem;font-weight:600;">🟢 ' + esc(a.name || a.username) + (a.workplace ? ' · ' + esc(a.workplace) : '') + '</span>';
+                whoEl.innerHTML = list.sort(function(a, b) { return (b.workplace ? 1 : 0) - (a.workplace ? 1 : 0); }).map(function(a) {
+                  var on = !!a.workplace;
+                  return '<span style="display:inline-block;background:' + (on ? '#e8f5e9' : '#eceff1') + ';color:' + (on ? '#1b5e20' : '#455a64') + ';border-radius:8px;padding:3px 10px;margin:2px;font-size:0.78rem;font-weight:600;">' + (on ? '🟢' : '⚪') + ' ' + esc(a.name || a.username) + (a.workplace ? ' · ' + esc(a.workplace) : '') + '</span>';
                 }).join('');
               }
             }).catch(function() {});
@@ -1495,6 +1517,7 @@ var TimeClock = (function() {
     init: init,
     punchIn: punchIn,
     punchOut: punchOut,
+    stopPresence: stopPresence,
     toggleMenu: toggleMenu,
     closeMenu: closeMenu,
     logout: logout,

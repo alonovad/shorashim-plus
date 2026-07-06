@@ -5112,6 +5112,7 @@
   // ── Logout ──
   document.getElementById('logoutBtn').addEventListener('click', function() {
     if (confirm(t('להתנתק מהמערכת?'))) {
+      if (typeof TimeClock !== 'undefined' && TimeClock.stopPresence) TimeClock.stopPresence();
       sessionStorage.removeItem('currentUser');
       currentUser = null;
       window.currentUser = null;
