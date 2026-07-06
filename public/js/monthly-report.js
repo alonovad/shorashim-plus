@@ -38,7 +38,21 @@ var MonthlyReport = (function() {
   var DOW = ['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ש'];
   var MONTHS = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
 
-  var state = { username: null, name: '', lang: 'he', year: 0, month: 0, records: [], holidays: {}, open: null };
+  var state = { username: null, name: '', lang: 'he', year: 0, month: 0, records: [], holidays: {}, events: {}, open: null };
+
+  // ── אירוע (attendance-event) options for the dropdown ──
+  var EVENTS = [
+    { v: '',          he: '—',            th: '—',              ar: '—' },
+    { v: 'vacation',  he: 'חופשה',        th: 'ลาพักร้อน',       ar: 'إجازة' },
+    { v: 'sick',      he: 'מחלה',         th: 'ลาป่วย',          ar: 'مرض' },
+    { v: 'reserve',   he: 'מילואים',      th: 'กำลังสำรอง',      ar: 'احتياط' },
+    { v: 'holiday',   he: 'חג',           th: 'วันหยุด',         ar: 'عيد' },
+    { v: 'absence',   he: 'היעדרות',      th: 'ขาดงาน',          ar: 'غياب' },
+    { v: 'unpaid',    he: 'חל"ת',         th: 'ลาไม่รับเงิน',     ar: 'إجازة بدون راتب' },
+    { v: 'accident',  he: 'תאונת עבודה',  th: 'อุบัติเหตุงาน',    ar: 'إصابة عمل' },
+    { v: 'personal',  he: 'יום בחירה',    th: 'วันเลือก',        ar: 'يوم اختياري' }
+  ];
+  function eventLabel(v) { for (var i = 0; i < EVENTS.length; i++) { if (EVENTS[i].v === v) return tt(EVENTS[i].he, EVENTS[i].th, EVENTS[i].ar); } return v || '—'; }
 
   // ── time helpers ──
   function pad(n) { return (n < 10 ? '0' : '') + n; }
@@ -200,6 +214,21 @@ var MonthlyReport = (function() {
       );
     } else { state.records = []; }
 
+    // 1b) attendance events (אירוע) for this worker — keyed by date
+    if (typeof db !== 'undefined' && state.username) {
+      jobs.push(
+        db.collection('attendance-events')
+          .where('username', '==', state.username)
+          .get()
+          .then(function(snap) {
+            var ev = {};
+            snap.forEach(function(doc) { var e = doc.data(); if (e && e.date) ev[e.date] = e.event || ''; });
+            state.events = ev;
+          })
+          .catch(function() { state.events = {}; })
+      );
+    } else { state.events = {}; }
+
     // 2) holiday map for this worker's language
     if (typeof Leave !== 'undefined' && Leave.loadHolidayMap) {
       jobs.push(
@@ -251,6 +280,17 @@ var MonthlyReport = (function() {
     if (!h) return '';
     return state.lang === 'th' ? (h.name_th || h.name_he) : state.lang === 'ar' ? (h.name_ar || h.name_he) : (h.name_he || h.name_th);
   }
+  // אירוע cell: editable dropdown for managers, read-only text for workers.
+  function eventCell(r) {
+    var cur = state.events[r.key] || '';
+    var holidayPill = r.holiday ? '<div style="margin-top:3px;"><span style="background:#fbf1df;color:#b8761a;padding:1px 7px;border-radius:999px;font-size:0.64rem;font-weight:700;">' + holidayName(r.holiday) + '</span></div>' : '';
+    if (isManager()) {
+      var opts = EVENTS.map(function(e) { return '<option value="' + e.v + '"' + (e.v === cur ? ' selected' : '') + '>' + tt(e.he, e.th, e.ar) + '</option>'; }).join('');
+      return '<select onchange="MonthlyReport._setEvent(\'' + r.key + '\', this.value)" style="font-family:inherit;font-size:0.72rem;padding:3px 5px;border-radius:7px;border:1px solid ' + (cur ? '#9db8e6' : '#e2e2e2') + ';background:' + (cur ? '#eef4ff' : '#fff') + ';color:#334;max-width:104px;cursor:pointer;">' + opts + '</select>' + holidayPill;
+    }
+    if (cur) return '<span style="background:#eef4ff;color:#2f5fa0;padding:2px 8px;border-radius:999px;font-size:0.7rem;font-weight:700;">' + eventLabel(cur) + '</span>' + holidayPill;
+    return (r.holiday ? '<span style="background:#fbf1df;color:#b8761a;padding:2px 8px;border-radius:999px;font-size:0.7rem;font-weight:700;">' + holidayName(r.holiday) + '</span>' : '—');
+  }
   function pill(delta) {
     var good = delta >= 0;
     var bg = good ? '#e6f5ec' : '#fdeceb', fg = good ? '#1d7a4d' : '#c0392b';
@@ -299,7 +339,7 @@ var MonthlyReport = (function() {
           '<td style="padding:7px 6px;text-align:center;border-bottom:1px solid #f3f3f3;color:#ccc;">—</td>' +
           '<td style="padding:7px 6px;text-align:center;border-bottom:1px solid #f3f3f3;color:#2f74c0;">' + (r.std ? hm(r.std) : '') + '</td>' +
           '<td style="padding:7px 6px;text-align:center;border-bottom:1px solid #f3f3f3;">' + (r.type === 'event' ? '' : (emptyDelta !== null && r.std ? pill(emptyDelta) : '')) + '</td>' +
-          '<td style="padding:7px 6px;text-align:center;border-bottom:1px solid #f3f3f3;">' + (r.holiday ? '<span style="background:#fbf1df;color:#b8761a;padding:2px 8px;border-radius:999px;font-size:0.7rem;font-weight:700;">' + holidayName(r.holiday) + '</span>' : '—') + '</td>' +
+          '<td style="padding:7px 6px;text-align:center;border-bottom:1px solid #f3f3f3;">' + eventCell(r) + '</td>' +
           '<td style="border-bottom:1px solid #f3f3f3;"></td></tr>';
         return;
       }
@@ -315,7 +355,7 @@ var MonthlyReport = (function() {
           '<td style="padding:7px 6px;text-align:center;font-weight:700;border-bottom:1px solid #f3f3f3;">' + hm(g) + '</td>' +
           '<td style="padding:7px 6px;text-align:center;color:#2f74c0;border-bottom:1px solid #f3f3f3;">' + (first && r.std ? hm(r.std) : '') + '</td>' +
           '<td style="padding:7px 6px;text-align:center;border-bottom:1px solid #f3f3f3;">' + pill(delta) + '</td>' +
-          '<td style="padding:7px 6px;text-align:center;border-bottom:1px solid #f3f3f3;">' + (first && r.holiday ? '<span style="background:#fbf1df;color:#b8761a;padding:2px 8px;border-radius:999px;font-size:0.7rem;font-weight:700;">' + holidayName(r.holiday) + '</span>' : (first ? '—' : '')) + '</td>' +
+          '<td style="padding:7px 6px;text-align:center;border-bottom:1px solid #f3f3f3;">' + (first ? eventCell(r) : '') + '</td>' +
           '<td style="padding:7px 6px;text-align:center;border-bottom:1px solid #f3f3f3;">' + (sh._id && isManager() ? '<button onclick="TimeClock.editRecord(\'' + sh._id + '\')" title="' + tt('ערוך','แก้ไข','تعديل') + '" style="border:none;background:none;cursor:pointer;font-size:0.85rem;">✏️</button>' : '') + '</td></tr>';
       });
     });
@@ -404,8 +444,23 @@ var MonthlyReport = (function() {
     if (typeof showToast === 'function') showToast('📥 ' + tt('הדוח יוצא','ส่งออกแล้ว','تم التصدير'));
   }
 
+  function _setEvent(key, value) {
+    if (!isManager()) { if (typeof showToast === 'function') showToast(tt('⛔ רק מנהל יכול לערוך','⛔ เฉพาะผู้ดูแล','⛔ للمدير فقط')); return; }
+    if (value) state.events[key] = value; else delete state.events[key];
+    if (typeof db !== 'undefined' && state.username) {
+      var id = state.username + '__' + key;
+      var who = (window.currentUser && window.currentUser.username) || '';
+      try {
+        if (value) db.collection('attendance-events').doc(id).set({ username: state.username, date: key, event: value, updatedBy: who, updatedAt: Date.now() }).catch(function(e) { console.warn('event save failed:', e && e.message); });
+        else db.collection('attendance-events').doc(id).delete().catch(function() {});
+      } catch (e) {}
+    }
+    render();
+  }
+
   // ── Public API ──
   return {
+    _setEvent: _setEvent,
     show: show,
     _nav: _nav,
     _pickEmp: _pickEmp,

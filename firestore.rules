@@ -163,6 +163,14 @@ service cloud.firestore {
       allow write: if isAdmin() || (isSignedIn() && isOwn(uname));
     }
 
+    // ── attendance-events (אירוע per worker/day for the monthly report) ──
+    // Any signed-in user may read (workers see their own report); only
+    // operator/admin may write. Doc id = username__YYYY-MM-DD.
+    match /attendance-events/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isOperatorOrAbove();
+    }
+
     // Deny everything else
     match /{document=**} {
       allow read, write: if false;
