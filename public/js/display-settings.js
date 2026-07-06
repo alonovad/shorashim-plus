@@ -190,6 +190,10 @@ var DisplaySettings = (function() {
       // Restore meta theme color
       var meta = document.querySelector('meta[name="theme-color"]');
       if (meta) meta.setAttribute('content', '#1b5e20');
+      // Login screen: clear any dark inline bg a previous dark theme left,
+      // and give classic mode a readable light gradient.
+      var _lg = document.getElementById('loginScreen');
+      if (_lg) _lg.style.background = 'linear-gradient(160deg, #eef6f1 0%, #c2e6d4 45%, #7ec9a4 100%)';
       return;
     }
 
