@@ -1449,3 +1449,23 @@ body.theme-classic #googleLoginBtn {
   color: #1b2e1b !important;
 }
 body.theme-classic #forgotPassLink { color: #2e7d32 !important; }
+
+
+/* ── Classic login: email/password section + divider (were invisible) ── */
+body.theme-classic #emailToggleBtn {
+  background: #f4f9f4 !important;
+  border: 1px solid #cfe0cf !important;
+  color: #1b5e20 !important;
+}
+body.theme-classic #loginScreen #loginOrText { color: #7a9a7a !important; }
+body.theme-classic #loginScreen div:has(> #loginOrText) { color: #7a9a7a !important; }
+body.theme-classic #loginScreen div:has(> #loginOrText) > div {
+  background: linear-gradient(90deg, transparent, #cfe0cf, transparent) !important;
+}
+body.theme-classic #loginScreen #loginBtn {
+  background: #2e7d32 !important;
+  border: 1.5px solid #2e7d32 !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 12px rgba(46,125,50,0.25) !important;
+}
+body.theme-classic #loginScreen #loginError { color: #c0392b !important; }
