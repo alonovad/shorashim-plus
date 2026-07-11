@@ -74,6 +74,7 @@ service cloud.firestore {
         'shorashim-custom-actions',
         'shorashim-custom-worker-groups',
         'shorashim-workers',
+        'shorashim-manager-teams',
         'shorashim-receipts'
       ];
 

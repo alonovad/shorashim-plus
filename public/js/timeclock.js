@@ -720,6 +720,9 @@ var TimeClock = (function() {
     html += '</div>';
 
     if (isManager) {
+      // ── ניהול צוות (Meckano-style manager→workers) ──
+      html += '<button onclick="Team.show();TimeClock.closeMenu()" style="' + menuBtn + 'background:#e8eaf6;">' + tt('👥 הצוות שלי', '👥 ทีมของฉัน', '👥 فريقي') + '</button>';
+
       // ── דוחות סיור (standalone) ──
       html += '<button onclick="FieldReport.showReportsList();TimeClock.closeMenu()" style="' + menuBtn + 'background:#f9fbe7;">' + tt('🔬 דוחות סיור', '🔬 รายงานสำรวจ', '🔬 تقارير الجولات') + '</button>';
 

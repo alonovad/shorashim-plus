@@ -38,11 +38,12 @@ var MonthlyReport = (function() {
   var DOW = ['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ש'];
   var MONTHS = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
 
-  var state = { username: null, name: '', lang: 'he', year: 0, month: 0, records: [], holidays: {}, events: {}, open: null };
+  var state = { username: null, name: '', lang: 'he', year: 0, month: 0, records: [], holidays: {}, events: {}, open: null, managerFilter: '' };
 
   // ── אירוע (attendance-event) options for the dropdown ──
   var EVENTS = [
     { v: '',          he: '—',            th: '—',              ar: '—' },
+    { v: 'work',      he: 'עבודה',        th: 'ทำงาน',           ar: 'عمل' },
     { v: 'vacation',  he: 'חופשה',        th: 'ลาพักร้อน',       ar: 'إجازة' },
     { v: 'sick',      he: 'מחלה',         th: 'ลาป่วย',          ar: 'مرض' },
     { v: 'reserve',   he: 'מילואים',      th: 'กำลังสำรอง',      ar: 'احتياط' },
@@ -114,6 +115,7 @@ var MonthlyReport = (function() {
   function isManager() {
     return window.currentUser && (window.currentUser.role === 'admin' || window.currentUser.role === 'operator');
   }
+  function isAdminRole() { return window.currentUser && window.currentUser.role === 'admin'; }
   function employeeList() {
     var list = [];
     if (isManager() && typeof window.users !== 'undefined' && window.users) {
@@ -123,6 +125,19 @@ var MonthlyReport = (function() {
         list.push({ username: k, name: u.name || k, lang: u.lang || 'he' });
       });
       list.sort(function(a, b) { return a.name.localeCompare(b.name, 'he'); });
+      // ── Team scoping (Meckano-style) ──
+      // Operator (מנהל): only workers assigned to HIS team + himself.
+      // Admin: everyone, or — when a manager filter is picked — that manager's team.
+      if (typeof Team !== 'undefined') {
+        var me = window.currentUser ? window.currentUser.username : '';
+        if (!isAdminRole()) {
+          var mine = Team.getMyWorkers();
+          list = list.filter(function(e) { return e.username === me || mine.indexOf(e.username) !== -1; });
+        } else if (state.managerFilter) {
+          var his = Team.getTeam(state.managerFilter);
+          list = list.filter(function(e) { return e.username === state.managerFilter || his.indexOf(e.username) !== -1; });
+        }
+      }
     }
     if (list.length === 0 && window.currentUser) {
       list.push({ username: window.currentUser.username, name: window.currentUser.name || window.currentUser.username, lang: window.currentUser.lang || 'he' });
@@ -132,6 +147,10 @@ var MonthlyReport = (function() {
 
   // ── open / load ──
   function show() {
+    if (typeof Team !== 'undefined' && Team.refresh) { Team.refresh().then(function() { _show(); }); return; }
+    _show();
+  }
+  function _show() {
     var now = new Date();
     var emps = employeeList();
     var me = window.currentUser ? window.currentUser.username : (emps[0] && emps[0].username);
@@ -150,6 +169,23 @@ var MonthlyReport = (function() {
     var modal = document.getElementById('modalContainer');
     if (!modal) return;
     var empSel = '';
+    // Admin: iterate over every manager — dropdown filters the worker list to his team
+    if (isAdminRole() && typeof Team !== 'undefined') {
+      var mgrs = [];
+      if (window.users) {
+        Object.keys(window.users).forEach(function(k) {
+          var u = window.users[k];
+          if (u && (u.role === 'operator' || u.role === 'admin')) mgrs.push({ username: k, name: u.name || k });
+        });
+        mgrs.sort(function(a, b) { return a.name.localeCompare(b.name, 'he'); });
+      }
+      if (mgrs.length) {
+        empSel += '<select id="mrMgr" onchange="MonthlyReport._pickManagerFilter(this.value)" style="font-family:inherit;font-weight:700;font-size:0.9rem;padding:6px 8px;border-radius:8px;border:1px solid #cfe0d6;background:#f2f8f4;">' +
+          '<option value="">' + tt('כל העובדים','ทุกคน','كل العمال') + '</option>' +
+          mgrs.map(function(m) { return '<option value="' + m.username + '"' + (m.username === state.managerFilter ? ' selected' : '') + '>👥 ' + m.name + '</option>'; }).join('') +
+          '</select>';
+      }
+    }
     if (isManager() && emps.length > 1) {
       empSel = '<select id="mrEmp" onchange="MonthlyReport._pickEmp(this.value)" style="font-family:inherit;font-weight:700;font-size:0.9rem;padding:6px 8px;border-radius:8px;border:1px solid #ddd;">' +
         emps.map(function(e){ return '<option value="'+e.username+'"'+(e.username===state.username?' selected':'')+'>'+e.name+'</option>'; }).join('') +
@@ -282,7 +318,8 @@ var MonthlyReport = (function() {
   }
   // אירוע cell: editable dropdown for managers, read-only text for workers.
   function eventCell(r) {
-    var cur = state.events[r.key] || '';
+    var worked = r.shifts && r.shifts.length > 0;
+    var cur = state.events[r.key] || (worked ? 'work' : '');
     var holidayPill = r.holiday ? '<div style="margin-top:3px;"><span style="background:#fbf1df;color:#b8761a;padding:1px 7px;border-radius:999px;font-size:0.64rem;font-weight:700;">' + holidayName(r.holiday) + '</span></div>' : '';
     if (isManager()) {
       var opts = EVENTS.map(function(e) { return '<option value="' + e.v + '"' + (e.v === cur ? ' selected' : '') + '>' + tt(e.he, e.th, e.ar) + '</option>'; }).join('');
@@ -340,7 +377,7 @@ var MonthlyReport = (function() {
           '<td style="padding:7px 6px;text-align:center;border-bottom:1px solid #f3f3f3;color:#2f74c0;">' + (r.std ? hm(r.std) : '') + '</td>' +
           '<td style="padding:7px 6px;text-align:center;border-bottom:1px solid #f3f3f3;">' + (r.type === 'event' ? '' : (emptyDelta !== null && r.std ? pill(emptyDelta) : '')) + '</td>' +
           '<td style="padding:7px 6px;text-align:center;border-bottom:1px solid #f3f3f3;">' + eventCell(r) + '</td>' +
-          '<td style="border-bottom:1px solid #f3f3f3;"></td></tr>';
+          '<td style="padding:7px 6px;text-align:center;border-bottom:1px solid #f3f3f3;">' + (isManager() && !r.future ? '<button onclick="MonthlyReport._addShift(\'' + r.key + '\')" title="' + tt('הוסף משמרת','เพิ่มกะ','إضافة وردية') + '" style="border:none;background:none;cursor:pointer;font-size:0.85rem;color:#4caf50;font-weight:700;">➕</button>' : '') + '</td></tr>';
         return;
       }
 
@@ -356,7 +393,7 @@ var MonthlyReport = (function() {
           '<td style="padding:7px 6px;text-align:center;color:#2f74c0;border-bottom:1px solid #f3f3f3;">' + (first && r.std ? hm(r.std) : '') + '</td>' +
           '<td style="padding:7px 6px;text-align:center;border-bottom:1px solid #f3f3f3;">' + pill(delta) + '</td>' +
           '<td style="padding:7px 6px;text-align:center;border-bottom:1px solid #f3f3f3;">' + (first ? eventCell(r) : '') + '</td>' +
-          '<td style="padding:7px 6px;text-align:center;border-bottom:1px solid #f3f3f3;">' + (sh._id && isManager() ? '<button onclick="TimeClock.editRecord(\'' + sh._id + '\')" title="' + tt('ערוך','แก้ไข','تعديل') + '" style="border:none;background:none;cursor:pointer;font-size:0.85rem;">✏️</button>' : '') + '</td></tr>';
+          '<td style="padding:7px 6px;text-align:center;border-bottom:1px solid #f3f3f3;white-space:nowrap;">' + (sh._id && isManager() ? '<button onclick="TimeClock.editRecord(\'' + sh._id + '\')" title="' + tt('ערוך','แก้ไข','تعديل') + '" style="border:none;background:none;cursor:pointer;font-size:0.85rem;">✏️</button>' : '') + (first && isManager() ? '<button onclick="MonthlyReport._addShift(\'' + r.key + '\')" title="' + tt('הוסף משמרת','เพิ่มกะ','إضافة وردية') + '" style="border:none;background:none;cursor:pointer;font-size:0.85rem;color:#4caf50;font-weight:700;">➕</button>' : '') + '</td></tr>';
       });
     });
 
@@ -418,20 +455,99 @@ var MonthlyReport = (function() {
     load();
   }
 
+  function _pickManagerFilter(username) {
+    state.managerFilter = username || '';
+    var emps = employeeList();
+    var still = emps.filter(function(e) { return e.username === state.username; })[0];
+    var pick = still || emps[0];
+    if (pick) { state.username = pick.username; state.name = pick.name; state.lang = pick.lang; }
+    renderShell(emps);
+    load();
+  }
+
+  // ── Manager: add a manual shift for a worker/day (Meckano-style row add) ──
+  function _addShift(key) {
+    if (!isManager()) { if (typeof showToast === 'function') showToast(tt('⛔ רק מנהל יכול לערוך','⛔ เฉพาะผู้ดูแล','⛔ للمدير فقط')); return; }
+    var old = document.getElementById('mrAddOverlay');
+    if (old) old.remove();
+    var div = document.createElement('div');
+    div.id = 'mrAddOverlay';
+    div.innerHTML =
+      '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:100000;display:flex;align-items:center;justify-content:center;">' +
+      '<div style="background:white;border-radius:16px;padding:20px;width:90%;max-width:340px;">' +
+        '<h3 style="font-weight:700;margin-bottom:4px;">➕ ' + tt('הוספת משמרת','เพิ่มกะ','إضافة وردية') + '</h3>' +
+        '<div style="font-size:0.82rem;color:#666;margin-bottom:12px;">' + state.name + ' — ' + key + '</div>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">' +
+          '<div><label style="font-size:0.8rem;color:#666;">' + tt('כניסה','เข้า','دخول') + '</label><input type="time" id="mrAddIn" value="07:00" style="width:100%;padding:8px;border-radius:8px;border:1px solid #ddd;font-family:inherit;"></div>' +
+          '<div><label style="font-size:0.8rem;color:#666;">' + tt('יציאה','ออก','خروج') + '</label><input type="time" id="mrAddOut" value="16:00" style="width:100%;padding:8px;border-radius:8px;border:1px solid #ddd;font-family:inherit;"></div>' +
+        '</div>' +
+        '<label style="font-size:0.8rem;color:#666;">' + tt('סיבה','เหตุผล','سبب') + '</label>' +
+        '<input type="text" id="mrAddReason" placeholder="' + tt('למשל: שכח להחתים','เช่น ลืมตอก','مثلاً: نسي التسجيل') + '" style="width:100%;padding:8px;border-radius:8px;border:1px solid #ddd;margin-bottom:12px;font-family:inherit;font-size:0.85rem;">' +
+        '<div style="display:flex;gap:8px;">' +
+          '<button onclick="MonthlyReport._saveAddShift(\'' + key + '\')" style="flex:1;padding:10px;border-radius:10px;border:none;background:#4caf50;color:white;font-family:inherit;font-weight:700;cursor:pointer;">💾 ' + tt('שמור','บันทึก','حفظ') + '</button>' +
+          '<button onclick="document.getElementById(\'mrAddOverlay\').remove()" style="flex:1;padding:10px;border-radius:10px;border:none;background:#eee;font-family:inherit;cursor:pointer;">' + tt('ביטול','ยกเลิก','إلغاء') + '</button>' +
+        '</div>' +
+      '</div></div>';
+    document.body.appendChild(div);
+  }
+
+  function _saveAddShift(key) {
+    if (!isManager() || typeof db === 'undefined' || !state.username) return;
+    var inVal = document.getElementById('mrAddIn').value;
+    var outVal = document.getElementById('mrAddOut').value;
+    var reasonEl = document.getElementById('mrAddReason');
+    var reason = reasonEl ? reasonEl.value.trim() : '';
+    if (!inVal || !outVal) { if (typeof showToast === 'function') showToast('❌ ' + tt('חסרות שעות','ขาดเวลา','ساعات ناقصة')); return; }
+    var punchIn = new Date(key + 'T' + inVal + ':00').getTime();
+    var punchOut = new Date(key + 'T' + outVal + ':00').getTime();
+    if (punchOut <= punchIn) { if (typeof showToast === 'function') showToast('❌ ' + tt('יציאה לפני כניסה','ออกก่อนเข้า','خروج قبل دخول')); return; }
+    var sameDay = state.records.filter(function(r) { return dateKey(r.punchIn) === key; }).length;
+    var who = (window.currentUser && window.currentUser.username) || 'unknown';
+    var record = {
+      username: state.username,
+      userName: state.name,
+      punchIn: punchIn,
+      punchOut: punchOut,
+      date: key,
+      duration: punchOut - punchIn,
+      workplace: tt('הזנה ידנית','ป้อนด้วยตนเอง','إدخال يدوي'),
+      shiftIndex: sameDay,
+      status: 'approved',
+      manualEntry: true,
+      addedBy: who,
+      approvedBy: who,
+      approvedAt: Date.now(),
+      editReason: reason || 'manual add by manager',
+      punchInGeo: null, punchOutGeo: null, geoVerified: null, geoWarnings: [], breaks: []
+    };
+    db.collection('timeclock').add(record)
+      .then(function(ref) {
+        if (typeof Audit !== 'undefined') {
+          Audit.log('create', 'timeclock', ref.id, { targetUser: state.username, before: null, after: record, reason: reason || 'manual shift added from monthly report' });
+        }
+        var ov = document.getElementById('mrAddOverlay');
+        if (ov) ov.remove();
+        if (typeof showToast === 'function') showToast('✅ ' + tt('משמרת נוספה','เพิ่มกะแล้ว','تمت إضافة وردية'));
+        load();
+      })
+      .catch(function(err) { if (typeof showToast === 'function') showToast('❌ ' + err.message); });
+  }
+
   // ── CSV export ──
   function _exportCSV() {
     var rows = buildRows();
     var lines = ['תאריך,יום,כניסה,יציאה,סה"כ,תקן,חוסר/עודף,מקום,אירוע'];
     rows.forEach(function(r) {
       if (r.shifts.length === 0) {
-        lines.push(pad(r.d) + '/' + pad(state.month + 1) + '/' + state.year + ',' + r.dow + ',,,,' + (r.std ? hm(r.std) : '') + ',,,' + holidayName(r.holiday));
+        var evEmpty = state.events[r.key] || '';
+        lines.push(pad(r.d) + '/' + pad(state.month + 1) + '/' + state.year + ',' + r.dow + ',,,,' + (r.std ? hm(r.std) : '') + ',,,' + (evEmpty ? eventLabel(evEmpty) : holidayName(r.holiday)));
       } else {
         r.shifts.forEach(function(sh, si) {
           var g = recMin(sh), d = dayDelta(g, si === 0 ? r.type : 'event');
           lines.push(pad(r.d) + '/' + pad(state.month + 1) + '/' + state.year + ',' + r.dow + ',' +
             localTime(sh.punchIn) + ',' + (sh.punchOut ? localTime(sh.punchOut) : '') + ',' + hm(g) + ',' +
             (si === 0 && r.std ? hm(r.std) : '') + ',' + (d >= 0 ? '+' : '-') + hm(Math.abs(d)) + ',' +
-            (sh.workplace || '') + ',' + (si === 0 ? holidayName(r.holiday) : ''));
+            (sh.workplace || '') + ',' + (si === 0 ? eventLabel(state.events[r.key] || 'work') : ''));
         });
       }
     });
@@ -464,6 +580,9 @@ var MonthlyReport = (function() {
     show: show,
     _nav: _nav,
     _pickEmp: _pickEmp,
+    _pickManagerFilter: _pickManagerFilter,
+    _addShift: _addShift,
+    _saveAddShift: _saveAddShift,
     _exportCSV: _exportCSV
   };
 })();
