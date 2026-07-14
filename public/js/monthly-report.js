@@ -151,6 +151,10 @@ var MonthlyReport = (function() {
     _show();
   }
   function _show() {
+    // Admin defaults to manager-scoped view: his own team first, never one big list.
+    if (isAdminRole() && !state.managerFilter && window.currentUser) {
+      state.managerFilter = window.currentUser.username;
+    }
     var now = new Date();
     var emps = employeeList();
     var me = window.currentUser ? window.currentUser.username : (emps[0] && emps[0].username);
@@ -177,12 +181,21 @@ var MonthlyReport = (function() {
           var u = window.users[k];
           if (u && (u.role === 'operator' || u.role === 'admin')) mgrs.push({ username: k, name: u.name || k });
         });
-        mgrs.sort(function(a, b) { return a.name.localeCompare(b.name, 'he'); });
+        var meU = window.currentUser ? window.currentUser.username : '';
+        mgrs.sort(function(a, b) {
+          if (a.username === meU) return -1;
+          if (b.username === meU) return 1;
+          return a.name.localeCompare(b.name, 'he');
+        });
       }
       if (mgrs.length) {
         empSel += '<select id="mrMgr" onchange="MonthlyReport._pickManagerFilter(this.value)" style="font-family:inherit;font-weight:700;font-size:0.9rem;padding:6px 8px;border-radius:8px;border:1px solid #cfe0d6;background:#f2f8f4;">' +
-          '<option value="">' + tt('כל העובדים','ทุกคน','كل العمال') + '</option>' +
-          mgrs.map(function(m) { return '<option value="' + m.username + '"' + (m.username === state.managerFilter ? ' selected' : '') + '>👥 ' + m.name + '</option>'; }).join('') +
+          mgrs.map(function(m) {
+            var cnt = Team.getTeam(m.username).length;
+            var self = m.username === (window.currentUser ? window.currentUser.username : '');
+            return '<option value="' + m.username + '"' + (m.username === state.managerFilter ? ' selected' : '') + '>👥 ' + m.name + (self ? ' (' + tt('אני','ฉัน','أنا') + ')' : '') + ' — ' + cnt + '</option>';
+          }).join('') +
+          '<option value=""' + (!state.managerFilter ? ' selected' : '') + '>' + tt('כל העובדים','ทุกคน','كل العمال') + '</option>' +
           '</select>';
       }
     }

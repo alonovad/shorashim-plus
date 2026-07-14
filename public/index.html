@@ -93,6 +93,8 @@
       <div id="loginError" style="color: #ff4757; font-size: 0.85rem; font-weight: 600; text-align: center; min-height: 20px;"></div>
       <div style="text-align: center; margin-top: 4px;">
         <a href="#" id="forgotPassLink" style="font-size: 0.8rem; color: #39ff14; text-decoration: none; cursor: pointer; text-shadow: 0 0 8px rgba(57,255,20,0.3);">שכחתי סיסמה</a>
+        <span style="color: rgba(255,255,255,0.25); margin: 0 6px;">·</span>
+        <a href="#" id="smsRecoveryLink" style="font-size: 0.8rem; color: #39ff14; text-decoration: none; cursor: pointer; text-shadow: 0 0 8px rgba(57,255,20,0.3);">🔑 שחזור ב-SMS</a>
       </div>
     </div>
   </div>
@@ -112,6 +114,12 @@
     if (lang.indexOf('th') === 0) { t = loginText.th; if (forgot) forgot.textContent = 'ลืมรหัสผ่าน'; }
     else if (lang.indexOf('ar') === 0) { t = loginText.ar; if (forgot) forgot.textContent = 'نسيت كلمة المرور'; }
     else if (lang.indexOf('en') === 0) { t = loginText.en; if (forgot) forgot.textContent = 'Forgot password'; }
+    var smsL = document.getElementById('smsRecoveryLink');
+    if (smsL) {
+      if (lang.indexOf('th') === 0) smsL.textContent = '🔑 กู้คืนผ่าน SMS';
+      else if (lang.indexOf('ar') === 0) smsL.textContent = '🔑 استعادة عبر SMS';
+      else if (lang.indexOf('en') === 0) smsL.textContent = '🔑 Recover via SMS';
+    }
     
     if (t) {
       var set = function(id, text) { var el = document.getElementById(id); if (el) el.textContent = text; };

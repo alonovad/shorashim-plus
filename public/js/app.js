@@ -224,6 +224,7 @@
     // Check if user is already logged in via Firebase
     if (typeof auth !== 'undefined') {
       auth.onAuthStateChanged(function(firebaseUser) {
+        if (window.__smsRecoveryActive) return; // temp phone session during SMS recovery
         if (firebaseUser) {
           // Already logged in — find their profile
           loadUsers().then(function() {
@@ -349,6 +350,125 @@
       document.getElementById('loginError').textContent = err.code === 'auth/user-not-found' ? t('אימייל לא נמצא') : err.message;
     });
   });
+
+  // ── SMS credential recovery (שחזור פרטי התחברות ב-SMS) ──
+  // Flow: phone → invisible reCAPTCHA → signInWithPhoneNumber (temp phone
+  // session, blocked from Firestore by rules) → recoverAccount Cloud
+  // Function verifies the phone against the registered user, resets the
+  // password, returns the login email, and deletes the temp user.
+  var _smsConfirmation = null;
+  var _smsVerifier = null;
+
+  function normalizePhoneIL(p) {
+    p = (p || '').replace(/[\s\-().]/g, '');
+    if (!p) return '';
+    if (p.charAt(0) === '+') return p;
+    if (p.indexOf('972') === 0) return '+' + p;
+    if (p.charAt(0) === '0') return '+972' + p.slice(1);
+    return '+972' + p;
+  }
+
+  function closeSmsRecovery() {
+    window.__smsRecoveryActive = false;
+    _smsConfirmation = null;
+    if (_smsVerifier) { try { _smsVerifier.clear(); } catch (e) {} _smsVerifier = null; }
+    var ov = document.getElementById('smsRecoveryOverlay');
+    if (ov) ov.remove();
+    // Never leave a temporary phone session signed in
+    if (auth.currentUser && auth.currentUser.phoneNumber && !auth.currentUser.email) auth.signOut().catch(function() {});
+  }
+  window.closeSmsRecovery = closeSmsRecovery;
+
+  function showSmsRecovery() {
+    window.__smsRecoveryActive = true;
+    var inputStyle = 'width:100%;padding:11px 14px;border:1px solid rgba(255,255,255,0.15);border-radius:10px;background:rgba(255,255,255,0.08);font-family:inherit;font-size:0.95rem;color:#e8ffe8;outline:none;';
+    var div = document.createElement('div');
+    div.id = 'smsRecoveryOverlay';
+    div.innerHTML =
+      '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.78);z-index:100001;display:flex;align-items:center;justify-content:center;">' +
+      '<div style="background:#12241a;border:1px solid rgba(57,255,20,0.25);border-radius:20px;padding:24px;width:90%;max-width:360px;color:#e8ffe8;">' +
+        '<h3 style="font-weight:700;margin-bottom:6px;">🔑 ' + t('שחזור פרטי התחברות') + '</h3>' +
+        '<div style="font-size:0.78rem;color:rgba(255,255,255,0.5);margin-bottom:14px;">' + t('הזן את מספר הטלפון הרשום במערכת ונשלח לך קוד ב-SMS') + '</div>' +
+        '<div id="smsStep1">' +
+          '<input type="tel" id="smsPhone" placeholder="050-1234567" style="' + inputStyle + 'direction:ltr;text-align:left;margin-bottom:10px;">' +
+          '<button id="smsSendBtn" onclick="window.__smsSendCode()" style="width:100%;padding:12px;border-radius:10px;border:1.5px solid #39ff14;background:transparent;color:#39ff14;font-family:inherit;font-weight:700;cursor:pointer;">📲 ' + t('שלח קוד') + '</button>' +
+        '</div>' +
+        '<div id="smsStep2" style="display:none;">' +
+          '<input type="text" id="smsCode" placeholder="123456" inputmode="numeric" autocomplete="one-time-code" style="' + inputStyle + 'direction:ltr;text-align:center;letter-spacing:6px;margin-bottom:10px;">' +
+          '<input type="password" id="smsNewPass" placeholder="' + t('סיסמה חדשה (לפחות 6 תווים)') + '" style="' + inputStyle + 'margin-bottom:10px;">' +
+          '<button onclick="window.__smsConfirmCode()" style="width:100%;padding:12px;border-radius:10px;border:none;background:#39ff14;color:#0a1f12;font-family:inherit;font-weight:800;cursor:pointer;">✅ ' + t('אמת ואפס סיסמה') + '</button>' +
+        '</div>' +
+        '<div id="smsMsg" style="min-height:20px;font-size:0.82rem;font-weight:600;margin-top:10px;text-align:center;color:#ff6b81;"></div>' +
+        '<div id="smsRecaptchaBox"></div>' +
+        '<button onclick="window.closeSmsRecovery()" style="width:100%;margin-top:10px;padding:10px;border-radius:10px;border:none;background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.6);font-family:inherit;cursor:pointer;">' + t('סגור') + '</button>' +
+      '</div></div>';
+    document.body.appendChild(div);
+  }
+
+  window.__smsSendCode = function() {
+    var msg = document.getElementById('smsMsg');
+    var phone = normalizePhoneIL(document.getElementById('smsPhone').value);
+    if (!/^\+\d{11,14}$/.test(phone)) { msg.style.color = '#ff6b81'; msg.textContent = t('מספר טלפון לא תקין'); return; }
+    msg.style.color = '#9ad9a3';
+    msg.textContent = '⏳ ' + t('שולח קוד...');
+    try {
+      if (!_smsVerifier) _smsVerifier = new firebase.auth.RecaptchaVerifier('smsRecaptchaBox', { size: 'invisible' });
+    } catch (e) { msg.style.color = '#ff6b81'; msg.textContent = e.message; return; }
+    auth.signInWithPhoneNumber(phone, _smsVerifier)
+      .then(function(confirmation) {
+        _smsConfirmation = confirmation;
+        document.getElementById('smsStep1').style.display = 'none';
+        document.getElementById('smsStep2').style.display = 'block';
+        msg.textContent = '📲 ' + t('קוד נשלח! הזן אותו יחד עם סיסמה חדשה');
+      })
+      .catch(function(err) {
+        msg.style.color = '#ff6b81';
+        if (err.code === 'auth/too-many-requests') msg.textContent = t('יותר מדי נסיונות, נסה מאוחר יותר');
+        else if (err.code === 'auth/invalid-phone-number') msg.textContent = t('מספר טלפון לא תקין');
+        else msg.textContent = err.message || err.code;
+        if (_smsVerifier) { try { _smsVerifier.clear(); } catch (e) {} _smsVerifier = null; }
+      });
+  };
+
+  window.__smsConfirmCode = function() {
+    var msg = document.getElementById('smsMsg');
+    var code = document.getElementById('smsCode').value.trim();
+    var newPass = document.getElementById('smsNewPass').value;
+    if (!code || code.length < 6) { msg.style.color = '#ff6b81'; msg.textContent = t('הזן את הקוד מה-SMS'); return; }
+    if (!newPass || newPass.length < 6) { msg.style.color = '#ff6b81'; msg.textContent = t('הסיסמה חייבת להכיל לפחות 6 תווים'); return; }
+    if (!_smsConfirmation) return;
+    msg.style.color = '#9ad9a3';
+    msg.textContent = '⏳ ' + t('מאמת...');
+    _smsConfirmation.confirm(code)
+      .then(function() {
+        var fn = firebase.app().functions('us-central1').httpsCallable('recoverAccount');
+        return fn({ newPassword: newPass });
+      })
+      .then(function(res) {
+        var d = (res && res.data) || {};
+        auth.signOut().catch(function() {});
+        window.__smsRecoveryActive = false;
+        var step2 = document.getElementById('smsStep2');
+        if (step2) step2.style.display = 'none';
+        msg.style.color = '#39ff14';
+        msg.innerHTML = '✅ ' + t('שם המשתמש שלך') + ':<br><b style="direction:ltr;display:inline-block;font-size:1rem;">' + (d.email || '') + '</b><br>' + t('הסיסמה עודכנה — אפשר להתחבר');
+        var le = document.getElementById('loginEmail');
+        if (le) le.value = d.email || '';
+        var ef = document.getElementById('emailLoginFields');
+        if (ef) ef.style.display = 'block';
+      })
+      .catch(function(err) {
+        msg.style.color = '#ff6b81';
+        var c = (err && err.code) || '';
+        if (c === 'auth/invalid-verification-code' || c === 'auth/code-expired') msg.textContent = t('קוד שגוי או שפג תוקפו');
+        else if (c === 'functions/not-found' || c === 'not-found') msg.textContent = t('הטלפון אינו רשום במערכת. פנה למנהל.');
+        else msg.textContent = err.message || c;
+        if (auth.currentUser && auth.currentUser.phoneNumber && !auth.currentUser.email) auth.signOut().catch(function() {});
+      });
+  };
+
+  var _smsLink = document.getElementById('smsRecoveryLink');
+  if (_smsLink) _smsLink.addEventListener('click', function(e) { e.preventDefault(); showSmsRecovery(); });
 
   // ── Constants ──
   var COLORS = ['#2e7d32','#1565c0','#c62828','#6a1b9a','#ef6c00','#00838f','#ad1457','#4e342e'];
@@ -811,6 +931,21 @@
 
     // ── Login & Auth ──
     'חשבון לא מוגדר במערכת. פנה למנהל.': { th: 'บัญชีไม่ได้ลงทะเบียนในระบบ ติดต่อผู้ดูแล', ar: 'الحساب غير مسجل في النظام. تواصل مع المسؤول.' },
+    'שחזור פרטי התחברות': { th: 'กู้คืนข้อมูลเข้าสู่ระบบ', ar: 'استعادة بيانات الدخول' },
+    'הזן את מספר הטלפון הרשום במערכת ונשלח לך קוד ב-SMS': { th: 'กรอกเบอร์โทรที่ลงทะเบียนไว้ เราจะส่งรหัสทาง SMS', ar: 'أدخل رقم الهاتف المسجل وسنرسل لك رمزاً عبر SMS' },
+    'שלח קוד': { th: 'ส่งรหัส', ar: 'إرسال الرمز' },
+    'סיסמה חדשה (לפחות 6 תווים)': { th: 'รหัสผ่านใหม่ (อย่างน้อย 6 ตัว)', ar: 'كلمة مرور جديدة (6 أحرف على الأقل)' },
+    'אמת ואפס סיסמה': { th: 'ยืนยันและรีเซ็ตรหัสผ่าน', ar: 'تحقق وأعد تعيين كلمة المرور' },
+    'מספר טלפון לא תקין': { th: 'เบอร์โทรไม่ถูกต้อง', ar: 'رقم هاتف غير صالح' },
+    'שולח קוד...': { th: 'กำลังส่งรหัส...', ar: 'جاري إرسال الرمز...' },
+    'קוד נשלח! הזן אותו יחד עם סיסמה חדשה': { th: 'ส่งรหัสแล้ว! กรอกรหัสพร้อมรหัสผ่านใหม่', ar: 'تم إرسال الرمز! أدخله مع كلمة مرور جديدة' },
+    'הזן את הקוד מה-SMS': { th: 'กรอกรหัสจาก SMS', ar: 'أدخل الرمز من SMS' },
+    'מאמת...': { th: 'กำลังตรวจสอบ...', ar: 'جاري التحقق...' },
+    'שם המשתמש שלך': { th: 'ชื่อผู้ใช้ของคุณ', ar: 'اسم المستخدم الخاص بك' },
+    'הסיסמה עודכנה — אפשר להתחבר': { th: 'อัปเดตรหัสผ่านแล้ว — เข้าสู่ระบบได้เลย', ar: 'تم تحديث كلمة المرور — يمكنك الدخول الآن' },
+    'קוד שגוי או שפג תוקפו': { th: 'รหัสผิดหรือหมดอายุ', ar: 'رمز خاطئ أو منتهي الصلاحية' },
+    'הטלפון אינו רשום במערכת. פנה למנהל.': { th: 'เบอร์นี้ไม่ได้ลงทะเบียน ติดต่อผู้ดูแล', ar: 'الهاتف غير مسجل. تواصل مع المسؤول.' },
+    'טלפון (לשחזור סיסמה ב-SMS)': { th: 'โทรศัพท์ (สำหรับกู้รหัสผ่านทาง SMS)', ar: 'هاتف (لاستعادة كلمة المرور عبر SMS)' },
     'יש למלא אימייל וסיסמה': { th: 'กรอกอีเมลและรหัสผ่าน', ar: 'يجب إدخال البريد وكلمة المرور' },
     'מתחבר...': { th: 'กำลังเชื่อมต่อ...', ar: 'جاري الاتصال...' },
     'שגיאת התחברות': { th: 'เข้าสู่ระบบล้มเหลว', ar: 'خطأ في تسجيل الدخول' },
@@ -3106,6 +3241,12 @@
   };
 
   // ── User Management ──
+  // Role filter for the users list: 'all' | 'admin' | 'operator' | 'worker' | 'viewer'
+  var usersRoleFilter = 'all';
+  window.__setUsersRoleFilter = function(role) {
+    usersRoleFilter = role || 'all';
+    renderUsersAdminList();
+  };
   function renderUsersAdminList() {
     var container = document.getElementById('usersAdminList');
     var summaryContainer = document.getElementById('usersSummary');
@@ -3128,15 +3269,30 @@
     var workerCount = userList.filter(function(u) { return u.role === 'worker'; }).length;
     var viewerCount = userList.filter(function(u) { return u.role === 'viewer'; }).length;
     
-    // Render summary
-    summaryContainer.innerHTML = 
-      '<div style="display: flex; gap: 24px; flex-wrap: wrap;">' +
-        '<div><div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">' + t('סה"כ משתמשים') + '</div><div style="font-size: 24px; font-weight: 700; color: var(--primary);">' + userList.length + '</div></div>' +
-        '<div><div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">' + t('מנהלים') + '</div><div style="font-size: 24px; font-weight: 700;">' + adminCount + '</div></div>' +
-        '<div><div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">' + t('מפעילים') + '</div><div style="font-size: 24px; font-weight: 700;">' + operatorCount + '</div></div>' +
-        '<div><div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">' + t('עובדים') + '</div><div style="font-size: 24px; font-weight: 700;">' + workerCount + '</div></div>' +
-        '<div><div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">' + t('צופים') + '</div><div style="font-size: 24px; font-weight: 700;">' + viewerCount + '</div></div>' +
+    // Render summary — each card doubles as a role filter (click to filter the list)
+    function statCard(role, label, count) {
+      var active = usersRoleFilter === role;
+      return '<div onclick="window.__setUsersRoleFilter(\'' + role + '\')" style="cursor: pointer; padding: 6px 12px; border-radius: 10px; border: 2px solid ' + (active ? 'var(--primary)' : 'transparent') + '; background: ' + (active ? 'var(--primary-light)' : 'transparent') + ';" title="' + t('סנן לפי תפקיד') + '">' +
+        '<div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">' + label + '</div>' +
+        '<div style="font-size: 24px; font-weight: 700;' + (role === 'all' ? ' color: var(--primary);' : '') + '">' + count + '</div></div>';
+    }
+    summaryContainer.innerHTML =
+      '<div style="display: flex; gap: 12px; flex-wrap: wrap;">' +
+        statCard('all', t('סה"כ משתמשים'), userList.length) +
+        statCard('admin', t('מנהלים'), adminCount) +
+        statCard('operator', t('מפעילים'), operatorCount) +
+        statCard('worker', t('עובדים'), workerCount) +
+        statCard('viewer', t('צופים'), viewerCount) +
       '</div>';
+
+    // Apply the role filter to the rendered list (counters above stay global)
+    if (usersRoleFilter !== 'all') {
+      userList = userList.filter(function(u) { return u.role === usersRoleFilter; });
+    }
+    if (userList.length === 0) {
+      container.innerHTML = '<div style="padding: 16px; text-align: center; color: var(--text-muted);">' + t('אין רשומות') + '</div>';
+      return;
+    }
 
     var html = '';
     userList.forEach(function(user) {
@@ -3234,6 +3390,10 @@
             '<input type="email" class="form-input" id="userEmail" value="' + (isEdit ? (user.email || '') : '') + '" placeholder="email@example.com" style="direction:ltr;text-align:left;" ' + (isEdit ? 'readonly style="background:#f0f0f0;direction:ltr;text-align:left;"' : '') + '>' +
           '</div>' +
           '<div class="form-group">' +
+            '<label class="form-label">' + t('טלפון (לשחזור סיסמה ב-SMS)') + '</label>' +
+            '<input type="tel" class="form-input" id="userPhone" value="' + (isEdit ? (user.phone || '') : '') + '" placeholder="050-1234567" style="direction:ltr;text-align:left;">' +
+          '</div>' +
+          '<div class="form-group">' +
             '<label class="form-label">' + t('תפקיד') + '</label>' +
             '<select class="form-input" id="userRole" style="cursor: pointer;">' +
               '<option value="worker"' + (isEdit && user.role === 'worker' ? ' selected' : '') + '>' + t('עובד') + '</option>' +
@@ -3267,6 +3427,7 @@
       var email = document.getElementById('userEmail').value.trim();
       var role = document.getElementById('userRole').value;
       var lang = document.getElementById('userLang').value;
+      var phone = document.getElementById('userPhone').value.trim();
       
       var selectedFarms = [];
       container.querySelectorAll('.farm-permission-cb:checked').forEach(function(cb) {
@@ -3284,6 +3445,7 @@
           users[user.username].role = role;
           users[user.username].lang = lang;
           users[user.username].farm_permissions = selectedFarms;
+          users[user.username].phone = phone;
           DB.save('shorashim-users', users);
           renderUsersAdminList();
           showToast('✅ ' + t('משתמש עודכן'));
@@ -3306,6 +3468,7 @@
           email: email,
           role: role,
           lang: lang,
+          phone: phone,
           farm_permissions: selectedFarms,
           created_at: Date.now()
         };

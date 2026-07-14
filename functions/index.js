@@ -1,6 +1,7 @@
 const { onRequest, onCall, HttpsError } = require("firebase-functions/v2/https");
 const { initializeApp } = require("firebase-admin/app");
 const { getAuth } = require("firebase-admin/auth");
+const { getFirestore } = require("firebase-admin/firestore");
 
 initializeApp();
 
@@ -108,5 +109,89 @@ exports.talgilProxy = onRequest(
     } catch (err) {
       res.status(502).json({ error: err.message });
     }
+  }
+);
+
+// ═══════════════════════════════════════════
+// 4. RECOVER ACCOUNT — SMS-verified credential recovery
+//    Caller must be signed in with the PHONE provider (temp session from
+//    signInWithPhoneNumber on the login screen). Matches the verified
+//    phone against the registered phone in appData/shorashim-users,
+//    resets the password, returns the login email/username, and deletes
+//    the temporary phone-auth user. Rules block phone sessions from all
+//    Firestore access; this function uses the Admin SDK.
+// ═══════════════════════════════════════════
+
+exports.recoverAccount = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "Phone verification required");
+    }
+    const fb = request.auth.token.firebase || {};
+    const phone = request.auth.token.phone_number;
+    if (fb.sign_in_provider !== "phone" || !phone) {
+      throw new HttpsError("permission-denied", "Phone verification required");
+    }
+    const newPassword = (request.data && request.data.newPassword) || "";
+    if (typeof newPassword !== "string" || newPassword.length < 6) {
+      throw new HttpsError("invalid-argument", "Password must be at least 6 characters");
+    }
+
+    // Normalize both sides to E.164 (+972...) before comparing
+    const normalize = (p) => {
+      p = String(p || "").replace(/[\s\-().]/g, "");
+      if (!p) return "";
+      if (p.startsWith("+")) return p;
+      if (p.startsWith("972")) return "+" + p;
+      if (p.startsWith("0")) return "+972" + p.slice(1);
+      return "+972" + p;
+    };
+
+    const db = getFirestore();
+    const doc = await db.collection("appData").doc("shorashim-users").get();
+    const users = (doc.exists && doc.data().value) || {};
+    const match = Object.values(users).find(
+      (u) => u && u.phone && normalize(u.phone) === phone
+    );
+    if (!match || !match.email) {
+      throw new HttpsError("not-found", "Phone number not registered");
+    }
+
+    const auth = getAuth();
+    let target;
+    try {
+      target = await auth.getUserByEmail(match.email);
+      await auth.updateUser(target.uid, { password: newPassword });
+    } catch (err) {
+      if (err.code === "auth/user-not-found") {
+        // User was added by admin but never logged in — onboard via SMS
+        target = await auth.createUser({ email: match.email, password: newPassword });
+      } else {
+        throw new HttpsError("internal", "Password update failed");
+      }
+    }
+
+    // Best-effort cleanup + audit trail
+    try { await auth.deleteUser(request.auth.uid); } catch (e) { /* ignore */ }
+    try {
+      await db.collection("audit-log").doc(`${Date.now()}_${match.username}_recover`).set({
+        ts: Date.now(),
+        actor: match.username,
+        actorName: match.name || match.username,
+        actorRole: match.role || "unknown",
+        action: "recover",
+        target: "auth",
+        targetId: target.uid,
+        targetUser: match.username,
+        before: null,
+        after: { method: "sms", phone },
+        reason: "SMS credential recovery",
+        userAgent: "cloud-function",
+        online: true,
+      });
+    } catch (e) { /* ignore */ }
+
+    return { email: match.email, username: match.username, name: match.name || "" };
   }
 );

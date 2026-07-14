@@ -3,7 +3,11 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     function isSignedIn() {
-      return request.auth != null;
+      // Phone-provider sessions are temporary (SMS credential recovery
+      // only) and must never read or write app data — recovery runs
+      // through the recoverAccount Cloud Function (Admin SDK).
+      return request.auth != null &&
+             request.auth.token.firebase.sign_in_provider != 'phone';
     }
     function getRole() {
       // Users without a custom claim must read as null. An ABSENT claim is
