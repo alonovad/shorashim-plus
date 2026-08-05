@@ -86,6 +86,33 @@ var DB = (function() {
     });
   }
 
+  // Fresh load: bypasses the in-memory cache and localStorage and reads
+  // Firestore directly. Used by the login flow — a device that loaded the
+  // users list before an admin added a new user would otherwise keep
+  // resolving with the stale cached copy and lock that user out. Updates
+  // cache + localStorage on success; falls back to the normal (cached)
+  // load only if Firestore is unreachable.
+  function loadFresh(key) {
+    return new Promise(function(resolve) {
+      if (!firestore) { load(key, resolve); return; }
+      firestore.collection('appData').doc(key).get()
+        .then(function(doc) {
+          if (doc.exists && doc.data().value !== undefined) {
+            var data = doc.data().value;
+            cache[key] = data;
+            try { localStorage.setItem(key, JSON.stringify(data)); } catch(e) {}
+            resolve(data);
+          } else {
+            resolve(null);
+          }
+        })
+        .catch(function(err) {
+          console.warn('Firestore fresh read error for ' + key + ':', err);
+          load(key, resolve);
+        });
+    });
+  }
+
   // Delete a key
   function remove(key) {
     localStorage.removeItem(key);
@@ -115,6 +142,7 @@ var DB = (function() {
     save: save,
     load: load,
     loadAsync: loadAsync,
+    loadFresh: loadFresh,
     remove: remove,
     listen: listen
   };

@@ -81,7 +81,15 @@
     } catch(e) {}
 
     if (typeof DB !== 'undefined') {
-      return DB.loadAsync('shorashim-users').then(function(data) {
+      // Login must see the LATEST users list. DB.loadAsync resolves with the
+      // cached/localStorage copy first, so a device that attempted login
+      // before the admin added the user kept seeing the stale list forever.
+      // loadFresh bypasses the cache and reads Firestore directly (guarded
+      // for a stale-SW db.js that predates loadFresh).
+      var loader = (typeof DB.loadFresh === 'function')
+        ? DB.loadFresh('shorashim-users')
+        : DB.loadAsync('shorashim-users');
+      return loader.then(function(data) {
         if (data && Object.keys(data).length > 0) {
           users = data;
           return users;
@@ -93,16 +101,28 @@
     return Promise.resolve(users);
   }
 
-  // Find user profile by email
+  // Find user profile by email — case-insensitive. Firebase Auth returns
+  // the auth email lowercased, but profiles store whatever casing the admin
+  // typed in the add-user form; a strict === match locked those users out
+  // with "חשבון לא מוגדר במערכת" even though their profile existed.
   function getUserByEmail(email) {
+    if (!email) return null;
+    var needle = String(email).trim().toLowerCase();
     for (var key in users) {
-      if (users[key].email === email) return users[key];
+      if (users[key] && users[key].email &&
+          String(users[key].email).trim().toLowerCase() === needle) {
+        return users[key];
+      }
     }
     return null;
   }
 
   // Create user profile in Firestore (admin action)
+  // Email is normalized to lowercase so it always matches the (lowercased)
+  // Firebase Auth email at login. firestore.rules isOwn() lowercases both
+  // sides, so lowercase usernames stay compatible with ownership checks.
   function createUserProfile(email, name, role, farmPermissions, lang) {
+    email = String(email).trim().toLowerCase();
     var username = email.split('@')[0];
     users[username] = {
       id: Date.now(),
@@ -3424,7 +3444,8 @@
 
     window.saveUserModal = function() {
       var name = document.getElementById('userName').value.trim();
-      var email = document.getElementById('userEmail').value.trim();
+      // Lowercase: must match the lowercased Firebase Auth email at login
+      var email = document.getElementById('userEmail').value.trim().toLowerCase();
       var role = document.getElementById('userRole').value;
       var lang = document.getElementById('userLang').value;
       var phone = document.getElementById('userPhone').value.trim();
