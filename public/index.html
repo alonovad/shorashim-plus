@@ -88,25 +88,47 @@
       </div>
       <button id="loginBtn" style="width: 100%; padding: 13px; background: transparent; border: 1.5px solid #39ff14; color: #39ff14; border-radius: 12px; font-family: inherit; font-size: 1rem; font-weight: 700; cursor: pointer; box-shadow: 0 0 15px rgba(57,255,20,0.2);" id-label="loginBtnText">התחבר</button>
 
-      <!-- First-time registration: separate from sign-in. Creates the
-           Firebase account for a user the admin already added in the
-           Users tab. Kept visually secondary so existing users default
-           to the login button above. -->
-      <div style="display: flex; align-items: center; gap: 10px; color: rgba(255,255,255,0.25); font-size: 0.72rem; margin-top: 2px;">
-        <div style="flex: 1; height: 1px; background: rgba(255,255,255,0.08);"></div>
-        <span id="registerDividerText">פעם ראשונה כאן?</span>
-        <div style="flex: 1; height: 1px; background: rgba(255,255,255,0.08);"></div>
-      </div>
-      <button id="registerBtn" style="width: 100%; padding: 11px; background: transparent; border: 1px dashed rgba(255,255,255,0.28); color: rgba(255,255,255,0.75); border-radius: 12px; font-family: inherit; font-size: 0.88rem; font-weight: 600; cursor: pointer;">🌱 <span id="registerBtnText">הרשמה ראשונה — קביעת סיסמה</span></button>
       </div>
       </div>
 
       <div id="loginError" style="color: #ff4757; font-size: 0.85rem; font-weight: 600; text-align: center; min-height: 20px;"></div>
+      <!-- First-time registration is hidden behind this link (opens a
+           popup) so the default screen is sign-in only. -->
+      <div style="text-align: center; margin-top: 2px;">
+        <span id="registerPromptText" style="font-size: 0.8rem; color: rgba(255,255,255,0.4);">פעם ראשונה כאן?</span>
+        <a href="#" id="registerOpenLink" style="font-size: 0.8rem; font-weight: 700; color: #39ff14; text-decoration: none; cursor: pointer; text-shadow: 0 0 8px rgba(57,255,20,0.3); margin-inline-start: 4px;">🌱 <span id="registerLinkText">הרשמה ראשונה</span></a>
+      </div>
       <div style="text-align: center; margin-top: 4px;">
         <a href="#" id="forgotPassLink" style="font-size: 0.8rem; color: #39ff14; text-decoration: none; cursor: pointer; text-shadow: 0 0 8px rgba(57,255,20,0.3);">שכחתי סיסמה</a>
         <span style="color: rgba(255,255,255,0.25); margin: 0 6px;">·</span>
         <a href="#" id="smsRecoveryLink" style="font-size: 0.8rem; color: #39ff14; text-decoration: none; cursor: pointer; text-shadow: 0 0 8px rgba(57,255,20,0.3);">🔑 שחזור ב-SMS</a>
       </div>
+    </div>
+  </div>
+
+  <!-- First-time registration popup (hidden until the user chooses it).
+       Fixed-position direct child of #loginScreen: inline styles below
+       neutralize the #loginScreen > div card styling; classic-theme
+       overrides live in style.css under #registerOverlay. -->
+  <div id="registerOverlay" style="display:none; position:fixed; inset:0; z-index:100000; align-items:center; justify-content:center; background:rgba(0,0,0,0.72); border:none; border-radius:0; box-shadow:none; backdrop-filter:none; -webkit-backdrop-filter:none;">
+    <div class="reg-card" style="background:#12241a; border:1px solid rgba(57,255,20,0.25); border-radius:20px; padding:24px; width:90%; max-width:380px; color:#e8ffe8; display:flex; flex-direction:column; gap:12px; max-height:90vh; overflow-y:auto;">
+      <h3 id="regTitle" style="font-weight:800; font-size:1.1rem; color:#e8ffe8;">🌱 הרשמה ראשונה</h3>
+      <div id="regNote" style="font-size:0.78rem; color:rgba(255,255,255,0.55); line-height:1.5;">למי שנוסף על ידי המנהל וטרם קבע סיסמה. אם כבר נרשמת בעבר — סגור וחזור להתחברות.</div>
+      <div>
+        <label id="regEmailLabel" for="regEmail" style="display:block; font-size:0.8rem; font-weight:600; color:rgba(255,255,255,0.45); margin-bottom:5px; letter-spacing:0.5px;">אימייל</label>
+        <input type="email" id="regEmail" placeholder="email@example.com" autocomplete="email" style="width:100%; padding:11px 14px; border:1px solid rgba(255,255,255,0.12); border-radius:10px; background:rgba(255,255,255,0.07); font-family:inherit; font-size:0.95rem; color:#e8ffe8; outline:none; direction:ltr; text-align:left;">
+      </div>
+      <div>
+        <label id="regPassLabel" for="regPassword" style="display:block; font-size:0.8rem; font-weight:600; color:rgba(255,255,255,0.45); margin-bottom:5px; letter-spacing:0.5px;">סיסמה חדשה (לפחות 6 תווים)</label>
+        <input type="password" id="regPassword" autocomplete="new-password" style="width:100%; padding:11px 14px; border:1px solid rgba(255,255,255,0.12); border-radius:10px; background:rgba(255,255,255,0.07); font-family:inherit; font-size:0.95rem; color:#e8ffe8; outline:none; direction:rtl;">
+      </div>
+      <div>
+        <label id="regPass2Label" for="regPassword2" style="display:block; font-size:0.8rem; font-weight:600; color:rgba(255,255,255,0.45); margin-bottom:5px; letter-spacing:0.5px;">אימות סיסמה</label>
+        <input type="password" id="regPassword2" autocomplete="new-password" style="width:100%; padding:11px 14px; border:1px solid rgba(255,255,255,0.12); border-radius:10px; background:rgba(255,255,255,0.07); font-family:inherit; font-size:0.95rem; color:#e8ffe8; outline:none; direction:rtl;">
+      </div>
+      <button id="registerSubmitBtn" style="width:100%; padding:13px; background:transparent; border:1.5px solid #39ff14; color:#39ff14; border-radius:12px; font-family:inherit; font-size:1rem; font-weight:700; cursor:pointer; box-shadow:0 0 15px rgba(57,255,20,0.2);">🌱 <span id="regSubmitText">הרשמה — קביעת סיסמה</span></button>
+      <div id="regError" style="color:#ff4757; font-size:0.85rem; font-weight:600; text-align:center; min-height:20px;"></div>
+      <button id="registerCloseBtn" style="width:100%; padding:10px; border-radius:10px; border:none; background:rgba(255,255,255,0.08); color:rgba(255,255,255,0.6); font-family:inherit; cursor:pointer;"><span id="regCloseText">סגור</span></button>
     </div>
   </div>
 </div>
@@ -116,9 +138,9 @@
   (function() {
     var lang = (navigator.language || navigator.userLanguage || 'he').toLowerCase();
     var loginText = {
-      th: { subtitle: 'แพลตฟอร์มบริหารเกษตร', email: 'อีเมล', pass: 'รหัสผ่าน', btn: 'เข้าสู่ระบบ', google: 'เข้าสู่ระบบด้วย Google', or: 'หรือ', emailToggle: 'เข้าสู่ระบบด้วยอีเมลและรหัสผ่าน', regDivider: 'ครั้งแรกที่นี่?', regBtn: 'ลงทะเบียนครั้งแรก — ตั้งรหัสผ่าน' },
-      ar: { subtitle: 'منصة إدارة زراعية', email: 'بريد إلكتروني', pass: 'كلمة مرور', btn: 'تسجيل دخول', google: 'تسجيل دخول مع Google', or: 'أو', emailToggle: 'تسجيل دخول بالبريد وكلمة المرور', regDivider: 'أول مرة هنا؟', regBtn: 'تسجيل لأول مرة — تعيين كلمة مرور' },
-      en: { subtitle: 'Farm Management Platform', email: 'Email', pass: 'Password', btn: 'Sign In', google: 'Sign in with Google', or: 'or', emailToggle: 'Sign in with email & password', regDivider: 'First time here?', regBtn: 'First-time sign-up — set a password' }
+      th: { subtitle: 'แพลตฟอร์มบริหารเกษตร', email: 'อีเมล', pass: 'รหัสผ่าน', btn: 'เข้าสู่ระบบ', google: 'เข้าสู่ระบบด้วย Google', or: 'หรือ', emailToggle: 'เข้าสู่ระบบด้วยอีเมลและรหัสผ่าน', regPrompt: 'ครั้งแรกที่นี่?', regLink: 'ลงทะเบียนครั้งแรก', regTitle: '🌱 ลงทะเบียนครั้งแรก', regNote: 'สำหรับผู้ที่ผู้ดูแลเพิ่มไว้แล้วแต่ยังไม่ได้ตั้งรหัสผ่าน หากลงทะเบียนแล้ว — ปิดหน้าต่างนี้และเข้าสู่ระบบ', regPass: 'รหัสผ่านใหม่ (อย่างน้อย 6 ตัว)', regPass2: 'ยืนยันรหัสผ่าน', regSubmit: 'ลงทะเบียน — ตั้งรหัสผ่าน', regClose: 'ปิด' },
+      ar: { subtitle: 'منصة إدارة زراعية', email: 'بريد إلكتروني', pass: 'كلمة مرور', btn: 'تسجيل دخول', google: 'تسجيل دخول مع Google', or: 'أو', emailToggle: 'تسجيل دخول بالبريد وكلمة المرور', regPrompt: 'أول مرة هنا؟', regLink: 'تسجيل لأول مرة', regTitle: '🌱 تسجيل لأول مرة', regNote: 'لمن أضافه المسؤول ولم يعيّن كلمة مرور بعد. إذا سجّلت سابقاً — أغلق هذه النافذة وسجّل الدخول.', regPass: 'كلمة مرور جديدة (6 أحرف على الأقل)', regPass2: 'تأكيد كلمة المرور', regSubmit: 'تسجيل — تعيين كلمة مرور', regClose: 'إغلاق' },
+      en: { subtitle: 'Farm Management Platform', email: 'Email', pass: 'Password', btn: 'Sign In', google: 'Sign in with Google', or: 'or', emailToggle: 'Sign in with email & password', regPrompt: 'First time here?', regLink: 'First-time sign-up', regTitle: '🌱 First-time sign-up', regNote: 'For users the admin already added who have not set a password yet. Already registered? Close this and sign in.', regPass: 'New password (min 6 characters)', regPass2: 'Confirm password', regSubmit: 'Sign up — set a password', regClose: 'Close' }
     };
     var t = null;
     var forgot = document.getElementById('forgotPassLink');
@@ -140,8 +162,15 @@
       set('googleBtnText', t.google);
       set('loginOrText', t.or);
       set('emailToggleText', t.emailToggle);
-      set('registerDividerText', t.regDivider);
-      set('registerBtnText', t.regBtn);
+      set('registerPromptText', t.regPrompt);
+      set('registerLinkText', t.regLink);
+      set('regTitle', t.regTitle);
+      set('regNote', t.regNote);
+      set('regEmailLabel', t.email);
+      set('regPassLabel', t.regPass);
+      set('regPass2Label', t.regPass2);
+      set('regSubmitText', t.regSubmit);
+      set('regCloseText', t.regClose);
       var btn = document.getElementById('loginBtn');
       if (btn) btn.textContent = t.btn;
     }

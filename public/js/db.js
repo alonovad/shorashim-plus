@@ -93,22 +93,35 @@ var DB = (function() {
   // cache + localStorage on success; falls back to the normal (cached)
   // load only if Firestore is unreachable.
   function loadFresh(key) {
+    // { source: 'server' } is the important part: enablePersistence is on,
+    // and a plain get() silently serves Firestore's OWN offline cache when
+    // the server is slow/unreachable — so the old loadFresh only bypassed
+    // the app's cache, not Firestore's, and a device on a flaky connection
+    // could keep resolving a stale users list ("admin added me but I'm
+    // still locked out"). Server-only get rejects when offline, and only
+    // then do we deliberately fall back to cached data.
+    function _resolveDoc(doc, resolve) {
+      if (doc.exists && doc.data().value !== undefined) {
+        var data = doc.data().value;
+        cache[key] = data;
+        try { localStorage.setItem(key, JSON.stringify(data)); } catch(e) {}
+        resolve(data);
+      } else {
+        resolve(null);
+      }
+    }
     return new Promise(function(resolve) {
       if (!firestore) { load(key, resolve); return; }
-      firestore.collection('appData').doc(key).get()
-        .then(function(doc) {
-          if (doc.exists && doc.data().value !== undefined) {
-            var data = doc.data().value;
-            cache[key] = data;
-            try { localStorage.setItem(key, JSON.stringify(data)); } catch(e) {}
-            resolve(data);
-          } else {
-            resolve(null);
-          }
-        })
+      firestore.collection('appData').doc(key).get({ source: 'server' })
+        .then(function(doc) { _resolveDoc(doc, resolve); })
         .catch(function(err) {
-          console.warn('Firestore fresh read error for ' + key + ':', err);
-          load(key, resolve);
+          console.warn('Firestore server read failed for ' + key + ', falling back to cache:', err && err.message);
+          firestore.collection('appData').doc(key).get()
+            .then(function(doc) { _resolveDoc(doc, resolve); })
+            .catch(function(err2) {
+              console.warn('Firestore fresh read error for ' + key + ':', err2);
+              load(key, resolve);
+            });
         });
     });
   }

@@ -176,6 +176,7 @@
       if (errorEl) errorEl.textContent = '';
       showApp(p, null);
       initMapAndData();
+      startRealtimeSync();
     });
   }
 
@@ -241,64 +242,111 @@
 
   function showLoginScreen() {
     document.getElementById('loginScreen').style.display = 'flex';
-    // Check if user is already logged in via Firebase
-    if (typeof auth !== 'undefined') {
-      auth.onAuthStateChanged(function(firebaseUser) {
-        if (window.__smsRecoveryActive) return; // temp phone session during SMS recovery
-        if (firebaseUser) {
-          // Already logged in — find their profile
-          loadUsers().then(function() {
-            var profile = getUserByEmail(firebaseUser.email);
-            if (profile) {
-              enterApp(profile);
-            } else {
-              // User exists in Firebase Auth but no profile — show login screen
-              // They need to be added by admin first
-              document.getElementById('loginError').textContent = t('חשבון לא מוגדר במערכת. פנה למנהל.');
-              auth.signOut();
-            }
-          });
-        }
-      });
-    }
-    setTimeout(function() { 
+    setTimeout(function() {
       var emailInput = document.getElementById('loginEmail');
-      if (emailInput) emailInput.focus(); 
+      if (emailInput) emailInput.focus();
     }, 100);
+  }
+
+  // ── SINGLE-PATH AUTH ──
+  // Every sign-in route (restored session, email/password, Google,
+  // first-time registration) converges on ONE onAuthStateChanged
+  // listener, registered once at module scope. The listener is the only
+  // code that loads the users list, resolves the profile, and boots the
+  // app. Button handlers just call the Firebase auth method and surface
+  // errors — nothing else.
+  //
+  // Why: showLoginScreen used to register the listener, AND every click
+  // handler ran its own signIn→loadUsers→enterApp chain. Each sign-in
+  // was therefore processed twice in parallel: two users-reads, double
+  // enterApp/initMapAndData/TimeClock.init, and — whenever one read
+  // missed while the other hit (flaky network, fresh device, token not
+  // yet attached to the Firestore channel right after account creation)
+  // — one path called auth.signOut() and stomped the session the other
+  // path had just booted. "Login works sometimes" was that coin flip.
+  var _authFlow = null;    // 'login' | 'register' | 'google' | null — which UI initiated the sign-in
+  var _handledUid = null;  // uid already booted on this page — dedupe repeat listener fires
+
+  function loginStatus(msg, isError) {
+    var el = document.getElementById('loginError');
+    if (!el) return;
+    el.style.color = isError ? '#ff4757' : '#9ad9a3';
+    el.textContent = msg || '';
+  }
+  function registerStatus(msg, isError) {
+    var el = document.getElementById('regError');
+    if (!el) { loginStatus(msg, isError); return; }
+    el.style.color = isError ? '#ff4757' : '#9ad9a3';
+    el.textContent = msg || '';
+  }
+
+  // Fresh profile lookup with one retry. The retry covers the window
+  // right after account creation where the brand-new auth token may not
+  // be attached to the Firestore channel yet (read denied → fallback to
+  // an empty local cache on a first-time device), plus admin-write
+  // replication lag.
+  function resolveProfile(email) {
+    return loadUsers().then(function() {
+      var p = getUserByEmail(email);
+      if (p) return p;
+      return new Promise(function(res) { setTimeout(res, 1500); })
+        .then(function() { return loadUsers(); })
+        .then(function() { return getUserByEmail(email); });
+    });
+  }
+
+  if (typeof auth !== 'undefined') {
+    auth.onAuthStateChanged(function(firebaseUser) {
+      if (window.__smsRecoveryActive) return; // temp phone session during SMS recovery
+      if (!firebaseUser) { _handledUid = null; return; }
+      if (firebaseUser.uid === _handledUid) return; // already booted this session
+      _handledUid = firebaseUser.uid;
+
+      var flow = _authFlow;
+      _authFlow = null;
+      loginStatus('⏳ ' + t('טוען פרופיל...'), false);
+
+      resolveProfile(firebaseUser.email).then(function(profile) {
+        if (profile) {
+          var ov = document.getElementById('registerOverlay');
+          if (ov) ov.style.display = 'none';
+          loginStatus('', false);
+          return enterApp(profile);
+        }
+        // Auth account exists but no profile in shorashim-users.
+        _handledUid = null;
+        if (flow === 'register') {
+          // Account was just created but the admin hasn't added this user
+          // in the Users tab yet. Keep the Auth account (their password
+          // stays valid for later) but sign out of the app.
+          registerStatus(t('נרשמת, אך החשבון טרם הוגדר במערכת. פנה למנהל.'), true);
+        } else {
+          loginStatus(t('חשבון לא מוגדר במערכת. פנה למנהל.'), true);
+        }
+        auth.signOut().catch(function() {});
+      });
+    });
   }
 
   // ── Login button: SIGN-IN ONLY ──
   // No auto-registration here. Firebase reports "wrong password" and
   // "account doesn't exist" with the SAME code (auth/invalid-credential,
-  // email-enumeration protection), so the old "sign-in failed → try to
-  // create the account" fallback sent existing users who typo'd their
-  // password into registration and a baffling "האימייל כבר בשימוש" error.
-  // First-time users go through the dedicated registerBtn flow below.
+  // email-enumeration protection), so registration is a separate,
+  // deliberate flow behind the הרשמה link.
   document.getElementById('loginBtn').addEventListener('click', function() {
     var email = document.getElementById('loginEmail').value.trim();
     var password = document.getElementById('loginPassword').value.trim();
-    var errorEl = document.getElementById('loginError');
 
     if (!email || !password) {
-      errorEl.textContent = t('יש למלא אימייל וסיסמה');
+      loginStatus(t('יש למלא אימייל וסיסמה'), true);
       return;
     }
 
-    errorEl.textContent = '⏳ ' + t('מתחבר...');
-
+    loginStatus('⏳ ' + t('מתחבר...'), false);
+    _authFlow = 'login';
     auth.signInWithEmailAndPassword(email, password)
-      .then(function(cred) {
-        return loadUsers().then(function() {
-          var profile = getUserByEmail(cred.user.email);
-          if (!profile) {
-            errorEl.textContent = t('חשבון לא מוגדר במערכת. פנה למנהל.');
-            auth.signOut();
-            return;
-          }
-          enterApp(profile);
-        });
-      })
       .catch(function(err) {
+        _authFlow = null;
         var msg = t('שגיאת התחברות');
         if (err.code === 'auth/user-not-found' ||
             err.code === 'auth/invalid-credential' ||
@@ -308,81 +356,91 @@
         }
         if (err.code === 'auth/invalid-email') msg = t('כתובת אימייל לא תקינה');
         if (err.code === 'auth/too-many-requests') msg = t('יותר מדי נסיונות, נסה מאוחר יותר');
-        errorEl.textContent = msg;
+        loginStatus(msg, true);
       });
   });
 
-  // ── First-time registration button ──
-  // Creates the Firebase Auth account for a user the admin already added
-  // in the Users tab. The profile check runs AFTER account creation because
-  // Firestore rules only allow signed-in reads of the users list. If the
-  // profile is missing the account is kept (their password stays valid for
-  // the login button once the admin adds them) but they're signed out.
-  document.getElementById('registerBtn').addEventListener('click', function() {
-    var email = document.getElementById('loginEmail').value.trim();
-    var password = document.getElementById('loginPassword').value.trim();
-    var errorEl = document.getElementById('loginError');
+  // ── First-time registration (popup) ──
+  // Registration lives in its own overlay so the default screen is
+  // sign-in only — existing users can no longer hit register by accident
+  // (shared fields + adjacent buttons caused wrong-button taps and the
+  // "האימייל כבר בשימוש" confusion loop). Creates the Firebase Auth
+  // account for a user the admin already added in the Users tab; profile
+  // resolution then happens in the onAuthStateChanged listener like
+  // every other sign-in route.
+  function openRegisterOverlay() {
+    var ov = document.getElementById('registerOverlay');
+    if (!ov) return;
+    ov.style.display = 'flex';
+    registerStatus('', false);
+    var em = document.getElementById('regEmail');
+    var le = document.getElementById('loginEmail');
+    if (em && le && le.value && !em.value) em.value = le.value;
+    setTimeout(function() { if (em) em.focus(); }, 50);
+  }
+  function closeRegisterOverlay() {
+    var ov = document.getElementById('registerOverlay');
+    if (ov) ov.style.display = 'none';
+  }
+  window.closeRegisterOverlay = closeRegisterOverlay;
+
+  var _regOpenLink = document.getElementById('registerOpenLink');
+  if (_regOpenLink) _regOpenLink.addEventListener('click', function(e) { e.preventDefault(); openRegisterOverlay(); });
+  var _regCloseBtn = document.getElementById('registerCloseBtn');
+  if (_regCloseBtn) _regCloseBtn.addEventListener('click', closeRegisterOverlay);
+
+  document.getElementById('registerSubmitBtn').addEventListener('click', function() {
+    var email = document.getElementById('regEmail').value.trim();
+    var password = document.getElementById('regPassword').value;
+    var password2 = document.getElementById('regPassword2').value;
 
     if (!email || !password) {
-      errorEl.textContent = t('יש למלא אימייל וסיסמה');
+      registerStatus(t('יש למלא אימייל וסיסמה'), true);
       return;
     }
     if (password.length < 6) {
-      errorEl.textContent = t('הסיסמה חייבת להכיל לפחות 6 תווים');
+      registerStatus(t('הסיסמה חייבת להכיל לפחות 6 תווים'), true);
+      return;
+    }
+    if (password !== password2) {
+      registerStatus(t('הסיסמאות אינן תואמות'), true);
       return;
     }
 
-    errorEl.textContent = '⏳ ' + t('נרשם...');
-
+    registerStatus('⏳ ' + t('נרשם...'), false);
+    _authFlow = 'register';
     auth.createUserWithEmailAndPassword(email, password)
-      .then(function(cred) {
-        return loadUsers().then(function() {
-          var profile = getUserByEmail(cred.user.email);
-          if (!profile) {
-            errorEl.textContent = t('נרשמת, אך החשבון טרם הוגדר במערכת. פנה למנהל.');
-            auth.signOut();
-            return;
-          }
-          enterApp(profile);
-        });
-      })
       .catch(function(err) {
+        _authFlow = null;
         var msg = t('שגיאת התחברות');
         if (err.code === 'auth/email-already-in-use') msg = t('כבר נרשמת בעבר — השתמש בכפתור "התחבר"');
         if (err.code === 'auth/weak-password') msg = t('הסיסמה חייבת להכיל לפחות 6 תווים');
         if (err.code === 'auth/invalid-email') msg = t('כתובת אימייל לא תקינה');
-        errorEl.textContent = msg;
+        registerStatus(msg, true);
       });
   });
 
   document.getElementById('loginPassword').addEventListener('keydown', function(e) {
     if (e.key === 'Enter') document.getElementById('loginBtn').click();
   });
+  var _regPass2El = document.getElementById('regPassword2');
+  if (_regPass2El) _regPass2El.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') document.getElementById('registerSubmitBtn').click();
+  });
 
   // Google Sign-In
   document.getElementById('googleLoginBtn').addEventListener('click', function() {
-    var errorEl = document.getElementById('loginError');
-    errorEl.textContent = '⏳ ' + t('מתחבר...');
-    
+    loginStatus('⏳ ' + t('מתחבר...'), false);
+    _authFlow = 'google';
     var provider = new firebase.auth.GoogleAuthProvider();
     auth.signInWithPopup(provider)
-      .then(function(result) {
-        return loadUsers().then(function() {
-          var profile = getUserByEmail(result.user.email);
-          if (!profile) {
-            errorEl.textContent = t('חשבון לא מוגדר במערכת. פנה למנהל.');
-            auth.signOut();
-            return;
-          }
-          enterApp(profile);
-        });
-      })
       .catch(function(err) {
+        _authFlow = null;
         if (err.code === 'auth/popup-closed-by-user') {
-          errorEl.textContent = '';
+          loginStatus('', false);
           return;
         }
-        errorEl.textContent = t('שגיאה') + ': ' + (err.message || err.code);
+        loginStatus(t('שגיאה') + ': ' + (err.message || err.code), true);
       });
   });
 
@@ -391,14 +449,13 @@
     e.preventDefault();
     var email = document.getElementById('loginEmail').value.trim();
     if (!email) {
-      document.getElementById('loginError').textContent = t('הזן אימייל קודם');
+      loginStatus(t('הזן אימייל קודם'), true);
       return;
     }
     auth.sendPasswordResetEmail(email).then(function() {
-      document.getElementById('loginError').style.color = '#2e7d32';
-      document.getElementById('loginError').textContent = '📧 ' + t('נשלח מייל לאיפוס סיסמה ל-') + email;
+      loginStatus('📧 ' + t('נשלח מייל לאיפוס סיסמה ל-') + email, false);
     }).catch(function(err) {
-      document.getElementById('loginError').textContent = err.code === 'auth/user-not-found' ? t('אימייל לא נמצא') : err.message;
+      loginStatus(err.code === 'auth/user-not-found' ? t('אימייל לא נמצא') : err.message, true);
     });
   });
 
@@ -1006,6 +1063,8 @@
     'אימייל או סיסמה שגויים': { th: 'อีเมลหรือรหัสผ่านไม่ถูกต้อง', ar: 'البريد الإلكتروني أو كلمة المرور غير صحيحة' },
     'פעם ראשונה כאן? לחץ על "הרשמה ראשונה"': { th: 'ครั้งแรกที่นี่? กด "ลงทะเบียนครั้งแรก"', ar: 'أول مرة هنا؟ اضغط "تسجيل لأول مرة"' },
     'נרשם...': { th: 'กำลังลงทะเบียน...', ar: 'جاري التسجيل...' },
+    'טוען פרופיל...': { th: 'กำลังโหลดโปรไฟล์...', ar: 'جاري تحميل الملف الشخصي...' },
+    'הסיסמאות אינן תואמות': { th: 'รหัสผ่านไม่ตรงกัน', ar: 'كلمتا المرور غير متطابقتين' },
     'כבר נרשמת בעבר — השתמש בכפתור "התחבר"': { th: 'คุณลงทะเบียนแล้ว — ใช้ปุ่ม "เข้าสู่ระบบ"', ar: 'أنت مسجل بالفعل — استخدم زر "تسجيل الدخول"' },
     'נרשמת, אך החשבון טרם הוגדר במערכת. פנה למנהל.': { th: 'ลงทะเบียนสำเร็จ แต่บัญชียังไม่ถูกตั้งค่าในระบบ ติดต่อผู้ดูแล', ar: 'تم التسجيل، لكن الحساب لم يُعرَّف في النظام بعد. تواصل مع المسؤول.' },
     'יותר מדי נסיונות, נסה מאוחר יותר': { th: 'พยายามมากเกินไป ลองใหม่ภายหลัง', ar: 'محاولات كثيرة، حاول لاحقاً' },
@@ -1756,13 +1815,14 @@
   }
 
   // ── Start auth flow ──
-  loadUsers().then(function() {
-    // Firebase Auth handles persistence — showLoginScreen checks onAuthStateChanged
-    showLoginScreen();
-  }).catch(function(e) {
-    console.error('Auth init error:', e);
-    showLoginScreen();
-  });
+  // Seed the users cache from localStorage only — a Firestore read here
+  // runs signed-out and is denied by rules anyway. The auth listener
+  // does the real (fresh) read after sign-in resolves.
+  try {
+    var _lsUsers = localStorage.getItem('shorashim-users');
+    if (_lsUsers) users = JSON.parse(_lsUsers);
+  } catch (e) {}
+  showLoginScreen();
 
   // ── Tab switching ──
   document.querySelectorAll('.tab').forEach(function(tab) {
@@ -7665,8 +7725,18 @@
   };
 
   // ── FIRESTORE REALTIME SYNC ──
-  // Listen for changes from other devices and refresh UI
-  if (typeof DB !== 'undefined' && typeof db !== 'undefined') {
+  // Listen for changes from other devices and refresh UI.
+  // Started from enterApp AFTER sign-in. These used to register at
+  // script load, before auth resolved: an onSnapshot listener that
+  // errors with permission-denied is closed permanently and never
+  // retries, so on any device that landed on the login screen every
+  // realtime listener died pre-auth and cross-device sync stayed dead
+  // until a full reload.
+  var _rtStarted = false;
+  function startRealtimeSync() {
+    if (_rtStarted) return;
+    if (typeof DB === 'undefined' || typeof db === 'undefined') return;
+    _rtStarted = true;
     DB.listen('plotMapperSprayData', function(data) {
       if (data) {
         _applyPlotData(data);
@@ -7789,3 +7859,4 @@
       });
     });
   }
+  // (end startRealtimeSync)

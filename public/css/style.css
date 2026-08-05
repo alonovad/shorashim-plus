@@ -1469,3 +1469,39 @@ body.theme-classic #loginScreen #loginBtn {
   box-shadow: 0 4px 12px rgba(46,125,50,0.25) !important;
 }
 body.theme-classic #loginScreen #loginError { color: #c0392b !important; }
+
+
+/* ── Classic theme: first-time registration popup (#registerOverlay) ──
+   The overlay is a direct child of #loginScreen, so without these the
+   `body.theme-classic #loginScreen > div` white-card rule repaints the
+   full-screen backdrop white (same class of bug as the invisible email
+   section, commits e4e604e / 1adf3c9). Higher specificity wins it back. */
+body.theme-classic #loginScreen > #registerOverlay {
+  background: rgba(20, 40, 25, 0.45) !important;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+body.theme-classic #registerOverlay .reg-card {
+  background: #ffffff !important;
+  border: 1px solid rgba(0,0,0,0.08) !important;
+  color: #1b2e1b !important;
+  box-shadow: 0 20px 60px rgba(15,31,15,0.25) !important;
+}
+body.theme-classic #registerOverlay #regTitle { color: #1b5e20 !important; }
+body.theme-classic #registerOverlay #regNote { color: #5a7a5a !important; }
+body.theme-classic #registerOverlay #registerSubmitBtn {
+  background: #2e7d32 !important;
+  border: 1.5px solid #2e7d32 !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 12px rgba(46,125,50,0.25) !important;
+}
+body.theme-classic #registerOverlay #regError { color: #c0392b !important; }
+body.theme-classic #registerOverlay #registerCloseBtn {
+  background: #eef3ee !important;
+  color: #4a5f4a !important;
+}
+body.theme-classic #registerPromptText { color: #7a9a7a !important; }
+body.theme-classic #registerOpenLink { color: #2e7d32 !important; text-shadow: none !important; }
