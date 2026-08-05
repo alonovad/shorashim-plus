@@ -1562,6 +1562,21 @@
     'הוסף מטע חדש': { th: 'เพิ่มสวนใหม่', ar: 'إضافة بستان جديد' },
     'הוסף משתמש': { th: 'เพิ่มผู้ใช้', ar: 'إضافة مستخدم' },
     'הוסף חומר': { th: 'เพิ่มสารเคมี', ar: 'إضافة مبيد' },
+    'יצוא CSV': { th: 'ส่งออก CSV', ar: 'تصدير CSV' },
+    'יצוא ל-Google Sheets': { th: 'ส่งออกไป Google Sheets', ar: 'تصدير إلى Google Sheets' },
+    'חיפוש: שם, חומר פעיל, מזיק...': { th: 'ค้นหา: ชื่อ สารออกฤทธิ์ ศัตรูพืช...', ar: 'بحث: اسم، مادة فعالة، آفة...' },
+    'כל הגידולים': { th: 'พืชทั้งหมด', ar: 'كل المحاصيل' },
+    'בחר הכל': { th: 'เลือกทั้งหมด', ar: 'تحديد الكل' },
+    'אין תוצאות לסינון הנוכחי': { th: 'ไม่มีผลลัพธ์สำหรับตัวกรองนี้', ar: 'لا نتائج لهذا التصفية' },
+    'אין חומרים ליצוא': { th: 'ไม่มีสารเคมีให้ส่งออก', ar: 'لا مواد للتصدير' },
+    'חומרים יוצאו ל-CSV': { th: 'สารเคมีถูกส่งออกเป็น CSV', ar: 'مواد صُدِّرت إلى CSV' },
+    'חומרים הועתקו — הדבק בגיליון (Ctrl+V)': { th: 'คัดลอกแล้ว — วางในชีต (Ctrl+V)', ar: 'تم النسخ — الصق في الجدول (Ctrl+V)' },
+    'העתקה נכשלה — נסה יצוא CSV': { th: 'คัดลอกล้มเหลว — ลองส่งออก CSV', ar: 'فشل النسخ — جرّب تصدير CSV' },
+    'גידול': { th: 'พืช', ar: 'محصول' },
+    'מזיקים/מטרות': { th: 'ศัตรูพืช/เป้าหมาย', ar: 'آفات/أهداف' },
+    'מינון': { th: 'ปริมาณ', ar: 'جرعة' },
+    'רעילות': { th: 'ความเป็นพิษ', ar: 'سمية' },
+    'ידני': { th: 'ป้อนเอง', ar: 'يدوي' },
     'חיבור תלגיל': { th: 'เชื่อมต่อ Talgil', ar: 'اتصال Talgil' },
     'התחבר': { th: 'เชื่อมต่อ', ar: 'اتصال' },
     'הגדרות חיבור': { th: 'ตั้งค่าการเชื่อมต่อ', ar: 'إعدادات الاتصال' },
@@ -3013,20 +3028,67 @@
   }
 
   // ── Admin ──
+  // Pesticide list filtering + selection state (חומרים tab).
+  var pestFilterText = '';
+  var pestFilterCrop = '';
+  var pestSelectedIds = {};   // id → true
+
+  function pestCropOf(p) {
+    return (p.crop || p.commonTargets || '').trim();
+  }
+
+  function getFilteredPesticides() {
+    var q = pestFilterText.trim().toLowerCase();
+    return pesticides.filter(function(p) {
+      if (pestFilterCrop && pestCropOf(p) !== pestFilterCrop) return false;
+      if (!q) return true;
+      var hay = [p.productName, p.activeIngredient, p.crop, p.commonTargets, p.pest, p.regNumber]
+        .filter(Boolean).join(' ').toLowerCase();
+      return hay.indexOf(q) !== -1;
+    });
+  }
+
   function renderPesticideAdminList() {
     var container = document.getElementById('pesticideAdminList');
-    
+
+    // Crop dropdown: distinct crop values, selection preserved.
+    var cropSel = document.getElementById('pestFilterCrop');
+    if (cropSel) {
+      var crops = {};
+      pesticides.forEach(function(p) { var c = pestCropOf(p); if (c) crops[c] = true; });
+      var opts = '<option value="">' + t('כל הגידולים') + '</option>';
+      Object.keys(crops).sort().forEach(function(c) {
+        opts += '<option value="' + c.replace(/"/g, '&quot;') + '"' + (c === pestFilterCrop ? ' selected' : '') + '>' + c + '</option>';
+      });
+      cropSel.innerHTML = opts;
+    }
+
     if (pesticides.length === 0) {
       container.innerHTML = '<div class="empty-state" style="padding: 16px;"><p>' + t('אין חומרי הדברה') + '</p></div>';
+      var cnt0 = document.getElementById('pestFilterCount');
+      if (cnt0) cnt0.textContent = '';
+      return;
+    }
+
+    var filtered = getFilteredPesticides();
+    var cnt = document.getElementById('pestFilterCount');
+    if (cnt) cnt.textContent = filtered.length + ' / ' + pesticides.length;
+
+    if (filtered.length === 0) {
+      container.innerHTML = '<div class="empty-state" style="padding: 16px;"><p>' + t('אין תוצאות לסינון הנוכחי') + '</p></div>';
       return;
     }
 
     var html = '';
-    pesticides.forEach(function(pest) {
+    filtered.forEach(function(pest) {
+      var extra = [];
+      if (pest.pest) extra.push(pest.pest);
+      if (pest.phi) extra.push('PHI: ' + pest.phi);
       html += '<div class="pesticide-admin-item">';
+      html += '<label class="pest-check"><input type="checkbox" data-select-id="' + pest.id + '"' + (pestSelectedIds[pest.id] ? ' checked' : '') + '></label>';
       html += '<div class="pesticide-admin-info">';
       html += '<div class="pesticide-admin-name">' + pest.productName + '</div>';
-      html += '<div class="pesticide-admin-details">' + pest.activeIngredient + ' • ' + pest.defaultConcentration + '% • ' + pest.commonTargets + '</div>';
+      html += '<div class="pesticide-admin-details">' + pest.activeIngredient + ' • ' + pest.defaultConcentration + '% • ' + pest.commonTargets + (extra.length ? ' • ' + extra.join(' • ') : '') + '</div>';
       html += '</div>';
       html += '<div class="pesticide-admin-actions">';
       html += '<button class="btn-icon edit" data-edit-id="' + pest.id + '">✏️</button>';
@@ -3036,6 +3098,16 @@
     });
 
     container.innerHTML = html;
+
+    container.querySelectorAll('input[data-select-id]').forEach(function(cb) {
+      cb.addEventListener('change', function() {
+        var id = parseInt(this.getAttribute('data-select-id'));
+        if (this.checked) pestSelectedIds[id] = true;
+        else delete pestSelectedIds[id];
+        var sa = document.getElementById('pestSelectAll');
+        if (sa && !this.checked) sa.checked = false;
+      });
+    });
 
     container.querySelectorAll('.btn-icon.edit').forEach(function(btn) {
       btn.addEventListener('click', function() {
@@ -3061,6 +3133,116 @@
   document.getElementById('addPesticideBtn').addEventListener('click', function() {
     showPesticideModal(null);
   });
+
+  // ── Pesticide filter + export wiring ──
+  (function() {
+    var txt = document.getElementById('pestFilterText');
+    if (txt) txt.addEventListener('input', function() {
+      pestFilterText = this.value;
+      renderPesticideAdminList();
+    });
+    var sel = document.getElementById('pestFilterCrop');
+    if (sel) sel.addEventListener('change', function() {
+      pestFilterCrop = this.value;
+      renderPesticideAdminList();
+    });
+    var sa = document.getElementById('pestSelectAll');
+    if (sa) sa.addEventListener('change', function() {
+      var on = this.checked;
+      getFilteredPesticides().forEach(function(p) {
+        if (on) pestSelectedIds[p.id] = true;
+        else delete pestSelectedIds[p.id];
+      });
+      renderPesticideAdminList();
+    });
+    var csvBtn = document.getElementById('exportPestCsvBtn');
+    if (csvBtn) csvBtn.addEventListener('click', function() { exportPesticides('csv'); });
+    var shBtn = document.getElementById('exportPestSheetsBtn');
+    if (shBtn) shBtn.addEventListener('click', function() { exportPesticides('sheets'); });
+  })();
+
+  // Rows for export: the checked pesticides if any are checked, otherwise
+  // everything matching the current filter.
+  function pesticidesForExport() {
+    var selected = pesticides.filter(function(p) { return pestSelectedIds[p.id]; });
+    return selected.length > 0 ? selected : getFilteredPesticides();
+  }
+
+  function buildPesticideRows(list) {
+    var header = [
+      t('שם מסחרי'), t('חומר פעיל'), t('ריכוז ברירת מחדל (%)'), t('גידול'),
+      t('מזיקים/מטרות'), 'PHI', t('מינון'), t('רעילות'), t('מס\u05f3 רישום'), t('מקור')
+    ];
+    var rows = list.map(function(p) {
+      return [
+        p.productName || '', p.activeIngredient || '',
+        (p.defaultConcentration !== undefined && p.defaultConcentration !== null) ? String(p.defaultConcentration) : '',
+        pestCropOf(p), p.pest || p.commonTargets || '', p.phi || '',
+        p.dosage || '', p.toxicity || '', p.regNumber || '', p.source || t('ידני')
+      ];
+    });
+    return [header].concat(rows);
+  }
+
+  function exportPesticides(mode) {
+    var list = pesticidesForExport();
+    if (list.length === 0) {
+      showToast('❌ ' + t('אין חומרים ליצוא'));
+      return;
+    }
+    var rows = buildPesticideRows(list);
+
+    if (mode === 'csv') {
+      // \uFEFF BOM so Excel opens Hebrew UTF-8 correctly.
+      var csv = '\uFEFF' + rows.map(function(r) {
+        return r.map(function(cell) {
+          cell = String(cell);
+          return /[",\n\r]/.test(cell) ? '"' + cell.replace(/"/g, '""') + '"' : cell;
+        }).join(',');
+      }).join('\r\n');
+      var blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'pesticides-' + new Date().toISOString().slice(0, 10) + '.csv';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(function() { document.body.removeChild(a); URL.revokeObjectURL(a.href); }, 100);
+      showToast('📄 ' + list.length + ' ' + t('חומרים יוצאו ל-CSV'));
+      return;
+    }
+
+    // Google Sheets: copy as TSV (pastes into a sheet as real cells),
+    // then open a blank sheet. No OAuth / API needed.
+    var tsv = rows.map(function(r) {
+      return r.map(function(cell) { return String(cell).replace(/[\t\r\n]+/g, ' '); }).join('\t');
+    }).join('\n');
+
+    function afterCopy(ok) {
+      if (ok) {
+        window.open('https://sheets.new', '_blank');
+        showToast('📊 ' + list.length + ' ' + t('חומרים הועתקו — הדבק בגיליון (Ctrl+V)'));
+      } else {
+        showToast('❌ ' + t('העתקה נכשלה — נסה יצוא CSV'));
+      }
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(tsv).then(function() { afterCopy(true); }, function() { afterCopy(fallbackCopy(tsv)); });
+    } else {
+      afterCopy(fallbackCopy(tsv));
+    }
+    function fallbackCopy(text) {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      var ok = false;
+      try { ok = document.execCommand('copy'); } catch (e) {}
+      document.body.removeChild(ta);
+      return ok;
+    }
+  }
 
   function showPesticideModal(editId) {
     var isEdit = editId !== null;

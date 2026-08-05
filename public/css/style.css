@@ -1505,3 +1505,40 @@ body.theme-classic #registerOverlay #registerCloseBtn {
 }
 body.theme-classic #registerPromptText { color: #7a9a7a !important; }
 body.theme-classic #registerOpenLink { color: #2e7d32 !important; text-shadow: none !important; }
+
+
+/* ── Pesticide (חומרים) filter + export toolbar ── */
+.pest-filter-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.pest-filter-bar #pestFilterText { flex: 2; min-width: 0; }
+.pest-filter-bar #pestFilterCrop { flex: 1; min-width: 0; }
+.pest-filter-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+.pest-selectall {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+.pest-selectall input, .pest-check input {
+  width: 16px;
+  height: 16px;
+  accent-color: #2e7d32;
+  cursor: pointer;
+}
+.pest-check {
+  display: flex;
+  align-items: center;
+  padding-inline-end: 8px;
+  cursor: pointer;
+}

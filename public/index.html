@@ -569,8 +569,18 @@
 <div class="tab-content" id="tabAdmin">
   <div class="admin-container">
     <div class="section-card">
-      <div class="admin-actions">
+      <div class="admin-actions" style="flex-wrap: wrap;">
         <button class="btn-admin" id="addPesticideBtn" data-t-key="הוסף חומר">➕ הוסף חומר</button>
+        <button class="btn-admin" id="exportPestCsvBtn" data-t-key="יצוא CSV">📄 יצוא CSV</button>
+        <button class="btn-admin" id="exportPestSheetsBtn" data-t-key="יצוא ל-Google Sheets">📊 יצוא ל-Google Sheets</button>
+      </div>
+      <div class="pest-filter-bar">
+        <input type="text" id="pestFilterText" class="form-input" placeholder="חיפוש: שם, חומר פעיל, מזיק..." data-t-placeholder="חיפוש: שם, חומר פעיל, מזיק...">
+        <select id="pestFilterCrop" class="form-input"></select>
+      </div>
+      <div class="pest-filter-meta">
+        <label class="pest-selectall"><input type="checkbox" id="pestSelectAll"> <span data-t-key="בחר הכל">בחר הכל</span></label>
+        <span id="pestFilterCount"></span>
       </div>
       <div id="pesticideAdminList"></div>
     </div>
