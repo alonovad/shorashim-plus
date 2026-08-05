@@ -87,6 +87,17 @@
         <input type="password" id="loginPassword" placeholder="סיסמה" data-t-placeholder="סיסמה" autocomplete="current-password" style="width: 100%; padding: 11px 14px; border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; background: rgba(255,255,255,0.05); font-family: inherit; font-size: 0.95rem; color: #e8ffe8; direction: rtl; outline: none;">
       </div>
       <button id="loginBtn" style="width: 100%; padding: 13px; background: transparent; border: 1.5px solid #39ff14; color: #39ff14; border-radius: 12px; font-family: inherit; font-size: 1rem; font-weight: 700; cursor: pointer; box-shadow: 0 0 15px rgba(57,255,20,0.2);" id-label="loginBtnText">התחבר</button>
+
+      <!-- First-time registration: separate from sign-in. Creates the
+           Firebase account for a user the admin already added in the
+           Users tab. Kept visually secondary so existing users default
+           to the login button above. -->
+      <div style="display: flex; align-items: center; gap: 10px; color: rgba(255,255,255,0.25); font-size: 0.72rem; margin-top: 2px;">
+        <div style="flex: 1; height: 1px; background: rgba(255,255,255,0.08);"></div>
+        <span id="registerDividerText">פעם ראשונה כאן?</span>
+        <div style="flex: 1; height: 1px; background: rgba(255,255,255,0.08);"></div>
+      </div>
+      <button id="registerBtn" style="width: 100%; padding: 11px; background: transparent; border: 1px dashed rgba(255,255,255,0.28); color: rgba(255,255,255,0.75); border-radius: 12px; font-family: inherit; font-size: 0.88rem; font-weight: 600; cursor: pointer;">🌱 <span id="registerBtnText">הרשמה ראשונה — קביעת סיסמה</span></button>
       </div>
       </div>
 
@@ -105,9 +116,9 @@
   (function() {
     var lang = (navigator.language || navigator.userLanguage || 'he').toLowerCase();
     var loginText = {
-      th: { subtitle: 'แพลตฟอร์มบริหารเกษตร', email: 'อีเมล', pass: 'รหัสผ่าน', btn: 'เข้าสู่ระบบ', google: 'เข้าสู่ระบบด้วย Google', or: 'หรือ', emailToggle: 'เข้าสู่ระบบด้วยอีเมลและรหัสผ่าน' },
-      ar: { subtitle: 'منصة إدارة زراعية', email: 'بريد إلكتروني', pass: 'كلمة مرور', btn: 'تسجيل دخول', google: 'تسجيل دخول مع Google', or: 'أو', emailToggle: 'تسجيل دخول بالبريد وكلمة المرور' },
-      en: { subtitle: 'Farm Management Platform', email: 'Email', pass: 'Password', btn: 'Sign In', google: 'Sign in with Google', or: 'or', emailToggle: 'Sign in with email & password' }
+      th: { subtitle: 'แพลตฟอร์มบริหารเกษตร', email: 'อีเมล', pass: 'รหัสผ่าน', btn: 'เข้าสู่ระบบ', google: 'เข้าสู่ระบบด้วย Google', or: 'หรือ', emailToggle: 'เข้าสู่ระบบด้วยอีเมลและรหัสผ่าน', regDivider: 'ครั้งแรกที่นี่?', regBtn: 'ลงทะเบียนครั้งแรก — ตั้งรหัสผ่าน' },
+      ar: { subtitle: 'منصة إدارة زراعية', email: 'بريد إلكتروني', pass: 'كلمة مرور', btn: 'تسجيل دخول', google: 'تسجيل دخول مع Google', or: 'أو', emailToggle: 'تسجيل دخول بالبريد وكلمة المرور', regDivider: 'أول مرة هنا؟', regBtn: 'تسجيل لأول مرة — تعيين كلمة مرور' },
+      en: { subtitle: 'Farm Management Platform', email: 'Email', pass: 'Password', btn: 'Sign In', google: 'Sign in with Google', or: 'or', emailToggle: 'Sign in with email & password', regDivider: 'First time here?', regBtn: 'First-time sign-up — set a password' }
     };
     var t = null;
     var forgot = document.getElementById('forgotPassLink');
@@ -129,6 +140,8 @@
       set('googleBtnText', t.google);
       set('loginOrText', t.or);
       set('emailToggleText', t.emailToggle);
+      set('registerDividerText', t.regDivider);
+      set('registerBtnText', t.regBtn);
       var btn = document.getElementById('loginBtn');
       if (btn) btn.textContent = t.btn;
     }

@@ -267,12 +267,18 @@
     }, 100);
   }
 
-  // Login button handler
+  // ── Login button: SIGN-IN ONLY ──
+  // No auto-registration here. Firebase reports "wrong password" and
+  // "account doesn't exist" with the SAME code (auth/invalid-credential,
+  // email-enumeration protection), so the old "sign-in failed → try to
+  // create the account" fallback sent existing users who typo'd their
+  // password into registration and a baffling "האימייל כבר בשימוש" error.
+  // First-time users go through the dedicated registerBtn flow below.
   document.getElementById('loginBtn').addEventListener('click', function() {
     var email = document.getElementById('loginEmail').value.trim();
     var password = document.getElementById('loginPassword').value.trim();
     var errorEl = document.getElementById('loginError');
-    
+
     if (!email || !password) {
       errorEl.textContent = t('יש למלא אימייל וסיסמה');
       return;
@@ -293,34 +299,59 @@
         });
       })
       .catch(function(err) {
-        if (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential') {
-          // Try to create account
-          auth.createUserWithEmailAndPassword(email, password)
-            .then(function(cred) {
-              return loadUsers().then(function() {
-                var profile = getUserByEmail(cred.user.email);
-                if (!profile) {
-                  errorEl.textContent = t('חשבון לא מוגדר במערכת. פנה למנהל.');
-                  auth.signOut();
-                  return;
-                }
-                enterApp(profile);
-              });
-            })
-            .catch(function(err2) {
-              var msg = t('שגיאת התחברות');
-              if (err2.code === 'auth/weak-password') msg = t('הסיסמה חייבת להכיל לפחות 6 תווים');
-              if (err2.code === 'auth/email-already-in-use') msg = t('האימייל כבר בשימוש');
-              if (err2.code === 'auth/invalid-email') msg = t('כתובת אימייל לא תקינה');
-              errorEl.textContent = msg;
-            });
-        } else {
-          var msg = t('שגיאת התחברות');
-          if (err.code === 'auth/wrong-password') msg = t('סיסמה שגויה');
-          if (err.code === 'auth/invalid-email') msg = t('כתובת אימייל לא תקינה');
-          if (err.code === 'auth/too-many-requests') msg = t('יותר מדי נסיונות, נסה מאוחר יותר');
-          errorEl.textContent = msg;
+        var msg = t('שגיאת התחברות');
+        if (err.code === 'auth/user-not-found' ||
+            err.code === 'auth/invalid-credential' ||
+            err.code === 'auth/wrong-password') {
+          // Ambiguous by design (enumeration protection) — cover both cases
+          msg = t('אימייל או סיסמה שגויים') + '. ' + t('פעם ראשונה כאן? לחץ על "הרשמה ראשונה"');
         }
+        if (err.code === 'auth/invalid-email') msg = t('כתובת אימייל לא תקינה');
+        if (err.code === 'auth/too-many-requests') msg = t('יותר מדי נסיונות, נסה מאוחר יותר');
+        errorEl.textContent = msg;
+      });
+  });
+
+  // ── First-time registration button ──
+  // Creates the Firebase Auth account for a user the admin already added
+  // in the Users tab. The profile check runs AFTER account creation because
+  // Firestore rules only allow signed-in reads of the users list. If the
+  // profile is missing the account is kept (their password stays valid for
+  // the login button once the admin adds them) but they're signed out.
+  document.getElementById('registerBtn').addEventListener('click', function() {
+    var email = document.getElementById('loginEmail').value.trim();
+    var password = document.getElementById('loginPassword').value.trim();
+    var errorEl = document.getElementById('loginError');
+
+    if (!email || !password) {
+      errorEl.textContent = t('יש למלא אימייל וסיסמה');
+      return;
+    }
+    if (password.length < 6) {
+      errorEl.textContent = t('הסיסמה חייבת להכיל לפחות 6 תווים');
+      return;
+    }
+
+    errorEl.textContent = '⏳ ' + t('נרשם...');
+
+    auth.createUserWithEmailAndPassword(email, password)
+      .then(function(cred) {
+        return loadUsers().then(function() {
+          var profile = getUserByEmail(cred.user.email);
+          if (!profile) {
+            errorEl.textContent = t('נרשמת, אך החשבון טרם הוגדר במערכת. פנה למנהל.');
+            auth.signOut();
+            return;
+          }
+          enterApp(profile);
+        });
+      })
+      .catch(function(err) {
+        var msg = t('שגיאת התחברות');
+        if (err.code === 'auth/email-already-in-use') msg = t('כבר נרשמת בעבר — השתמש בכפתור "התחבר"');
+        if (err.code === 'auth/weak-password') msg = t('הסיסמה חייבת להכיל לפחות 6 תווים');
+        if (err.code === 'auth/invalid-email') msg = t('כתובת אימייל לא תקינה');
+        errorEl.textContent = msg;
       });
   });
 
@@ -972,6 +1003,11 @@
     'הסיסמה חייבת להכיל לפחות 6 תווים': { th: 'รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร', ar: 'كلمة المرور يجب أن تحتوي على 6 أحرف على الأقل' },
     'האימייל כבר בשימוש': { th: 'อีเมลนี้ถูกใช้แล้ว', ar: 'البريد الإلكتروني مستخدم بالفعل' },
     'סיסמה שגויה': { th: 'รหัสผ่านไม่ถูกต้อง', ar: 'كلمة المرور خاطئة' },
+    'אימייל או סיסמה שגויים': { th: 'อีเมลหรือรหัสผ่านไม่ถูกต้อง', ar: 'البريد الإلكتروني أو كلمة المرور غير صحيحة' },
+    'פעם ראשונה כאן? לחץ על "הרשמה ראשונה"': { th: 'ครั้งแรกที่นี่? กด "ลงทะเบียนครั้งแรก"', ar: 'أول مرة هنا؟ اضغط "تسجيل لأول مرة"' },
+    'נרשם...': { th: 'กำลังลงทะเบียน...', ar: 'جاري التسجيل...' },
+    'כבר נרשמת בעבר — השתמש בכפתור "התחבר"': { th: 'คุณลงทะเบียนแล้ว — ใช้ปุ่ม "เข้าสู่ระบบ"', ar: 'أنت مسجل بالفعل — استخدم زر "تسجيل الدخول"' },
+    'נרשמת, אך החשבון טרם הוגדר במערכת. פנה למנהל.': { th: 'ลงทะเบียนสำเร็จ แต่บัญชียังไม่ถูกตั้งค่าในระบบ ติดต่อผู้ดูแล', ar: 'تم التسجيل، لكن الحساب لم يُعرَّف في النظام بعد. تواصل مع المسؤول.' },
     'יותר מדי נסיונות, נסה מאוחר יותר': { th: 'พยายามมากเกินไป ลองใหม่ภายหลัง', ar: 'محاولات كثيرة، حاول لاحقاً' },
     'הזן אימייל קודם': { th: 'กรอกอีเมลก่อน', ar: 'أدخل البريد أولاً' },
     'נשלח מייל לאיפוס סיסמה ל-': { th: 'ส่งอีเมลรีเซ็ตรหัสผ่านไปที่ ', ar: 'تم إرسال بريد إعادة تعيين كلمة المرور إلى ' },
