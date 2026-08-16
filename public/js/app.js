@@ -1791,6 +1791,23 @@
     DB.save('plotMapperSprayData', data);
   }
 
+  // Narrow read-only window into this IIFE's private state, so other modules
+  // (fieldreport.js) can resolve the report -> spray direction of the chain
+  // without app.js having to know they exist. Read-only on purpose: writes
+  // still go through the submit handler so validation can't be bypassed.
+  window.SprayStore = {
+    getEvents: function() { return (sprayEvents || []).slice(); },
+    getEventsForReport: function(reportId) {
+      return (sprayEvents || []).filter(function(e) {
+        return (e.linkedReportIds || []).indexOf(reportId) !== -1;
+      });
+    },
+    plotNameById: function(id) {
+      var p = (plots || []).find(function(pl) { return pl.id === id; });
+      return p ? p.name : t('חלקה לא ידועה');
+    }
+  };
+
   function initMapAndData() {
     // Clear existing map layers before reloading
     drawnItems.clearLayers();
@@ -2852,7 +2869,16 @@
       plotIds: selectedPlotIds,
       volumePerTree: volumePerTree,
       sprayerCapacity: sprayerCapacity,
-      applications: applications
+      applications: applications,
+      // Inspection reports this spray responds to (spray-pest-link.js).
+      linkedReportIds: (window.SprayLink ? window.SprayLink.getSelectedReportIds() : []),
+      // `date` is when the spray happened; enteredAt is when it was keyed in.
+      // A record entered late is still an honest record if it says so.
+      enteredAt: Date.now(),
+      enteredBy: (window.currentUser ? window.currentUser.username : ''),
+      // Provenance when the spray is being pieced back together after the
+      // fact (spray-reconstruct.js). null for a normal contemporaneous entry.
+      reconstruction: (window.SprayReconstruct ? window.SprayReconstruct.getMeta() : null)
     };
 
     sprayEvents.push(event);
@@ -2862,6 +2888,8 @@
     document.getElementById('operatorName').value = '';
     document.querySelectorAll('.plot-checkbox').forEach(function(cb) { cb.checked = false; });
     document.querySelectorAll('.pesticide-item').forEach(function(item) { item.classList.remove('selected'); });
+    if (window.SprayLink && typeof window.SprayLink.reset === 'function') window.SprayLink.reset();
+    if (window.SprayReconstruct && typeof window.SprayReconstruct.reset === 'function') window.SprayReconstruct.reset();
     updateCalculations();
 
     // History now lives inside the spray tab as a sub-view.
@@ -2869,6 +2897,15 @@
   });
 
   // ── History ──
+  // Reports arrive after first paint, so any history already on screen was
+  // drawn without its chain lines. Redraw when they land.
+  document.addEventListener('shorashim:reports-ready', function() {
+    var view = document.getElementById('spraySubviewHistory');
+    if (view && view.style.display !== 'none') {
+      try { renderHistoryList(); } catch (e) {}
+    }
+  });
+
   function renderHistoryList() {
     var container = document.getElementById('historyList');
     var accessibleEvents = getAccessibleSprayEvents();
@@ -2904,18 +2941,51 @@
         return '🧪 ' + parts.join(' ');
       }).join('<br>');
 
-      html += '<div class="history-item">';
+      var recon = event.reconstruction && event.reconstruction.reconstructed ? event.reconstruction : null;
+      var reconBadge = '';
+      if (recon) {
+        var rc = recon.confidence || '';
+        var rcLabel = rc === 'high' ? t('ודאות גבוהה') : rc === 'medium' ? t('ודאות בינונית') : rc === 'low' ? t('ודאות נמוכה') : '';
+        reconBadge = '<span class="recon-badge recon-' + rc + '">' + t('שחזור') + (rcLabel ? ' · ' + rcLabel : '') + '</span>';
+      }
+
+      html += '<div class="history-item' + (recon ? ' is-reconstructed' : '') + '">';
       html += '<div class="history-header">';
-      html += '<span class="history-date">' + formatDate(event.date) + '</span>';
+      html += '<span class="history-date">' + formatDate(event.date) + reconBadge + '</span>';
       html += '<span class="history-operator">' + event.operator + '</span>';
       html += '</div>';
       html += '<div class="history-plots">' + t('חלקות') + ': ' + plotNames + ' (' + totalArea.toFixed(2) + ' ' + t('דונם') + ')</div>';
       html += '<div class="history-meta" style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">';
       html += event.volumePerTree + ' ' + t('ליטר/עץ') + ' • ' + t('מרסס') + ' ' + event.sprayerCapacity + ' ' + t('ליטר');
       html += '</div>';
+      if (recon && recon.evidenceBasis) {
+        html += '<div class="history-recon">' + t('על סמך') + ': ' + recon.evidenceBasis +
+          (recon.sourceRefs ? ' · ' + recon.sourceRefs : '') +
+          (recon.reconstructedBy ? ' · ' + t('שוחזר ע"י') + ' ' + recon.reconstructedBy : '') +
+          '</div>';
+      }
       html += '<div class="history-pesticides" style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border, #e0d8d0); font-size: 0.85rem; line-height: 1.7;">';
       html += pestSummary;
       html += '</div>';
+
+      // Chain: which scouting observation this spray responded to.
+      var linked = (window.SprayLink && event.linkedReportIds && event.linkedReportIds.length)
+        ? window.SprayLink.reportsById(event.linkedReportIds) : [];
+      if (linked.length) {
+        html += '<div class="history-chain">';
+        html += '<div class="chain-title">🔗 ' + t('בעקבות דוח סיור') + '</div>';
+        linked.forEach(function(r) {
+          var subj = [r.pest, r.disease].filter(Boolean).join(' / ');
+          html += '<div class="chain-row">' + r.date + ' · ' + (subj || t('ללא ציון')) +
+            (r.severity ? ' · ' + t('חומרה') + ' ' + r.severity : '') +
+            (r.inspector ? ' · ' + r.inspector : '') + '</div>';
+        });
+        html += '</div>';
+      } else if (event.linkedReportIds && event.linkedReportIds.length) {
+        html += '<div class="history-chain"><div class="chain-row chain-missing">🔗 ' +
+          event.linkedReportIds.length + ' ' + t('דוחות מקושרים — לא נטענו') + '</div></div>';
+      }
+
       html += '</div>';
     });
 
@@ -2930,6 +3000,19 @@
   document.getElementById('exportPdfBtn').addEventListener('click', function() {
     if (sprayEvents.length === 0) {
       showToast('❌ ' + t('אין יומני ריסוס לייצוא'));
+      return;
+    }
+
+    // Field reports load asynchronously. Exporting before they arrive would
+    // produce a PDF missing its chain lines — an incomplete document is worse
+    // than a delayed one. We refuse rather than await: exportReport opens a
+    // window, and doing that after a promise resolves loses the user-gesture
+    // context and gets blocked by popup blockers.
+    var needsReports = sprayEvents.some(function(e) {
+      return e.linkedReportIds && e.linkedReportIds.length;
+    });
+    if (needsReports && window.SprayLink && !window.SprayLink.isReady()) {
+      showToast('⏳ ' + t('טוען דוחות סיור — נסה שוב בעוד רגע'));
       return;
     }
 
@@ -2958,6 +3041,11 @@
     html += 'table { width: calc(100% - 32px); margin: 0 16px 20px; border-collapse: separate; border-spacing: 0; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 12px rgba(43,37,32,0.07); }\n';
     html += 'th { background: #2d6a4f; color: white; padding: 10px 10px; text-align: right; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.02em; }\n';
     html += 'td { padding: 11px 10px; border-bottom: 1px solid #f0ebe6; font-size: 0.85rem; vertical-align: top; }\n';
+    html += 'tr.row-reconstructed td { background: #fdf6e8; }\n';
+    html += '.recon-tag { display:inline-block; margin-top:4px; padding:2px 7px; border-radius:5px; background:#b45309; color:#fff; font-size:0.66rem; font-weight:700; }\n';
+    html += '.recon-basis { margin-top:6px; padding-top:5px; border-top:1px dotted #d8c9a8; font-size:0.7rem; color:#7a6a4a; }\n';
+    html += '.chain-cell { margin-top:6px; padding:5px 8px; border-inline-start:2px solid #2d6a4f; background:#f2f7f4; font-size:0.7rem; color:#3d5a4a; border-radius:4px; }\n';
+    html += '.recon-legend { margin:0 16px 14px; padding:9px 12px; border-inline-start:3px solid #b45309; background:#fdf6e8; font-size:0.72rem; color:#7a6a4a; border-radius:6px; }\n';
     html += 'tr:last-child td { border-bottom: none; }\n';
     html += 'tr:nth-child(even) td { background: #faf8f5; }\n';
     html += '.event-date { font-weight: 800; font-size: 0.95rem; color: #1a5632; white-space: nowrap; }\n';
@@ -3009,18 +3097,50 @@
       });
       pestCell += '</div>';
 
-      html += '<tr>' +
-        '<td class="event-date">' + formatDate(event.date) + '</td>' +
+      var rr = event.reconstruction && event.reconstruction.reconstructed ? event.reconstruction : null;
+      var pdfRecon = '';
+      var pdfBasis = '';
+      if (rr) {
+        pdfRecon = '<div class="recon-tag">' + t('שחזור רטרואקטיבי') + '</div>';
+        var cf = rr.confidence === 'high' ? t('גבוהה') : rr.confidence === 'medium' ? t('בינונית') : t('נמוכה');
+        pdfBasis = '<div class="recon-basis">' +
+          t('על סמך') + ': ' + (rr.evidenceBasis || '') +
+          (rr.sourceRefs ? ' · ' + rr.sourceRefs : '') +
+          ' · ' + t('ודאות') + ': ' + cf +
+          (rr.reconstructedBy ? ' · ' + t('שוחזר ע"י') + ' ' + rr.reconstructedBy : '') +
+          (rr.reconstructedAt ? ' · ' + new Date(rr.reconstructedAt).toLocaleDateString('he-IL') : '') +
+          '</div>';
+      }
+
+      var pdfChain = '';
+      var chainRefs = (window.SprayLink && event.linkedReportIds && event.linkedReportIds.length)
+        ? window.SprayLink.reportsById(event.linkedReportIds) : [];
+      if (chainRefs.length) {
+        pdfChain = '<div class="chain-cell"><strong>' + t('בעקבות דוח סיור') + ':</strong> ' +
+          chainRefs.map(function(r) {
+            var subj = [r.pest, r.disease].filter(Boolean).join(' / ');
+            return r.date + (subj ? ' — ' + subj : '') +
+                   (r.severity ? ' (' + t('חומרה') + ' ' + r.severity + ')' : '');
+          }).join('; ') + '</div>';
+      }
+
+      html += '<tr' + (rr ? ' class="row-reconstructed"' : '') + '>' +
+        '<td class="event-date">' + formatDate(event.date) + pdfRecon + '</td>' +
         '<td>' + (event.operator || '') + '</td>' +
         '<td>' + plotNames + '</td>' +
         '<td>' + totalArea.toFixed(2) + ' ' + t('דונם') + '</td>' +
         '<td>' + event.volumePerTree + ' ' + t('ליטר') + '</td>' +
         '<td>' + event.sprayerCapacity + ' ' + t('ליטר') + '</td>' +
-        '<td>' + pestCell + '</td>' +
+        '<td>' + pestCell + pdfChain + pdfBasis + '</td>' +
       '</tr>\n';
     });
 
     html += '</tbody>\n</table>\n';
+    if (sorted.some(function(e) { return e.reconstruction && e.reconstruction.reconstructed; })) {
+      html += '<div class="recon-legend">' +
+        t('שורות המסומנות "שחזור רטרואקטיבי" נבנו לאחר מעשה מתוך אסמכתאות ועדויות, ואינן רישום שנערך במועד הריסוס. מקור השחזור ורמת הוודאות מצוינים בכל שורה.') +
+        '</div>\n';
+    }
     html += '<div class="footer"><span class="brand">🌿 ' + t('שורשים פלוס') + '</span> · ' + t('יומן ריסוסים') + ' · ' + new Date().getFullYear() + '</div>\n';
     html += '</body>\n</html>';
 

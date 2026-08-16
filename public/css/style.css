@@ -1542,3 +1542,102 @@ body.theme-classic #registerOpenLink { color: #2e7d32 !important; text-shadow: n
   padding-inline-end: 8px;
   cursor: pointer;
 }
+
+
+/* ══ nav dropdown: materials grouped under ריסוס ══ */
+.tab-drop { position: relative; display: inline-block; }
+.tab-drop > .tab { display: inline-flex; align-items: center; gap: 4px; }
+.tab-drop-caret { font-size: 0.7em; opacity: 0.65; transition: transform 0.18s ease; }
+.tab-drop:hover .tab-drop-caret,
+.tab-drop.open .tab-drop-caret { transform: rotate(180deg); opacity: 1; }
+.tab-drop > .tab.has-active-child { color: var(--accent, #7ec9a4); }
+.tab-drop > .tab.has-active-child::after { transform: scaleX(1); }
+.tab-drop-menu {
+  position: absolute; top: 100%; right: 0; min-width: 190px; padding: 6px; z-index: 900;
+  display: flex; flex-direction: column;
+  background: var(--panel-bg, rgba(20, 32, 26, 0.97));
+  border: 1px solid var(--panel-border, rgba(126, 201, 164, 0.28));
+  border-radius: 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  opacity: 0; visibility: hidden; transform: translateY(-6px);
+  transition: opacity 0.16s ease, transform 0.16s ease, visibility 0.16s;
+}
+.tab-drop:hover .tab-drop-menu,
+.tab-drop:focus-within .tab-drop-menu,
+.tab-drop.open .tab-drop-menu { opacity: 1; visibility: visible; transform: translateY(0); }
+.tab-drop-menu .tab {
+  display: block; width: 100%; text-align: right;
+  padding: 9px 12px; border-radius: 7px; white-space: nowrap;
+}
+.tab-drop-menu .tab::after { display: none; }
+.tab-drop-menu .tab:hover { background: var(--hover-bg, rgba(126, 201, 164, 0.12)); }
+.tab-drop-menu .tab.active { background: var(--hover-bg, rgba(126, 201, 164, 0.18)); }
+@media (hover: none) {
+  .tab-drop:hover .tab-drop-menu { opacity: 0; visibility: hidden; }
+  .tab-drop.open .tab-drop-menu { opacity: 1; visibility: visible; }
+}
+
+/* ══ spray: linked inspection reports ══ */
+.sl-hint { font-size: 0.82rem; opacity: 0.7; margin-bottom: 10px; }
+.sl-list { display: flex; flex-direction: column; gap: 8px; }
+.sl-empty { font-size: 0.85rem; opacity: 0.6; padding: 10px 4px; text-align: center; }
+.sl-row {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 9px 11px; border-radius: 9px; cursor: pointer;
+  border: 1px solid var(--panel-border, rgba(126, 201, 164, 0.22));
+  background: var(--panel-bg, rgba(255, 255, 255, 0.03));
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.sl-row:hover { border-color: var(--accent, #7ec9a4); }
+.sl-check { margin-top: 3px; flex: 0 0 auto; }
+.sl-check:checked ~ .sl-body { opacity: 1; }
+.sl-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.sl-line1 { font-size: 0.9rem; font-weight: 600; }
+.sl-line2 { font-size: 0.78rem; opacity: 0.72; }
+.sl-rec {
+  font-size: 0.78rem; opacity: 0.85; margin-top: 3px;
+  padding-inline-start: 8px; border-inline-start: 2px solid var(--accent, #7ec9a4);
+}
+.sl-toggle {
+  margin-top: 10px; padding: 7px 12px; font-family: inherit; font-size: 0.82rem;
+  cursor: pointer; border-radius: 8px; color: var(--accent, #7ec9a4);
+  background: transparent; border: 1px solid var(--panel-border, rgba(126, 201, 164, 0.28));
+}
+.sl-toggle:hover { background: var(--hover-bg, rgba(126, 201, 164, 0.10)); }
+
+/* ══ spray reconstruction ══ */
+.recon-switch { display: flex; align-items: center; gap: 9px; cursor: pointer; }
+.recon-switch-label { font-weight: 600; font-size: 0.92rem; }
+.recon-note { font-size: 0.79rem; opacity: 0.68; margin-top: 6px; line-height: 1.5; }
+#reconCard.recon-on { border-color: #b45309; box-shadow: 0 0 0 1px rgba(180, 83, 9, 0.35); }
+.recon-fields { margin-top: 12px; }
+.recon-banner {
+  padding: 8px 11px; margin-bottom: 12px; border-radius: 8px; font-size: 0.79rem;
+  color: #d97706; background: rgba(180, 83, 9, 0.12);
+  border: 1px solid rgba(180, 83, 9, 0.32);
+}
+.recon-badge {
+  display: inline-block; margin-inline-start: 8px; padding: 2px 7px; border-radius: 5px;
+  font-size: 0.66rem; font-weight: 700; vertical-align: middle; color: #fff; background: #b45309;
+}
+.recon-badge.recon-low { background: #9a3412; }
+.recon-badge.recon-medium { background: #b45309; }
+.recon-badge.recon-high { background: #6b7280; }
+.history-item.is-reconstructed { border-inline-start: 3px solid #b45309; }
+.history-recon {
+  margin-top: 6px; padding-top: 5px;
+  border-top: 1px dotted var(--border, rgba(180, 83, 9, 0.3));
+  font-size: 0.74rem; opacity: 0.8;
+}
+
+
+/* ══ traceability chain: spray <-> inspection report ══ */
+.history-chain {
+  margin-top: 8px; padding-top: 7px;
+  border-top: 1px dashed var(--border, rgba(126, 201, 164, 0.28));
+}
+.chain-title {
+  font-size: 0.74rem; font-weight: 700; opacity: 0.75; margin-bottom: 3px;
+  color: var(--accent, #7ec9a4);
+}
+.chain-row { font-size: 0.76rem; opacity: 0.82; padding: 1px 0; }
+.chain-row.chain-missing { opacity: 0.5; font-style: italic; }

@@ -613,7 +613,53 @@ var FieldReport = (function() {
       if (!r) return;
       var sev = SEVERITY_LEVELS[r.severity] || SEVERITY_LEVELS[0];
       var sevLabel = tt(sev.label, sev.labelTh, sev.labelAr);
-      
+
+      // Chain, report -> spray direction: what was actually applied in
+      // response to this observation. Uses var() so the Neon theme survives;
+      // the surrounding modal predates that rule and still hardcodes white.
+      var chainBlock = '';
+      var followUps = (window.SprayStore && typeof window.SprayStore.getEventsForReport === 'function')
+        ? window.SprayStore.getEventsForReport(r.id) : [];
+      if (followUps.length) {
+        chainBlock = '<div class="chain-spray" style="margin-top:12px;padding:10px;border-radius:10px;' +
+          'background:var(--g6, #eef4f0);border-inline-start:3px solid var(--accent, #2d6a4f);">' +
+          '<div style="font-weight:700;font-size:0.85rem;margin-bottom:6px;">💧 ' +
+          tt('ריסוסים בעקבות דוח זה', 'การพ่นที่ตามมาจากรายงานนี้', 'عمليات رش تبعت هذا التقرير') + '</div>';
+        followUps.sort(function(a, b) { return new Date(a.date) - new Date(b.date); }).forEach(function(ev) {
+          var mats = (ev.applications || []).map(function(ap) {
+            return (ap.productName || '') + (ap.concentration != null ? ' ' + ap.concentration + '%' : '');
+          }).join(', ');
+          var plotNames = (ev.plotIds || []).map(function(id) {
+            return window.SprayStore.plotNameById(id);
+          }).join(', ');
+          var lag = '';
+          if (r.date && ev.date) {
+            var days = Math.round((new Date(ev.date) - new Date(r.date)) / 86400000);
+            if (!isNaN(days)) {
+              lag = ' · ' + (days === 0
+                ? tt('באותו יום', 'วันเดียวกัน', 'نفس اليوم')
+                : days + ' ' + tt('ימים אחרי', 'วันหลังจาก', 'أيام بعد'));
+            }
+          }
+          var reconTag = (ev.reconstruction && ev.reconstruction.reconstructed)
+            ? ' <span style="padding:1px 5px;border-radius:4px;background:#b45309;color:#fff;font-size:0.65rem;font-weight:700;">' +
+              tt('שחזור', 'ย้อนหลัง', 'إعادة بناء') + '</span>' : '';
+          chainBlock += '<div style="font-size:0.8rem;padding:4px 0;border-top:1px dotted var(--border, rgba(0,0,0,0.12));">' +
+            '<strong>' + ev.date + '</strong>' + lag + reconTag +
+            (mats ? '<br>🧪 ' + mats : '') +
+            (plotNames ? '<br>📍 ' + plotNames : '') +
+            (ev.operator ? '<br>👤 ' + ev.operator : '') +
+            '</div>';
+        });
+        chainBlock += '</div>';
+      } else if (r.recommendation) {
+        chainBlock = '<div class="chain-spray" style="margin-top:12px;padding:9px 11px;border-radius:10px;' +
+          'background:rgba(180,83,9,0.10);border:1px solid rgba(180,83,9,0.28);font-size:0.8rem;color:#b45309;">' +
+          '⚠ ' + tt('לא נרשם ריסוס בעקבות דוח זה',
+                    'ยังไม่มีการพ่นที่บันทึกตามรายงานนี้',
+                    'لم يُسجَّل رش بناءً على هذا التقرير') + '</div>';
+      }
+
       var modal = document.getElementById('modalContainer');
       var html = '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;">' +
         '<div style="background:white;border-radius:16px;padding:20px;width:95%;max-width:500px;max-height:85vh;overflow-y:auto;">' +
@@ -635,6 +681,7 @@ var FieldReport = (function() {
             (r.recommendation ? '<div style="padding:8px;background:#e8f5e9;border-radius:8px;">💊 <strong>' + tt('המלצה', 'คำแนะนำ', 'توصية') + ':</strong> ' + r.recommendation + '</div>' : '') +
             (r.notes ? '<div style="padding:8px;background:var(--g6);border-radius:8px;">📝 ' + r.notes + '</div>' : '') +
           '</div>' +
+          chainBlock +
           '<div style="display:flex;gap:8px;margin-top:14px;">' +
             '<button onclick="FieldReport._exportPDF(' + r.id + ')" style="flex:1;padding:10px;border-radius:10px;border:none;background:#1565c0;color:white;font-family:inherit;font-weight:700;cursor:pointer;">📄 PDF</button>' +
             '<button onclick="FieldReport._shareReport(' + r.id + ')" style="flex:1;padding:10px;border-radius:10px;border:none;background:#7e57c2;color:white;font-family:inherit;font-weight:700;cursor:pointer;">📤 ' + tt('שתף', 'แชร์', 'مشاركة') + '</button>' +
