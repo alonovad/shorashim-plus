@@ -1747,7 +1747,38 @@
       renderPesticideList();
       renderPesticideAdminList();
       renderHistoryList();
+
+      // Layers were just rebuilt from scratch, so any active map filter has
+      // been wiped. map-filter.js listens for this and re-applies itself.
+      try {
+        document.dispatchEvent(new CustomEvent('shorashim:plots-rendered'));
+      } catch (e) {}
   }
+
+  // Show/hide a single plot on the map. Both the polygon and its name label
+  // live in drawnItems, so both have to move together or a hidden plot
+  // leaves its label floating over empty ground.
+  window.setPlotVisibility = function(plotId, visible) {
+    var p = plots.find(function(pl) { return pl.id === plotId; });
+    if (!p || !p.layer) return;
+    if (visible) {
+      if (!drawnItems.hasLayer(p.layer)) drawnItems.addLayer(p.layer);
+      if (p.labelMarker && !drawnItems.hasLayer(p.labelMarker)) drawnItems.addLayer(p.labelMarker);
+    } else {
+      if (drawnItems.hasLayer(p.layer)) drawnItems.removeLayer(p.layer);
+      if (p.labelMarker && drawnItems.hasLayer(p.labelMarker)) drawnItems.removeLayer(p.labelMarker);
+    }
+  };
+
+  // Plots the current user is allowed to see at all — the filter narrows
+  // within this, it can never widen beyond it.
+  window.getVisiblePlotPool = function() {
+    return (typeof getAccessiblePlots === 'function' ? getAccessiblePlots() : plots)
+      .map(function(p) {
+        return { id: p.id, name: p.name, farm_id: p.farm_id || 0,
+                 crop_type: p.crop_type || '', hasGeometry: !!p.layer };
+      });
+  };
 
   function getDefaultPesticides() {
     return [
@@ -1796,6 +1827,50 @@
   // (fieldreport.js) can resolve the report -> spray direction of the chain
   // without app.js having to know they exist. Read-only on purpose: writes
   // still go through the submit handler so validation can't be bypassed.
+  // Jump to the map and frame a plot. Shared by the plot detail modal and
+  // the plot rows on the farm page so both behave identically.
+  // plot.layer only exists once the map has drawn its polygons — a plot with
+  // no geometry, or a cold load where drawing hasn't run, must not throw.
+  window.goToPlotOnMap = function(plotId) {
+    var plot = plots.find(function(p) { return p.id === plotId; });
+    if (!plot) return;
+
+    var modal = document.getElementById('modalContainer');
+    if (modal) modal.innerHTML = '';
+
+    document.querySelectorAll('.tab').forEach(function(tb) { tb.classList.remove('active'); });
+    document.querySelectorAll('.tab-content').forEach(function(c) { c.classList.remove('active'); });
+    var mapTab = document.querySelector('[data-tab="map"]');
+    if (mapTab) mapTab.classList.add('active');
+    var mapPane = document.getElementById('tabMap');
+    if (mapPane) mapPane.classList.add('active');
+    activeTab = 'map';
+
+    // Jumping to a plot the filter is hiding would frame blank ground.
+    // Reveal it and say so, rather than silently showing nothing.
+    if (window.MapFilter && typeof window.MapFilter.reveal === 'function') {
+      window.MapFilter.reveal(plotId);
+    }
+
+    setTimeout(function() {
+      try { map.invalidateSize(); } catch (e) {}
+      if (!plot.layer || typeof plot.layer.getBounds !== 'function') {
+        showToast('📍 ' + t('לחלקה זו אין גבולות משורטטים'));
+        return;
+      }
+      try {
+        map.fitBounds(plot.layer.getBounds(), { padding: [50, 50], maxZoom: 17 });
+        // Brief flash so the plot is obvious among its neighbours.
+        plot.layer.setStyle({ fillOpacity: 0.6 });
+        setTimeout(function() {
+          try { plot.layer.setStyle({ fillOpacity: 0.25 }); } catch (e) {}
+        }, 800);
+      } catch (e) {
+        showToast('📍 ' + t('לא ניתן למקד את החלקה'));
+      }
+    }, 100);
+  };
+
   window.SprayStore = {
     getEvents: function() { return (sprayEvents || []).slice(); },
     getEventsForReport: function(reportId) {
@@ -1812,6 +1887,114 @@
       return (src || []).slice();
     },
     getPesticides: function() { return (pesticides || []).slice(); },
+    // Per-farm report branding. Lives on the farm object inside
+    // plotMapperSprayData, so it travels with the farm and needs no new
+    // Firestore key or rules change.
+    getFarmTheme: function(farmId) {
+      var f = (farms || []).find(function(x) { return x.id === farmId; });
+      return (f && f.report_theme) ? JSON.parse(JSON.stringify(f.report_theme)) : null;
+    },
+    setFarmTheme: function(farmId, theme) {
+      var u = window.currentUser || {};
+      if (u.role !== 'admin' && u.role !== 'operator') return { ok: false, err: 'forbidden' };
+      var f = (farms || []).find(function(x) { return x.id === farmId; });
+      if (!f) return { ok: false, err: 'not-found' };
+      // Firestore rejects undefined — round-trip before storing.
+      f.report_theme = theme ? JSON.parse(JSON.stringify(theme)) : null;
+      saveData();
+      return { ok: true };
+    },
+    exportFarmLog: function(farmId) {
+      var html = generatePdfHtml(farmId);
+      if (!html) return { ok: false, err: 'empty' };
+      var fname = t('יומן ריסוסים').replace(/ /g, '_') + '_' +
+        new Date().toISOString().split('T')[0] + '.html';
+      window.Util.exportReport(html, fname);
+      return { ok: true };
+    },
+    getFarms: function() {
+      var accessible = (typeof getAccessiblePlots === 'function') ? getAccessiblePlots() : plots;
+      var ids = {};
+      (accessible || []).forEach(function(p) { if (p.farm_id) ids[p.farm_id] = true; });
+      return (farms || []).filter(function(f) { return ids[f.id]; })
+        .map(function(f) { return { id: f.id, name: f.name }; });
+    },
+
+    // Batched sibling of updateEvent. patchFn(event) returns the fields to
+    // change for THAT record, or null to skip it. One saveData() for the
+    // whole batch rather than one per record — fifty separate writes of the
+    // entire blob would be slow and would race with DB.listen.
+    // Per-record revisions and audit entries are still written individually:
+    // the batch is a UI convenience, not a reason to lose granularity.
+    updateMany: function(ids, patchFn, reason, diffFn) {
+      var u = window.currentUser || {};
+      if (u.role !== 'admin' && u.role !== 'operator') return { ok: false, err: 'forbidden' };
+      if (!reason || !String(reason).trim()) return { ok: false, err: 'reason-required' };
+      reason = String(reason).trim();
+
+      var touched = 0, skipped = 0, pending = [];
+      ids.forEach(function(id) {
+        var idx = sprayEvents.findIndex(function(e) { return e.id === id; });
+        if (idx === -1) { skipped++; return; }
+        var before = JSON.parse(JSON.stringify(sprayEvents[idx]));
+        var patch = patchFn(before);
+        if (!patch) { skipped++; return; }
+        var after = JSON.parse(JSON.stringify(before));
+        Object.keys(patch).forEach(function(k) { after[k] = patch[k]; });
+        var changes = (typeof diffFn === 'function') ? diffFn(before, after) : [];
+        if (!changes.length) { skipped++; return; }
+        if (!after.revisions) after.revisions = [];
+        after.revisions.push({
+          at: Date.now(), by: u.username || '', byName: u.name || u.username || '',
+          role: u.role || '', reason: reason, changes: changes, batch: true
+        });
+        sprayEvents[idx] = after;
+        touched++;
+        pending.push({ id: id, before: before, after: after });
+      });
+
+      if (!touched) return { ok: true, touched: 0, skipped: skipped };
+      saveData();
+      if (typeof Audit !== 'undefined' && typeof Audit.log === 'function') {
+        pending.forEach(function(p) {
+          Audit.log('edit', 'spray', String(p.id), {
+            before: p.before, after: p.after, reason: reason + ' [batch]'
+          });
+        });
+      }
+      try { renderHistoryList(); } catch (e) {}
+      return { ok: true, touched: touched, skipped: skipped };
+    },
+
+    voidMany: function(ids, reason) {
+      var u = window.currentUser || {};
+      if (u.role !== 'admin' && u.role !== 'operator') return { ok: false, err: 'forbidden' };
+      if (!reason || !String(reason).trim()) return { ok: false, err: 'reason-required' };
+      reason = String(reason).trim();
+      var touched = 0, pending = [];
+      ids.forEach(function(id) {
+        var idx = sprayEvents.findIndex(function(e) { return e.id === id; });
+        if (idx === -1 || sprayEvents[idx].voided) return;
+        var before = JSON.parse(JSON.stringify(sprayEvents[idx]));
+        sprayEvents[idx].voided = {
+          at: Date.now(), by: u.username || '',
+          byName: u.name || u.username || '', reason: reason
+        };
+        touched++;
+        pending.push({ id: id, before: before, after: sprayEvents[idx] });
+      });
+      if (!touched) return { ok: true, touched: 0 };
+      saveData();
+      if (typeof Audit !== 'undefined' && typeof Audit.log === 'function') {
+        pending.forEach(function(p) {
+          Audit.log('void', 'spray', String(p.id), {
+            before: p.before, after: p.after, reason: reason + ' [batch]'
+          });
+        });
+      }
+      try { renderHistoryList(); } catch (e) {}
+      return { ok: true, touched: touched };
+    },
 
     // The ONLY write path from outside this IIFE. Applies a patch, records
     // what changed on the record itself, and mirrors it to the audit log.
@@ -3048,6 +3231,13 @@
     var accessibleEvents = _showVoided ? allEvents
       : allEvents.filter(function(e) { return !e.voided; });
 
+    var filteredOut = 0;
+    if (window.SprayFilter && typeof window.SprayFilter.apply === 'function') {
+      var beforeCount = accessibleEvents.length;
+      accessibleEvents = window.SprayFilter.apply(accessibleEvents);
+      filteredOut = beforeCount - accessibleEvents.length;
+    }
+
     var voidBar = '';
     if (voidedCount) {
       voidBar = '<div class="void-bar"><button type="button" class="void-toggle" ' +
@@ -3058,7 +3248,9 @@
 
     if (accessibleEvents.length === 0) {
       container.innerHTML = voidBar + '<div class="empty-state"><div class="icon">📋</div>' +
-        '<p>' + t('אין היסטוריה') + '</p></div>';
+        '<p>' + t(filteredOut > 0 ? 'אין רשומות התואמות את הסינון' : 'אין היסטוריה') + '</p></div>';
+      try { document.dispatchEvent(new CustomEvent('shorashim:history-rendered',
+        { detail: { shown: 0, filteredOut: filteredOut } })); } catch (e) {}
       return;
     }
 
@@ -3104,6 +3296,9 @@
           (event.voided.reason ? ' — ' + event.voided.reason : '') + '</div>';
       }
       html += '<div class="history-header">';
+      if (window.SprayEdit && window.SprayEdit.canEdit()) {
+        html += '<input type="checkbox" class="hist-select" value="' + event.id + '">';
+      }
       html += '<span class="history-date">' + formatDate(event.date) + reconBadge + '</span>';
       var revCount = (event.revisions || []).length;
       var revBadge = revCount
@@ -3159,6 +3354,10 @@
     });
 
     container.innerHTML = html;
+    try {
+      document.dispatchEvent(new CustomEvent('shorashim:history-rendered',
+        { detail: { shown: sorted.length, filteredOut: filteredOut } }));
+    } catch (e) {}
   }
 
   function formatDate(dateStr) {
@@ -3185,32 +3384,67 @@
       return;
     }
 
-    var html = generatePdfHtml();
+    // More than one farm in play means the design is ambiguous — ask.
+    if (window.ReportTheme && typeof window.ReportTheme.chooseAndExport === 'function' &&
+        (farms || []).length > 1) {
+      window.ReportTheme.chooseAndExport();
+      return;
+    }
+    var onlyFarm = (farms && farms.length === 1) ? farms[0].id : null;
+    var html = generatePdfHtml(onlyFarm);
     var filename = t('יומן ריסוסים').replace(/ /g, '_') + '_' + new Date().toISOString().split('T')[0] + '.html';
     window.Util.exportReport(html, filename);
     showToast('📄 ' + t('הדו"ח נפתח — לחץ שמור כ-PDF'));
   });
 
-  function generatePdfHtml() {
-    var voidedEvents = sprayEvents.filter(function(e) { return e.voided; });
-    var sorted = sprayEvents.filter(function(e) { return !e.voided; })
+  // farmId === null exports everything under the house design.
+  function generatePdfHtml(farmId) {
+    var scope = sprayEvents;
+    var farmObj = null;
+    if (farmId) {
+      farmObj = (farms || []).find(function(f) { return f.id === farmId; }) || null;
+      var farmPlotIds = (plots || []).filter(function(p) { return p.farm_id === farmId; })
+        .map(function(p) { return p.id; });
+      scope = sprayEvents.filter(function(e) {
+        return (e.plotIds || []).some(function(id) { return farmPlotIds.indexOf(id) !== -1; });
+      });
+    }
+
+    var voidedEvents = scope.filter(function(e) { return e.voided; });
+    var sorted = scope.filter(function(e) { return !e.voided; })
       .sort(function(a, b) {
         return new Date(b.date) - new Date(a.date);
       });
+
+    // Theme controls letterhead only. It cannot alter or suppress the
+    // reconstruction badges, evidence lines, revision notes or void
+    // appendix — those are the document's disclosures, not its styling.
+    var TH = (window.ReportTheme && window.ReportTheme.resolve)
+      ? window.ReportTheme.resolve(farmObj) : {
+        c1: '#1a5632', c2: '#2d6a4f', c3: '#40916c',
+        headText: '#ffffff', accent: '#2d6a4f', radius: 20,
+        orientation: 'landscape', title: '', sub: '', logo: '',
+        footer: '', signature: false
+      };
 
     var html = '<!DOCTYPE html>\n<html lang="he" dir="rtl">\n<head>\n';
     html += '<meta charset="UTF-8">\n';
     html += '<meta name="viewport" content="width=device-width,initial-scale=1">\n';
     html += '<title>' + t('יומן ריסוסים') + '</title>\n';
     html += '<style>\n';
-    html += '@page { margin: 15mm 10mm; size: A4 landscape; }\n';
+    html += '@page { margin: 15mm 10mm; size: A4 ' + TH.orientation + '; }\n';
     html += 'body { font-family: -apple-system, "Segoe UI", Arial, sans-serif; direction: rtl; padding: 0; margin: 0; color: #2b2520; line-height: 1.5; }\n';
-    html += '.header { background: linear-gradient(135deg, #1a5632, #2d6a4f, #40916c); color: white; padding: 22px 28px; border-radius: 0 0 20px 20px; margin-bottom: 18px; }\n';
+    html += '.header { background: linear-gradient(135deg, ' + TH.c1 + ', ' + TH.c2 + ', ' + TH.c3 + '); color: ' + TH.headText + '; padding: 22px 28px; border-radius: 0 0 ' + TH.radius + 'px ' + TH.radius + 'px; margin-bottom: 18px; display:flex; align-items:center; gap:18px; }\n';
+    html += '.header .logo { max-height: 58px; max-width: 130px; flex:0 0 auto; }\n';
+    html += '.header .htext { flex:1; }\n';
+    html += '.sigrow { margin: 22px 16px 0; display:flex; gap:40px; font-size:0.78rem; color:#5a5048; }\n';
+    html += '.sigrow div { flex:1; border-top:1px solid #b8ada2; padding-top:5px; }\n';
+    html += '.farm-footer { margin: 14px 16px 0; font-size:0.72rem; color:#8a8078; white-space:pre-line; }\n';
     html += '.header h1 { font-size: 1.5rem; font-weight: 800; margin: 0 0 4px 0; letter-spacing: -0.02em; }\n';
     html += '.header .sub { font-size: 0.85rem; opacity: 0.9; }\n';
     html += '.meta-row { padding: 0 24px 8px; font-size: 0.78rem; color: #8a8078; }\n';
     html += 'table { width: calc(100% - 32px); margin: 0 16px 20px; border-collapse: separate; border-spacing: 0; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 12px rgba(43,37,32,0.07); }\n';
-    html += 'th { background: #2d6a4f; color: white; padding: 10px 10px; text-align: right; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.02em; }\n';
+    html += 'th { background: ' + TH.accent + '; color: white; padding: 10px 10px; text-align: right; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.02em; }\n';
     html += 'td { padding: 11px 10px; border-bottom: 1px solid #f0ebe6; font-size: 0.85rem; vertical-align: top; }\n';
     html += 'tr.row-reconstructed td { background: #fdf6e8; }\n';
     html += '.recon-tag { display:inline-block; margin-top:4px; padding:2px 7px; border-radius:5px; background:#b45309; color:#fff; font-size:0.66rem; font-weight:700; }\n';
@@ -3233,9 +3467,14 @@
     html += '</style>\n';
     html += '</head>\n<body>\n';
     html += '<div class="header">\n';
-    html += '<h1>🌿 ' + t('יומן ריסוסים - שורשים פלוס') + '</h1>\n';
-    html += '<div class="sub">' + t('תאריך הפקה:') + ' ' + formatDate(new Date().toISOString().split('T')[0]) + '</div>\n';
-    html += '</div>\n';
+    if (TH.logo) html += '<img class="logo" src="' + TH.logo + '" alt="">\n';
+    html += '<div class="htext">';
+    html += '<h1>' + (TH.title || ('🌿 ' + t('יומן ריסוסים - שורשים פלוס'))) + '</h1>\n';
+    html += '<div class="sub">' +
+      (farmObj ? locName(farmObj) + ' · ' : '') +
+      t('תאריך הפקה:') + ' ' + formatDate(new Date().toISOString().split('T')[0]) +
+      (TH.sub ? ' · ' + TH.sub : '') + '</div>\n';
+    html += '</div></div>\n';
 
     html += '<table>\n';
     html += '<thead><tr>' +
@@ -3337,6 +3576,14 @@
     if (sorted.some(function(e) { return e.reconstruction && e.reconstruction.reconstructed; })) {
       html += '<div class="recon-legend">' +
         t('שורות המסומנות "שחזור רטרואקטיבי" נבנו לאחר מעשה מתוך אסמכתאות ועדויות, ואינן רישום שנערך במועד הריסוס. מקור השחזור ורמת הוודאות מצוינים בכל שורה.') +
+        '</div>\n';
+    }
+    if (TH.footer) html += '<div class="farm-footer">' + TH.footer + '</div>\n';
+    if (TH.signature) {
+      html += '<div class="sigrow">' +
+        '<div>' + t('שם האחראי') + '</div>' +
+        '<div>' + t('חתימה') + '</div>' +
+        '<div>' + t('תאריך') + '</div>' +
         '</div>\n';
     }
     html += '<div class="footer"><span class="brand">🌿 ' + t('שורשים פלוס') + '</span> · ' + t('יומן ריסוסים') + ' · ' + new Date().getFullYear() + '</div>\n';
@@ -5342,6 +5589,8 @@
             '<div style="font-weight: 600; font-size: 0.9rem;">' + (isPrimary ? '⭐ ' : '') + p.name + '</div>' +
             '<div style="font-size: 0.75rem; color: var(--text-muted);">' + formatArea(p.area) + '</div>' +
           '</div>' +
+          '<button type="button" class="fd-plot-map" data-fd-map-plot="' + p.id + '" ' +
+            'title="' + t('מעבר לחלקה במפה') + '">🗺️</button>' +
           '<span style="color: var(--text-muted);">←</span>' +
         '</div>';
       });
@@ -5463,6 +5712,15 @@
     container.querySelectorAll('.farm-detail-plot').forEach(function(el) {
       el.addEventListener('click', function() {
         showPlotDetails(parseInt(this.getAttribute('data-fd-plot-id')));
+      });
+    });
+
+    // Straight to the map, skipping the plot modal. stopPropagation keeps the
+    // row's own click from firing and opening the modal behind it.
+    container.querySelectorAll('.fd-plot-map').forEach(function(el) {
+      el.addEventListener('click', function(e) {
+        e.stopPropagation();
+        window.goToPlotOnMap(parseInt(this.getAttribute('data-fd-map-plot')));
       });
     });
     
@@ -6009,7 +6267,7 @@
           '</div>' +
           
           '<div style="display: flex; gap: 8px; margin-bottom: 14px;">' +
-            '<button class="btn-submit" id="plotDetailNav" style="flex: 1; margin: 0; font-size: 0.85rem;">🗺️ ' + t('נווט') + '</button>' +
+            '<button class="btn-submit" id="plotDetailNav" style="flex: 1; margin: 0; font-size: 0.85rem;">🗺️ ' + t('מעבר לחלקה במפה') + '</button>' +
             '<button class="btn-submit" id="plotDetailPrimary" style="flex: 1; margin: 0; font-size: 0.85rem; background: ' + (isPrimary ? 'linear-gradient(135deg, var(--accent), #ff8f00)' : 'linear-gradient(135deg, #455a64, #607d8b)') + ';">' +
               (isPrimary ? '⭐' : '📍') +
             '</button>' +
@@ -6160,20 +6418,10 @@
       setTimeout(function() { map.invalidateSize(); }, 50);
     });
     
-    // Navigate
+    // Navigate — shared helper, so the farm page and this modal stay identical
+    // and the missing-geometry case is handled in one place.
     document.getElementById('plotDetailNav').addEventListener('click', function() {
-      container.innerHTML = '';
-      document.querySelectorAll('.tab').forEach(function(tt) { tt.classList.remove('active'); });
-      document.querySelectorAll('.tab-content').forEach(function(c) { c.classList.remove('active'); });
-      document.querySelector('[data-tab="map"]').classList.add('active');
-      document.getElementById('tabMap').classList.add('active');
-      activeTab = 'map';
-      setTimeout(function() {
-        map.invalidateSize();
-        map.fitBounds(plot.layer.getBounds(), { padding: [50, 50], maxZoom: 17 });
-        plot.layer.setStyle({ fillOpacity: 0.6 });
-        setTimeout(function() { plot.layer.setStyle({ fillOpacity: 0.25 }); }, 800);
-      }, 100);
+      window.goToPlotOnMap(plotId);
     });
     
     // Primary

@@ -388,7 +388,12 @@ var SprayEdit = (function () {
     if (modal) modal.innerHTML = '';
   }
 
+  // spray-bulk.js needs the same field diff so batch edits record real
+  // change lists rather than empty ones.
+  window.SprayEditDiff = diff;
+
   return {
+    diff: diff,
     open: open, save: save, close: close, removeApp: removeApp,
     hardDelete: hardDelete, voidRec: voidRec, unvoid: unvoid,
     fillReason: fillReason, canEdit: canEdit
