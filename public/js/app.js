@@ -595,6 +595,7 @@
   // ── State ──
   var plots = [];
   var sprayEvents = [];
+  var _showVoided = false;   // history: voided records hidden by default
   var pesticides = [];
   var farms = [];
   var worklogEntries = [];
@@ -1805,6 +1806,140 @@
     plotNameById: function(id) {
       var p = (plots || []).find(function(pl) { return pl.id === id; });
       return p ? p.name : t('חלקה לא ידועה');
+    },
+    getPlots: function() {
+      var src = (typeof getAccessiblePlots === 'function') ? getAccessiblePlots() : plots;
+      return (src || []).slice();
+    },
+    getPesticides: function() { return (pesticides || []).slice(); },
+
+    // The ONLY write path from outside this IIFE. Applies a patch, records
+    // what changed on the record itself, and mirrors it to the audit log.
+    // Refuses silently-unexplained edits: a reason is mandatory, and the
+    // revision trail is appended, never replaced.
+    updateEvent: function(id, patch, reason, diffFn) {
+      var u = window.currentUser || {};
+      if (u.role !== 'admin' && u.role !== 'operator') return { ok: false, err: 'forbidden' };
+      if (!reason || !String(reason).trim()) return { ok: false, err: 'reason-required' };
+
+      var idx = sprayEvents.findIndex(function(e) { return e.id === id; });
+      if (idx === -1) return { ok: false, err: 'not-found' };
+
+      var before = JSON.parse(JSON.stringify(sprayEvents[idx]));
+      var after = JSON.parse(JSON.stringify(before));
+      Object.keys(patch).forEach(function(k) { after[k] = patch[k]; });
+
+      var changes = (typeof diffFn === 'function') ? diffFn(before, after) : [];
+      if (!changes.length) return { ok: true, changes: 0 };
+
+      if (!after.revisions) after.revisions = [];
+      after.revisions.push({
+        at: Date.now(),
+        by: u.username || '',
+        byName: u.name || u.username || '',
+        role: u.role || '',
+        reason: String(reason).trim(),
+        changes: changes
+      });
+
+      sprayEvents[idx] = after;
+      saveData();
+
+      // Best-effort forensic copy. admin-read-only per firestore.rules, which
+      // is why after.revisions exists as the operator-visible trail.
+      if (typeof Audit !== 'undefined' && typeof Audit.log === 'function') {
+        Audit.log('edit', 'spray', String(id), {
+          before: before, after: after, reason: String(reason).trim()
+        });
+      }
+
+      try { renderHistoryList(); } catch (e) {}
+      return { ok: true, changes: changes.length };
+    },
+
+    // A record created moments ago by a mis-tap is not yet a compliance
+    // record — nobody has read it, nothing references it. Removing it
+    // outright is honest. Past the window it becomes history and can only
+    // be voided, never erased.
+    GRACE_MS: 10 * 60 * 1000,
+    graceState: function(id) {
+      var ev = sprayEvents.find(function(e) { return e.id === id; });
+      if (!ev) return { eligible: false };
+      var u = window.currentUser || {};
+      var created = ev.enteredAt || ev.id || 0;
+      var age = Date.now() - created;
+      var mine = !ev.enteredBy || ev.enteredBy === u.username;
+      var untouched = !(ev.revisions && ev.revisions.length);
+      return {
+        eligible: age < this.GRACE_MS && mine && untouched && !ev.voided,
+        minutesLeft: Math.max(0, Math.ceil((this.GRACE_MS - age) / 60000))
+      };
+    },
+    deleteWithinGrace: function(id) {
+      var u = window.currentUser || {};
+      if (u.role !== 'admin' && u.role !== 'operator') return { ok: false, err: 'forbidden' };
+      var st = this.graceState(id);
+      if (!st.eligible) return { ok: false, err: 'grace-expired' };
+      var idx = sprayEvents.findIndex(function(e) { return e.id === id; });
+      if (idx === -1) return { ok: false, err: 'not-found' };
+      var before = JSON.parse(JSON.stringify(sprayEvents[idx]));
+      sprayEvents.splice(idx, 1);
+      saveData();
+      // Even a grace delete is logged. The record is gone from the log; the
+      // fact that it briefly existed is not.
+      if (typeof Audit !== 'undefined' && typeof Audit.log === 'function') {
+        Audit.log('delete', 'spray', String(id), {
+          before: before, after: null, reason: 'grace-window removal'
+        });
+      }
+      try { renderHistoryList(); } catch (e) {}
+      return { ok: true };
+    },
+
+    // Voiding strikes the record without erasing it — the standard way to
+    // retract a compliance entry. Reversible, because mistakes about
+    // mistakes happen too.
+    voidEvent: function(id, reason) {
+      var u = window.currentUser || {};
+      if (u.role !== 'admin' && u.role !== 'operator') return { ok: false, err: 'forbidden' };
+      if (!reason || !String(reason).trim()) return { ok: false, err: 'reason-required' };
+      var idx = sprayEvents.findIndex(function(e) { return e.id === id; });
+      if (idx === -1) return { ok: false, err: 'not-found' };
+      var before = JSON.parse(JSON.stringify(sprayEvents[idx]));
+      sprayEvents[idx].voided = {
+        at: Date.now(),
+        by: u.username || '',
+        byName: u.name || u.username || '',
+        reason: String(reason).trim()
+      };
+      saveData();
+      if (typeof Audit !== 'undefined' && typeof Audit.log === 'function') {
+        Audit.log('void', 'spray', String(id), {
+          before: before, after: sprayEvents[idx], reason: String(reason).trim()
+        });
+      }
+      try { renderHistoryList(); } catch (e) {}
+      return { ok: true };
+    },
+    unvoidEvent: function(id, reason) {
+      var u = window.currentUser || {};
+      if (u.role !== 'admin' && u.role !== 'operator') return { ok: false, err: 'forbidden' };
+      var idx = sprayEvents.findIndex(function(e) { return e.id === id; });
+      if (idx === -1) return { ok: false, err: 'not-found' };
+      var before = JSON.parse(JSON.stringify(sprayEvents[idx]));
+      delete sprayEvents[idx].voided;
+      saveData();
+      if (typeof Audit !== 'undefined' && typeof Audit.log === 'function') {
+        Audit.log('unvoid', 'spray', String(id), {
+          before: before, after: sprayEvents[idx], reason: String(reason || '').trim() || null
+        });
+      }
+      try { renderHistoryList(); } catch (e) {}
+      return { ok: true };
+    },
+    showVoided: function(v) {
+      if (typeof v === 'boolean') { _showVoided = v; try { renderHistoryList(); } catch (e) {} }
+      return _showVoided;
     }
   };
 
@@ -2908,10 +3043,21 @@
 
   function renderHistoryList() {
     var container = document.getElementById('historyList');
-    var accessibleEvents = getAccessibleSprayEvents();
-    
+    var allEvents = getAccessibleSprayEvents();
+    var voidedCount = allEvents.filter(function(e) { return e.voided; }).length;
+    var accessibleEvents = _showVoided ? allEvents
+      : allEvents.filter(function(e) { return !e.voided; });
+
+    var voidBar = '';
+    if (voidedCount) {
+      voidBar = '<div class="void-bar"><button type="button" class="void-toggle" ' +
+        'onclick="SprayStore.showVoided(' + (!_showVoided) + ')">' +
+        (_showVoided ? t('הסתר רשומות שבוטלו') : t('הצג רשומות שבוטלו')) +
+        ' (' + voidedCount + ')</button></div>';
+    }
+
     if (accessibleEvents.length === 0) {
-      container.innerHTML = '<div class="empty-state"><div class="icon">📋</div>' +
+      container.innerHTML = voidBar + '<div class="empty-state"><div class="icon">📋</div>' +
         '<p>' + t('אין היסטוריה') + '</p></div>';
       return;
     }
@@ -2920,7 +3066,7 @@
       return new Date(b.date) - new Date(a.date);
     });
 
-    var html = '';
+    var html = voidBar;
     sorted.forEach(function(event) {
       var plotNames = event.plotIds.map(function(id) {
         var p = plots.find(function(plot) { return plot.id === id; });
@@ -2949,10 +3095,24 @@
         reconBadge = '<span class="recon-badge recon-' + rc + '">' + t('שחזור') + (rcLabel ? ' · ' + rcLabel : '') + '</span>';
       }
 
-      html += '<div class="history-item' + (recon ? ' is-reconstructed' : '') + '">';
+      html += '<div class="history-item' + (recon ? ' is-reconstructed' : '') +
+        (event.voided ? ' is-voided' : '') + '">';
+      if (event.voided) {
+        html += '<div class="void-banner">🚫 ' + t('רשומה בוטלה') + ' · ' +
+          new Date(event.voided.at).toLocaleDateString('he-IL') + ' · ' +
+          (event.voided.byName || event.voided.by || '') +
+          (event.voided.reason ? ' — ' + event.voided.reason : '') + '</div>';
+      }
       html += '<div class="history-header">';
       html += '<span class="history-date">' + formatDate(event.date) + reconBadge + '</span>';
-      html += '<span class="history-operator">' + event.operator + '</span>';
+      var revCount = (event.revisions || []).length;
+      var revBadge = revCount
+        ? '<span class="rev-badge" title="' + t('נערך') + '">✏ ' + revCount + '</span>' : '';
+      var canEditRow = window.SprayEdit && window.SprayEdit.canEdit();
+      html += '<span class="history-operator">' + event.operator + revBadge +
+        (canEditRow
+          ? '<button type="button" class="history-edit" onclick="SprayEdit.open(' + event.id + ')">✏️</button>'
+          : '') + '</span>';
       html += '</div>';
       html += '<div class="history-plots">' + t('חלקות') + ': ' + plotNames + ' (' + totalArea.toFixed(2) + ' ' + t('דונם') + ')</div>';
       html += '<div class="history-meta" style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">';
@@ -2986,6 +3146,15 @@
           event.linkedReportIds.length + ' ' + t('דוחות מקושרים — לא נטענו') + '</div></div>';
       }
 
+      if (revCount) {
+        var lastRev = event.revisions[revCount - 1];
+        html += '<div class="history-revs">✏ ' + t('נערך') + ' ' + revCount + ' ' +
+          (revCount === 1 ? t('פעם') : t('פעמים')) + ' · ' +
+          t('אחרון') + ': ' + new Date(lastRev.at).toLocaleDateString('he-IL') +
+          ' · ' + (lastRev.byName || lastRev.by || '') +
+          (lastRev.reason ? ' — ' + lastRev.reason : '') + '</div>';
+      }
+
       html += '</div>';
     });
 
@@ -2998,7 +3167,7 @@
   }
 
   document.getElementById('exportPdfBtn').addEventListener('click', function() {
-    if (sprayEvents.length === 0) {
+    if (sprayEvents.filter(function(e) { return !e.voided; }).length === 0) {
       showToast('❌ ' + t('אין יומני ריסוס לייצוא'));
       return;
     }
@@ -3023,9 +3192,11 @@
   });
 
   function generatePdfHtml() {
-    var sorted = sprayEvents.slice().sort(function(a, b) {
-      return new Date(b.date) - new Date(a.date);
-    });
+    var voidedEvents = sprayEvents.filter(function(e) { return e.voided; });
+    var sorted = sprayEvents.filter(function(e) { return !e.voided; })
+      .sort(function(a, b) {
+        return new Date(b.date) - new Date(a.date);
+      });
 
     var html = '<!DOCTYPE html>\n<html lang="he" dir="rtl">\n<head>\n';
     html += '<meta charset="UTF-8">\n';
@@ -3045,6 +3216,10 @@
     html += '.recon-tag { display:inline-block; margin-top:4px; padding:2px 7px; border-radius:5px; background:#b45309; color:#fff; font-size:0.66rem; font-weight:700; }\n';
     html += '.recon-basis { margin-top:6px; padding-top:5px; border-top:1px dotted #d8c9a8; font-size:0.7rem; color:#7a6a4a; }\n';
     html += '.chain-cell { margin-top:6px; padding:5px 8px; border-inline-start:2px solid #2d6a4f; background:#f2f7f4; font-size:0.7rem; color:#3d5a4a; border-radius:4px; }\n';
+    html += '.revs-cell { margin-top:5px; font-size:0.68rem; color:#8a7f70; font-style:italic; }\n';
+    html += '.void-appendix { margin:0 16px 16px; padding:10px 14px; border-inline-start:3px solid #9a3412; background:#fdf1ec; font-size:0.72rem; color:#7a4a3a; border-radius:6px; }\n';
+    html += '.void-appendix ul { margin:6px 0 0; padding-inline-start:18px; }\n';
+    html += '.void-appendix li { margin:3px 0; }\n';
     html += '.recon-legend { margin:0 16px 14px; padding:9px 12px; border-inline-start:3px solid #b45309; background:#fdf6e8; font-size:0.72rem; color:#7a6a4a; border-radius:6px; }\n';
     html += 'tr:last-child td { border-bottom: none; }\n';
     html += 'tr:nth-child(even) td { background: #faf8f5; }\n';
@@ -3124,6 +3299,16 @@
           }).join('; ') + '</div>';
       }
 
+      var pdfRevs = '';
+      if (event.revisions && event.revisions.length) {
+        var lastR = event.revisions[event.revisions.length - 1];
+        pdfRevs = '<div class="revs-cell">✏ ' + t('נערך') + ' ' + event.revisions.length + ' ' +
+          (event.revisions.length === 1 ? t('פעם') : t('פעמים')) + ' · ' + t('אחרון') + ': ' +
+          new Date(lastR.at).toLocaleDateString('he-IL') +
+          (lastR.byName ? ' · ' + lastR.byName : '') +
+          (lastR.reason ? ' — ' + lastR.reason : '') + '</div>';
+      }
+
       html += '<tr' + (rr ? ' class="row-reconstructed"' : '') + '>' +
         '<td class="event-date">' + formatDate(event.date) + pdfRecon + '</td>' +
         '<td>' + (event.operator || '') + '</td>' +
@@ -3131,11 +3316,24 @@
         '<td>' + totalArea.toFixed(2) + ' ' + t('דונם') + '</td>' +
         '<td>' + event.volumePerTree + ' ' + t('ליטר') + '</td>' +
         '<td>' + event.sprayerCapacity + ' ' + t('ליטר') + '</td>' +
-        '<td>' + pestCell + pdfChain + pdfBasis + '</td>' +
+        '<td>' + pestCell + pdfChain + pdfBasis + pdfRevs + '</td>' +
       '</tr>\n';
     });
 
     html += '</tbody>\n</table>\n';
+    if (voidedEvents.length) {
+      html += '<div class="void-appendix"><strong>' + t('רשומות שבוטלו') + '</strong> — ' +
+        t('אינן חלק מיומן הריסוסים הפעיל ומופיעות כאן לשקיפות בלבד') + ':<ul>';
+      voidedEvents.sort(function(a, b) { return new Date(b.date) - new Date(a.date); })
+        .forEach(function(e) {
+          html += '<li>' + formatDate(e.date) + ' · ' + (e.operator || '') + ' · ' +
+            (e.applications || []).map(function(a) { return a.productName || ''; }).join(', ') +
+            ' — ' + t('בוטל') + ' ' + new Date(e.voided.at).toLocaleDateString('he-IL') +
+            (e.voided.byName ? ' · ' + e.voided.byName : '') +
+            (e.voided.reason ? ' — ' + e.voided.reason : '') + '</li>';
+        });
+      html += '</ul></div>\n';
+    }
     if (sorted.some(function(e) { return e.reconstruction && e.reconstruction.reconstructed; })) {
       html += '<div class="recon-legend">' +
         t('שורות המסומנות "שחזור רטרואקטיבי" נבנו לאחר מעשה מתוך אסמכתאות ועדויות, ואינן רישום שנערך במועד הריסוס. מקור השחזור ורמת הוודאות מצוינים בכל שורה.') +

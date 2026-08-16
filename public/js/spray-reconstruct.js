@@ -1,20 +1,35 @@
 /* spray-reconstruct.js — retroactive spray entry with provenance
  * -------------------------------------------------------------
- * For sprays that were performed but never properly logged. The record
- * captures what it is (a reconstruction), what it's based on, who built
- * it and when — so it stands up to an inspector instead of quietly
- * pretending to be a contemporaneous log.
+ * Distinguishes two things that were previously conflated:
  *
- * `date` remains the date the spray HAPPENED. reconstructedAt is when it
- * was pieced together. Keeping the two separate is the whole point.
+ *   NORMAL ENTRY LAG. Sprayed Tuesday, keyed in Thursday. This is ordinary
+ *   record-keeping, not a reconstruction, and gets no marking whatsoever.
+ *   Marking it would make the badge meaningless through sheer volume.
  *
- * Exposes SprayReconstruct.getMeta(), read by app.js's submit handler.
- * No new Firestore keys — this rides inside plotMapperSprayData.
+ *   RECONSTRUCTION. Piecing an application back together months later from
+ *   invoices, stock movements and what the crew remembers. Materially a
+ *   different kind of record, and marked as one.
+ *
+ * The line between them is LAG_DAYS_BEFORE_RECON. Under it, reconstruction
+ * mode is available but optional — tick it if you're genuinely rebuilding
+ * something. Over it, it engages automatically and locks, because past that
+ * point an unmarked entry would be asserting a precision it doesn't have.
+ *
+ * `date` is always when the spray HAPPENED. enteredAt (written by app.js on
+ * every entry, marked or not) is when it was keyed in. That pair is the real
+ * audit trail; the badge is just the part that surfaces in reports.
  */
 var SprayReconstruct = (function () {
   'use strict';
 
+  // Two weeks covers realistic operational lag — a busy season, a foreman
+  // away, a backlog of paperwork — without covering "I'm rebuilding last
+  // year from receipts". Raise it if your workflow genuinely needs more;
+  // raising it to a full season defeats the point of having it.
+  var LAG_DAYS_BEFORE_RECON = 14;
+
   var active = false;
+  var forced = false;
 
   function tt(he, th, ar) {
     var lang = (typeof currentLang !== 'undefined') ? currentLang : 'he';
@@ -35,6 +50,14 @@ var SprayReconstruct = (function () {
   function toast(msg) {
     if (typeof showToast === 'function') showToast(msg);
     else alert(msg);
+  }
+
+  function lagDays() {
+    var d = document.getElementById('sprayDate');
+    if (!d || !d.value) return 0;
+    var ms = new Date(todayISO()).getTime() - new Date(d.value).getTime();
+    if (isNaN(ms)) return 0;
+    return Math.round(ms / 86400000);
   }
 
   // ── UI ──
@@ -76,16 +99,21 @@ var SprayReconstruct = (function () {
       '</div>';
     anchor.parentNode.insertBefore(card, anchor.nextSibling);
 
-    localize();
+    localizeStatic();
 
     document.getElementById('reconToggle').addEventListener('change', function () {
+      if (forced) { this.checked = true; return; }
       active = this.checked;
-      document.getElementById('reconFields').style.display = active ? '' : 'none';
-      document.getElementById('reconCard').classList.toggle('recon-on', active);
+      paint();
     });
+
+    var d = document.getElementById('sprayDate');
+    d.addEventListener('change', syncLag);
+    d.addEventListener('input', syncLag);
+    syncLag();
   }
 
-  function localize() {
+  function localizeStatic() {
     var set = function (id, txt) {
       var el = document.getElementById(id);
       if (el) el.textContent = txt;
@@ -93,9 +121,6 @@ var SprayReconstruct = (function () {
     set('reconToggleLabel', tt('שחזור ריסוס שלא תועד',
                                'สร้างบันทึกการพ่นย้อนหลัง',
                                'إعادة بناء رش غير موثق'));
-    set('reconIntro', tt('לרישום ריסוס שבוצע בפועל אך לא נרשם במועד. הרשומה תסומן כשחזור.',
-                         'สำหรับการพ่นที่ทำจริงแต่ไม่ได้บันทึกตอนนั้น บันทึกจะถูกทำเครื่องหมายว่าสร้างย้อนหลัง',
-                         'لتسجيل رش نُفّذ فعليًا ولم يُوثّق في حينه. سيُوسم السجل كإعادة بناء.'));
     set('reconBanner', tt('⚠ רשומה זו תסומן כשחזור בכל דוח ובכל ייצוא',
                           '⚠ บันทึกนี้จะถูกทำเครื่องหมายว่าสร้างย้อนหลังในทุกรายงาน',
                           '⚠ سيُوسم هذا السجل كإعادة بناء في كل تقرير وتصدير'));
@@ -123,9 +148,65 @@ var SprayReconstruct = (function () {
     }
   }
 
+  // Recompute forced/optional state from the spray date.
+  function syncLag() {
+    var lag = lagDays();
+    var toggle = document.getElementById('reconToggle');
+    if (!toggle) return;
+
+    var wasForced = forced;
+    forced = lag > LAG_DAYS_BEFORE_RECON;
+
+    if (forced) {
+      toggle.checked = true;
+      toggle.disabled = true;
+      active = true;
+      if (!wasForced) {
+        toast('ℹ ' + tt('רישום ישן מ-' + LAG_DAYS_BEFORE_RECON + ' יום — סומן אוטומטית כשחזור',
+                        'บันทึกเก่ากว่า ' + LAG_DAYS_BEFORE_RECON + ' วัน — ทำเครื่องหมายย้อนหลังอัตโนมัติ',
+                        'سجل أقدم من ' + LAG_DAYS_BEFORE_RECON + ' يومًا — وُسم تلقائيًا كإعادة بناء'));
+      }
+    } else {
+      toggle.disabled = false;
+      if (wasForced) { toggle.checked = false; active = false; }
+      else { active = toggle.checked; }
+    }
+    paint(lag);
+  }
+
+  function paint(lag) {
+    if (typeof lag !== 'number') lag = lagDays();
+    var fields = document.getElementById('reconFields');
+    var card = document.getElementById('reconCard');
+    var intro = document.getElementById('reconIntro');
+    if (!fields || !card || !intro) return;
+
+    fields.style.display = active ? '' : 'none';
+    card.classList.toggle('recon-on', active);
+    card.classList.toggle('recon-forced', forced);
+
+    if (forced) {
+      intro.textContent = tt(
+        'הריסוס בוצע לפני ' + lag + ' ימים. מעבר ל-' + LAG_DAYS_BEFORE_RECON +
+          ' יום הרישום מסומן כשחזור אוטומטית — לא ניתן לבטל.',
+        'การพ่นเกิดขึ้น ' + lag + ' วันที่แล้ว เกิน ' + LAG_DAYS_BEFORE_RECON +
+          ' วันจะถูกทำเครื่องหมายย้อนหลังอัตโนมัติ',
+        'تم الرش قبل ' + lag + ' يومًا. بعد ' + LAG_DAYS_BEFORE_RECON +
+          ' يومًا يُوسم السجل تلقائيًا كإعادة بناء.');
+    } else if (lag > 0) {
+      intro.textContent = tt(
+        'פיגור רגיל של ' + lag + ' ימים — הרישום נשמר ללא סימון. סמן ידנית רק אם אתה משחזר מתוך אסמכתאות.',
+        'ล่าช้าปกติ ' + lag + ' วัน — บันทึกโดยไม่มีเครื่องหมาย ทำเครื่องหมายเองเฉพาะเมื่อสร้างย้อนหลังจากเอกสาร',
+        'تأخير عادي ' + lag + ' أيام — يُحفظ دون وسم. ضع الوسم يدويًا فقط عند إعادة البناء من مستندات.');
+    } else {
+      intro.textContent = tt(
+        'רישום שוטף — נשמר ללא סימון. סמן ידנית רק אם אתה משחזר ריסוס ישן.',
+        'บันทึกปัจจุบัน — ไม่มีเครื่องหมาย ทำเครื่องหมายเองเฉพาะเมื่อสร้างย้อนหลัง',
+        'تسجيل جارٍ — دون وسم. ضع الوسم يدويًا فقط عند إعادة بناء رش قديم.');
+    }
+  }
+
   // ── date guard ──
-  // A log entry dated forward isn't a record of anything. Planning lives in
-  // the maintenance schedule.
   function capDate() {
     var d = document.getElementById('sprayDate');
     if (d) d.setAttribute('max', todayISO());
@@ -155,6 +236,7 @@ var SprayReconstruct = (function () {
         return;
       }
 
+      syncLag();
       if (!active) return;
 
       var basisEl = document.getElementById('reconBasis');
@@ -194,6 +276,7 @@ var SprayReconstruct = (function () {
 
   // Public API — read by app.js's submit handler.
   return {
+    thresholdDays: LAG_DAYS_BEFORE_RECON,
     getMeta: function () {
       if (!active) return null;
       var g = function (id) {
@@ -206,22 +289,23 @@ var SprayReconstruct = (function () {
         reconstructedBy: (window.currentUser ? window.currentUser.username : ''),
         evidenceBasis: g('reconBasis'),
         sourceRefs: g('reconRefs'),
-        confidence: g('reconConfidence')
+        confidence: g('reconConfidence'),
+        lagDays: lagDays(),
+        // true = engaged automatically by age, false = operator chose it
+        autoFlagged: forced
       };
     },
     isActive: function () { return active; },
     reset: function () {
-      active = false;
       var t = document.getElementById('reconToggle');
-      if (t) t.checked = false;
+      if (t) { t.disabled = false; t.checked = false; }
+      forced = false;
+      active = false;
       ['reconBasis', 'reconRefs', 'reconConfidence'].forEach(function (id) {
         var el = document.getElementById(id);
         if (el) el.value = '';
       });
-      var f = document.getElementById('reconFields');
-      if (f) f.style.display = 'none';
-      var c = document.getElementById('reconCard');
-      if (c) c.classList.remove('recon-on');
+      syncLag();
     }
   };
 })();
