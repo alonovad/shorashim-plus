@@ -1546,35 +1546,36 @@ body.theme-classic #registerOpenLink { color: #2e7d32 !important; text-shadow: n
 
 
 /* ══ nav dropdown: materials grouped under ריסוס ══ */
-.tab-drop { position: relative; display: inline-flex; align-items: center; flex: 0 0 auto; }
+.tab-drop { position: relative; display: inline-block; }
 .tab-drop > .tab { display: inline-flex; align-items: center; gap: 4px; }
 .tab-drop-caret { font-size: 0.7em; opacity: 0.65; transition: transform 0.18s ease; }
+.tab-drop:hover .tab-drop-caret,
 .tab-drop.open .tab-drop-caret { transform: rotate(180deg); opacity: 1; }
-.tab-drop > .tab.has-active-child { color: var(--g3); }
+.tab-drop > .tab.has-active-child { color: var(--accent, #7ec9a4); }
 .tab-drop > .tab.has-active-child::after { transform: scaleX(1); }
-/* The menu is portaled to <body> by nav-dropdown.js: .tab-bar has
-   overflow-x:auto (so it clips vertically) AND backdrop-filter (so it
-   is a containing block for fixed children) — a menu rendered inside
-   the bar is clipped away and unreachable. Coordinates are set in JS. */
 .tab-drop-menu {
-  position: fixed; top: 0; left: 0; min-width: 190px; padding: 6px; z-index: 99997;
+  position: absolute; top: 100%; right: 0; min-width: 190px; padding: 6px; z-index: 900;
   display: flex; flex-direction: column;
-  background: var(--card-solid, #ffffff);
-  border: 1px solid var(--g5, rgba(126, 201, 164, 0.35));
-  border-radius: 12px; box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
-  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  background: var(--panel-bg, rgba(20, 32, 26, 0.97));
+  border: 1px solid var(--panel-border, rgba(126, 201, 164, 0.28));
+  border-radius: 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
   opacity: 0; visibility: hidden; transform: translateY(-6px);
   transition: opacity 0.16s ease, transform 0.16s ease, visibility 0.16s;
 }
-.tab-drop-menu.open { opacity: 1; visibility: visible; transform: translateY(0); }
+.tab-drop:hover .tab-drop-menu,
+.tab-drop:focus-within .tab-drop-menu,
+.tab-drop.open .tab-drop-menu { opacity: 1; visibility: visible; transform: translateY(0); }
 .tab-drop-menu .tab {
   display: block; width: 100%; text-align: right;
-  padding: 10px 12px; border-radius: 8px; white-space: nowrap;
-  border-bottom: none;
+  padding: 9px 12px; border-radius: 7px; white-space: nowrap;
 }
 .tab-drop-menu .tab::after { display: none; }
-.tab-drop-menu .tab:hover { background: rgba(126, 201, 164, 0.14); }
-.tab-drop-menu .tab.active { background: rgba(126, 201, 164, 0.22); }
+.tab-drop-menu .tab:hover { background: var(--hover-bg, rgba(126, 201, 164, 0.12)); }
+.tab-drop-menu .tab.active { background: var(--hover-bg, rgba(126, 201, 164, 0.18)); }
+@media (hover: none) {
+  .tab-drop:hover .tab-drop-menu { opacity: 0; visibility: hidden; }
+  .tab-drop.open .tab-drop-menu { opacity: 1; visibility: visible; }
+}
 
 /* ══ spray: linked inspection reports ══ */
 .sl-hint { font-size: 0.82rem; opacity: 0.7; margin-bottom: 10px; }
