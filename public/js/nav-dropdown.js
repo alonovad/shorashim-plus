@@ -1,27 +1,36 @@
 /* nav-dropdown.js — groups material tabs under the ריסוס tab
  * ------------------------------------------------------------------
  * Moves the existing "חומרים" (data-tab="admin") and "חיפוש חומרים"
- * (data-tab="pestsearch") tab elements into a hover/tap dropdown that
- * hangs off the "ריסוס" (data-tab="spray") tab.
+ * (data-tab="pestsearch") tab elements into a dropdown that hangs off
+ * the "ריסוס" (data-tab="spray") tab.
+ *
+ * WHY THE MENU LIVES ON <body>:
+ *   .tab-bar has `overflow-x: auto` (horizontal tab scrolling) AND
+ *   `backdrop-filter: blur(12px)`. Per spec, overflow-x:auto with
+ *   overflow-y:visible computes to overflow-y:auto, so the bar clips
+ *   its descendants vertically; and a non-none backdrop-filter makes
+ *   .tab-bar a containing block for fixed-position descendants too.
+ *   Result: a dropdown rendered *inside* the bar is clipped away and
+ *   invisible — which is exactly how the חומרים + חיפוש חומרים tabs
+ *   vanished from the UI. The menu is therefore portaled to <body>
+ *   and positioned with position:fixed coordinates computed from the
+ *   parent tab's bounding rect.
  *
  * IMPORTANT: the original DOM NODES are MOVED, not cloned or rebuilt.
- * That means every existing reference keeps working untouched:
- *   - the global .tab click handler in app.js (~line 1843)
+ * Every existing reference keeps working untouched:
+ *   - the per-tab click handler bound in app.js (~line 2178)
  *   - the admin-only role gate that toggles style.display on
  *     [data-tab="admin"]
- *   - any querySelector('[data-tab="..."]') elsewhere in the app
+ *   - querySelector('[data-tab="..."]') / '.tab[data-t-key]' elsewhere
  * Nothing in app.js needs to change.
- *
- * The children keep their .tab class so app.js still switches content
- * correctly. Because that handler clears .active from every .tab, the
- * parent would visually go dark while a child is open — so we mirror
- * child state onto the parent with .has-active-child.
  */
 (function () {
   'use strict';
 
   var SPRAY = '[data-tab="spray"]';
   var CHILDREN = ['admin', 'pestsearch'];
+  var GAP = 4;   // px between the tab bar and the menu
+  var EDGE = 8;  // min px from the viewport edge
 
   function build() {
     var bar = document.querySelector('.tab-bar');
@@ -34,7 +43,7 @@
     }).filter(Boolean);
     if (!kids.length) return;
 
-    // Wrapper takes the spray tab's place in the bar.
+    // ── wrapper takes the spray tab's place in the bar ──
     var wrap = document.createElement('div');
     wrap.className = 'tab-drop';
     spray.parentNode.insertBefore(wrap, spray);
@@ -47,43 +56,89 @@
     caret.textContent = '\u25BE';
     spray.appendChild(caret);
 
+    // ── menu is portaled to <body> so nothing can clip it ──
     var menu = document.createElement('div');
     menu.className = 'tab-drop-menu';
     menu.setAttribute('role', 'menu');
     kids.forEach(function (k) { menu.appendChild(k); });
-    wrap.appendChild(menu);
+    document.body.appendChild(menu);
 
     spray.setAttribute('aria-haspopup', 'true');
     spray.setAttribute('aria-expanded', 'false');
 
-    // ── touch / no-hover devices: first tap opens, second selects ──
-    var noHover = window.matchMedia && window.matchMedia('(hover: none)').matches;
+    var open = false;
+    var hideTimer = null;
+
+    function place() {
+      var r = spray.getBoundingClientRect();
+      var w = menu.offsetWidth || 190;
+      var vw = window.innerWidth || document.documentElement.clientWidth;
+      // RTL app: align the menu's right edge with the tab's right edge.
+      var left = r.right - w;
+      if (left + w > vw - EDGE) left = vw - EDGE - w;
+      if (left < EDGE) left = EDGE;
+      menu.style.left = Math.round(left) + 'px';
+      menu.style.top = Math.round(r.bottom + GAP) + 'px';
+    }
+
+    function openMenu() {
+      clearTimeout(hideTimer);
+      if (!spray.offsetParent && spray.getClientRects().length === 0) return; // bar hidden (e.g. login)
+      open = true;
+      menu.classList.add('open');
+      spray.setAttribute('aria-expanded', 'true');
+      wrap.classList.add('open');
+      place();
+    }
+
+    function closeMenu() {
+      clearTimeout(hideTimer);
+      open = false;
+      menu.classList.remove('open');
+      wrap.classList.remove('open');
+      spray.setAttribute('aria-expanded', 'false');
+    }
+
+    function closeSoon() {
+      clearTimeout(hideTimer);
+      hideTimer = setTimeout(closeMenu, 220);
+    }
+
+    var noHover = !!(window.matchMedia && window.matchMedia('(hover: none)').matches);
+
     if (noHover) {
+      // Touch: first tap opens the menu, second tap selects the spray tab.
       spray.addEventListener('click', function (e) {
-        if (!wrap.classList.contains('open')) {
+        if (!open) {
           e.preventDefault();
           e.stopPropagation();
           openMenu();
         }
       }, true);
       document.addEventListener('click', function (e) {
-        if (!wrap.contains(e.target)) closeMenu();
+        if (!wrap.contains(e.target) && !menu.contains(e.target)) closeMenu();
       });
-      menu.addEventListener('click', function () { closeMenu(); });
+    } else {
+      wrap.addEventListener('mouseenter', openMenu);
+      wrap.addEventListener('mouseleave', closeSoon);
+      menu.addEventListener('mouseenter', function () { clearTimeout(hideTimer); });
+      menu.addEventListener('mouseleave', closeSoon);
+      spray.addEventListener('focus', openMenu);
+      wrap.addEventListener('click', function () { closeMenu(); });
     }
 
-    function openMenu() {
-      wrap.classList.add('open');
-      spray.setAttribute('aria-expanded', 'true');
-    }
-    function closeMenu() {
-      wrap.classList.remove('open');
-      spray.setAttribute('aria-expanded', 'false');
-    }
+    // Selecting a child always closes the menu.
+    menu.addEventListener('click', function () { closeMenu(); });
 
     document.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape') closeMenu();
+      if (e.key === 'Escape' || e.key === 'Esc') closeMenu();
     });
+
+    // Keep the fixed menu glued to its tab while things move underneath.
+    function reflow() { if (open) place(); }
+    window.addEventListener('resize', reflow);
+    window.addEventListener('scroll', reflow, true);
+    bar.addEventListener('scroll', reflow);
 
     // ── keep the parent lit while one of its children is the open tab ──
     function sync() {
@@ -92,11 +147,8 @@
       });
       spray.classList.toggle('has-active-child', childActive);
     }
-    kids.forEach(function (k) {
-      k.addEventListener('click', function () { setTimeout(sync, 0); });
-    });
-    document.querySelectorAll('.tab').forEach(function (t) {
-      t.addEventListener('click', function () { setTimeout(sync, 0); });
+    document.addEventListener('click', function (e) {
+      if (e.target && e.target.closest && e.target.closest('.tab')) setTimeout(sync, 0);
     });
     sync();
   }
