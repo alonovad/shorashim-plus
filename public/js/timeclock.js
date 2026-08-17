@@ -724,7 +724,9 @@ var TimeClock = (function() {
       html += '<button onclick="Team.show();TimeClock.closeMenu()" style="' + menuBtn + 'background:#e8eaf6;">' + tt('👥 הצוות שלי', '👥 ทีมของฉัน', '👥 فريقي') + '</button>';
 
       // ── דוחות סיור (standalone) ──
-      html += '<button onclick="FieldReport.showReportsList();TimeClock.closeMenu()" style="' + menuBtn + 'background:#f9fbe7;">' + tt('🔬 דוחות סיור', '🔬 รายงานสำรวจ', '🔬 تقارير الجولات') + '</button>';
+      // Opens the season monitoring grid; the older per-observation reports
+      // (which feed the spray traceability chain) hang off a button inside it.
+      html += '<button onclick="PestMonitor.open();TimeClock.closeMenu()" style="' + menuBtn + 'background:#f9fbe7;">' + tt('🔬 דוחות סיור', '🔬 รายงานสำรวจ', '🔬 تقارير الجولات') + '</button>';
 
       // ── מחלקת תחזוקה (standalone, renamed) ──
       html += '<button onclick="Maintenance.showProjectsList();TimeClock.closeMenu()" style="' + menuBtn + 'background:#efebe9;">' + tt('🔧 מחלקת תחזוקה', '🔧 แผนกซ่อมบำรุง', '🔧 قسم الصيانة') + '</button>';

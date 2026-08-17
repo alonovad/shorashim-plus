@@ -1,0 +1,190 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      // Phone-provider sessions are temporary (SMS credential recovery
+      // only) and must never read or write app data — recovery runs
+      // through the recoverAccount Cloud Function (Admin SDK).
+      return request.auth != null &&
+             request.auth.token.firebase.sign_in_provider != 'phone';
+    }
+    function getRole() {
+      // Users without a custom claim must read as null. An ABSENT claim is
+      // not the same as null in rules: request.auth.token.role would be
+      // undefined and `undefined == null` is false, so noRoleYet() never
+      // fired and every claim-less user was denied. .get(key, default)
+      // returns the default when the field is missing — this is the fix.
+      return request.auth.token.get('role', null);
+    }
+    function isAdmin() {
+      return isSignedIn() && getRole() == 'admin';
+    }
+    function isOperatorOrAbove() {
+      return isSignedIn() && getRole() in ['admin', 'operator'];
+    }
+    function isWorkerOrAbove() {
+      return isSignedIn() && getRole() in ['admin', 'operator', 'worker'];
+    }
+    // Transition: allow if user has no role yet (custom claims not set)
+    // Remove this function after all users have logged in once
+    function noRoleYet() {
+      return isSignedIn() && getRole() == null;
+    }
+    // App stores `username` as the prefix of the user's email (everything
+    // before '@'), via email.split('@')[0] WITHOUT lowercasing — so a
+    // worker with an uppercase email local-part (e.g. Somchai@gmail.com)
+    // gets username "Somchai". Compare both sides lowercased, by EQUALITY
+    // against the email prefix. Equality (not matches) is deliberate:
+    // injecting the username into a regex let a worker set username='.*'
+    // to match any email and forge ownership. split('@')[0] is CEL-safe.
+    function isOwn(usernameField) {
+      return isSignedIn() && request.auth.token.email != null &&
+             usernameField.lower() == request.auth.token.email.lower().split('@')[0];
+    }
+
+    // ── appData collection ──
+    match /appData/{docId} {
+      allow read: if isSignedIn();
+
+      // TEMPORARY (broad grant): any signed-in user may write
+      // shorashim-users. The app writes the WHOLE users blob for ordinary
+      // self-service actions (primary plot, email edit, leave balances),
+      // so operator-only blocked workers. This unblocks all users now.
+      // ⚠ RISK: a worker can overwrite the whole doc, including their own
+      // role → admin. The UI gates role changes, but the rule no longer
+      // does. Proper fix: split self-service fields (primary_plot_id,
+      // email) into per-user docs so workers write only their own record,
+      // then revert this to operator-only for identity/role.
+      allow write: if isSignedIn() && docId == 'shorashim-users';
+
+      // Other admin-only docs (settings, config, talgil)
+      allow write: if (isAdmin() || noRoleYet()) && docId in [
+        'shorashim-talgil-config',
+        'shorashim-talgil-cache',
+        'shorashim-apps-script-url',
+        'shorashim-valve-plot-map',
+        'shorashim-crop-types',
+        'shorashim-maintenance',
+        'shorashim-maintenance-access'
+      ];
+
+      // Operator+: operational data
+      allow write: if (isOperatorOrAbove() || noRoleYet()) && docId in [
+        'plotMapperSprayData',
+        'shorashim-tasks',
+        'shorashim-field-reports',
+        'shorashim-pest-lists',
+        'shorashim-custom-actions',
+        'shorashim-custom-worker-groups',
+        'shorashim-workers',
+        'shorashim-manager-teams',
+        'shorashim-receipts'
+      ];
+
+      // Operator+: one pest-monitoring document per growing year
+      // (shorashim-pest-monitor-2026, -2027, ...). Prefix match rather than a
+      // literal list so a new season needs no rules deploy.
+      allow write: if (isOperatorOrAbove() || noRoleYet()) &&
+                      docId.matches('shorashim-pest-monitor-[0-9]{4}');
+
+      // Worker+: worklogs
+      allow write: if (isWorkerOrAbove() || noRoleYet()) && docId.matches('shorashim-worklog.*');
+
+      // Worker+: shared maintenance calendar. Any role granted maintenance
+      // access (or admin) edits events; the UI enforces the access-map gate.
+      // Worker+ tier avoids silent write failures for access-granted workers.
+      allow write: if (isWorkerOrAbove() || noRoleYet()) && docId == 'shorashim-maintenance-schedule';
+    }
+
+    // ── timeclock collection ──
+    match /timeclock/{recordId} {
+      allow read: if isSignedIn();
+
+      // Workers create their own records
+      allow create: if (isWorkerOrAbove() || noRoleYet());
+
+      // Workers update their own records (Phase 1+ enforces username
+      // matches the prefix of the auth email). Admin bypasses isOwn
+      // because their username field may be manually set (e.g. 'admin')
+      // and not match their email prefix.
+      allow update: if isAdmin() ||
+                       ((isWorkerOrAbove() || noRoleYet()) &&
+                        isOwn(resource.data.username));
+
+      // Operator+ can edit/delete any record (force-approve, fix mistakes)
+      allow update, delete: if isOperatorOrAbove() || noRoleYet();
+    }
+
+    // ── audit-log collection (Phase 1) ──
+    // Workers create their own audit entries (for actions like leave
+    // submit) — the actor field must match their identity to prevent
+    // forgery. Operator+ can create any entry. Admin reads.
+    // Admin bypasses isOwn — see comment on timeclock rule.
+    match /audit-log/{entryId} {
+      allow read:   if isAdmin();
+      allow create: if (isOperatorOrAbove() || noRoleYet()) ||
+                       (isWorkerOrAbove() && isOwn(request.resource.data.actor)) ||
+                       isAdmin();
+      allow update, delete: if false;
+    }
+
+    // ── leave-requests collection (Phase 4) ──
+    match /leave-requests/{requestId} {
+      allow read: if isSignedIn();
+
+      // Worker creates own request. Gate on role tier (worker+) ONLY —
+      // identical to the timeclock create rule, which works. We dropped the
+      // isOwn(token.email) ownership check that was here: an absent or
+      // mismatched email claim made it return false and denied every leave
+      // write (while timeclock, lacking the check, kept working). The app
+      // always sets username to the logged-in user. Viewer stays blocked
+      // (not worker+), and the UI hides leave from viewers anyway.
+      allow create: if isWorkerOrAbove() || noRoleYet();
+
+      // Operator+ approves/rejects
+      allow update: if isOperatorOrAbove() || noRoleYet();
+
+      // Worker cancels their own still-pending request — only the
+      // status field may change (no sneaking other edits in).
+      // Admin can cancel any.
+      allow update: if isAdmin() ||
+                    ((isWorkerOrAbove() || noRoleYet()) &&
+                     isOwn(resource.data.username) &&
+                     resource.data.status == 'pending' &&
+                     request.resource.data.status == 'cancelled' &&
+                     request.resource.data.diff(resource.data)
+                       .affectedKeys().hasOnly(['status']));
+
+      allow delete: if false;
+    }
+
+    // ── holidays collection (Phase 4) ──
+    match /holidays/{year} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin() || noRoleYet();
+    }
+
+    // ── presence collection (who currently has the app open) ──
+    // Doc id == username. Any signed-in user heartbeats ONLY their own doc
+    // (username must match their email prefix); admin bypasses. All roles
+    // (incl. viewer) may appear as connected. Read by the dashboard.
+    match /presence/{uname} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin() || (isSignedIn() && isOwn(uname));
+    }
+
+    // ── attendance-events (אירוע per worker/day for the monthly report) ──
+    // Any signed-in user may read (workers see their own report); only
+    // operator/admin may write. Doc id = username__YYYY-MM-DD.
+    match /attendance-events/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isOperatorOrAbove();
+    }
+
+    // Deny everything else
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

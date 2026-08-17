@@ -64,7 +64,8 @@ var SprayEdit = (function () {
       sprayerCapacity: tt('קיבולת מרסס', 'ความจุถังพ่น', 'سعة الرشاش'),
       plotIds: tt('חלקות', 'แปลง', 'القطع'),
       applications: tt('חומרים', 'สารเคมี', 'المواد'),
-      linkedReportIds: tt('דוחות מקושרים', 'รายงานที่เชื่อมโยง', 'التقارير المرتبطة')
+      linkedReportIds: tt('דוחות מקושרים', 'รายงานที่เชื่อมโยง', 'التقارير المرتبطة'),
+      farmId: tt('מטע', 'สวน', 'بستان')
     };
     return map[f] || f;
   }
@@ -84,12 +85,17 @@ var SprayEdit = (function () {
       }).join(' | ') || '—';
     }
     if (field === 'linkedReportIds') return (v || []).length + '';
+    if (field === 'farmId') {
+      var fm = (window.SprayStore ? window.SprayStore.getFarms() : [])
+        .find(function (f) { return f.id === v; });
+      return fm ? fm.name : String(v);
+    }
     return String(v);
   }
 
   function diff(before, after) {
     var fields = ['date', 'operator', 'volumePerTree', 'sprayerCapacity',
-                  'plotIds', 'applications', 'linkedReportIds'];
+                  'plotIds', 'farmId', 'applications', 'linkedReportIds'];
     var out = [];
     fields.forEach(function (f) {
       var a = JSON.stringify(before[f] == null ? null : before[f]);
@@ -327,6 +333,22 @@ var SprayEdit = (function () {
     if (!patch.operator) { toast('❌ ' + tt('חובה שם מפעיל', 'ต้องมีชื่อผู้ปฏิบัติงาน', 'اسم المشغّل إلزامي')); return; }
     if (!patch.plotIds.length) { toast('❌ ' + tt('בחר לפחות חלקה אחת', 'เลือกอย่างน้อยหนึ่งแปลง', 'اختر قطعة واحدة على الأقل')); return; }
     if (!patch.applications.length) { toast('❌ ' + tt('חייב לפחות חומר אחד', 'ต้องมีสารอย่างน้อยหนึ่ง', 'مادة واحدة على الأقل')); return; }
+
+    // One record = one מטע. An edit may move a record to another farm, but
+    // it may never fold two growers' plots back into one record — that is
+    // what per-farm reporting depends on.
+    var _farms = {};
+    (window.SprayStore.getPlots() || []).forEach(function (p) {
+      if (patch.plotIds.indexOf(p.id) !== -1) _farms[(p.farm_id || 0)] = true;
+    });
+    var _fkeys = Object.keys(_farms);
+    if (_fkeys.length > 1) {
+      toast('❌ ' + tt('רשומה אחת = מטע אחד. רשום רשומה נפרדת למטע השני',
+                      'หนึ่งบันทึก = หนึ่งสวน',
+                      'سجل واحد = بستان واحد'));
+      return;
+    }
+    patch.farmId = parseInt(_fkeys[0], 10) || null;
 
     var res = window.SprayStore.updateEvent(editingId, patch, reason, diff);
     if (!res || !res.ok) { toast('❌ ' + tt('העריכה נכשלה', 'แก้ไขไม่สำเร็จ', 'فشل التعديل')); return; }

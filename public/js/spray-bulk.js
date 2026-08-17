@@ -384,11 +384,25 @@ var SprayBulk = (function () {
       };
     } else if (op === 'addPlot') {
       var addId = parseInt(val, 10);
+      var allPlots = store().getPlots() || [];
+      var addPlot = allPlots.find(function (p) { return p.id === addId; });
+      var addFarm = (addPlot && addPlot.farm_id) ? addPlot.farm_id : 0;
+      var farmOf = function (ev) {
+        if (ev.farmId) return ev.farmId;
+        var fp = allPlots.find(function (p) { return (ev.plotIds || []).indexOf(p.id) !== -1; });
+        return (fp && fp.farm_id) ? fp.farm_id : 0;
+      };
       patchFn = function (ev) {
         var ps = (ev.plotIds || []).slice();
         if (ps.indexOf(addId) !== -1) return null;
+        // One record = one מטע. Adding a plot from another farm would merge
+        // two growers' paperwork back together — skip the record instead.
+        var evFarm = farmOf(ev);
+        if (evFarm && addFarm && evFarm !== addFarm) return null;
         ps.push(addId);
-        return { plotIds: ps };
+        var patch = { plotIds: ps };
+        if (!ev.farmId && addFarm) patch.farmId = addFarm;
+        return patch;
       };
     } else {
       var delId = parseInt(val, 10);

@@ -1905,6 +1905,17 @@
       return { ok: true };
     },
     exportFarmLog: function(farmId) {
+      // Only farms that opted into the satellite image wait for it;
+      // report-theme.js surfaces 'map-pending' to the user as a retry.
+      var wantsMap = false;
+      if (farmId && window.ReportTheme && window.ReportTheme.resolve) {
+        var fObj = (farms || []).find(function (f) { return f.id === farmId; });
+        try { wantsMap = !!window.ReportTheme.resolve(fObj).satellite; } catch (e) { wantsMap = false; }
+      }
+      if (wantsMap && window.ReportMap && !window.ReportMap.isMainSettled(farmId)) {
+        window.ReportMap.prepareMain(farmId);
+        return { ok: false, err: 'map-pending' };
+      }
       var html = generatePdfHtml(farmId);
       if (!html) return { ok: false, err: 'empty' };
       var fname = t('יומן ריסוסים').replace(/ /g, '_') + '_' +
@@ -2235,15 +2246,12 @@
     var wrap = document.getElementById('tabBarWrap');
     var bar = document.getElementById('tabBar');
     if (!wrap || !bar) return;
+    // The bar wraps to a second row now, so there is no horizontal scroll to
+    // hint at. Kept as a no-op because role-gating code calls the exported
+    // refresher after it reveals the admin tabs.
     function update() {
-      var max = bar.scrollWidth - bar.clientWidth;
-      // For RTL, scrollLeft is 0 at start and -max (or +max depending on browser) at end.
-      // We use absolute value to be browser-agnostic.
-      var sl = Math.abs(bar.scrollLeft);
-      var canStart = sl > 2;
-      var canEnd = sl < max - 2;
-      wrap.classList.toggle('can-scroll-start', canStart);
-      wrap.classList.toggle('can-scroll-end', canEnd && max > 2);
+      wrap.classList.remove('can-scroll-start');
+      wrap.classList.remove('can-scroll-end');
     }
     bar.addEventListener('scroll', update, { passive: true });
     window.addEventListener('resize', update);
@@ -3180,28 +3188,91 @@
       return;
     }
 
-    var event = {
-      id: Date.now(),
-      date: date,
-      operator: operator,
-      plotIds: selectedPlotIds,
-      volumePerTree: volumePerTree,
-      sprayerCapacity: sprayerCapacity,
-      applications: applications,
-      // Inspection reports this spray responds to (spray-pest-link.js).
-      linkedReportIds: (window.SprayLink ? window.SprayLink.getSelectedReportIds() : []),
-      // `date` is when the spray happened; enteredAt is when it was keyed in.
-      // A record entered late is still an honest record if it says so.
-      enteredAt: Date.now(),
-      enteredBy: (window.currentUser ? window.currentUser.username : ''),
-      // Provenance when the spray is being pieced back together after the
-      // fact (spray-reconstruct.js). null for a normal contemporaneous entry.
-      reconstruction: (window.SprayReconstruct ? window.SprayReconstruct.getMeta() : null)
+    // ── One record per מטע ───────────────────────────────
+    // One tank mix sprayed across two farms is still two jobs on paper: each
+    // grower's log must show only their own plots, area and totals — never a
+    // line revealing that the same pass covered someone else's block.
+    // Splitting here, at entry, is the only clean place; splitting later
+    // would mean rewriting signed history. Siblings carry a shared batchId so
+    // the app can still say "same trip".
+    var farmGroups = [];
+    var _byFarm = {};
+    selectedPlotIds.forEach(function(pid) {
+      var p = plots.find(function(pl) { return pl.id === pid; });
+      var fid = (p && p.farm_id) ? p.farm_id : 0;
+      if (!_byFarm[fid]) {
+        _byFarm[fid] = { farmId: fid || null, plotIds: [] };
+        farmGroups.push(_byFarm[fid]);
+      }
+      _byFarm[fid].plotIds.push(pid);
+    });
+
+    var allLinkedIds = (window.SprayLink ? window.SprayLink.getSelectedReportIds() : []);
+    var linkedReportObjs = (window.SprayLink && window.SprayLink.reportsById)
+      ? window.SprayLink.reportsById(allLinkedIds) : [];
+    var reconMeta = (window.SprayReconstruct ? window.SprayReconstruct.getMeta() : null);
+
+    // Siblings share the batch stamp but never an id. Walk past anything
+    // already taken — two entries inside the same millisecond are rare, but a
+    // collision would silently overwrite a compliance record.
+    var batchId = Date.now();
+    var _usedIds = {};
+    sprayEvents.forEach(function(e) { _usedIds[e.id] = true; });
+    var _nextId = batchId;
+    var freshId = function() {
+      while (_usedIds[_nextId]) _nextId++;
+      _usedIds[_nextId] = true;
+      return _nextId++;
     };
 
-    sprayEvents.push(event);
+    farmGroups.forEach(function(g) {
+      // A scouting report hangs off a single plot, so it belongs to a single
+      // farm — carry each one only into the record it actually justifies.
+      var ownLinked = allLinkedIds.filter(function(rid) {
+        var r = linkedReportObjs.find(function(x) { return x && x.id === rid; });
+        return r ? g.plotIds.indexOf(parseInt(r.plotId, 10)) !== -1 : false;
+      });
+
+      sprayEvents.push({
+        id: freshId(),
+        date: date,
+        operator: operator,
+        plotIds: g.plotIds.slice(),
+        // Explicit owner. Per-farm reports filter on this instead of inferring
+        // from plot membership, so a record cannot surface in another
+        // grower's log.
+        farmId: g.farmId,
+        volumePerTree: volumePerTree,
+        sprayerCapacity: sprayerCapacity,
+        // Deep copy: editing one sibling later must not mutate the others.
+        applications: JSON.parse(JSON.stringify(applications)),
+        // Inspection reports this spray responds to (spray-pest-link.js).
+        linkedReportIds: ownLinked,
+        // Same trip, separate paperwork.
+        batchId: batchId,
+        batchSize: farmGroups.length,
+        // `date` is when the spray happened; enteredAt is when it was keyed in.
+        // A record entered late is still an honest record if it says so.
+        enteredAt: Date.now(),
+        enteredBy: (window.currentUser ? window.currentUser.username : ''),
+        // Provenance when the spray is being pieced back together after the
+        // fact (spray-reconstruct.js). null for a normal contemporaneous entry.
+        reconstruction: reconMeta ? JSON.parse(JSON.stringify(reconMeta)) : null
+      });
+    });
+
     saveData();
-    showToast('✅ ' + t('רשומה נשמרה מקומית'));
+
+    if (farmGroups.length > 1) {
+      var _labels = farmGroups.map(function(g) {
+        var f = (farms || []).find(function(x) { return x.id === g.farmId; });
+        return f ? f.name : t('ללא מטע');
+      }).join(' · ');
+      showToast('✅ ' + farmGroups.length + ' ' +
+        t('רשומות נשמרו — אחת לכל מטע') + ': ' + _labels);
+    } else {
+      showToast('✅ ' + t('רשומה נשמרה מקומית'));
+    }
 
     document.getElementById('operatorName').value = '';
     document.querySelectorAll('.plot-checkbox').forEach(function(cb) { cb.checked = false; });
@@ -3309,7 +3380,21 @@
           ? '<button type="button" class="history-edit" onclick="SprayEdit.open(' + event.id + ')">✏️</button>'
           : '') + '</span>';
       html += '</div>';
-      html += '<div class="history-plots">' + t('חלקות') + ': ' + plotNames + ' (' + totalArea.toFixed(2) + ' ' + t('דונם') + ')</div>';
+      // Which grower's log this record lands in — stamped on new records,
+      // derived from the first plot for legacy ones.
+      var evFarmId = event.farmId || null;
+      if (!evFarmId) {
+        var _fp = plots.find(function(pl) { return (event.plotIds || []).indexOf(pl.id) !== -1; });
+        evFarmId = (_fp && _fp.farm_id) ? _fp.farm_id : null;
+      }
+      var _evFarm = evFarmId ? (farms || []).find(function(f) { return f.id === evFarmId; }) : null;
+      var farmChip = _evFarm
+        ? '<span class="history-farm">🌳 ' + _evFarm.name + '</span>' : '';
+      var batchChip = (event.batchSize > 1)
+        ? '<span class="history-batch" title="' +
+          t('אותו יישום נרשם בנפרד לכל מטע') +
+          '">⛓ ' + event.batchSize + ' מטעים</span>' : '';
+      html += '<div class="history-plots">' + farmChip + batchChip + t('חלקות') + ': ' + plotNames + ' (' + totalArea.toFixed(2) + ' ' + t('דונם') + ')</div>';
       html += '<div class="history-meta" style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">';
       html += event.volumePerTree + ' ' + t('ליטר/עץ') + ' • ' + t('מרסס') + ' ' + event.sprayerCapacity + ' ' + t('ליטר');
       html += '</div>';
@@ -3391,6 +3476,23 @@
       return;
     }
     var onlyFarm = (farms && farms.length === 1) ? farms[0].id : null;
+
+    // Same reasoning as the field-report check above: the satellite image is
+    // composited asynchronously and window.open() cannot survive an await.
+    // isSettled, not isReady — an image that can never be built must not
+    // make a farm permanently unexportable. Farms that did not ask for the
+    // image are never held up at all.
+    var _wantsMap = false;
+    if (onlyFarm && window.ReportTheme && window.ReportTheme.resolve) {
+      var _f = (farms || []).find(function (f) { return f.id === onlyFarm; });
+      try { _wantsMap = !!window.ReportTheme.resolve(_f).satellite; } catch (e) { _wantsMap = false; }
+    }
+    if (_wantsMap && window.ReportMap && !window.ReportMap.isMainSettled(onlyFarm)) {
+      window.ReportMap.prepareMain(onlyFarm);
+      showToast('⏳ ' + t('מכין תצלום לווין — נסה שוב בעוד רגע'));
+      return;
+    }
+
     var html = generatePdfHtml(onlyFarm);
     var filename = t('יומן ריסוסים').replace(/ /g, '_') + '_' + new Date().toISOString().split('T')[0] + '.html';
     window.Util.exportReport(html, filename);
@@ -3406,7 +3508,25 @@
       var farmPlotIds = (plots || []).filter(function(p) { return p.farm_id === farmId; })
         .map(function(p) { return p.id; });
       scope = sprayEvents.filter(function(e) {
+        // Records written since the per-farm split declare their owner. Trust
+        // that: a stamped record belongs to exactly one grower's log and must
+        // not leak into another's on a plot coincidence.
+        if (e.farmId) return e.farmId === farmId;
+        // Legacy records predate the stamp — fall back to plot membership,
+        // then drop any plot that is not this farm's from the printed row so
+        // the document still names only this client's blocks.
         return (e.plotIds || []).some(function(id) { return farmPlotIds.indexOf(id) !== -1; });
+      });
+      // Belt and braces for pre-split history: narrow each legacy record to
+      // the plots this farm actually owns before it reaches the page.
+      scope = scope.map(function(e) {
+        if (e.farmId) return e;
+        var own = (e.plotIds || []).filter(function(id) { return farmPlotIds.indexOf(id) !== -1; });
+        if (own.length === (e.plotIds || []).length) return e;
+        var copy = JSON.parse(JSON.stringify(e));
+        copy.plotIds = own;
+        copy.farmScoped = true;
+        return copy;
       });
     }
 
@@ -3424,7 +3544,7 @@
         c1: '#1a5632', c2: '#2d6a4f', c3: '#40916c',
         headText: '#ffffff', accent: '#2d6a4f', radius: 20,
         orientation: 'landscape', title: '', sub: '', logo: '',
-        footer: '', signature: false
+        footer: '', signature: false, satellite: false, mainPlot: null
       };
 
     var html = '<!DOCTYPE html>\n<html lang="he" dir="rtl">\n<head>\n';
@@ -3464,6 +3584,12 @@
     html += '.pest-meta { color: #5a7060; font-size: 0.76rem; }\n';
     html += '.footer { text-align: center; padding: 18px; margin-top: 16px; font-size: 0.78rem; color: #8a8078; border-top: 1px solid #f0ebe6; }\n';
     html += '.footer .brand { color: #2d6a4f; font-weight: 700; }\n';
+    // break-inside keeps the image and its caption on one printed page — a
+    // plot map split across a page break is useless.
+    html += '.mapcard { margin: 0 16px 16px; page-break-inside: avoid; break-inside: avoid; }\n';
+    html += '.mapcard img { width: 100%; height: auto; display: block; border-radius: 10px; border: 1px solid #e0d8d0; }\n';
+    html += '.mapcard .mapcap { font-size: 0.72rem; color: #8a8078; padding: 5px 2px 0; }\n';
+    html += '@media print { .mapcard img { border-radius: 0; } }\n';
     html += '</style>\n';
     html += '</head>\n<body>\n';
     html += '<div class="header">\n';
@@ -3475,6 +3601,26 @@
       t('תאריך הפקה:') + ' ' + formatDate(new Date().toISOString().split('T')[0]) +
       (TH.sub ? ' · ' + TH.sub : '') + '</div>\n';
     html += '</div></div>\n';
+
+    // Satellite image of the מטע's main plot, so a client can see *where*
+    // was sprayed and not only which name was typed. Opt-in per farm
+    // (ReportTheme → הוסף תצלום לווין) and only on the exported
+    // document. Read from cache only — see report-map.js on why this
+    // cannot await.
+    var mapUrl = (TH.satellite && window.ReportMap && window.ReportMap.getCachedMain)
+      ? window.ReportMap.getCachedMain(farmId || null) : null;
+    if (mapUrl) {
+      html += '<div class="mapcard">';
+      html += '<img src="' + mapUrl + '" alt="' + t('תצלום לווין') + '">';
+      // Attribution is baked into the image itself so it survives being
+      // copied out of the PDF — no need to print it twice.
+      var _mainPlot = (window.ReportMap && window.ReportMap.mainPlotOf && farmId)
+        ? window.ReportMap.mainPlotOf(farmId) : null;
+      html += '<div class="mapcap">🛰 ' + t('תצלום לווין') +
+        (farmObj ? ' · ' + locName(farmObj) : '') +
+        (_mainPlot ? ' · ' + _mainPlot.name : '') + '</div>';
+      html += '</div>\n';
+    }
 
     html += '<table>\n';
     html += '<thead><tr>' +

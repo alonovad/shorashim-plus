@@ -38,7 +38,11 @@ var ReportTheme = (function () {
 
   var DEFAULTS = {
     preset: 'forest', logo: '', title: '', sub: '',
-    footer: '', signature: false, orientation: 'landscape'
+    footer: '', signature: false, orientation: 'landscape',
+    // Satellite image of the מטע's main plot. OFF by default: the image
+    // belongs to the outgoing document only, and only when the grower asks
+    // for it. mainPlot empty = the largest plot of the farm.
+    satellite: false, mainPlot: ''
   };
 
   function tt(he, th, ar) {
@@ -56,6 +60,25 @@ var ReportTheme = (function () {
 
   function toast(m) { if (typeof showToast === 'function') showToast(m); else alert(m); }
   function store() { return window.SprayStore; }
+
+  // Largest first: the default (empty value) is the largest plot, so the
+  // list reads in the order the grower would expect.
+  function plotOptions(farmId, selected) {
+    var plots = (store().getPlots ? store().getPlots() : [])
+      .filter(function (p) { return p.farm_id === farmId; })
+      .sort(function (a, b) { return (b.area || 0) - (a.area || 0); });
+    var auto = plots.length ? plots[0] : null;
+    var html = '<option value="">' +
+      tt('אוטומטי — החלקה הגדולה',
+         'อัตโนมัติ', 'تلقائي') +
+      (auto ? ' (' + esc(auto.name) + ')' : '') + '</option>';
+    html += plots.map(function (p) {
+      return '<option value="' + p.id + '"' + (selected === p.id ? ' selected' : '') + '>' +
+        esc(p.name) + (p.area ? ' · ' + (Math.round(p.area * 10) / 10) + ' ' +
+          tt('דונם', 'ไร่', 'دونم') : '') + '</option>';
+    }).join('');
+    return html;
+  }
 
   function canEdit() {
     var u = window.currentUser || {};
@@ -77,7 +100,9 @@ var ReportTheme = (function () {
       orientation: merged.orientation === 'portrait' ? 'portrait' : 'landscape',
       title: merged.title || '', sub: merged.sub || '',
       logo: merged.logo || '', footer: merged.footer || '',
-      signature: !!merged.signature
+      signature: !!merged.signature,
+      satellite: !!merged.satellite,
+      mainPlot: merged.mainPlot ? parseInt(merged.mainPlot, 10) : null
     };
   }
 
@@ -131,6 +156,13 @@ var ReportTheme = (function () {
   function doExport() {
     var id = parseInt(document.getElementById('rtFarm').value, 10) || null;
     var res = store().exportFarmLog(id);
+    // The satellite overview is still compositing — a retry, not an error.
+    if (res && res.err === 'map-pending') {
+      toast('⏳ ' + tt('מכין תצלום לווין — נסה שוב בעוד רגע',
+                      'กำลังเตรียมภาพดาวเทียม',
+                      'جارٍ تجهيز صورة القمر'));
+      return;
+    }
     if (!res || !res.ok) {
       toast('❌ ' + tt('אין רשומות למטע זה', 'ไม่มีบันทึกสำหรับสวนนี้', 'لا سجلات لهذا البستان'));
       return;
@@ -222,6 +254,18 @@ var ReportTheme = (function () {
           (cur.signature ? ' checked' : '') + '> ' +
           tt('הוסף שורת חתימה', 'เพิ่มบรรทัดลายเซ็น', 'أضف سطر توقيع') + '</label>' +
 
+        // Opt-in, per farm, and it affects the exported document only — the
+        // in-app screens never show it.
+        '<label class="rt-check"><input type="checkbox" id="rtSat"' +
+          (cur.satellite ? ' checked' : '') + '> ' +
+          tt('הוסף תצלום לווין לדוח המופק',
+             'เพิ่มภาพดาวเทียม',
+             'أضف صورة قمر للتقرير') + '</label>' +
+
+        '<label class="se-label">' + tt('החלקה הראשית של המטע (לתצלום)',
+          'แปลงหลัก', 'القطعة الرئيسية') + '</label>' +
+        '<select id="rtMainPlot" class="form-input">' + plotOptions(farmId, cur.mainPlot) + '</select>' +
+
         '<div class="se-actions">' +
           '<button type="button" class="se-save" onclick="ReportTheme.save(' + farmId + ')">' +
             tt('שמור עיצוב', 'บันทึกดีไซน์', 'حفظ التصميم') + '</button>' +
@@ -281,7 +325,9 @@ var ReportTheme = (function () {
       logo: _pendingLogo || '',
       orientation: document.getElementById('rtOrient').value,
       footer: document.getElementById('rtFooter').value.trim(),
-      signature: document.getElementById('rtSig').checked
+      signature: document.getElementById('rtSig').checked,
+      satellite: document.getElementById('rtSat').checked,
+      mainPlot: document.getElementById('rtMainPlot').value || ''
     };
   }
 
@@ -303,6 +349,13 @@ var ReportTheme = (function () {
   function preview(farmId) {
     store().setFarmTheme(farmId, collect());
     var res = store().exportFarmLog(farmId);
+    // The satellite overview is still compositing — a retry, not an error.
+    if (res && res.err === 'map-pending') {
+      toast('⏳ ' + tt('מכין תצלום לווין — נסה שוב בעוד רגע',
+                      'กำลังเตรียมภาพดาวเทียม',
+                      'جارٍ تجهيز صورة القمر'));
+      return;
+    }
     if (!res || !res.ok) {
       toast('ℹ ' + tt('אין רשומות למטע זה להצגה', 'ไม่มีบันทึกให้แสดง', 'لا سجلات للعرض'));
     }
