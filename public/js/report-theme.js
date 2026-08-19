@@ -43,10 +43,10 @@ var ReportTheme = (function () {
     // belongs to the outgoing document only, and only when the grower asks
     // for it. mainPlot empty = the largest plot of the farm.
     satellite: false, mainPlot: '',
-    // On = the report carries the שורשים פלוס name in its title and
-    // footer. Off = a neutral document, for logs that go out to a client who
-    // has nothing to do with us.
-    brand: true
+    // OFF by default: a report is the grower's document, not our billboard.
+    // Ticking the box adds the שורשים פלוס name to the title and the
+    // footer; left alone, the document names nobody but the farm.
+    brand: false
   };
 
   function tt(he, th, ar) {
@@ -107,7 +107,7 @@ var ReportTheme = (function () {
       signature: !!merged.signature,
       satellite: !!merged.satellite,
       mainPlot: merged.mainPlot ? parseInt(merged.mainPlot, 10) : null,
-      brand: merged.brand !== false
+      brand: merged.brand === true
     };
   }
 

@@ -1852,9 +1852,9 @@ body.theme-classic #registerOpenLink { color: #2e7d32 !important; text-shadow: n
   display: flex; align-items: center; gap: 6px;
   padding: 10px 14px; border-radius: 26px; cursor: pointer;
   font-family: inherit; font-size: 0.85rem; font-weight: 700; color: inherit;
-  background: var(--panel-bg, rgba(20,32,26,0.94));
-  border: 1px solid var(--panel-border, rgba(126,201,164,0.32));
-  box-shadow: 0 3px 12px rgba(0,0,0,0.32);
+  background: var(--card-solid, #ffffff);
+  border: 1px solid var(--g5, #c3d2bd);
+  box-shadow: 0 3px 12px rgba(0,0,0,0.18);
 }
 .mf-btn.mf-active { border-color: var(--accent, #7ec9a4); color: var(--accent, #7ec9a4); }
 .mf-badge {
@@ -1865,9 +1865,12 @@ body.theme-classic #registerOpenLink { color: #2e7d32 !important; text-shadow: n
   position: fixed; bottom: 240px; right: 16px; z-index: 1086;
   width: 250px; max-height: 56vh; overflow-y: auto; padding: 13px;
   border-radius: 13px;
-  background: var(--panel-bg, rgba(20,32,26,0.97));
-  border: 1px solid var(--panel-border, rgba(126,201,164,0.3));
-  box-shadow: 0 8px 26px rgba(0,0,0,0.4);
+  /* --panel-bg was never defined, so both themes fell through to a dark
+     fallback and the panel was unreadable in the light theme. The base
+     sheet is light now; theme-neon.css darkens it. */
+  background: var(--card-solid, #ffffff);
+  border: 1px solid var(--g5, #c3d2bd);
+  box-shadow: 0 8px 26px rgba(0,0,0,0.22);
 }
 .mf-head {
   display: flex; align-items: center; justify-content: space-between;
@@ -1881,8 +1884,8 @@ body.theme-classic #registerOpenLink { color: #2e7d32 !important; text-shadow: n
 .mf-input {
   width: 100%; padding: 7px 10px; border-radius: 8px; font-family: inherit;
   font-size: 0.82rem; color: inherit;
-  background: var(--hover-bg, rgba(255,255,255,0.05));
-  border: 1px solid var(--panel-border, rgba(126,201,164,0.25));
+  background: var(--hover-bg, rgba(126,201,164,0.10));
+  border: 1px solid var(--g5, #c3d2bd);
 }
 .mf-label {
   font-size: 0.72rem; font-weight: 700; opacity: 0.65;
@@ -1899,9 +1902,9 @@ body.theme-classic #registerOpenLink { color: #2e7d32 !important; text-shadow: n
 .mf-clear {
   width: 100%; margin-top: 13px; padding: 8px; border-radius: 8px;
   cursor: pointer; font-family: inherit; font-size: 0.8rem; font-weight: 600;
-  color: var(--accent, #7ec9a4);
+  color: var(--g3, #2e7d32);
   background: var(--hover-bg, rgba(126,201,164,0.10));
-  border: 1px solid var(--panel-border, rgba(126,201,164,0.28));
+  border: 1px solid var(--g5, #c3d2bd);
 }
 @media (max-width: 480px) {
   .mf-panel { width: calc(100vw - 32px); right: 16px; }
@@ -2108,3 +2111,61 @@ body.theme-classic #registerOpenLink { color: #2e7d32 !important; text-shadow: n
   border-radius: 5px; font-size: 0.68rem; font-weight: 600;
   background: rgba(126, 201, 164, 0.1); color: var(--text-muted);
 }
+
+
+/* ══ orphaned spray records (no resolvable plot) ══ */
+.orphan-bar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin: 0 0 10px; padding: 9px 12px; border-radius: 8px;
+  font-size: 0.78rem; font-weight: 600;
+  background: rgba(217, 119, 6, 0.12); color: #b06a06;
+  border: 1px solid rgba(217, 119, 6, 0.35);
+}
+.orphan-purge {
+  margin-inline-start: auto; padding: 6px 12px; border-radius: 6px;
+  font-family: inherit; font-size: 0.74rem; font-weight: 700; cursor: pointer;
+  background: transparent; color: #a3301a; border: 1px solid #a3301a;
+}
+.orphan-purge:hover { background: rgba(163, 48, 26, 0.12); }
+.history-orphan {
+  display: inline-block; margin-inline-end: 6px; padding: 1px 7px;
+  border-radius: 5px; font-size: 0.68rem; font-weight: 700;
+  background: rgba(217, 119, 6, 0.16); color: #b06a06;
+}
+
+
+/* ══ map filter: sub-plots per מטע ══
+   Hiding the big enclosing block is what makes the plots inside it
+   clickable, so the list is ordered largest-first. */
+.mf-group { border-bottom: 1px solid var(--border, rgba(126,201,164,0.18)); }
+.mf-group:last-child { border-bottom: none; }
+.mf-farm-row { gap: 4px; }
+.mf-farm-label { display: flex; align-items: center; gap: 7px; flex: 1; cursor: pointer; }
+.mf-caret {
+  width: 20px; height: 20px; flex: 0 0 auto; padding: 0;
+  border: none; background: transparent; cursor: pointer; color: inherit;
+  opacity: 0.55; font-size: 0.8rem; line-height: 1;
+  transition: transform 0.16s ease;
+}
+.mf-caret.open { transform: rotate(-90deg); opacity: 1; }
+.mf-caret:hover { opacity: 1; }
+.mf-sublist {
+  padding: 2px 0 6px;
+  margin-inline-start: 18px;
+  border-inline-start: 2px solid var(--border, rgba(126,201,164,0.25));
+}
+.mf-subrow { font-size: 0.76rem; padding: 4px 7px; }
+.mf-subactions { display: flex; gap: 6px; padding: 3px 7px 5px; }
+.mf-subactions button {
+  padding: 3px 8px; border-radius: 5px; cursor: pointer;
+  font-family: inherit; font-size: 0.68rem; font-weight: 600;
+  color: var(--g3, #2e7d32); background: transparent;
+  border: 1px solid var(--g5, #c3d2bd);
+}
+.mf-subactions button:hover { background: var(--hover-bg, rgba(126,201,164,0.14)); }
+
+/* ══ drawing over an existing plot ══
+   Leaflet polygons swallow the click that should have placed a vertex, which
+   is why a small plot could not be drawn inside a big one. While drawing,
+   nothing on the map takes clicks except the map itself. */
+#map.drawing .leaflet-interactive { pointer-events: none !important; }

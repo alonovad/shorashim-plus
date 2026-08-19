@@ -1696,6 +1696,22 @@
     });
   }
 
+  // A record whose plots cannot be resolved: plotIds missing, empty, or
+  // pointing at plot ids that no longer exist (a plot deleted, or moved
+  // between farms after the record was written). These are the records that
+  // went invisible in the log — nothing in the UI could reach them — while
+  // still printing on exports as "לא ידוע · 0.00 דונם".
+  function orphanState(e) {
+    var ids = (e && e.plotIds) || [];
+    if (!Array.isArray(ids) || !ids.length) return { orphan: true, missing: [], reason: 'no-plots' };
+    var missing = ids.filter(function(id) {
+      return !plots.some(function(p) { return p.id === id; });
+    });
+    if (missing.length === ids.length) return { orphan: true, missing: missing, reason: 'unknown-plots' };
+    return { orphan: false, missing: missing, reason: null };
+  }
+  function isOrphanEvent(e) { return orphanState(e).orphan; }
+
   function getAccessibleSprayEvents() {
     if (!currentUser) return [];
     
@@ -1707,7 +1723,11 @@
     var accessiblePlotIds = accessiblePlots.map(function(p) { return p.id; });
     
     return sprayEvents.filter(function(event) {
-      return event.plotIds.some(function(pid) {
+      // Orphans belong to nobody, so plot-based access can never grant them.
+      // Surfacing them to an operator is what lets them be cleaned up
+      // instead of haunting the exports forever.
+      if (isOrphanEvent(event)) return true;
+      return (event.plotIds || []).some(function(pid) {
         return accessiblePlotIds.indexOf(pid) !== -1;
       });
     });
@@ -2114,6 +2134,34 @@
       }
       try { renderHistoryList(); } catch (e) {}
       return { ok: true };
+    },
+
+    // Orphans cannot be voided through the normal flow — voiding needs a
+    // record you can open, and these have no plot to open them against. This
+    // is the escape hatch: admin only, confirmed, and every removed record is
+    // written to the audit log in full first, so nothing vanishes silently.
+    purgeOrphans: function() {
+      var u = window.currentUser || {};
+      if (u.role !== 'admin') { showToast('❌ ' + t('למנהל בלבד')); return { ok: false, err: 'forbidden' }; }
+      var doomed = sprayEvents.filter(isOrphanEvent);
+      if (!doomed.length) { showToast(t('אין רשומות ללא חלקה')); return { ok: true, removed: 0 }; }
+      if (!confirm(t('למחוק') + ' ' + doomed.length + ' ' +
+          t('רשומות ללא חלקה מזוהה? הפעולה תירשם ביומן הפעולות.'))) {
+        return { ok: false, err: 'cancelled' };
+      }
+      doomed.forEach(function(e) {
+        if (typeof Audit !== 'undefined' && typeof Audit.log === 'function') {
+          Audit.log('delete', 'spray', String(e.id), {
+            before: e, after: null, reason: 'orphan purge — no resolvable plot'
+          });
+        }
+      });
+      var ids = doomed.map(function(e) { return e.id; });
+      sprayEvents = sprayEvents.filter(function(e) { return ids.indexOf(e.id) === -1; });
+      saveData();
+      try { renderHistoryList(); } catch (e) {}
+      showToast('🗑 ' + doomed.length + ' ' + t('רשומות נמחקו'));
+      return { ok: true, removed: doomed.length };
     },
 
     // Voiding strikes the record without erasing it — the standard way to
@@ -3463,14 +3511,33 @@
       return new Date(b.date) - new Date(a.date);
     });
 
+    // An orphan bar, because these records are otherwise unreachable: they
+    // carry no plot, so no filter, farm view or plot picker can find them.
+    var orphans = allEvents.filter(isOrphanEvent);
+    if (orphans.length) {
+      var isAdm = (currentUser && currentUser.role === 'admin');
+      voidBar += '<div class="orphan-bar">⚠️ ' + orphans.length + ' ' +
+        t('רשומות ללא חלקה מזוהה — אינן מודפסות בדוח למגדל') +
+        (isAdm ? ' <button type="button" class="orphan-purge" ' +
+          'onclick="SprayStore.purgeOrphans()">' +
+          t('מחק את כולן') + '</button>' : '') +
+        '</div>';
+    }
+
     var html = voidBar;
     sorted.forEach(function(event) {
-      var plotNames = event.plotIds.map(function(id) {
+      // One bad record used to throw here and kill the rest of the render,
+      // which is the other half of why it was invisible. Per-row guard.
+      try {
+      var _orph = orphanState(event);
+      var plotNames = (event.plotIds || []).map(function(id) {
         var p = plots.find(function(plot) { return plot.id === id; });
         return p ? p.name : t('חלקה לא ידועה');
       }).join(', ');
 
-      var totalArea = event.plotIds.reduce(function(sum, id) {
+      if (!plotNames) plotNames = t('חלקה לא ידועה');
+
+      var totalArea = (event.plotIds || []).reduce(function(sum, id) {
         var p = plots.find(function(plot) { return plot.id === id; });
         return sum + (p ? p.area : 0);
       }, 0);
@@ -3524,6 +3591,11 @@
       var _evFarm = evFarmId ? (farms || []).find(function(f) { return f.id === evFarmId; }) : null;
       var farmChip = _evFarm
         ? '<span class="history-farm">🌳 ' + _evFarm.name + '</span>' : '';
+      if (_orph.orphan) {
+        farmChip = '<span class="history-orphan" title="' +
+          t('החלקות של הרשומה אינן קיימות במערכת') +
+          '">⚠️ ' + t('ללא חלקה מזוהה') + '</span>' + farmChip;
+      }
       var batchChip = (event.batchSize > 1)
         ? '<span class="history-batch" title="' +
           t('אותו יישום נרשם בנפרד לכל מטע') +
@@ -3582,6 +3654,12 @@
       }
 
       html += '</div>';
+      } catch (rowErr) {
+        // Render a stub rather than losing the whole log to one bad row.
+        html += '<div class="history-item"><div class="history-orphan">\u26a0\ufe0f ' +
+          t('\u05e8\u05e9\u05d5\u05de\u05d4 \u05e4\u05d2\u05d5\u05de\u05d4') + ' #' + (event && event.id) + '</div></div>';
+        console.warn('spray row render failed', event && event.id, rowErr);
+      }
     });
 
     container.innerHTML = html;
@@ -3663,6 +3741,11 @@
         // the document still names only this client's blocks.
         return (e.plotIds || []).some(function(id) { return farmPlotIds.indexOf(id) !== -1; });
       });
+      // A record whose plots do not exist cannot honestly be attributed to
+      // this grower, and printing it as "לא ידוע · 0.00 דונם" on their
+      // document is worse than leaving it out. It stays visible in the app.
+      scope = scope.filter(function(e) { return !isOrphanEvent(e); });
+
       // Belt and braces for pre-split history: narrow each legacy record to
       // the plots this farm actually owns before it reaches the page.
       scope = scope.map(function(e) {
@@ -3691,7 +3774,8 @@
         headText: '#ffffff', accent: '#2d6a4f', radius: 20,
         orientation: 'landscape', title: '', sub: '', logo: '',
         footer: '', signature: false, satellite: false, mainPlot: null,
-        brand: true
+        // Opt-in, same as ReportTheme's default.
+        brand: false
       };
 
     var html = '<!DOCTYPE html>\n<html lang="he" dir="rtl">\n<head>\n';
@@ -3799,7 +3883,7 @@
         return p ? p.name : t('לא ידוע');
       }).join(', ');
 
-      var totalArea = event.plotIds.reduce(function(sum, id) {
+      var totalArea = (event.plotIds || []).reduce(function(sum, id) {
         var p = plots.find(function(plot) { return plot.id === id; });
         return sum + (p ? p.area : 0);
       }, 0);
@@ -3855,7 +3939,9 @@
 
       html += '<tr' + (rr ? ' class="row-reconstructed"' : '') + '>' +
         '<td class="event-date">' + formatDate(event.date) + pdfRecon + '</td>' +
-        '<td>' + (event.operator || '') + '</td>' +
+        '<td>' + (event.operator || '') +
+          (isOrphanEvent(event)
+            ? '<div class="pest-meta">⚠ ' + t('ללא חלקה מזוהה') + '</div>' : '') + '</td>' +
         '<td>' + plotNames + '</td>' +
         '<td>' + totalArea.toFixed(2) + ' ' + t('דונם') + '</td>' +
         '<td>' + event.volumePerTree + ' ' + t(unitShort(event.volumeUnit)) +

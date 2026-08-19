@@ -16,7 +16,7 @@ var MapFilter = (function () {
   'use strict';
 
   var KEY = 'shorashim-map-filter';
-  var st = { farms: {}, crops: {}, text: '' };
+  var st = { farms: {}, crops: {}, text: '', hidden: {}, open: {} };
   var open = false;
   var built = false;
 
@@ -41,6 +41,11 @@ var MapFilter = (function () {
         st.farms = p.farms || {};
         st.crops = p.crops || {};
         st.text = p.text || '';
+        // A HIDE list, not a show list: a plot is visible unless it is in
+        // here. That way a newly drawn plot appears on the map immediately
+        // instead of being invisible until someone finds this panel.
+        st.hidden = p.hidden || {};
+        st.open = p.open || {};
       }
     } catch (e) { /* corrupt prefs are not worth failing the map over */ }
   }
@@ -65,6 +70,17 @@ var MapFilter = (function () {
     return Object.keys(seen).sort();
   }
 
+  function hiddenCount() {
+    return pool().filter(function (p) { return st.hidden[p.id]; }).length;
+  }
+
+  function plotsOfFarm(fid) {
+    // Largest first: the enclosing block a grower wants to hide in order to
+    // reach the sub-plots underneath it is, by definition, the big one.
+    return pool().filter(function (p) { return (p.farm_id || 0) === (fid || 0); })
+      .sort(function (a, b) { return (b.area || 0) - (a.area || 0); });
+  }
+
   function anyFarm() { return Object.keys(st.farms).some(function (k) { return st.farms[k]; }); }
   function anyCrop() { return Object.keys(st.crops).some(function (k) { return st.crops[k]; }); }
 
@@ -73,10 +89,15 @@ var MapFilter = (function () {
     if (anyFarm()) n++;
     if (anyCrop()) n++;
     if (st.text.trim()) n++;
+    if (hiddenCount()) n++;
     return n;
   }
 
   function passes(p) {
+    // An individually hidden plot loses to every other rule. This is how the
+    // overlap problem is solved: hide the big enclosing block and the small
+    // plots inside it become clickable on the map.
+    if (st.hidden[p.id]) return false;
     if (anyFarm() && !st.farms[p.farm_id]) return false;
     if (anyCrop() && !st.crops[p.crop_type]) return false;
     var q = st.text.trim().toLowerCase();
@@ -102,6 +123,7 @@ var MapFilter = (function () {
   function reveal(plotId) {
     var p = pool().find(function (x) { return x.id === plotId; });
     if (!p || passes(p)) return;
+    if (st.hidden[p.id]) delete st.hidden[p.id];
     if (anyFarm() && p.farm_id) st.farms[p.farm_id] = true;
     if (anyCrop() && p.crop_type) st.crops[p.crop_type] = true;
     if (st.text.trim() && String(p.name || '').toLowerCase()
@@ -178,21 +200,42 @@ var MapFilter = (function () {
     var crops = cropList();
     var plots = pool();
 
-    var farmHtml = farms.map(function (fa) {
-      var count = plots.filter(function (p) { return p.farm_id === fa.id; }).length;
-      if (!count) return '';
-      return '<label class="mf-row"><input type="checkbox" class="mf-farm" data-id="' + fa.id + '"' +
-        (st.farms[fa.id] ? ' checked' : '') + '> <span>🌳 ' + esc(fa.name) + '</span>' +
-        '<span class="mf-count">' + count + '</span></label>';
-    }).join('');
-
-    var orphan = plots.filter(function (p) { return !p.farm_id; }).length;
-    if (orphan) {
-      farmHtml += '<label class="mf-row"><input type="checkbox" class="mf-farm" data-id="0"' +
-        (st.farms[0] ? ' checked' : '') + '> <span>' +
-        tt('ללא מטע', 'ไม่มีสวน', 'بدون بستان') + '</span>' +
-        '<span class="mf-count">' + orphan + '</span></label>';
+    function farmGroup(fid, label) {
+      var mine = plotsOfFarm(fid);
+      if (!mine.length) return '';
+      var hidden = mine.filter(function (p) { return st.hidden[p.id]; }).length;
+      var isOpen = !!st.open[fid];
+      var h = '<div class="mf-group">';
+      h += '<div class="mf-row mf-farm-row">' +
+        '<button type="button" class="mf-caret' + (isOpen ? ' open' : '') +
+          '" data-farm-toggle="' + fid + '" aria-expanded="' + isOpen + '" title="' +
+          esc(tt('תת-חלקות', 'แปลงย่อย', 'قطع فرعية')) + '">▸</button>' +
+        '<label class="mf-farm-label"><input type="checkbox" class="mf-farm" data-id="' + fid + '"' +
+          (st.farms[fid] ? ' checked' : '') + '> <span>' + label + '</span></label>' +
+        '<span class="mf-count">' + (hidden ? (mine.length - hidden) + '/' + mine.length : mine.length) + '</span>' +
+        '</div>';
+      if (isOpen) {
+        h += '<div class="mf-sublist">';
+        h += '<div class="mf-subactions">' +
+          '<button type="button" data-farm-all="' + fid + '">' +
+            tt('הצג הכל', 'ทั้งหมด', 'الكل') + '</button>' +
+          '<button type="button" data-farm-none="' + fid + '">' +
+            tt('הסתר הכל', 'ซ่อนทั้งหมด', 'إخفاء الكل') + '</button>' +
+          '</div>';
+        mine.forEach(function (p) {
+          h += '<label class="mf-row mf-subrow"><input type="checkbox" class="mf-plot" data-id="' + p.id + '"' +
+            (st.hidden[p.id] ? '' : ' checked') + '> <span>' + esc(p.name || '') + '</span>' +
+            '<span class="mf-count">' + (p.area ? (Math.round(p.area * 10) / 10) : '') + '</span></label>';
+        });
+        h += '</div>';
+      }
+      return h + '</div>';
     }
+
+    var farmHtml = farms.map(function (fa) {
+      return farmGroup(fa.id, '🌳 ' + esc(fa.name));
+    }).join('');
+    farmHtml += farmGroup(0, tt('ללא מטע', 'ไม่มีสวน', 'بدون بستان'));
 
     var cropHtml = crops.map(function (c) {
       var count = plots.filter(function (p) { return p.crop_type === c; }).length;
@@ -224,6 +267,34 @@ var MapFilter = (function () {
         apply(); render();
       });
     });
+    panel.querySelectorAll('[data-farm-toggle]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var fid = parseInt(b.getAttribute('data-farm-toggle'), 10) || 0;
+        if (st.open[fid]) delete st.open[fid]; else st.open[fid] = true;
+        persist(); render();
+      });
+    });
+    panel.querySelectorAll('.mf-plot').forEach(function (cb) {
+      cb.addEventListener('change', function () {
+        var id = parseInt(this.getAttribute('data-id'), 10);
+        if (this.checked) delete st.hidden[id]; else st.hidden[id] = true;
+        apply(); render();
+      });
+    });
+    panel.querySelectorAll('[data-farm-all]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var fid = parseInt(b.getAttribute('data-farm-all'), 10) || 0;
+        plotsOfFarm(fid).forEach(function (p) { delete st.hidden[p.id]; });
+        apply(); render();
+      });
+    });
+    panel.querySelectorAll('[data-farm-none]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var fid = parseInt(b.getAttribute('data-farm-none'), 10) || 0;
+        plotsOfFarm(fid).forEach(function (p) { st.hidden[p.id] = true; });
+        apply(); render();
+      });
+    });
     panel.querySelectorAll('.mf-crop').forEach(function (cb) {
       cb.addEventListener('change', function () {
         var id = this.getAttribute('data-id');
@@ -250,7 +321,7 @@ var MapFilter = (function () {
   function toggle() { open = !open; syncTabVisibility(); render(); }
 
   function clear() {
-    st = { farms: {}, crops: {}, text: '' };
+    st = { farms: {}, crops: {}, text: '', hidden: {}, open: st.open || {} };
     apply();
     render();
   }

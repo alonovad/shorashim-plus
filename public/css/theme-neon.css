@@ -922,3 +922,23 @@ select option {
 #modalContainer [style*="color: #555"] {
   color: var(--text-muted) !important;
 }
+
+
+/* ══ map filter panel — dark glass (base sheet is light) ══ */
+.mf-btn, .mf-panel {
+  background: rgba(7, 21, 16, 0.96) !important;
+  border-color: var(--border) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+.mf-panel { box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5) !important; }
+.mf-input {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+}
+.mf-clear, .mf-subactions button {
+  color: var(--primary) !important;
+  border-color: var(--border) !important;
+}
+.mf-sublist { border-inline-start-color: var(--border) !important; }
