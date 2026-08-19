@@ -2233,15 +2233,10 @@
         renderFarmsAdminList();
       } else if (targetTab === 'users') {
         renderUsersAdminList();
-      } else if (targetTab === 'admin') {
-        renderPesticideAdminList();
       } else if (targetTab === 'profile') {
         renderProfileTab();
       } else if (targetTab === 'worklog') {
         renderWorklogTab();
-      } else if (targetTab === 'pestsearch') {
-        // Focus search input
-        setTimeout(function() { document.getElementById('pestSearchInput').focus(); }, 100);
       } else if (targetTab === 'irrigation') {
         renderIrrigationTab();
       }
@@ -2249,17 +2244,38 @@
   });
 
   // ── Spray sub-view toggle (form ⇄ history) ──
+  // חומרים and חיפוש חומרים live inside the spray section as
+  // sub-views, not as tab-bar entries: they are part of preparing a spray,
+  // and as top-level tabs they pushed the bar onto a third row.
+  var SPRAY_SUBVIEWS = {
+    form:       'spraySubviewForm',
+    history:    'spraySubviewHistory',
+    pestsearch: 'spraySubviewPestsearch',
+    materials:  'spraySubviewMaterials'
+  };
+
   function showSpraySubview(name) {
-    var formEl = document.getElementById('spraySubviewForm');
-    var histEl = document.getElementById('spraySubviewHistory');
-    if (!formEl || !histEl) return;
-    var isHist = (name === 'history');
-    formEl.style.display = isHist ? 'none' : '';
-    histEl.style.display = isHist ? '' : 'none';
+    if (!SPRAY_SUBVIEWS[name]) name = 'form';
+    // A non-admin reaching the materials panel (stale state, deep link)
+    // falls back to the form rather than seeing an empty screen.
+    if (name === 'materials' && !isAdmin()) name = 'form';
+    var found = false;
+    Object.keys(SPRAY_SUBVIEWS).forEach(function(k) {
+      var el = document.getElementById(SPRAY_SUBVIEWS[k]);
+      if (!el) return;
+      found = true;
+      el.style.display = (k === name) ? '' : 'none';
+    });
+    if (!found) return;
     document.querySelectorAll('.spray-subview-toggle .sv-btn').forEach(function(b) {
       b.classList.toggle('active', b.getAttribute('data-spray-view') === name);
     });
-    if (isHist) renderHistoryList();
+    if (name === 'history') renderHistoryList();
+    if (name === 'materials') renderPesticideAdminList();
+    if (name === 'pestsearch') {
+      var inp = document.getElementById('pestSearchInput');
+      if (inp) setTimeout(function() { inp.focus(); }, 100);
+    }
   }
   document.querySelectorAll('.spray-subview-toggle .sv-btn').forEach(function(btn) {
     btn.addEventListener('click', function() {
@@ -3717,10 +3733,16 @@
     html += '.footer .brand { color: #2d6a4f; font-weight: 700; }\n';
     // break-inside keeps the image and its caption on one printed page — a
     // plot map split across a page break is useless.
-    html += '.mapcard { margin: 0 16px 16px; page-break-inside: avoid; break-inside: avoid; }\n';
-    html += '.mapcard img { width: 100%; height: auto; display: block; border-radius: 10px; border: 1px solid #e0d8d0; }\n';
-    html += '.mapcard .mapcap { font-size: 0.72rem; color: #8a8078; padding: 5px 2px 0; }\n';
-    html += '@media print { .mapcard img { border-radius: 0; } }\n';
+    // Corner thumbnail, not a poster: 74mm on a 297mm-wide page is roughly
+    // 7% of the sheet, and sitting inside the header band it costs the log
+    // no vertical space at all.
+    html += '.header .mapcard { flex: 0 0 auto; width: 74mm; max-width: 30%; order: -1; }\n';
+    html += '.header .mapcard img { width: 100%; height: auto; display: block; border-radius: 6px; border: 1px solid rgba(255,255,255,0.5); }\n';
+    html += '.header .mapcard .mapcap { font-size: 0.6rem; opacity: 0.85; padding: 3px 1px 0; text-align: center; }\n';
+    // The band grew a corner image, so it no longer needs poster padding.
+    html += '.header:has(.mapcard) { padding: 12px 20px; align-items: flex-start; }\n';
+    html += '.header:has(.mapcard) .htext { align-self: center; }\n';
+    html += '@media print { .header .mapcard { width: 68mm; } .header .mapcard img { border-radius: 4px; } }\n';
     html += '</style>\n';
     html += '</head>\n<body>\n';
     html += '<div class="header">\n';
@@ -3735,27 +3757,29 @@
       (farmObj ? locName(farmObj) + ' · ' : '') +
       t('תאריך הפקה:') + ' ' + formatDate(new Date().toISOString().split('T')[0]) +
       (TH.sub ? ' · ' + TH.sub : '') + '</div>\n';
-    html += '</div></div>\n';
+    html += '</div>';
 
-    // Satellite image of the מטע's main plot, so a client can see *where*
-    // was sprayed and not only which name was typed. Opt-in per farm
+    // Satellite thumbnail of the מטע's main plot, so a client can see
+    // *where* was sprayed and not only which name was typed. Opt-in per farm
     // (ReportTheme → הוסף תצלום לווין) and only on the exported
-    // document. Read from cache only — see report-map.js on why this
-    // cannot await.
+    // document. It lives in the header's left corner — order:-1 puts it at
+    // the visual left of an RTL flex row — so it costs the log no vertical
+    // space. Read from cache only; see report-map.js on why this cannot await.
     var mapUrl = (TH.satellite && window.ReportMap && window.ReportMap.getCachedMain)
       ? window.ReportMap.getCachedMain(farmId || null) : null;
     if (mapUrl) {
+      var _mainPlot = (window.ReportMap && window.ReportMap.mainPlotOf && farmId)
+        ? window.ReportMap.mainPlotOf(farmId) : null;
       html += '<div class="mapcard">';
       html += '<img src="' + mapUrl + '" alt="' + t('תצלום לווין') + '">';
       // Attribution is baked into the image itself so it survives being
-      // copied out of the PDF — no need to print it twice.
-      var _mainPlot = (window.ReportMap && window.ReportMap.mainPlotOf && farmId)
-        ? window.ReportMap.mainPlotOf(farmId) : null;
+      // copied out of the PDF — no need to print it twice. The farm name is
+      // already in the header beside it, so the caption names the plot only.
       html += '<div class="mapcap">🛰 ' + t('תצלום לווין') +
-        (farmObj ? ' · ' + locName(farmObj) : '') +
         (_mainPlot ? ' · ' + _mainPlot.name : '') + '</div>';
-      html += '</div>\n';
+      html += '</div>';
     }
+    html += '</div>\n';
 
     html += '<table>\n';
     html += '<thead><tr>' +
@@ -7006,12 +7030,39 @@
   
   var PEST_BASE = PEST_API_URL + '?resource_id=' + PEST_RESOURCE_ID;
   
+  // data.gov.il blocks some browser origins outright, and when it does the
+  // browser reports a bare TypeError — indistinguishable from "no results"
+  // unless we say so. Direct call first; on failure retry once through our
+  // own Cloud Function, which has no CORS problem, and only then give up.
+  var pestProxyMode = false;
+
+  function pestRequest(url) {
+    if (pestProxyMode) return pestViaProxy(url);
+    return fetch(url).then(function(res) {
+      if (!res.ok) throw new Error('gov ' + res.status);
+      return res.json();
+    }).catch(function(err) {
+      return pestViaProxy(url).then(function(data) {
+        // Stick with the proxy for the rest of the session once it works.
+        pestProxyMode = true;
+        return data;
+      }, function() { throw err; });
+    });
+  }
+
+  function pestViaProxy(url) {
+    return fetch('/api/govdata?url=' + encodeURIComponent(url))
+      .then(function(res) {
+        if (!res.ok) throw new Error('proxy ' + res.status);
+        return res.json();
+      });
+  }
+
   function pestFetch(query, mode, limit, callback) {
     // Always use q= (full text search), then filter client-side by the right field
     var url = PEST_BASE + '&q=' + encodeURIComponent(query) + '&limit=' + limit;
-    
-    fetch(url)
-      .then(function(res) { return res.json(); })
+
+    pestRequest(url)
       .then(function(data) {
         if (!data.success || !data.result) { callback([]); return; }
         if (data.result.fields) discoverPestFields(data.result.fields, (data.result.records||[])[0]);
@@ -7032,7 +7083,11 @@
         });
         callback(filtered);
       })
-      .catch(function() { callback([]); });
+      .catch(function(err) {
+        // Tell the user the source is unreachable instead of pretending the
+        // ministry has no record of the product they are holding.
+        callback([], err || new Error('unreachable'));
+      });
   }
   
   // Group records by product name -> single entry with all crops

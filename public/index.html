@@ -239,8 +239,6 @@
     <div class="tab" data-tab="profile" data-t-key="אישי">👤 אישי</div>
     <div class="tab" data-tab="farms" data-t-key="מטעים">🌳 מטעים</div>
     <div class="tab admin-only" data-tab="users" data-t-key="משתמשים" style="display: none;">👥 משתמשים</div>
-    <div class="tab admin-only" data-tab="admin" data-t-key="חומרים" style="display: none;">🧪 חומרים</div>
-    <div class="tab" data-tab="pestsearch" data-t-key="חיפוש חומרים">🔍 חיפוש חומרים</div>
   </div>
 </div>
 
@@ -297,6 +295,8 @@
     <div class="spray-subview-toggle">
       <button class="sv-btn active" data-spray-view="form" type="button">💧 <span data-t-key="ריסוס חדש">ריסוס חדש</span></button>
       <button class="sv-btn" data-spray-view="history" type="button">📋 <span data-t-key="היסטוריה">היסטוריה</span></button>
+      <button class="sv-btn" data-spray-view="pestsearch" type="button">🔍 <span data-t-key="חיפוש חומרים">חיפוש חומרים</span></button>
+      <button class="sv-btn admin-only" data-spray-view="materials" type="button" style="display: none;">🧪 <span data-t-key="חומרים">חומרים</span></button>
     </div>
 
     <!-- FORM SUB-VIEW -->
@@ -377,6 +377,65 @@
       </div>
       <div id="historyList"></div>
     </div>
+
+    <!-- PESTICIDE SEARCH SUB-VIEW -->
+    <div id="spraySubviewPestsearch" style="display: none;">
+  <div class="spray-container">
+    <div class="section-card">
+      <div class="section-title" data-t-key="חיפוש חומרי הדברה">🔍 חיפוש חומרי הדברה</div>
+      <p style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 10px;" data-t-key="מאגר משרד החקלאות">מאגר משרד החקלאות — data.gov.il</p>
+      
+      <div style="display: flex; gap: 6px; margin-bottom: 10px;">
+        <button class="btn-admin pest-mode-btn active" data-pest-mode="all" style="flex: 1; padding: 8px; font-size: 0.78rem; border-radius: 10px;">🔎 <span data-t-key="חיפוש חופשי">חיפוש חופשי</span></button>
+        <button class="btn-admin pest-mode-btn" data-pest-mode="product" style="flex: 1; padding: 8px; font-size: 0.78rem; border-radius: 10px;">🧪 <span data-t-key="שם תכשיר">שם תכשיר</span></button>
+        <button class="btn-admin pest-mode-btn" data-pest-mode="crop" style="flex: 1; padding: 8px; font-size: 0.78rem; border-radius: 10px;">🌱 <span data-t-key="שם גידול">שם גידול</span></button>
+      </div>
+      
+      <div class="form-group" style="margin-bottom: 0; position: relative;">
+        <div style="display: flex; gap: 8px;">
+          <input type="text" class="form-input" id="pestSearchInput" autocomplete="off" placeholder="" style="flex: 1;" dir="rtl">
+          <button class="btn-admin" id="pestSearchBtn" style="flex: 0 0 auto; padding: 10px 18px;">🔍</button>
+        </div>
+        <div id="pestAutoComplete" style="display: none; position: absolute; top: 100%; left: 0; right: 0; z-index: 10; margin-top: 4px; background: var(--card); border-radius: 12px; box-shadow: var(--shadow-lg); max-height: 45vh; overflow-y: auto; border: 1px solid var(--g5);"></div>
+      </div>
+      <div id="pestSearchMeta" style="font-size: 0.7rem; color: var(--text-muted); margin-top: 6px; min-height: 16px;"></div>
+    </div>
+
+    <div id="pestSearchLoading" style="display: none; text-align: center; padding: 24px; color: var(--text-muted);">
+      <div style="font-size: 1.5rem; margin-bottom: 8px;">⏳</div>
+      <div data-t-key="מחפש">מחפש...</div>
+    </div>
+
+    <div id="pestSearchResults"></div>
+
+    <div id="pestSearchEmpty" style="display: none; text-align: center; padding: 24px; color: var(--text-muted);">
+      <div style="font-size: 2rem; margin-bottom: 8px;">🧪</div>
+      <div data-t-key="לא נמצאו תוצאות">לא נמצאו תוצאות</div>
+    </div>
+  </div>
+</div>
+
+    <!-- MATERIALS SUB-VIEW (admin) -->
+    <div id="spraySubviewMaterials" style="display: none;">
+  <div class="admin-container">
+    <div class="section-card">
+      <div class="admin-actions" style="flex-wrap: wrap;">
+        <button class="btn-admin" id="addPesticideBtn" data-t-key="הוסף חומר">➕ הוסף חומר</button>
+        <button class="btn-admin" id="exportPestCsvBtn" data-t-key="יצוא CSV">📄 יצוא CSV</button>
+        <button class="btn-admin" id="exportPestSheetsBtn" data-t-key="יצוא ל-Google Sheets">📊 יצוא ל-Google Sheets</button>
+      </div>
+      <div class="pest-filter-bar">
+        <input type="text" id="pestFilterText" class="form-input" placeholder="חיפוש: שם, חומר פעיל, מזיק..." data-t-placeholder="חיפוש: שם, חומר פעיל, מזיק...">
+        <select id="pestFilterCrop" class="form-input"></select>
+      </div>
+      <div class="pest-filter-meta">
+        <label class="pest-selectall"><input type="checkbox" id="pestSelectAll"> <span data-t-key="בחר הכל">בחר הכל</span></label>
+        <span id="pestFilterCount"></span>
+      </div>
+      <div id="pesticideAdminList"></div>
+    </div>
+  </div>
+</div>
 
   </div>
 </div>
@@ -596,63 +655,10 @@
 </div>
 
 <!-- Admin Tab -->
-<div class="tab-content" id="tabAdmin">
-  <div class="admin-container">
-    <div class="section-card">
-      <div class="admin-actions" style="flex-wrap: wrap;">
-        <button class="btn-admin" id="addPesticideBtn" data-t-key="הוסף חומר">➕ הוסף חומר</button>
-        <button class="btn-admin" id="exportPestCsvBtn" data-t-key="יצוא CSV">📄 יצוא CSV</button>
-        <button class="btn-admin" id="exportPestSheetsBtn" data-t-key="יצוא ל-Google Sheets">📊 יצוא ל-Google Sheets</button>
-      </div>
-      <div class="pest-filter-bar">
-        <input type="text" id="pestFilterText" class="form-input" placeholder="חיפוש: שם, חומר פעיל, מזיק..." data-t-placeholder="חיפוש: שם, חומר פעיל, מזיק...">
-        <select id="pestFilterCrop" class="form-input"></select>
-      </div>
-      <div class="pest-filter-meta">
-        <label class="pest-selectall"><input type="checkbox" id="pestSelectAll"> <span data-t-key="בחר הכל">בחר הכל</span></label>
-        <span id="pestFilterCount"></span>
-      </div>
-      <div id="pesticideAdminList"></div>
-    </div>
-  </div>
-</div><!-- End tabAdmin -->
+<!-- End tabAdmin -->
 
 <!-- Pesticide Search Tab -->
-<div class="tab-content" id="tabPestsearch">
-  <div class="spray-container">
-    <div class="section-card">
-      <div class="section-title" data-t-key="חיפוש חומרי הדברה">🔍 חיפוש חומרי הדברה</div>
-      <p style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 10px;" data-t-key="מאגר משרד החקלאות">מאגר משרד החקלאות — data.gov.il</p>
-      
-      <div style="display: flex; gap: 6px; margin-bottom: 10px;">
-        <button class="btn-admin pest-mode-btn active" data-pest-mode="all" style="flex: 1; padding: 8px; font-size: 0.78rem; border-radius: 10px;">🔎 <span data-t-key="חיפוש חופשי">חיפוש חופשי</span></button>
-        <button class="btn-admin pest-mode-btn" data-pest-mode="product" style="flex: 1; padding: 8px; font-size: 0.78rem; border-radius: 10px;">🧪 <span data-t-key="שם תכשיר">שם תכשיר</span></button>
-        <button class="btn-admin pest-mode-btn" data-pest-mode="crop" style="flex: 1; padding: 8px; font-size: 0.78rem; border-radius: 10px;">🌱 <span data-t-key="שם גידול">שם גידול</span></button>
-      </div>
-      
-      <div class="form-group" style="margin-bottom: 0; position: relative;">
-        <div style="display: flex; gap: 8px;">
-          <input type="text" class="form-input" id="pestSearchInput" autocomplete="off" placeholder="" style="flex: 1;" dir="rtl">
-          <button class="btn-admin" id="pestSearchBtn" style="flex: 0 0 auto; padding: 10px 18px;">🔍</button>
-        </div>
-        <div id="pestAutoComplete" style="display: none; position: absolute; top: 100%; left: 0; right: 0; z-index: 10; margin-top: 4px; background: var(--card); border-radius: 12px; box-shadow: var(--shadow-lg); max-height: 45vh; overflow-y: auto; border: 1px solid var(--g5);"></div>
-      </div>
-      <div id="pestSearchMeta" style="font-size: 0.7rem; color: var(--text-muted); margin-top: 6px; min-height: 16px;"></div>
-    </div>
-
-    <div id="pestSearchLoading" style="display: none; text-align: center; padding: 24px; color: var(--text-muted);">
-      <div style="font-size: 1.5rem; margin-bottom: 8px;">⏳</div>
-      <div data-t-key="מחפש">מחפש...</div>
-    </div>
-
-    <div id="pestSearchResults"></div>
-
-    <div id="pestSearchEmpty" style="display: none; text-align: center; padding: 24px; color: var(--text-muted);">
-      <div style="font-size: 2rem; margin-bottom: 8px;">🧪</div>
-      <div data-t-key="לא נמצאו תוצאות">לא נמצאו תוצאות</div>
-    </div>
-  </div>
-</div><!-- End tabPestsearch -->
+<!-- End tabPestsearch -->
 
 <!-- Irrigation Tab -->
 <div class="tab-content" id="tabIrrigation">

@@ -4,6 +4,13 @@
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
     "rewrites": [
       {
+        "source": "/api/govdata",
+        "function": {
+          "functionId": "govDataProxy",
+          "region": "us-central1"
+        }
+      },
+      {
         "source": "/api/talgil",
         "function": {
           "functionId": "talgilProxy",
