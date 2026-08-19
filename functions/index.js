@@ -55,6 +55,59 @@ exports.setUserRole = onCall(
 // 3. TALGIL PROXY — with auth verification
 // ═══════════════════════════════════════════
 
+// ══════════════════════════════════════════
+// GOV DATA PROXY — data.gov.il (Ministry of Agriculture pesticide registry)
+// ══════════════════════════════════════════
+//
+// The registry's CKAN API is public but its CORS behaviour is not dependable
+// from a browser origin, and when it refuses the browser cannot tell us why.
+// The app calls this only after a direct attempt fails.
+//
+// Read-only and host-locked: the URL must be a data.gov.il API address, so
+// this cannot be turned into an open relay.
+
+exports.govDataProxy = onRequest(
+  { region: "us-central1", maxInstances: 5 },
+  async (req, res) => {
+    res.set("Access-Control-Allow-Origin", "https://shorashim-plus.web.app");
+    res.set("Access-Control-Allow-Methods", "GET, OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Content-Type");
+    if (req.method === "OPTIONS") { res.status(204).send(""); return; }
+    if (req.method !== "GET") { res.status(405).json({ error: "GET only" }); return; }
+
+    const raw = req.query.url;
+    if (!raw) { res.status(400).json({ error: "Missing url" }); return; }
+
+    let target;
+    try {
+      target = new URL(raw);
+    } catch (err) {
+      res.status(400).json({ error: "Malformed url" }); return;
+    }
+    if (target.protocol !== "https:" || target.hostname !== "data.gov.il") {
+      res.status(400).json({ error: "Only https://data.gov.il is allowed" }); return;
+    }
+    if (!target.pathname.startsWith("/api/")) {
+      res.status(400).json({ error: "Only /api/ paths are allowed" }); return;
+    }
+
+    try {
+      const response = await fetch(target.toString(), {
+        headers: { "Accept": "application/json" }
+      });
+      const text = await response.text();
+      if (!response.ok) {
+        res.status(response.status).json({ error: `data.gov.il ${response.status}`, detail: text.slice(0, 400) });
+        return;
+      }
+      res.set("Cache-Control", "public, max-age=1800");
+      res.type("application/json").send(text);
+    } catch (err) {
+      res.status(502).json({ error: err.message });
+    }
+  }
+);
+
 exports.talgilProxy = onRequest(
   { region: "us-central1", maxInstances: 5 },
   async (req, res) => {
