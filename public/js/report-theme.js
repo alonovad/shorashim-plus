@@ -42,7 +42,11 @@ var ReportTheme = (function () {
     // Satellite image of the מטע's main plot. OFF by default: the image
     // belongs to the outgoing document only, and only when the grower asks
     // for it. mainPlot empty = the largest plot of the farm.
-    satellite: false, mainPlot: ''
+    satellite: false, mainPlot: '',
+    // On = the report carries the שורשים פלוס name in its title and
+    // footer. Off = a neutral document, for logs that go out to a client who
+    // has nothing to do with us.
+    brand: true
   };
 
   function tt(he, th, ar) {
@@ -102,7 +106,8 @@ var ReportTheme = (function () {
       logo: merged.logo || '', footer: merged.footer || '',
       signature: !!merged.signature,
       satellite: !!merged.satellite,
-      mainPlot: merged.mainPlot ? parseInt(merged.mainPlot, 10) : null
+      mainPlot: merged.mainPlot ? parseInt(merged.mainPlot, 10) : null,
+      brand: merged.brand !== false
     };
   }
 
@@ -262,6 +267,12 @@ var ReportTheme = (function () {
              'เพิ่มภาพดาวเทียม',
              'أضف صورة قمر للتقرير') + '</label>' +
 
+        '<label class="rt-check"><input type="checkbox" id="rtBrand"' +
+          (cur.brand ? ' checked' : '') + '> ' +
+          tt('הוסף כותרת "שורשים פלוס"',
+             'เพิ่มหัวข้อ Shorashim Plus',
+             'أضف عنوان Shorashim Plus') + '</label>' +
+
         '<label class="se-label">' + tt('החלקה הראשית של המטע (לתצלום)',
           'แปลงหลัก', 'القطعة الرئيسية') + '</label>' +
         '<select id="rtMainPlot" class="form-input">' + plotOptions(farmId, cur.mainPlot) + '</select>' +
@@ -327,7 +338,8 @@ var ReportTheme = (function () {
       footer: document.getElementById('rtFooter').value.trim(),
       signature: document.getElementById('rtSig').checked,
       satellite: document.getElementById('rtSat').checked,
-      mainPlot: document.getElementById('rtMainPlot').value || ''
+      mainPlot: document.getElementById('rtMainPlot').value || '',
+      brand: document.getElementById('rtBrand').checked
     };
   }
 

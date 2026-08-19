@@ -2078,3 +2078,33 @@ body.theme-classic #registerOpenLink { color: #2e7d32 !important; text-shadow: n
   background: var(--hover-bg, rgba(126,201,164,0.1));
   border: 1px solid var(--border, rgba(126,201,164,0.25)); border-radius: 6px;
 }
+
+
+/* ══ spray purpose, gear chips, irrigation toggle ══ */
+.gear-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.gear-chip {
+  padding: 8px 13px; border-radius: 999px; cursor: pointer;
+  font-family: inherit; font-size: 0.8rem; font-weight: 600;
+  background: transparent; color: var(--text-muted);
+  border: 1px solid var(--g5, #c3d2bd);
+}
+.gear-chip.on {
+  background: rgba(126, 201, 164, 0.2);
+  color: var(--g3, #2e7d32);
+  border-color: var(--g3, #2e7d32);
+}
+.spray-check {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 0.85rem; margin-top: 4px; cursor: pointer;
+}
+.spray-check input { width: 17px; height: 17px; accent-color: var(--g3, #2e7d32); }
+.spray-purpose-tag {
+  display: inline-block; margin-inline-end: 6px; padding: 1px 7px;
+  border-radius: 5px; font-size: 0.68rem; font-weight: 700;
+  background: rgba(126, 201, 164, 0.16); color: var(--g3, #2e7d32);
+}
+.spray-gear-tag {
+  display: inline-block; margin-inline-end: 6px; padding: 1px 7px;
+  border-radius: 5px; font-size: 0.68rem; font-weight: 600;
+  background: rgba(126, 201, 164, 0.1); color: var(--text-muted);
+}

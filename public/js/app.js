@@ -583,6 +583,32 @@
   var FARM_COLORS = ['#2e7d32','#1565c0','#c62828','#6a1b9a','#ef6c00','#00838f','#ad1457','#4e342e'];
   var TREES_PER_DUNAM = 12.3;
 
+  // Dose units. A canopy spray is dosed per tree, a herbicide pass per
+  // dunam, and fertigation through the irrigation line in cc per tree — the
+  // same number means three different things, so the unit travels with the
+  // record instead of being assumed to be litres.
+  var VOLUME_UNITS = {
+    l_tree:  { label: 'ליטר / עץ',   short: 'ליטר/עץ',   perTree: true,  toLitres: 1 },
+    cc_tree: { label: 'סמ"ק / עץ',  short: 'סמ"ק/עץ',  perTree: true,  toLitres: 0.001 },
+    l_dunam: { label: 'ליטר / דונם', short: 'ליטר/דונם', perTree: false, toLitres: 1 }
+  };
+  function unitOf(u) { return VOLUME_UNITS[u] || VOLUME_UNITS.l_tree; }
+  function unitShort(u) { return unitOf(u).short; }
+
+  var SPRAY_PURPOSES = {
+    pest:      'הדברת מזיקים ומחלות',
+    weeds:     'ריסוס עשבייה',
+    preemerge: 'מניעת הצצה'
+  };
+  function purposeLabel(p) { return SPRAY_PURPOSES[p] || SPRAY_PURPOSES.pest; }
+
+  // Total litres in the tank for a given dose, unit, area and tree count.
+  function doseToLitres(dose, unitKey, area) {
+    var u = unitOf(unitKey);
+    var qty = u.perTree ? (Math.round(area * TREES_PER_DUNAM) * dose) : (area * dose);
+    return qty * u.toLitres;
+  }
+
   // Permission helpers
   function isAdmin() {
     return currentUser && currentUser.role === 'admin';
@@ -3079,6 +3105,77 @@
     });
   }
 
+  // The purpose and the irrigation toggle pick the sensible unit, but the
+  // operator can still override it — once they touch the select by hand we
+  // stop steering it, because they know their sprayer better than we do.
+  var _unitTouched = false;
+
+  function selectedGear() {
+    var out = [];
+    document.querySelectorAll('#sprayGearList .gear-chip.on').forEach(function(c) {
+      out.push(c.getAttribute('data-gear'));
+    });
+    return out;
+  }
+
+  function currentUnit() {
+    var el = document.getElementById('volumeUnit');
+    return el ? el.value : 'l_tree';
+  }
+
+  function suggestUnit() {
+    var purposeEl = document.getElementById('sprayPurpose');
+    var irrEl = document.getElementById('sprayViaIrrigation');
+    var unitEl = document.getElementById('volumeUnit');
+    if (!unitEl) return;
+    if (!_unitTouched) {
+      // Through the irrigation line the dose is small enough that litres per
+      // tree stops being readable — cc per tree is how it is actually mixed.
+      if (irrEl && irrEl.checked) unitEl.value = 'cc_tree';
+      else if (purposeEl && (purposeEl.value === 'weeds' || purposeEl.value === 'preemerge')) unitEl.value = 'l_dunam';
+      else unitEl.value = 'l_tree';
+    }
+    syncVolumeLabel();
+  }
+
+  function syncVolumeLabel() {
+    var lbl = document.getElementById('volumePerTreeLabel');
+    var u = unitOf(currentUnit());
+    if (lbl) {
+      lbl.textContent = (u.perTree ? t('מנה לעץ') : t('מנה לדונם')) + ' (' + u.label + ')';
+    }
+    var cap = document.getElementById('sprayerCapacity');
+    var capLbl = cap ? cap.parentNode.querySelector('.form-label') : null;
+    var irrEl = document.getElementById('sprayViaIrrigation');
+    if (capLbl) {
+      capLbl.textContent = (irrEl && irrEl.checked)
+        ? t('נפח מילוי / מיכל דישון (ליטר)')
+        : t('קיבולת מרסס (ליטר)');
+    }
+  }
+
+  (function wireSprayPurpose() {
+    var start = function() {
+      var purposeEl = document.getElementById('sprayPurpose');
+      var irrEl = document.getElementById('sprayViaIrrigation');
+      var unitEl = document.getElementById('volumeUnit');
+      if (!purposeEl || !unitEl) return;
+      purposeEl.addEventListener('change', function() { suggestUnit(); updateCalculations(); });
+      if (irrEl) irrEl.addEventListener('change', function() { suggestUnit(); updateCalculations(); });
+      unitEl.addEventListener('change', function() {
+        _unitTouched = true;
+        syncVolumeLabel();
+        updateCalculations();
+      });
+      document.querySelectorAll('#sprayGearList .gear-chip').forEach(function(chip) {
+        chip.addEventListener('click', function() { chip.classList.toggle('on'); });
+      });
+      suggestUnit();
+    };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
+    else start();
+  })();
+
   function updateCalculations() {
     var selectedPlots = [];
     document.querySelectorAll('.plot-checkbox:checked').forEach(function(cb) {
@@ -3112,14 +3209,20 @@
       return;
     }
 
+    var unitKey = currentUnit();
+    var unit = unitOf(unitKey);
     var totalArea = selectedPlots.reduce(function(sum, p) { return sum + p.area; }, 0);
     var totalTrees = Math.round(totalArea * TREES_PER_DUNAM);
-    var totalVolume = totalTrees * volumePerTree;
+    // Litres in the tank, whatever unit the dose was entered in.
+    var totalVolume = doseToLitres(volumePerTree, unitKey, totalArea);
     var iterations = Math.ceil(totalVolume / sprayerCapacity);
 
     var html = '<div class="calc-results">';
     html += '<div class="calc-row"><span class="calc-label">' + t('שטח כולל') + '</span><span class="calc-value">' + totalArea.toFixed(2) + ' ' + t('דונם') + '</span></div>';
-    html += '<div class="calc-row"><span class="calc-label">' + t('מספר עצים') + '</span><span class="calc-value">' + totalTrees + ' ' + t('עצים') + '</span></div>';
+    if (unit.perTree) {
+      html += '<div class="calc-row"><span class="calc-label">' + t('מספר עצים') + '</span><span class="calc-value">' + totalTrees + ' ' + t('עצים') + '</span></div>';
+    }
+    html += '<div class="calc-row"><span class="calc-label">' + t('מנה') + '</span><span class="calc-value">' + volumePerTree + ' ' + unit.label + '</span></div>';
     html += '<div class="calc-row"><span class="calc-label">' + t('נפח כולל') + '</span><span class="calc-value">' + totalVolume.toFixed(0) + ' ' + t('ליטר') + '</span></div>';
     html += '<div class="calc-row"><span class="calc-label">' + t('מספר מילויים') + '</span><span class="calc-value">' + iterations + ' ' + t('מילויים') + '</span></div>';
     
@@ -3151,6 +3254,12 @@
     var operator = document.getElementById('operatorName').value.trim();
     var volumePerTree = parseFloat(document.getElementById('volumePerTree').value) || 0;
     var sprayerCapacity = parseFloat(document.getElementById('sprayerCapacity').value) || 0;
+    var volumeUnit = currentUnit();
+    var purposeEl = document.getElementById('sprayPurpose');
+    var purpose = purposeEl ? purposeEl.value : 'pest';
+    var irrEl = document.getElementById('sprayViaIrrigation');
+    var viaIrrigation = !!(irrEl && irrEl.checked);
+    var gear = selectedGear();
 
     if (!date || !operator) {
       showToast('❌ ' + t('חובה למלא תאריך ושם מפעיל'));
@@ -3243,7 +3352,16 @@
         // grower's log.
         farmId: g.farmId,
         volumePerTree: volumePerTree,
+        // The dose above is meaningless without its unit — a record written
+        // before this field existed is litres per tree, which is what the
+        // reader is defaulted to.
+        volumeUnit: volumeUnit,
         sprayerCapacity: sprayerCapacity,
+        // What the pass was for, what it was applied with, and whether it
+        // went through the irrigation line rather than a sprayer.
+        purpose: purpose,
+        gear: gear.slice(),
+        viaIrrigation: viaIrrigation,
         // Deep copy: editing one sibling later must not mutate the others.
         applications: JSON.parse(JSON.stringify(applications)),
         // Inspection reports this spray responds to (spray-pest-link.js).
@@ -3395,8 +3513,20 @@
           t('אותו יישום נרשם בנפרד לכל מטע') +
           '">⛓ ' + event.batchSize + ' מטעים</span>' : '';
       html += '<div class="history-plots">' + farmChip + batchChip + t('חלקות') + ': ' + plotNames + ' (' + totalArea.toFixed(2) + ' ' + t('דונם') + ')</div>';
+      var purposeTag = (event.purpose && event.purpose !== 'pest')
+        ? '<span class="spray-purpose-tag">' + t(purposeLabel(event.purpose)) + '</span>' : '';
+      var irrTag = event.viaIrrigation
+        ? '<span class="spray-gear-tag">💧 ' + t('דרך השקיה') + '</span>' : '';
+      var gearTags = (event.gear || []).map(function(g) {
+        return '<span class="spray-gear-tag">' + g + '</span>';
+      }).join('');
+      if (purposeTag || irrTag || gearTags) {
+        html += '<div class="history-tags" style="margin-top:5px;">' + purposeTag + irrTag + gearTags + '</div>';
+      }
       html += '<div class="history-meta" style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">';
-      html += event.volumePerTree + ' ' + t('ליטר/עץ') + ' • ' + t('מרסס') + ' ' + event.sprayerCapacity + ' ' + t('ליטר');
+      html += event.volumePerTree + ' ' + t(unitShort(event.volumeUnit)) + ' • ' +
+        t(event.viaIrrigation ? 'מיכל דישון' : 'מרסס') + ' ' +
+        event.sprayerCapacity + ' ' + t('ליטר');
       html += '</div>';
       if (recon && recon.evidenceBasis) {
         html += '<div class="history-recon">' + t('על סמך') + ': ' + recon.evidenceBasis +
@@ -3544,7 +3674,8 @@
         c1: '#1a5632', c2: '#2d6a4f', c3: '#40916c',
         headText: '#ffffff', accent: '#2d6a4f', radius: 20,
         orientation: 'landscape', title: '', sub: '', logo: '',
-        footer: '', signature: false, satellite: false, mainPlot: null
+        footer: '', signature: false, satellite: false, mainPlot: null,
+        brand: true
       };
 
     var html = '<!DOCTYPE html>\n<html lang="he" dir="rtl">\n<head>\n';
@@ -3595,7 +3726,11 @@
     html += '<div class="header">\n';
     if (TH.logo) html += '<img class="logo" src="' + TH.logo + '" alt="">\n';
     html += '<div class="htext">';
-    html += '<h1>' + (TH.title || ('🌿 ' + t('יומן ריסוסים - שורשים פלוס'))) + '</h1>\n';
+    // A grower exporting a log for their own client should not have to send
+    // out our brand. TH.brand off = a plain title and no footer credit.
+    html += '<h1>' + (TH.title || (TH.brand
+      ? ('🌿 ' + t('יומן ריסוסים - שורשים פלוס'))
+      : t('יומן ריסוסים'))) + '</h1>\n';
     html += '<div class="sub">' +
       (farmObj ? locName(farmObj) + ' · ' : '') +
       t('תאריך הפקה:') + ' ' + formatDate(new Date().toISOString().split('T')[0]) +
@@ -3699,9 +3834,15 @@
         '<td>' + (event.operator || '') + '</td>' +
         '<td>' + plotNames + '</td>' +
         '<td>' + totalArea.toFixed(2) + ' ' + t('דונם') + '</td>' +
-        '<td>' + event.volumePerTree + ' ' + t('ליטר') + '</td>' +
+        '<td>' + event.volumePerTree + ' ' + t(unitShort(event.volumeUnit)) +
+          (event.viaIrrigation ? '<div class="pest-meta">דרך מערכת ההשקיה</div>' : '') + '</td>' +
         '<td>' + event.sprayerCapacity + ' ' + t('ליטר') + '</td>' +
-        '<td>' + pestCell + pdfChain + pdfBasis + pdfRevs + '</td>' +
+        '<td>' + pestCell +
+          ((event.purpose && event.purpose !== 'pest')
+            ? '<div class="pest-meta">🎯 ' + purposeLabel(event.purpose) + '</div>' : '') +
+          ((event.gear && event.gear.length)
+            ? '<div class="pest-meta">🔧 ' + event.gear.join(', ') + '</div>' : '') +
+          pdfChain + pdfBasis + pdfRevs + '</td>' +
       '</tr>\n';
     });
 
@@ -3732,7 +3873,9 @@
         '<div>' + t('תאריך') + '</div>' +
         '</div>\n';
     }
-    html += '<div class="footer"><span class="brand">🌿 ' + t('שורשים פלוס') + '</span> · ' + t('יומן ריסוסים') + ' · ' + new Date().getFullYear() + '</div>\n';
+    html += '<div class="footer">' +
+      (TH.brand ? '<span class="brand">🌿 ' + t('שורשים פלוס') + '</span> · ' : '') +
+      t('יומן ריסוסים') + ' · ' + new Date().getFullYear() + '</div>\n';
     html += '</body>\n</html>';
 
     return html;

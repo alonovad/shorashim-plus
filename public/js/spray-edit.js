@@ -65,7 +65,11 @@ var SprayEdit = (function () {
       plotIds: tt('חלקות', 'แปลง', 'القطع'),
       applications: tt('חומרים', 'สารเคมี', 'المواد'),
       linkedReportIds: tt('דוחות מקושרים', 'รายงานที่เชื่อมโยง', 'التقارير المرتبطة'),
-      farmId: tt('מטע', 'สวน', 'بستان')
+      farmId: tt('מטע', 'สวน', 'بستان'),
+      purpose: tt('מטרת הריסוס', 'วัตถุประสงค์', 'الغرض'),
+      gear: tt('אביזרי ריסוס', 'อุปกรณ์', 'أدوات'),
+      viaIrrigation: tt('דרך מערכת ההשקיה', 'ผ่านระบบน้ำ', 'عبر الري'),
+      volumeUnit: tt('יחידת מידה', 'หน่วย', 'الوحدة')
     };
     return map[f] || f;
   }
@@ -85,6 +89,18 @@ var SprayEdit = (function () {
       }).join(' | ') || '—';
     }
     if (field === 'linkedReportIds') return (v || []).length + '';
+    if (field === 'gear') return (v || []).join(', ') || '—';
+    if (field === 'viaIrrigation') return v ? tt('כן', 'ใช่', 'نعم') : tt('לא', 'ไม่', 'لا');
+    if (field === 'purpose') {
+      var PL = { pest: tt('הדברת מזיקים ומחלות', '', ''),
+                 weeds: tt('ריסוס עשבייה', '', ''),
+                 preemerge: tt('מניעת הצצה', '', '') };
+      return PL[v] || String(v);
+    }
+    if (field === 'volumeUnit') {
+      var UL = { l_tree: 'ליטר/עץ', cc_tree: 'סמ"ק/עץ', l_dunam: 'ליטר/דונם' };
+      return UL[v] || UL.l_tree;
+    }
     if (field === 'farmId') {
       var fm = (window.SprayStore ? window.SprayStore.getFarms() : [])
         .find(function (f) { return f.id === v; });
@@ -94,7 +110,8 @@ var SprayEdit = (function () {
   }
 
   function diff(before, after) {
-    var fields = ['date', 'operator', 'volumePerTree', 'sprayerCapacity',
+    var fields = ['date', 'operator', 'volumePerTree', 'volumeUnit', 'sprayerCapacity',
+                  'purpose', 'gear', 'viaIrrigation',
                   'plotIds', 'farmId', 'applications', 'linkedReportIds'];
     var out = [];
     fields.forEach(function (f) {
@@ -230,6 +247,30 @@ var SprayEdit = (function () {
               (ev.volumePerTree || 0) + '"></div>' +
             '<div><label class="se-label">' + tt('קיבולת מרסס', 'ความจุถังพ่น', 'سعة الرشاش') + '</label>' +
             '<input type="number" step="1" min="0" id="seCapacity" class="form-input" value="' +
+
+        '<label class="se-label">' + tt('מטרת הריסוס', 'วัตถุประสงค์', 'الغرض') + '</label>' +
+        '<select id="sePurpose" class="form-input">' +
+          ['pest', 'weeds', 'preemerge'].map(function (k) {
+            var L = { pest: tt('הדברת מזיקים ומחלות', '', ''),
+                      weeds: tt('ריסוס עשבייה', '', ''),
+                      preemerge: tt('מניעת הצצה', '', '') };
+            return '<option value="' + k + '"' + (((ev.purpose || 'pest') === k) ? ' selected' : '') +
+              '>' + L[k] + '</option>';
+          }).join('') +
+        '</select>' +
+        '<label class="se-label">' + tt('יחידת מידה', 'หน่วย', 'الوحدة') + '</label>' +
+        '<select id="seUnit" class="form-input">' +
+          [['l_tree', 'ליטר / עץ'], ['cc_tree', 'סמ"ק / עץ'], ['l_dunam', 'ליטר / דונם']]
+            .map(function (u) {
+              return '<option value="' + u[0] + '"' +
+                (((ev.volumeUnit || 'l_tree') === u[0]) ? ' selected' : '') + '>' + u[1] + '</option>';
+            }).join('') +
+        '</select>' +
+        '<label class="se-label">' + tt('אביזרי ריסוס (מופרד בפסיק)', 'อุปกรณ์', 'أدوات') + '</label>' +
+        '<input id="seGear" class="form-input" value="' + esc((ev.gear || []).join(', ')) + '">' +
+        '<label class="rt-check"><input type="checkbox" id="seIrr"' +
+          (ev.viaIrrigation ? ' checked' : '') + '> ' +
+          tt('יישום דרך מערכת ההשקיה', 'ผ่านระบบน้ำ', 'عبر الري') + '</label>' +
               (ev.sprayerCapacity || 0) + '"></div>' +
           '</div>' +
 
@@ -314,6 +355,11 @@ var SprayEdit = (function () {
       volumePerTree: parseFloat(document.getElementById('seVolume').value) || 0,
       sprayerCapacity: parseFloat(document.getElementById('seCapacity').value) || 0,
       plotIds: plotIds,
+      purpose: (document.getElementById('sePurpose') || {}).value || 'pest',
+      volumeUnit: (document.getElementById('seUnit') || {}).value || 'l_tree',
+      gear: ((document.getElementById('seGear') || {}).value || '')
+        .split(',').map(function (s) { return s.trim(); }).filter(Boolean),
+      viaIrrigation: !!(document.getElementById('seIrr') || {}).checked,
       applications: apps
     };
   }

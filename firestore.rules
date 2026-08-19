@@ -82,6 +82,12 @@ service cloud.firestore {
         'shorashim-receipts'
       ];
 
+      // Operator+: one pest-monitoring document per growing year
+      // (shorashim-pest-monitor-2026, -2027, ...). Prefix match rather than a
+      // literal list so a new season needs no rules deploy.
+      allow write: if (isOperatorOrAbove() || noRoleYet()) &&
+                      docId.matches('shorashim-pest-monitor-[0-9]{4}');
+
       // Worker+: worklogs
       allow write: if (isWorkerOrAbove() || noRoleYet()) && docId.matches('shorashim-worklog.*');
 
