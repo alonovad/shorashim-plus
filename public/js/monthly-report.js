@@ -18,9 +18,13 @@ var MonthlyReport = (function() {
     return he;
   }
 
-  // ── CONTRACT (mirrors "משרה מלאה א-ה גלובאלי") ──
-  // TODO Phase 2: move to an editable per-employee contract in Firestore (contracts.js).
-  var CONTRACT = {
+  // ── CONTRACT ──
+  // The hardcoded constant below is now only the FALLBACK. The live contract
+  // for the employee on screen comes from payroll.js, which stores one
+  // contract per משרה and assigns employees to them. An install that never
+  // opens the payroll screen gets exactly these numbers, so nothing changes
+  // until someone deliberately configures a different משרה.
+  var CONTRACT_FALLBACK = {
     name: 'משרה מלאה א-ה גלובאלי',
     breakMin: 45,
     stdRegular: 504,        // 08:24
@@ -34,6 +38,35 @@ var MonthlyReport = (function() {
       { min: Infinity, rate: 150 }
     ]
   };
+
+  // Resolve the contract for whoever is currently on screen. payroll.js
+  // stores tier sizes as flat minutes (tier125Min / tier150Min); the engine
+  // here wants the weeklyTiers ladder, so translate rather than making both
+  // sides speak the same shape — the ladder is an engine detail.
+  function contractFor(username) {
+    if (typeof Payroll === 'undefined' || !Payroll.getContract) return CONTRACT_FALLBACK;
+    var c = Payroll.getContract(username);
+    if (!c) return CONTRACT_FALLBACK;
+    return {
+      name: c.name || CONTRACT_FALLBACK.name,
+      breakMin: c.breakMin != null ? c.breakMin : CONTRACT_FALLBACK.breakMin,
+      stdRegular: c.stdRegular != null ? c.stdRegular : CONTRACT_FALLBACK.stdRegular,
+      stdShort: c.stdShort != null ? c.stdShort : CONTRACT_FALLBACK.stdShort,
+      restDow: Array.isArray(c.restDow) ? c.restDow : CONTRACT_FALLBACK.restDow,
+      shortDow: Array.isArray(c.shortDow) ? c.shortDow : CONTRACT_FALLBACK.shortDow,
+      weeklyCapRegular: c.weeklyCapRegular != null ? c.weeklyCapRegular : CONTRACT_FALLBACK.weeklyCapRegular,
+      weeklyTiers: [
+        { min: c.tier125Min != null ? c.tier125Min : 120, rate: 125 },
+        { min: c.tier150Min != null ? c.tier150Min : 120, rate: 150 },
+        { min: Infinity, rate: 150 }
+      ]
+    };
+  }
+
+  // The engine functions below read CONTRACT as a free variable, so point it
+  // at the on-screen employee's contract whenever the employee changes.
+  var CONTRACT = CONTRACT_FALLBACK;
+  function useContractFor(username) { CONTRACT = contractFor(username); }
 
   var DOW = ['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ש'];
   var MONTHS = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
@@ -53,7 +86,25 @@ var MonthlyReport = (function() {
     { v: 'accident',  he: 'תאונת עבודה',  th: 'อุบัติเหตุงาน',    ar: 'إصابة عمل' },
     { v: 'personal',  he: 'יום בחירה',    th: 'วันเลือก',        ar: 'يوم اختياري' }
   ];
-  function eventLabel(v) { for (var i = 0; i < EVENTS.length; i++) { if (EVENTS[i].v === v) return tt(EVENTS[i].he, EVENTS[i].th, EVENTS[i].ar); } return v || '—'; }
+  // EVENTS above is the fallback list. When payroll.js holds an admin-edited
+  // list, that wins — one place to maintain the אירוע vocabulary. The blank
+  // "—" option is always prepended so a day can be cleared back to nothing.
+  function eventOptions() {
+    if (typeof Payroll !== 'undefined' && Payroll.getEventTypes) {
+      var custom = Payroll.getEventTypes();
+      if (custom && custom.length) {
+        return [{ v: '', he: '—', th: '—', ar: '—' }].concat(custom);
+      }
+    }
+    return EVENTS;
+  }
+  function eventLabel(v) {
+    var list = eventOptions();
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].v === v) return tt(list[i].he, list[i].th, list[i].ar);
+    }
+    return v || '—';
+  }
 
   // ── time helpers ──
   function pad(n) { return (n < 10 ? '0' : '') + n; }
@@ -147,6 +198,16 @@ var MonthlyReport = (function() {
 
   // ── open / load ──
   function show() {
+    // Payroll holds the contracts and the אירוע list. Warm it before the
+    // first paint so the header shows the real משרה name rather than the
+    // fallback for one frame.
+    if (typeof Payroll !== 'undefined' && Payroll.load) {
+      Payroll.load().then(function() { _showGuarded(); })['catch'](function() { _showGuarded(); });
+      return;
+    }
+    _showGuarded();
+  }
+  function _showGuarded() {
     if (typeof Team !== 'undefined' && Team.refresh) { Team.refresh().then(function() { _show(); }); return; }
     _show();
   }
@@ -165,6 +226,7 @@ var MonthlyReport = (function() {
     state.year = now.getFullYear();
     state.month = now.getMonth();
     state.open = null;
+    useContractFor(state.username);
     renderShell(emps);
     load();
   }
@@ -335,7 +397,7 @@ var MonthlyReport = (function() {
     var cur = state.events[r.key] || (worked ? 'work' : '');
     var holidayPill = r.holiday ? '<div style="margin-top:3px;"><span style="background:#fbf1df;color:#b8761a;padding:1px 7px;border-radius:999px;font-size:0.64rem;font-weight:700;">' + holidayName(r.holiday) + '</span></div>' : '';
     if (isManager()) {
-      var opts = EVENTS.map(function(e) { return '<option value="' + e.v + '"' + (e.v === cur ? ' selected' : '') + '>' + tt(e.he, e.th, e.ar) + '</option>'; }).join('');
+      var opts = eventOptions().map(function(e) { return '<option value="' + e.v + '"' + (e.v === cur ? ' selected' : '') + '>' + tt(e.he, e.th, e.ar) + '</option>'; }).join('');
       return '<select onchange="MonthlyReport._setEvent(\'' + r.key + '\', this.value)" style="font-family:inherit;font-size:0.72rem;padding:3px 5px;border-radius:7px;border:1px solid ' + (cur ? '#9db8e6' : '#e2e2e2') + ';background:' + (cur ? '#eef4ff' : '#fff') + ';color:#334;max-width:104px;cursor:pointer;">' + opts + '</select>' + holidayPill;
     }
     if (cur) return '<span style="background:#eef4ff;color:#2f5fa0;padding:2px 8px;border-radius:999px;font-size:0.7rem;font-weight:700;">' + eventLabel(cur) + '</span>' + holidayPill;
@@ -465,6 +527,7 @@ var MonthlyReport = (function() {
     var e = emps.filter(function(x) { return x.username === username; })[0];
     if (!e) return;
     state.username = e.username; state.name = e.name; state.lang = e.lang;
+    useContractFor(state.username);
     load();
   }
 

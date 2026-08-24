@@ -593,10 +593,19 @@ var TimeClock = (function() {
         };
       }
 
-      // Decide initial approval status: shifts with geo failures OR
-      // schedule warnings default to pending so the manager reviews them.
-      var hasWarnings = (combinedVerified === false) ||
-                        (otTiers.scheduleWarnings && otTiers.scheduleWarnings.length > 0);
+      // Decide initial approval status. Schedule warnings hold a shift for
+      // review, as before.
+      //
+      // Geo failures deliberately do NOT. Until this change the farm sites a
+      // worker actually punches against had no boundary at all, so
+      // combinedVerified was permanently null and this branch never fired.
+      // Now that farm fences are derived from their plots it would start
+      // firing for real — and there is still no screen listing pending
+      // shifts, so every flagged punch would land in a queue nobody can
+      // clear. The failure is recorded on the record (geoVerified,
+      // geoWarnings) and shown in the manager's record view; turning it into
+      // an approval gate is a separate job that needs the queue UI first.
+      var hasWarnings = (otTiers.scheduleWarnings && otTiers.scheduleWarnings.length > 0);
       var status = hasWarnings ? 'pending' : 'auto_approved';
 
       var record = {
@@ -745,6 +754,10 @@ var TimeClock = (function() {
     if (isManager) {
       html += '<button onclick="TimeClock.showAdminDashboard();TimeClock.closeMenu()" style="' + menuBtn + 'background:#e0f7fa;">' + tt('📊 לוח בקרה', '📊 แดชบอร์ด', '📊 لوحة التحكم') + '</button>';
       html += '<button onclick="TimeClock.showExportMenu();TimeClock.closeMenu()" style="' + menuBtn + 'background:#f1f8e9;">' + tt('📥 ייצוא נתונים', '📥 ส่งออกข้อมูล', '📥 تصدير البيانات') + '</button>';
+      html += '<button onclick="HoursReport.show();TimeClock.closeMenu()" style="' + menuBtn + 'background:#e8eaf6;">' + tt('📊 דוח שעות רוחבי', '📊 รายงานชั่วโมงรวม', '📊 تقرير ساعات شامل') + '</button>';
+      if (window.currentUser && window.currentUser.role === 'admin') {
+        html += '<button onclick="Payroll.show();TimeClock.closeMenu()" style="' + menuBtn + 'background:#fff8e1;">' + tt('💰 שכר ומשרות', '💰 ค่าจ้างและตำแหน่ง', '💰 الأجور والوظائف') + '</button>';
+      }
       html += '<button onclick="TimeClock.showWorkplaceAdmin();TimeClock.closeMenu()" style="' + menuBtn + 'background:#fff3e0;">' + tt('📍 מקומות עבודה', '📍 สถานที่ทำงาน', '📍 أماكن العمل') + '</button>';
       html += '<button onclick="TimeClock.showCropAdmin();TimeClock.closeMenu()" style="' + menuBtn + 'background:#e8f5e9;">' + tt('🌱 סוגי גידולים', '🌱 ประเภทพืช', '🌱 أنواع المحاصيل') + '</button>';
     }
@@ -897,13 +910,30 @@ var TimeClock = (function() {
         }).join('');
         var inAcc  = geoIn  ? Math.round(geoIn.accuracy)  + 'm' : '—';
         var outAcc = geoOut ? Math.round(geoOut.accuracy) + 'm' : '—';
+        // How far outside the farm were they? "מחוץ לטווח" on its own gives a
+        // manager nothing to judge with — 30m past the edge on a bad fix and
+        // 4km away are the same pill otherwise.
+        var distLine = '';
+        if (r.geoVerified === false && typeof Sites !== 'undefined') {
+          try {
+            var siteRef = Sites.findByName(r.workplace);
+            var dIn  = geoIn  ? Sites.distanceToSite(siteRef, [geoIn.lat,  geoIn.lng])  : null;
+            var dOut = geoOut ? Sites.distanceToSite(siteRef, [geoOut.lat, geoOut.lng]) : null;
+            var far = [dIn, dOut].filter(function(d) { return d != null; });
+            if (far.length) {
+              distLine = '<div style="color:#666;margin-top:2px;">' +
+                tt('מרחק מהמטע','ระยะจากฟาร์ม','المسافة من المزرعة') + ': ' +
+                Math.max.apply(null, far) + 'm</div>';
+            }
+          } catch (e) { /* distance is a nicety — never break the panel */ }
+        }
         contextBlocks +=
           '<div style="background:#fff8e1;border:1px solid #ffe0b2;border-radius:8px;padding:8px 10px;margin-bottom:10px;font-size:0.78rem;">' +
             '<div style="font-weight:700;margin-bottom:4px;">📍 ' + tt('מיקום','ตำแหน่ง','الموقع') + '</div>' +
             warnPills +
             '<div style="color:#666;margin-top:4px;">' +
               tt('דיוק','ความแม่นยำ','الدقة') + ': ' + tt('כניסה','เข้า','دخول') + ' ' + inAcc + ' · ' + tt('יציאה','ออก','خروج') + ' ' + outAcc +
-            '</div>' +
+            '</div>' + distLine +
           '</div>';
       }
       if (Array.isArray(r.breaks) && r.breaks.length) {

@@ -1,4 +1,4 @@
-var CACHE_NAME = 'shorashim-v57';
+var CACHE_NAME = 'shorashim-v61';
 // CDN libs — these never change, safe to cache-first
 var CDN_URLS = [
   'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js',
@@ -23,7 +23,9 @@ var APP_URLS = [
   '/js/leave.js',
   '/js/timeclock.js',
   '/js/team.js',
+  '/js/payroll.js',
   '/js/monthly-report.js',
+  '/js/hours-report.js',
   '/js/taskboard.js',
   '/js/fieldreport.js',
   '/js/pestmonitor.js',

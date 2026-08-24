@@ -135,6 +135,51 @@ var FieldReport = (function() {
     });
   }
 
+  // ── Plot rename cascade ──
+  // Reports snapshot the plot name at write time (plotName), so renaming a
+  // plot in app.js orphans every report filed under the old name. app.js
+  // calls countPlotRefs() to size the problem, then renamePlotRefs() if the
+  // manager opts in.
+  //
+  // Both read server-fresh rather than through loadReports(): this is a
+  // read-modify-write over the WHOLE reports array, and DB.loadAsync resolves
+  // on the localStorage copy first, so a device holding a stale cache would
+  // write that stale array back and silently drop every report filed
+  // elsewhere since. loadFresh() forces a server read and only falls back to
+  // cache when genuinely offline.
+  function _reportMatchesPlot(r, plotId, oldName) {
+    if (!r) return false;
+    if (plotId != null && r.plotId === plotId) return true;
+    // Legacy rows saved before plotId was stored: match on the name alone.
+    return (r.plotId == null) && !!oldName && ((r.plotName || '') === oldName);
+  }
+
+  function _loadReportsFresh() {
+    if (typeof DB !== 'undefined' && typeof DB.loadFresh === 'function') {
+      return DB.loadFresh('shorashim-field-reports').then(function(d) { return d || []; });
+    }
+    return loadReports();
+  }
+
+  function countPlotRefs(plotId, oldName) {
+    return _loadReportsFresh().then(function(reports) {
+      return (reports || []).filter(function(r) {
+        return _reportMatchesPlot(r, plotId, oldName);
+      }).length;
+    });
+  }
+
+  function renamePlotRefs(plotId, oldName, newName) {
+    return _loadReportsFresh().then(function(reports) {
+      var n = 0;
+      (reports || []).forEach(function(r) {
+        if (_reportMatchesPlot(r, plotId, oldName)) { r.plotName = newName; n++; }
+      });
+      if (n > 0) saveReports(reports);
+      return n;
+    });
+  }
+
   // ── Build pest/disease dropdown HTML ──
 
   function buildPestOptions(list) {
@@ -803,6 +848,8 @@ var FieldReport = (function() {
     _removeItem: _removeItem,
     _addCropList: _addCropList,
     _copyFromCrop: _copyFromCrop,
-    _refreshPestDropdowns: _refreshPestDropdowns
+    _refreshPestDropdowns: _refreshPestDropdowns,
+    countPlotRefs: countPlotRefs,
+    renamePlotRefs: renamePlotRefs
   };
 })();

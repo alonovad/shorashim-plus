@@ -1848,7 +1848,7 @@ body.theme-classic #registerOpenLink { color: #2e7d32 !important; text-shadow: n
 
 /* ══ map filter ══ */
 .mf-btn {
-  position: fixed; bottom: 190px; right: 16px; z-index: 1085;
+  position: fixed; bottom: 138px; left: 16px; right: auto; z-index: 1085;
   display: flex; align-items: center; gap: 6px;
   padding: 10px 14px; border-radius: 26px; cursor: pointer;
   font-family: inherit; font-size: 0.85rem; font-weight: 700; color: inherit;
@@ -1862,7 +1862,7 @@ body.theme-classic #registerOpenLink { color: #2e7d32 !important; text-shadow: n
   background: var(--accent, #7ec9a4); color: #10231a;
 }
 .mf-panel {
-  position: fixed; bottom: 240px; right: 16px; z-index: 1086;
+  position: fixed; bottom: 188px; left: 16px; right: auto; z-index: 1086;
   width: 250px; max-height: 56vh; overflow-y: auto; padding: 13px;
   border-radius: 13px;
   /* --panel-bg was never defined, so both themes fell through to a dark
@@ -2169,3 +2169,53 @@ body.theme-classic #registerOpenLink { color: #2e7d32 !important; text-shadow: n
    is why a small plot could not be drawn inside a big one. While drawing,
    nothing on the map takes clicks except the map itself. */
 #map.drawing .leaflet-interactive { pointer-events: none !important; }
+
+/* ══ plot detail: collapsible panels ══
+   The plot detail modal grew past a phone screen once every agronomic field
+   (area, spacing, density, tree count) became editable after the fact. The
+   header, stat tiles and delete/close row stay fixed; edit, irrigation,
+   worklog and spray history each collapse. Open state is per-device and
+   remembered in localStorage by app.js.
+   Append-only — nothing above this line is modified. */
+.pd-sec {
+  background: var(--g6, rgba(255,255,255,0.05));
+  border: 1px solid var(--border, rgba(255,255,255,0.08));
+  border-radius: 12px;
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+.pd-sec > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 11px 14px;
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: var(--g1, #2e7d32);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  -webkit-user-select: none;
+  user-select: none;
+}
+/* Safari/Chrome draw their own triangle; ours is the ⌄ below. */
+.pd-sec > summary::-webkit-details-marker { display: none; }
+.pd-sec > summary::after {
+  content: '⌄';
+  margin-inline-start: auto;
+  font-size: 1rem;
+  line-height: 1;
+  opacity: 0.55;
+  transition: transform 0.2s ease;
+}
+.pd-sec[open] > summary::after { transform: rotate(180deg); }
+.pd-sec > summary:active { opacity: 0.7; }
+.pd-sec-count {
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--g5, rgba(255,255,255,0.12));
+  color: var(--text-muted, #888);
+}
+.pd-sec-body { padding: 0 14px 14px; }
+.pd-sec-body > .section-title:first-child { margin-top: 0; }

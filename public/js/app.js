@@ -1100,6 +1100,29 @@
     'אימייל לא נמצא': { th: 'ไม่พบอีเมล', ar: 'البريد غير موجود' },
     'רשת': { th: 'เครือข่าย', ar: 'شبكة' },
 
+    // ── Retrospective plot editing ──
+    'צפיפות ומספר עצים': { th: 'ความหนาแน่นและจำนวนต้น', ar: 'الكثافة وعدد الأشجار' },
+    'חשב לפי מרווחים': { th: 'คำนวณจากระยะปลูก', ar: 'احسب حسب المسافات' },
+    'חשב לפי צמחים לדונם': { th: 'คำนวณจากต้น/ดูนัม', ar: 'احسب حسب نبات/دونم' },
+    'שטח מהמפה': { th: 'พื้นที่จากแผนที่', ar: 'المساحة من الخريطة' },
+    'הזן מרווחים תקינים': { th: 'กรอกระยะปลูกที่ถูกต้อง', ar: 'أدخل مسافات صحيحة' },
+    'הזן צמחים לדונם': { th: 'กรอกจำนวนต้นต่อดูนัม', ar: 'أدخل عدد النباتات للدونم' },
+    'שטח לא תקין': { th: 'พื้นที่ไม่ถูกต้อง', ar: 'مساحة غير صحيحة' },
+    'מרווח בין שורות לא תקין': { th: 'ระยะระหว่างแถวไม่ถูกต้อง', ar: 'المسافة بين الصفوف غير صحيحة' },
+    'מרווח בין עצים לא תקין': { th: 'ระยะระหว่างต้นไม่ถูกต้อง', ar: 'المسافة بين الأشجار غير صحيحة' },
+    'מספר עצים לא תקין': { th: 'จำนวนต้นไม่ถูกต้อง', ar: 'عدد الأشجار غير صحيح' },
+    'צמחים לדונם לא תקין': { th: 'จำนวนต้นต่อดูนัมไม่ถูกต้อง', ar: 'عدد النباتات للدونم غير صحيح' },
+    'שינוי שם חלקה': { th: 'เปลี่ยนชื่อแปลง', ar: 'تغيير اسم القطعة' },
+    'נמצאו רשומות היסטוריות עם השם הישן': { th: 'พบบันทึกเก่าที่ใช้ชื่อเดิม', ar: 'تم العثور على سجلات قديمة بالاسم السابق' },
+    'רשומות ביומן עבודה': { th: 'บันทึกในสมุดงาน', ar: 'سجلات دفتر العمل' },
+    'דוחות שדה': { th: 'รายงานภาคสนาม', ar: 'تقارير حقلية' },
+    'עדכן את כל ההיסטוריה': { th: 'อัปเดตประวัติทั้งหมด', ar: 'حدّث كل السجل' },
+    'השאר את השם הישן בהיסטוריה': { th: 'เก็บชื่อเดิมไว้ในประวัติ', ar: 'أبقِ الاسم القديم في السجل' },
+    'רשומות היסטוריות עודכנו': { th: 'บันทึกเก่าถูกอัปเดตแล้ว', ar: 'تم تحديث السجلات القديمة' },
+    'אין לך הרשאה לערוך חלקה זו': { th: 'คุณไม่มีสิทธิ์แก้ไขแปลงนี้', ar: 'ليس لديك صلاحية لتعديل هذه القطعة' },
+    'השם הישן': { th: 'ชื่อเดิม', ar: 'الاسم القديم' },
+    'השם החדש': { th: 'ชื่อใหม่', ar: 'الاسم الجديد' },
+
     // ── Spray calculations ──
     'מספר עצים': { th: 'จำนวนต้นไม้', ar: 'عدد الأشجار' },
     'נפח כולל': { th: 'ปริมาตรรวม', ar: 'الحجم الإجمالي' },
@@ -1858,6 +1881,9 @@
           tree_spacing: p.tree_spacing || 0,
           crop_type: p.crop_type || '',
           plants_per_dunam: p.plants_per_dunam || 0,
+          name_th: p.name_th || '',
+          name_ar: p.name_ar || '',
+          geofenceRadiusM: (p.geofenceRadiusM != null ? p.geofenceRadiusM : null),
           latlngs: ll
         };
       }),
@@ -6563,6 +6589,174 @@
   });
 
   // ── Plot Details Modal ──
+  // ══════════════════════════════════════════════════════════
+  // ── RETROSPECTIVE PLOT EDITING ──
+  // Everything that can be set while drawing a plot must stay
+  // editable afterwards: tree count above all (trees get planted,
+  // uprooted and replanted long after the polygon is fixed), plus
+  // spacing, density and the registered area.
+  // ══════════════════════════════════════════════════════════
+
+  // Reads the numeric fields out of the plot-detail edit form and validates
+  // them. Returns a {field: number} map on success, or null when something
+  // is out of range (a toast has already been shown) so the caller can abort
+  // before writing a half-updated plot.
+  //
+  // A blank box means "clear this value" (stored as 0) for spacing, density
+  // and tree count — the manager needs a way to say "I no longer know", and
+  // silently keeping the old number would make that impossible. Area is the
+  // exception: blank means "leave as is", because a plot with no area breaks
+  // formatArea() and every per-dunam calculation downstream.
+  function readPlotNumericEdits(plot) {
+    function num(id) {
+      var el = document.getElementById(id);
+      if (!el) return undefined;                       // field absent from form
+      var raw = (el.value || '').trim();
+      // 0, not null, for a cleared box: saveData() writes every numeric plot
+      // field as `value || 0`, so 0 IS the stored representation of "unknown".
+      if (raw === '') return 0;
+      var v = parseFloat(raw);
+      return isNaN(v) ? NaN : v;
+    }
+    function bad(v, min, max) {
+      return v !== undefined && v !== 0 && (isNaN(v) || v < min || v > max);
+    }
+
+    var area   = num('pdEditArea');
+    var rowSp  = num('pdEditRowSpacing');
+    var treeSp = num('pdEditTreeSpacing');
+    var ppd    = num('pdEditPlantsPerDunam');
+    var count  = num('pdEditTreeCount');
+
+    if (bad(area,   0.01, 100000)) { showToast('⚠️ ' + t('שטח לא תקין')); return null; }
+    if (bad(rowSp,  0.5,  30))     { showToast('⚠️ ' + t('מרווח בין שורות לא תקין')); return null; }
+    if (bad(treeSp, 0.5,  30))     { showToast('⚠️ ' + t('מרווח בין עצים לא תקין')); return null; }
+    if (bad(ppd,    1,    100000)) { showToast('⚠️ ' + t('צמחים לדונם לא תקין')); return null; }
+    if (bad(count,  0,    1000000)){ showToast('⚠️ ' + t('מספר עצים לא תקין')); return null; }
+
+    var out = {};
+    // Area: the form shows 2dp, so a plot stored as 12.3456 renders "12.35".
+    // Treating that as an edit would quietly truncate precision on every
+    // save, so anything within half a hundredth counts as untouched.
+    if (area !== undefined) {
+      if (area === 0 || (plot && plot.area != null && Math.abs(area - plot.area) < 0.005)) {
+        out.area = (plot && plot.area != null) ? plot.area : 0;
+      } else {
+        out.area = Math.round(area * 100) / 100;
+      }
+    }
+    if (rowSp  !== undefined) out.row_spacing      = rowSp;
+    if (treeSp !== undefined) out.tree_spacing     = treeSp;
+    if (ppd    !== undefined) out.plants_per_dunam = Math.round(ppd);
+    if (count  !== undefined) out.tree_count       = Math.round(count);
+    return out;
+  }
+
+  // Historical records snapshot the plot name at write time, so a rename
+  // orphans every worklog entry and field report that came before it.
+  // Matching is by plot id first — that link survives any rename. The name
+  // comparison is only a fallback for legacy rows written before ids were
+  // stored alongside the name.
+  function _recordMatchesPlot(rec, plotId, oldName, idField, nameField) {
+    if (!rec) return false;
+    if (plotId != null && rec[idField] === plotId) return true;
+    return (rec[idField] == null) && !!oldName && ((rec[nameField] || '') === oldName);
+  }
+
+  // Counts the affected history, then asks what to do with it. Calls done()
+  // exactly once in every path — including "no history found" and "keep the
+  // old name" — so the caller can treat it as a plain continuation.
+  function promptPlotRenameHistory(plot, oldName, newName, done) {
+    var wlMatches = (worklogEntries || []).filter(function(e) {
+      return _recordMatchesPlot(e, plot.id, oldName, 'plot_id', 'plot_name');
+    });
+
+    var reportsP = (window.FieldReport && typeof window.FieldReport.countPlotRefs === 'function')
+      ? window.FieldReport.countPlotRefs(plot.id, oldName)['catch'](function() { return 0; })
+      : Promise.resolve(0);
+
+    reportsP.then(function(reportCount) {
+      if (wlMatches.length + reportCount === 0) { done(); return; }
+
+      showPlotRenameCascadeModal(oldName, newName, wlMatches.length, reportCount, function(applyToHistory) {
+        if (!applyToHistory) { done(); return; }
+
+        // Worklog entries live in this module's own state — done() runs
+        // saveData(), which persists them in the same write as the plot.
+        wlMatches.forEach(function(e) { e.plot_name = newName; });
+
+        var fp = (reportCount > 0 && window.FieldReport && typeof window.FieldReport.renamePlotRefs === 'function')
+          ? window.FieldReport.renamePlotRefs(plot.id, oldName, newName)['catch'](function() { return 0; })
+          : Promise.resolve(0);
+
+        fp.then(function(n) {
+          try {
+            if (typeof Audit !== 'undefined' && Audit && typeof Audit.log === 'function') {
+              Audit.log('edit', 'plot-rename', String(plot.id), {
+                before: { name: oldName },
+                after: { name: newName, worklogUpdated: wlMatches.length, reportsUpdated: n },
+                reason: 'retrospective plot rename — history cascade'
+              });
+            }
+          } catch (err) { /* audit is best-effort, never blocks the rename */ }
+          showToast('🔄 ' + (wlMatches.length + n) + ' ' + t('רשומות היסטוריות עודכנו'));
+          done();
+        });
+      });
+    });
+  }
+
+  // Three-way choice, so it can't reuse #modalContainer (the plot-detail
+  // modal is still sitting in there and must survive a cancel). Appended to
+  // <body> at a higher z-index and removed by whichever button is pressed.
+  function showPlotRenameCascadeModal(oldName, newName, wlCount, reportCount, cb) {
+    // Plot names are free text typed by managers, and both names go straight
+    // into innerHTML below — escape them so a name containing < or & renders
+    // as characters instead of breaking (or injecting into) the markup.
+    function esc(v) {
+      return String(v == null ? '' : v)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+    var host = document.createElement('div');
+    host.className = 'modal-overlay';
+    host.style.zIndex = '3000';
+    var lines = '';
+    if (wlCount > 0) {
+      lines += '<div style="display:flex;justify-content:space-between;padding:6px 10px;background:var(--g6, rgba(255,255,255,0.06));border-radius:8px;margin-bottom:6px;">' +
+        '<span>📝 ' + t('רשומות ביומן עבודה') + '</span><strong>' + wlCount + '</strong></div>';
+    }
+    if (reportCount > 0) {
+      lines += '<div style="display:flex;justify-content:space-between;padding:6px 10px;background:var(--g6, rgba(255,255,255,0.06));border-radius:8px;margin-bottom:6px;">' +
+        '<span>🔍 ' + t('דוחות שדה') + '</span><strong>' + reportCount + '</strong></div>';
+    }
+    host.innerHTML =
+      '<div class="modal" style="max-width: 420px;">' +
+        '<h2>✏️ ' + t('שינוי שם חלקה') + '</h2>' +
+        '<p>' + t('נמצאו רשומות היסטוריות עם השם הישן') + '.</p>' +
+        '<div style="display:flex;gap:8px;align-items:center;justify-content:center;margin-bottom:12px;font-size:0.9rem;font-weight:700;">' +
+          '<span style="opacity:0.7;text-decoration:line-through;">' + esc(oldName) + '</span>' +
+          '<span>←</span>' +
+          '<span style="color:var(--g2, #4caf50);">' + esc(newName) + '</span>' +
+        '</div>' +
+        lines +
+        '<div style="display:flex;flex-direction:column;gap:8px;margin-top:14px;">' +
+          '<button class="btn btn-primary" id="pdRenameAll" style="margin:0;">🔄 ' + t('עדכן את כל ההיסטוריה') + ' (' + (wlCount + reportCount) + ')</button>' +
+          '<button class="btn btn-secondary" id="pdRenameKeep" style="margin:0;">📌 ' + t('השאר את השם הישן בהיסטוריה') + '</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(host);
+
+    function close(choice) {
+      if (host.parentNode) host.parentNode.removeChild(host);
+      cb(choice);
+    }
+    host.querySelector('#pdRenameAll').addEventListener('click', function() { close(true); });
+    host.querySelector('#pdRenameKeep').addEventListener('click', function() { close(false); });
+    // Clicking the backdrop is the conservative choice: keep history as-is.
+    host.addEventListener('click', function(e) { if (e.target === host) close(false); });
+  }
+
   function showPlotDetails(plotId) {
     var plot = plots.find(function(p) { return p.id === plotId; });
     if (!plot) return;
@@ -6592,7 +6786,13 @@
     }
     
     var isPrimary = currentUser && currentUser.primary_plot_id === plot.id;
-    
+
+    // Counts live in the panel headers so a collapsed section still tells you
+    // whether it holds anything worth opening.
+    var plotWorklogCount = (worklogEntries || []).filter(function(e) {
+      return e.plot_id === plot.id;
+    }).length;
+
     // Farm selector
     var farmOptions = '';
     farms.forEach(function(f) {
@@ -6627,8 +6827,9 @@
           (plot.crop_type ? '<div style="background:#e8f5e9;border-radius:8px;padding:6px 12px;margin-bottom:14px;font-size:0.85rem;font-weight:600;text-align:center;">🌱 ' + plot.crop_type + '</div>' : '') +
           
           '<!-- Edit Section -->' +
-          '<div style="background: var(--g6); border-radius: 12px; padding: 14px; margin-bottom: 14px;">' +
-            '<div style="font-size: 0.82rem; font-weight: 700; color: var(--g1); margin-bottom: 10px;">✏️ ' + t('עריכת חלקה') + '</div>' +
+          '<details class="pd-sec" data-pdsec="edit" open>' +
+            '<summary>✏️ ' + t('עריכת חלקה') + '</summary>' +
+            '<div class="pd-sec-body">' +
             '<div class="form-group" style="margin-bottom: 10px;">' +
               '<label class="form-label" style="font-size: 0.78rem;">' + t('שם החלקה') + '</label>' +
               '<input type="text" class="form-input" id="pdEditName" value="' + (plot.name || '') + '" style="font-size: 0.9rem;">' +
@@ -6659,11 +6860,43 @@
                 (function() { var cropList = JSON.parse(localStorage.getItem('shorashim-crop-types') || '[]'); return cropList.map(function(c) { return '<option value="' + c + '"' + (plot.crop_type === c ? ' selected' : '') + '>' + c + '</option>'; }).join(''); })() +
               '</select>' +
             '</div>' +
+            '<div style="border-top: 1px solid var(--g5, rgba(255,255,255,0.12)); margin: 12px 0 10px;"></div>' +
+            '<div style="font-size: 0.78rem; font-weight: 700; color: var(--g1); margin-bottom: 8px;">🌴 ' + t('צפיפות ומספר עצים') + '</div>' +
+            '<div style="display: flex; gap: 8px; margin-bottom: 10px;">' +
+              '<div style="flex: 1;">' +
+                '<label class="form-label" style="font-size: 0.72rem;">' + t('בין שורות') + ' (' + t('מ\'') + ')</label>' +
+                '<input type="number" class="form-input" id="pdEditRowSpacing" value="' + (plot.row_spacing || '') + '" min="0.5" max="30" step="0.5" style="font-size: 0.88rem;">' +
+              '</div>' +
+              '<div style="flex: 1;">' +
+                '<label class="form-label" style="font-size: 0.72rem;">' + t('בין עצים') + ' (' + t('מ\'') + ')</label>' +
+                '<input type="number" class="form-input" id="pdEditTreeSpacing" value="' + (plot.tree_spacing || '') + '" min="0.5" max="30" step="0.5" style="font-size: 0.88rem;">' +
+              '</div>' +
+            '</div>' +
+            '<div style="display: flex; gap: 8px; margin-bottom: 10px;">' +
+              '<div style="flex: 1;">' +
+                '<label class="form-label" style="font-size: 0.72rem;">' + t('צמחים לדונם') + '</label>' +
+                '<input type="number" class="form-input" id="pdEditPlantsPerDunam" value="' + (plot.plants_per_dunam || '') + '" min="1" step="1" style="font-size: 0.88rem;">' +
+              '</div>' +
+              '<div style="flex: 1;">' +
+                '<label class="form-label" style="font-size: 0.72rem;">📐 ' + t('שטח') + ' (' + t('דונם') + ')</label>' +
+                '<input type="number" class="form-input" id="pdEditArea" value="' + (plot.area != null ? Number(plot.area).toFixed(2) : '') + '" min="0.01" step="0.01" style="font-size: 0.88rem;">' +
+              '</div>' +
+            '</div>' +
+            '<div class="form-group" style="margin-bottom: 8px;">' +
+              '<label class="form-label" style="font-size: 0.72rem;">🌴 ' + t('מספר עצים') + '</label>' +
+              '<input type="number" class="form-input" id="pdEditTreeCount" value="' + (plot.tree_count || '') + '" min="0" step="1" style="font-size: 1.05rem; font-weight: 700; text-align: center;">' +
+            '</div>' +
+            '<div style="display: flex; gap: 6px; margin-bottom: 12px;">' +
+              '<button class="btn-admin" id="pdCalcFromSpacing" style="flex: 1; font-size: 0.7rem; padding: 7px 4px;">📐 ' + t('חשב לפי מרווחים') + '</button>' +
+              '<button class="btn-admin" id="pdCalcFromDensity" style="flex: 1; font-size: 0.7rem; padding: 7px 4px;">📊 ' + t('חשב לפי צמחים לדונם') + '</button>' +
+              '<button class="btn-admin" id="pdRecalcArea" style="flex: 1; font-size: 0.7rem; padding: 7px 4px;">↺ ' + t('שטח מהמפה') + '</button>' +
+            '</div>' +
             '<div style="display: flex; gap: 8px;">' +
               '<button class="btn-admin" id="pdSaveEdit" style="flex: 1;">💾 ' + t('שמור') + '</button>' +
               '<button class="btn-admin" id="pdRedrawPolygon" style="flex: 1; background: var(--water);">🔄 ' + t('צייר מחדש') + '</button>' +
             '</div>' +
-          '</div>' +
+            '</div>' +
+          '</details>' +
           
           '<div style="display: flex; gap: 8px; margin-bottom: 14px;">' +
             '<button class="btn-submit" id="plotDetailNav" style="flex: 1; margin: 0; font-size: 0.85rem;">🗺️ ' + t('מעבר לחלקה במפה') + '</button>' +
@@ -6672,14 +6905,24 @@
             '</button>' +
           '</div>' +
           
-          '<div class="section-title" style="margin-top: 4px;">💧 ' + t('השקיה') + '</div>' +
-          getPlotIrrigationHtml(plot.id) +
+          '<details class="pd-sec" data-pdsec="irrigation">' +
+            '<summary>💧 ' + t('השקיה') + '</summary>' +
+            '<div class="pd-sec-body">' + getPlotIrrigationHtml(plot.id) + '</div>' +
+          '</details>' +
 
-          '<div class="section-title" style="margin-top: 4px;">📝 ' + t('יומן עבודה') + '</div>' +
-          getPlotWorklogSummary(plot.id, plot.name) +
+          '<details class="pd-sec" data-pdsec="worklog">' +
+            '<summary>📝 ' + t('יומן עבודה') +
+              (plotWorklogCount ? '<span class="pd-sec-count">' + plotWorklogCount + '</span>' : '') +
+            '</summary>' +
+            '<div class="pd-sec-body">' + getPlotWorklogSummary(plot.id, plot.name) + '</div>' +
+          '</details>' +
 
-          '<div class="section-title" style="margin-top: 4px;">📋 ' + t('היסטוריית ריסוס') + '</div>' +
-          sprayHistoryHtml +
+          '<details class="pd-sec" data-pdsec="spray">' +
+            '<summary>📋 ' + t('היסטוריית ריסוס') +
+              (plotSprays.length ? '<span class="pd-sec-count">' + plotSprays.length + '</span>' : '') +
+            '</summary>' +
+            '<div class="pd-sec-body">' + sprayHistoryHtml + '</div>' +
+          '</details>' +
           
           '<div class="modal-buttons" style="margin-top: 14px;">' +
             '<button class="btn btn-secondary" onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'">' + t('סגור') + '</button>' +
@@ -6688,6 +6931,29 @@
         '</div>' +
       '</div>';
     
+    // ── Collapsible panels ──
+    // The modal outgrew a phone screen once every agronomic field became
+    // editable. Each panel remembers its own state in localStorage (not
+    // Firestore — this is a per-device viewing preference, not shared data),
+    // so a manager who lives in the edit form doesn't re-collapse the same
+    // three history panels on every single plot they open.
+    (function() {
+      var PREF_KEY = 'shorashim-plot-sections';
+      var prefs = {};
+      try { prefs = JSON.parse(localStorage.getItem(PREF_KEY) || '{}') || {}; } catch (e) { prefs = {}; }
+      container.querySelectorAll('details[data-pdsec]').forEach(function(d) {
+        var key = d.getAttribute('data-pdsec');
+        // Apply the stored state BEFORE listening: assigning .open fires a
+        // toggle event, and listening first would rewrite the pref with the
+        // value we just read.
+        if (prefs[key] !== undefined) d.open = !!prefs[key];
+        d.addEventListener('toggle', function() {
+          prefs[key] = d.open;
+          try { localStorage.setItem(PREF_KEY, JSON.stringify(prefs)); } catch (e) {}
+        });
+      });
+    })();
+
     // Delete plot
     var pdDelBtn = document.getElementById('pdDeletePlot');
     if (pdDelBtn) {
@@ -6713,8 +6979,65 @@
       });
     }
 
+    // ── Tree-count calculators ──
+    // Convenience only: they fill the tree-count box, they don't save. The
+    // manager can always override the computed number by typing over it,
+    // which is the whole point of a retrospective edit.
+    (function() {
+      var elArea  = document.getElementById('pdEditArea');
+      var elRow   = document.getElementById('pdEditRowSpacing');
+      var elTree  = document.getElementById('pdEditTreeSpacing');
+      var elPpd   = document.getElementById('pdEditPlantsPerDunam');
+      var elCount = document.getElementById('pdEditTreeCount');
+      if (!elCount) return;
+
+      function currentArea() {
+        var a = parseFloat(elArea ? elArea.value : '');
+        if (!isNaN(a) && a > 0) return a;
+        return plot.area || 0;
+      }
+
+      var bSpacing = document.getElementById('pdCalcFromSpacing');
+      if (bSpacing) bSpacing.addEventListener('click', function() {
+        var r = parseFloat(elRow.value), tr = parseFloat(elTree.value);
+        if (!r || !tr || r <= 0 || tr <= 0) { showToast('⚠️ ' + t('הזן מרווחים תקינים')); return; }
+        var perDunam = 1000 / (r * tr);
+        elCount.value = Math.round(currentArea() * perDunam);
+        if (elPpd) elPpd.value = Math.round(perDunam);
+        showToast('📐 ' + perDunam.toFixed(1) + ' ' + t('עצים') + '/' + t('דונם'));
+      });
+
+      var bDensity = document.getElementById('pdCalcFromDensity');
+      if (bDensity) bDensity.addEventListener('click', function() {
+        var ppd = parseFloat(elPpd ? elPpd.value : '');
+        if (!ppd || ppd <= 0) { showToast('⚠️ ' + t('הזן צמחים לדונם')); return; }
+        elCount.value = Math.round(currentArea() * ppd);
+        showToast('📊 ' + elCount.value + ' ' + t('עצים'));
+      });
+
+      var bArea = document.getElementById('pdRecalcArea');
+      if (bArea) bArea.addEventListener('click', function() {
+        if (!plot.layer || typeof plot.layer.getLatLngs !== 'function') {
+          showToast('📍 ' + t('לחלקה זו אין גבולות משורטטים'));
+          return;
+        }
+        var a = calcArea(plot.layer);
+        elArea.value = a.toFixed(2);
+        showToast('↺ ' + formatArea(a));
+      });
+    })();
+
     // Save name + farm edit
     document.getElementById('pdSaveEdit').addEventListener('click', function() {
+      // Same farm-permission gate as delete: an operator scoped to certain
+      // farms must not be able to rename or re-measure someone else's plot.
+      if (currentUser && currentUser.role !== 'admin') {
+        var editFarmIds = (currentUser.farm_permissions || []);
+        if (editFarmIds.length > 0 && editFarmIds.indexOf(plot.farm_id) === -1) {
+          showToast('⛔ ' + t('אין לך הרשאה לערוך חלקה זו'));
+          return;
+        }
+      }
       var newName = document.getElementById('pdEditName').value.trim();
       var newNameTh = (document.getElementById('pdEditNameTh') || { value: '' }).value.trim();
       var newNameAr = (document.getElementById('pdEditNameAr') || { value: '' }).value.trim();
@@ -6729,9 +7052,11 @@
       if (!newName) { showToast('❌ ' + t('שם ריק')); return; }
       
       var changed = false;
+      var oldName = plot.name || '';
+      var nameChanged = (newName !== plot.name);
       
       // Update name + translations
-      if (newName !== plot.name) {
+      if (nameChanged) {
         plot.name = newName;
         changed = true;
       }
@@ -6765,8 +7090,27 @@
         plot.crop_type = newCropType;
         changed = true;
       }
-      
-      if (changed) {
+
+      // Retrospective agronomic edits — area, spacing, density, tree count.
+      // Validation runs before any assignment so an out-of-range entry aborts
+      // the whole save instead of leaving the plot half-updated.
+      var numEdits = readPlotNumericEdits(plot);
+      if (numEdits === null) return;
+      Object.keys(numEdits).forEach(function(k) {
+        var before = (plot[k] != null) ? plot[k] : 0;
+        if (numEdits[k] !== before) {
+          plot[k] = numEdits[k];
+          changed = true;
+        }
+      });
+
+      if (!changed) {
+        container.innerHTML = '';
+        showPlotDetails(plotId);
+        return;
+      }
+
+      function finishPlotEdit() {
         // Update map label
         if (plot.labelMarker) drawnItems.removeLayer(plot.labelMarker);
         if (plot.layer) {
@@ -6781,9 +7125,19 @@
         saveData();
         renderPlotList();
         showToast('✅ ' + locName(plot) + ' ' + t('עודכן'));
+        container.innerHTML = '';
+        showPlotDetails(plotId);
       }
-      container.innerHTML = '';
-      showPlotDetails(plotId);
+
+      // A rename leaves the OLD name frozen inside every worklog entry and
+      // field report written before it — those records snapshot the name at
+      // write time. Ask what should happen to that history instead of
+      // deciding silently in either direction.
+      if (nameChanged) {
+        promptPlotRenameHistory(plot, oldName, newName, finishPlotEdit);
+      } else {
+        finishPlotEdit();
+      }
     });
     
     // Redraw polygon
