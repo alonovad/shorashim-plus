@@ -245,12 +245,55 @@ var Maintenance = (function() {
   function fmt(n) { return n.toLocaleString('he-IL', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 
   // ── Cost calculations ──
+  function round2(n) { return Math.round(n * 100) / 100; }
+
+  // p.markup is a MARGIN — the share of the client price that stays as
+  // profit — not a markup on cost. Those are different numbers and the
+  // difference is real money: on ₪22,500 of cost, ×1.25 yields ₪28,125,
+  // of which ₪5,625 is profit — that is 20% of revenue, not 25%. To keep
+  // 25% of the client price the cost must be divided by 0.75, giving
+  // ₪30,000 and ₪7,500 of profit.
+  //
+  // Returns the multiplier applied to every cost line to reach the client
+  // price. 100% margin is unreachable (it would divide by zero), so the
+  // input is clamped just below.
+  function upliftFactor(p) {
+    var m = (p.markup || 0) / 100;
+    if (!(m > 0)) return 1;
+    if (m > 0.95) m = 0.95;
+    return 1 / (1 - m);
+  }
+
+  // Client-facing price of a single line, uplifted and rounded to agorot.
+  function clientLine(rawTotal, factor) { return round2(rawTotal * factor); }
+
   function calcProject(p) {
-    var mt = 0; (p.materials || []).forEach(function(m) { mt += (m.quantity || 0) * (m.unitPrice || 0); });
-    var lt = 0; (p.labor || []).forEach(function(l) { lt += (l.hours || 0) * (l.hourlyRate || 0); });
-    var sub = mt + lt, mkp = sub * ((p.markup || 0) / 100), bv = sub + mkp;
-    var vat = p.includeVat ? bv * VAT_RATE : 0;
-    return { materialsTotal: mt, laborTotal: lt, subtotal: sub, markup: mkp, beforeVat: bv, vat: vat, total: bv + vat };
+    var f = upliftFactor(p);
+    // Totals are summed from the ROUNDED per-line client prices, not from a
+    // rounded grand total, so the quote table foots to exactly the number
+    // printed beneath it. A customer who adds up the column must land on it.
+    var mtRaw = 0, mtC = 0;
+    (p.materials || []).forEach(function(m) {
+      var raw = (m.quantity || 0) * (m.unitPrice || 0);
+      mtRaw += raw; mtC += clientLine(raw, f);
+    });
+    var ltRaw = 0, ltC = 0;
+    (p.labor || []).forEach(function(l) {
+      var raw = (l.hours || 0) * (l.hourlyRate || 0);
+      ltRaw += raw; ltC += clientLine(raw, f);
+    });
+    mtC = round2(mtC); ltC = round2(ltC);
+    var sub = round2(mtRaw + ltRaw);      // cost basis, internal only
+    var bv = round2(mtC + ltC);           // what the client is quoted
+    var vat = p.includeVat ? round2(bv * VAT_RATE) : 0;
+    return {
+      materialsTotal: mtC, laborTotal: ltC,     // client-facing
+      materialsRaw: mtRaw, laborRaw: ltRaw,     // cost basis
+      subtotal: sub,
+      markup: round2(bv - sub),                 // the profit built into the price
+      upliftFactor: f,
+      beforeVat: bv, vat: vat, total: round2(bv + vat)
+    };
   }
 
   function calcInternal(p) {
@@ -397,7 +440,8 @@ var Maintenance = (function() {
         '<div><label style="' + lblS + '">' + tt('לקוח','ลูกค้า','عميل') + '</label><input id="mpClient" value="' + (p.client || '') + '" style="' + inputS + '"></div>' +
         '<div><label style="' + lblS + '">' + tt('תיאור','รายละเอียด','وصف') + '</label><textarea id="mpDesc" rows="2" style="' + inputS + 'resize:vertical;">' + (p.description || '') + '</textarea></div>' +
         '<div style="display:flex;gap:8px;"><div style="flex:1;"><label style="' + lblS + '">' + tt('סטטוס','สถานะ','الحالة') + '</label><select id="mpStatus" style="' + inputS + '">' + sOpts + '</select></div>' +
-        '<div style="flex:1;"><label style="' + lblS + '">' + tt('תוספת %','เพิ่ม %','زيادة %') + '</label><input id="mpMarkup" type="number" value="' + (p.markup || 0) + '" min="0" max="100" style="' + inputS + '"></div></div>' +
+        '<div style="flex:1;"><label style="' + lblS + '">' + tt('רווח % (בכיס)','กำไร %','ربح %') + '</label><input id="mpMarkup" type="number" value="' + (p.markup || 0) + '" min="0" max="95" style="' + inputS + '"></div></div>' +
+        '<div style="font-size:0.72rem;color:var(--text-muted, #888);margin-top:-4px;">' + tt('אחוז מהמחיר ללקוח שנשאר כרווח. מגולם בתוך מחירי השורות — לא מופיע בהצעה.','เปอร์เซ็นต์กำไรจากราคาลูกค้า รวมอยู่ในราคาแล้ว','نسبة الربح من سعر العميل، مضمّنة في الأسعار.') + '</div>' +
         '<label style="display:flex;align-items:center;gap:8px;font-size:0.88rem;cursor:pointer;"><input type="checkbox" id="mpVat"' + (p.includeVat !== false ? ' checked' : '') + ' style="width:18px;height:18px;accent-color:#2e7d32;"> ' + tt('כולל מע"מ (18%)','รวม VAT (18%)','شامل ضريبة (18%)') + '</label>' +
         '<div style="display:flex;gap:8px;"><button onclick="Maintenance._saveProject(' + (existingId || 0) + ')" style="' + btnSave + '">💾 ' + tt('שמור','บันทึก','حفظ') + '</button>' +
         '<button onclick="' + (existingId ? 'Maintenance.showDetail(' + existingId + ')' : 'Maintenance.showProjectsList()') + '" style="' + btnCancel + '">' + tt('ביטול','ยกเลิก','إلغاء') + '</button></div>' +
@@ -499,7 +543,7 @@ var Maintenance = (function() {
             '<div style="display:flex;justify-content:space-between;"><span>' + tt('חומרים','วัสดุ','مواد') + '</span><span>₪' + fmt(tot.materialsTotal) + '</span></div>' +
             '<div style="display:flex;justify-content:space-between;"><span>' + tt('עבודה','แรงงาน','عمالة') + '</span><span>₪' + fmt(tot.laborTotal) + '</span></div>' +
             '<div style="display:flex;justify-content:space-between;border-top:1px solid var(--border, #ddd);padding-top:4px;"><span>' + tt('סכום ביניים','ยอดรวมย่อย','المجموع الفرعي') + '</span><span>₪' + fmt(tot.subtotal) + '</span></div>' +
-            (p.markup ? '<div style="display:flex;justify-content:space-between;"><span>' + tt('תוספת','เพิ่ม','زيادة') + ' ' + p.markup + '%</span><span>₪' + fmt(tot.markup) + '</span></div>' : '') +
+            (p.markup ? '<div style="display:flex;justify-content:space-between;color:#2e7d32;"><span>🔒 ' + tt('רווח','กำไร','ربح') + ' ' + p.markup + '% <span style="font-size:0.72rem;opacity:0.75;">(' + tt('לא בהצעה','ไม่อยู่ในใบเสนอราคา','ليس في العرض') + ')</span></span><span>₪' + fmt(tot.markup) + '</span></div>' : '') +
             '<div style="display:flex;justify-content:space-between;"><span>' + tt('לפני מע"מ','ก่อน VAT','قبل الضريبة') + '</span><span style="font-weight:600;">₪' + fmt(tot.beforeVat) + '</span></div>' +
             (p.includeVat ? '<div style="display:flex;justify-content:space-between;"><span>' + tt('מע"מ 18%','VAT 18%','ضريبة 18%') + '</span><span>₪' + fmt(tot.vat) + '</span></div>' : '') +
             '<div style="display:flex;justify-content:space-between;font-size:1.1rem;font-weight:800;color:var(--primary, #1b5e20);border-top:2px solid #2e7d32;padding-top:6px;margin-top:4px;"><span>' + tt('סה"כ','รวมทั้งหมด','المجموع') + '</span><span>₪' + fmt(tot.total) + '</span></div>' +
@@ -1070,8 +1114,22 @@ var Maintenance = (function() {
                        'العرض ساري لمدة 30 يوماً. الأسعار لا تشمل تغييرات لم يُتفق عليها مسبقاً.'),
         brand:      tt('שורשים פלוס','ชอราชิม พลัส','شوراشيم بلس')
       };
-      var matR = ''; (p.materials || []).forEach(function(m, i) { var lt = (m.quantity||0)*(m.unitPrice||0); matR += '<tr><td>' + (i+1) + '</td><td>' + m.name + '</td><td>' + m.quantity + ' ' + (m.unit||'') + '</td><td>₪' + fmt(m.unitPrice) + '</td><td style="font-weight:700;">₪' + fmt(lt) + '</td></tr>'; });
-      var labR = ''; (p.labor || []).forEach(function(l, i) { var lt = (l.hours||0)*(l.hourlyRate||0); labR += '<tr><td>' + (i+1) + '</td><td>' + l.description + '</td><td>' + l.hours + ' ' + L.hours + '</td><td>₪' + fmt(l.hourlyRate) + '</td><td style="font-weight:700;">₪' + fmt(lt) + '</td></tr>'; });
+      // The client sees ONE price per line — cost with the margin already
+      // inside it. The margin is a business decision, not a line item, and
+      // printing it invites the customer to negotiate it away.
+      var f = tot.upliftFactor;
+      var matR = ''; (p.materials || []).forEach(function(m, i) {
+        var raw = (m.quantity||0)*(m.unitPrice||0);
+        var lineTot = clientLine(raw, f);
+        var unitC = (m.quantity||0) > 0 ? (lineTot / m.quantity) : ((m.unitPrice||0) * f);
+        matR += '<tr><td>' + (i+1) + '</td><td>' + m.name + '</td><td>' + m.quantity + ' ' + (m.unit||'') + '</td><td>₪' + fmt(unitC) + '</td><td style="font-weight:700;">₪' + fmt(lineTot) + '</td></tr>';
+      });
+      var labR = ''; (p.labor || []).forEach(function(l, i) {
+        var raw = (l.hours||0)*(l.hourlyRate||0);
+        var lineTot = clientLine(raw, f);
+        var rateC = (l.hours||0) > 0 ? (lineTot / l.hours) : ((l.hourlyRate||0) * f);
+        labR += '<tr><td>' + (i+1) + '</td><td>' + l.description + '</td><td>' + l.hours + ' ' + L.hours + '</td><td>₪' + fmt(rateC) + '</td><td style="font-weight:700;">₪' + fmt(lineTot) + '</td></tr>';
+      });
       var html = '<!DOCTYPE html><html dir="' + dirA + '" lang="' + lang + '"><head><meta charset="utf-8"><title>' + L.title + ' — ' + p.name + '</title><style>' + pdfCss + 'body{--accent:#1c8c7a;--accent-strong:#0d4f4a;--accent-soft:#e6f4f0}</style></head><body>' +
         '<div class="header"><img src="' + window.OGEN_LOGO + '" alt="OGEN" class="brandmark"><h1>🔧 ' + L.title + '</h1><div class="meta">' + p.name + (p.client ? ' · ' + L.forCust + ': ' + p.client : '') + ' · ' + today + '</div></div><div class="content">' +
         (p.description ? '<div style="font-size:.88rem;color:var(--text-muted, #555);margin-bottom:14px;">' + p.description + '</div>' : '') +
@@ -1080,7 +1138,6 @@ var Maintenance = (function() {
         '<div class="summary"><div style="font-weight:700;margin-bottom:8px;">💰 ' + L.summary + '</div>' +
           '<div class="sr"><span>' + L.materials + '</span><span>₪' + fmt(tot.materialsTotal) + '</span></div>' +
           '<div class="sr"><span>' + L.labor + '</span><span>₪' + fmt(tot.laborTotal) + '</span></div>' +
-          (p.markup ? '<div class="sr"><span>' + L.markup + ' ' + p.markup + '%</span><span>₪' + fmt(tot.markup) + '</span></div>' : '') +
           '<div class="sr"><span>' + L.beforeVat + '</span><span>₪' + fmt(tot.beforeVat) + '</span></div>' +
           (p.includeVat ? '<div class="sr"><span>' + L.vat + '</span><span>₪' + fmt(tot.vat) + '</span></div>' : '') +
           '<div class="sr st"><span>' + L.grandTot + '</span><span>₪' + fmt(tot.total) + '</span></div></div>' +
