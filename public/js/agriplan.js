@@ -58,6 +58,16 @@ var AgriPlan = (function () {
     if (v === 'inject') return tt('הזרקת גזע', 'ฉีดลำต้น', 'حقن الجذع');
     return v;
   }
+  // Written out in full on every row and every printed line. A number with
+  // no application mode next to it is the thing that gets misread in the
+  // field: 43.8 L of טוטם into a sprayer tank and 3.9 L of קוהינור poured
+  // around a trunk are not interchangeable operations.
+  function modeLabel(method) {
+    if (method === 'drench') return tt('להגמעה', 'สำหรับรดโคน', 'للسقي');
+    if (method === 'inject') return tt('להזרקה', 'สำหรับฉีด', 'للحقن');
+    return tt('למרסס', 'ใส่ถังพ่น', 'لخزان الرش');
+  }
+
   function carrierLabel(v) {
     if (v === 'spray')  return tt('נפח ריסוס לעץ (ליטר)', 'ปริมาตร/ต้น (ลิตร)', 'حجم الرش/شجرة (لتر)');
     if (v === 'drench') return tt('נפח הגמעה לעץ (ליטר)', 'ปริมาตรรด/ต้น (ลิตร)', 'حجم السقي/شجرة (لتر)');
@@ -170,6 +180,18 @@ var AgriPlan = (function () {
       notes: String(p.notes || ''),
       createdAt: Number(p.createdAt) || Date.now(),
       createdBy: String(p.createdBy || ''),
+      // Printed heading, separate from the internal plan name: the sheet a
+      // grower receives is titled for him, not for our project list.
+      docTitle: String(p.docTitle || ''),
+      docSub: String(p.docSub || ''),
+      // A short line per מטע, printed on that farm's section. Managers need
+      // to attach a local caveat ("start after the north block is picked")
+      // without it applying to every other farm in the plan.
+      farmNotes: (p.farmNotes && typeof p.farmNotes === 'object') ? p.farmNotes : {},
+      // Reuses the spray log's palette so plans and logs look like one
+      // family of documents. ReportTheme.resolve() reads .report_theme off
+      // any object, so a plan can carry a theme without being a farm.
+      report_theme: (p.report_theme && typeof p.report_theme === 'object') ? p.report_theme : {},
       rows: Array.isArray(p.rows) ? p.rows.map(normRow) : []
     };
   }
@@ -266,9 +288,29 @@ var AgriPlan = (function () {
     var m = document.getElementById('modalContainer');
     if (m) m.innerHTML = '';
   }
+  // Repainting replaces innerHTML wholesale, which resets the scroll box to
+  // the top — so adding a material on row 20 threw the user back to row 1.
+  // Carry scrollTop (and the focused field) across the repaint instead.
   function paint(html) {
     var m = document.getElementById('modalContainer');
-    if (m) m.innerHTML = html;
+    if (!m) return;
+    var prev = document.querySelector('.ap-back');
+    var top = prev ? prev.scrollTop : 0;
+    var act = document.activeElement;
+    var key = (act && act.dataset && act.dataset.k) ? act.dataset.k : null;
+    var caret = (act && act.selectionStart != null) ? act.selectionStart : null;
+    m.innerHTML = html;
+    var next = document.querySelector('.ap-back');
+    if (next && top) next.scrollTop = top;
+    if (key) {
+      var back = document.querySelector('[data-k="' + key + '"]');
+      if (back) {
+        back.focus();
+        if (caret != null && back.setSelectionRange) {
+          try { back.setSelectionRange(caret, caret); } catch (e) {}
+        }
+      }
+    }
   }
   function repaint() {
     if (_openPlan && planById(_openPlan)) showPlan(_openPlan);
@@ -424,8 +466,15 @@ var AgriPlan = (function () {
         return esc(nm) + ' ' + n1(mm[nm]) + 'L';
       }).join(' \u00b7 ');
       if (!line) return;
-      farmHtml += '<div class="ap-tot"><span>\ud83c\udf33 ' + esc(farmName(Number(fid))) +
-        '</span><span style="font-size:.8rem;">' + line + '</span></div>';
+      farmHtml += '<div class="ap-tot" style="display:block;">' +
+        '<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">' +
+          '<span>\ud83c\udf33 ' + esc(farmName(Number(fid))) + '</span>' +
+          '<span style="font-size:.8rem;">' + line + '</span></div>' +
+        '<input class="ap-in" data-k="fn' + fid + '" style="margin-top:4px;font-size:.76rem;" ' +
+          'placeholder="' + tt('הערה למטע זה (תודפס)', 'หมายเหตุสวนนี้', 'ملاحظة لهذا البستان') + '" ' +
+          'value="' + esc((p.farmNotes || {})[String(fid)] || '') + '" ' +
+          'oninput="AgriPlan._setFarmNote(' + id + ',' + fid + ',this.value)">' +
+        '</div>';
     });
 
     var body =
@@ -468,7 +517,13 @@ var AgriPlan = (function () {
       '<button class="ap-btn" onclick="AgriPlan.addRow(' + id + ')">\u2795 ' +
         tt('שורה', 'แถว', 'صف') + '</button>' +
       '<button class="ap-btn ghost" onclick="AgriPlan.seedFromFarm(' + id + ')">\ud83c\udf33 ' +
-        tt('הוסף מטע שלם', 'เพิ่มทั้งสวน', 'إضافة بستان') + '</button>' +
+        tt('מטע שלם', 'ทั้งสวน', 'بستان كامل') + '</button>' +
+      '<button class="ap-btn ghost" onclick="AgriPlan.pickPlots(' + id + ')">\u2611 ' +
+        tt('בחר חלקות', 'เลือกแปลง', 'اختر القطع') + '</button>' +
+      '<button class="ap-btn ghost" onclick="AgriPlan.bulkMaterial(' + id + ')">\u2697\ufe0f ' +
+        tt('חומר למספר מטעים', 'สารหลายสวน', 'مادة لعدة بساتين') + '</button>' +
+      '<button class="ap-btn ghost" onclick="AgriPlan.themeEditor(' + id + ')">\ud83c\udfa8 ' +
+        tt('עיצוב', 'ออกแบบ', 'تصميم') + '</button>' +
       '<button class="ap-btn ghost" onclick="AgriPlan.save()">\ud83d\udcbe ' +
         tt('שמור', 'บันทึก', 'حفظ') + '</button>' +
       '<button class="ap-btn ghost" onclick="AgriPlan.printPlan(' + id + ')">\ud83d\udda8 ' +
@@ -507,7 +562,7 @@ var AgriPlan = (function () {
     (r.materials || []).forEach(function (m, mi) {
       var L = rowMaterialL(r, m);
       mats += '<div class="ap-mat">' +
-        '<input class="ap-in" list="apMats" value="' + esc(m.name) + '" placeholder="' +
+        '<input class="ap-in" list="apMats" data-k="m' + i + '-' + mi + '-n" value="' + esc(m.name) + '" placeholder="' +
           tt('חומר', 'สาร', 'مادة') + '" ' +
           'oninput="AgriPlan._setMat(' + pid + ',' + i + ',' + mi + ',\'name\',this.value)">' +
         '<select class="ap-in" onchange="AgriPlan._setMat(' + pid + ',' + i + ',' + mi + ',\'mode\',this.value)">' +
@@ -521,7 +576,8 @@ var AgriPlan = (function () {
         '<button class="ap-btn warn" style="padding:5px 7px;" ' +
           'onclick="AgriPlan._delMat(' + pid + ',' + i + ',' + mi + ')">\u2715</button>' +
         '<div style="grid-column:1/-1;font-size:.74rem;color:var(--primary,#2d6a4f);font-weight:700;">' +
-          '\u2192 ' + n1(L) + ' ' + tt('ליטר לחלקה', 'ลิตร/แปลง', 'لتر/قطعة') + '</div>' +
+          '\u2192 ' + n1(L) + ' ' + tt('ליטר לחלקה', 'ลิตร/แปลง', 'لتر/قطعة') +
+          ' \u00b7 ' + modeLabel(r.method) + '</div>' +
       '</div>';
     });
 
@@ -731,6 +787,264 @@ var AgriPlan = (function () {
     }
   }
 
+  // ══════════════════════════════════════════════════════════════════
+  //  BULK TOOLS — define once, apply across many farms
+  // ══════════════════════════════════════════════════════════════════
+
+  // Define a material once — name, mode, rate, price — and push it onto
+  // every row of the farms you tick. Entering EOS 1% on nine farms one row
+  // at a time is thirty edits and thirty chances to fat-finger a decimal.
+  function bulkMaterial(pid) {
+    var p = planById(pid);
+    if (!p) return;
+    var host = document.getElementById('apPicker');
+    if (!host) return;
+    var used = {};
+    (p.rows || []).forEach(function (r) {
+      var fid = r.farmId == null ? 0 : r.farmId;
+      used[fid] = (used[fid] || 0) + 1;
+    });
+    var fids = Object.keys(used);
+    if (!fids.length) {
+      toast('\u26a0\ufe0f ' + tt('הוסף קודם שורות לתוכנית', 'เพิ่มแถวก่อน', 'أضف صفوفاً أولاً'));
+      return;
+    }
+    var checks = fids.map(function (fid) {
+      return '<label style="display:inline-flex;gap:5px;align-items:center;margin:3px 10px 3px 0;font-size:.82rem;">' +
+        '<input type="checkbox" class="apBulkFarm" value="' + fid + '" checked> ' +
+        esc(farmName(Number(fid))) + ' <span style="color:var(--text-muted,#888);">(' +
+        used[fid] + ')</span></label>';
+    }).join('');
+    var mats = knownMaterials().map(function (m) {
+      return '<option value="' + esc(m) + '">';
+    }).join('');
+
+    host.innerHTML =
+      '<div class="ap-card" style="border:1.5px solid var(--primary,#2d6a4f);">' +
+        '<div style="font-weight:800;margin-bottom:6px;">\u2697\ufe0f ' +
+          tt('הגדרת חומר למספר מטעים', 'กำหนดสารหลายสวน', 'تعريف مادة لعدة بساتين') + '</div>' +
+        '<datalist id="apBulkMats">' + mats + '</datalist>' +
+        '<div class="ap-rowgrid" style="grid-template-columns:1.4fr .8fr .7fr .7fr;">' +
+          '<div><div class="ap-lbl">' + tt('חומר', 'สาร', 'مادة') + '</div>' +
+            '<input class="ap-in" id="apBulkName" list="apBulkMats"></div>' +
+          '<div><div class="ap-lbl">' + tt('אופן מינון', 'โหมด', 'الوضع') + '</div>' +
+            '<select class="ap-in" id="apBulkMode">' +
+              '<option value="pct">% ' + tt('מהתמיסה', 'ของสารละลาย', 'من المحلول') + '</option>' +
+              '<option value="cc">' + tt('סמ"ק לעץ', 'ซีซี/ต้น', 'سم³/شجرة') + '</option>' +
+            '</select></div>' +
+          '<div><div class="ap-lbl">' + tt('ערך', 'ค่า', 'القيمة') + '</div>' +
+            '<input class="ap-in" id="apBulkVal" type="number" step="any"></div>' +
+          '<div><div class="ap-lbl">\u20aa ' + tt('לליטר', 'ต่อลิตร', 'لكل لتر') + '</div>' +
+            '<input class="ap-in" id="apBulkPrice" type="number" step="any"></div>' +
+        '</div>' +
+        '<div class="ap-lbl" style="margin-top:8px;">' +
+          tt('החל על המטעים:', 'ใช้กับสวน:', 'طبّق على البساتين:') + '</div>' +
+        '<div>' + checks + '</div>' +
+        '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">' +
+          '<button class="ap-btn" onclick="AgriPlan._applyBulk(' + pid + ')">\u2713 ' +
+            tt('החל', 'ใช้', 'تطبيق') + '</button>' +
+          '<button class="ap-btn ghost" onclick="AgriPlan._cancelSeed()">' +
+            tt('ביטול', 'ยกเลิก', 'إلغاء') + '</button>' +
+        '</div>' +
+      '</div>';
+    host.scrollIntoView({ block: 'nearest' });
+  }
+
+  function _applyBulk(pid) {
+    var p = planById(pid);
+    if (!p) return;
+    var name = (document.getElementById('apBulkName') || {}).value || '';
+    var mode = (document.getElementById('apBulkMode') || {}).value || 'pct';
+    var val = Number((document.getElementById('apBulkVal') || {}).value) || 0;
+    var price = Number((document.getElementById('apBulkPrice') || {}).value) || 0;
+    if (!name || !val) {
+      toast('\u26a0\ufe0f ' + tt('חסר שם חומר או ערך', 'ขาดชื่อหรือค่า', 'الاسم أو القيمة ناقص'));
+      return;
+    }
+    var want = {};
+    Array.prototype.forEach.call(document.querySelectorAll('.apBulkFarm'), function (c) {
+      if (c.checked) want[c.value] = true;
+    });
+    var n = 0;
+    (p.rows || []).forEach(function (r) {
+      var fid = String(r.farmId == null ? 0 : r.farmId);
+      if (!want[fid]) return;
+      var hit = null;
+      (r.materials || []).forEach(function (m) { if (m.name === name) hit = m; });
+      // Re-applying the same material updates it in place rather than
+      // stacking a duplicate — this is a correction tool as much as an
+      // entry tool, and a doubled row would silently double the order.
+      if (hit) { hit.mode = mode; hit.value = val; hit.price = price; }
+      else r.materials.push(normMaterial({ name: name, mode: mode, value: val, price: price }));
+      n++;
+    });
+    save();
+    toast('\u2705 ' + n + ' ' + tt('שורות עודכנו', 'แถวถูกอัปเดต', 'صفوف حُدّثت'));
+    showPlan(pid);
+  }
+
+  // Pick exactly which plots go in, per farm, instead of taking a whole מטע
+  // and deleting what you did not want.
+  function pickPlots(pid) {
+    var p = planById(pid);
+    if (!p) return;
+    var host = document.getElementById('apPicker');
+    if (!host) return;
+    var have = {};
+    (p.rows || []).forEach(function (r) { if (r.plotId) have[r.plotId] = true; });
+
+    var byFarm = {};
+    plots().forEach(function (pl) {
+      var f = pl.farm_id == null ? 0 : pl.farm_id;
+      (byFarm[f] = byFarm[f] || []).push(pl);
+    });
+
+    var html = '';
+    Object.keys(byFarm).forEach(function (fid) {
+      var list = byFarm[fid].map(function (pl) {
+        return '<label style="display:inline-flex;gap:5px;align-items:center;margin:3px 10px 3px 0;font-size:.8rem;' +
+          (have[pl.id] ? 'opacity:.5;' : '') + '">' +
+          '<input type="checkbox" class="apPickPlot" value="' + pl.id + '"' +
+          (have[pl.id] ? ' disabled' : '') + '> ' + esc(pl.name) +
+          ' <span style="color:var(--text-muted,#888);">' +
+          (Number(pl.tree_count) || 0).toLocaleString() + '</span></label>';
+      }).join('');
+      html += '<div style="margin-bottom:8px;">' +
+        '<div style="font-weight:700;font-size:.84rem;margin-bottom:2px;">' +
+          '\ud83c\udf33 ' + esc(farmName(Number(fid))) +
+          ' <button class="ap-btn ghost" style="padding:3px 8px;font-size:.7rem;" ' +
+            'onclick="AgriPlan._pickAll(' + fid + ')">' +
+            tt('הכל', 'ทั้งหมด', 'الكل') + '</button></div>' +
+        list + '</div>';
+    });
+
+    host.innerHTML =
+      '<div class="ap-card" style="border:1.5px solid var(--primary,#2d6a4f);">' +
+        '<div style="font-weight:800;margin-bottom:6px;">\ud83c\udf33 ' +
+          tt('בחירת חלקות לתוכנית', 'เลือกแปลง', 'اختيار القطع') + '</div>' +
+        '<div style="max-height:46vh;overflow:auto;">' + html + '</div>' +
+        '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">' +
+          '<button class="ap-btn" onclick="AgriPlan._addPicked(' + pid + ')">\u2795 ' +
+            tt('הוסף לתוכנית', 'เพิ่ม', 'إضافة') + '</button>' +
+          '<button class="ap-btn ghost" onclick="AgriPlan._cancelSeed()">' +
+            tt('ביטול', 'ยกเลิก', 'إلغاء') + '</button>' +
+        '</div>' +
+      '</div>';
+    host.scrollIntoView({ block: 'nearest' });
+  }
+
+  function _pickAll(fid) {
+    var ids = {};
+    plots().forEach(function (pl) {
+      if ((pl.farm_id == null ? 0 : pl.farm_id) === fid) ids[pl.id] = true;
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.apPickPlot'), function (c) {
+      if (ids[Number(c.value)] && !c.disabled) c.checked = true;
+    });
+  }
+
+  function _addPicked(pid) {
+    var p = planById(pid);
+    if (!p) return;
+    var prev = p.rows[p.rows.length - 1];
+    var n = 0;
+    Array.prototype.forEach.call(document.querySelectorAll('.apPickPlot'), function (c) {
+      if (!c.checked || c.disabled) return;
+      var pl = plotById(Number(c.value));
+      if (!pl) return;
+      p.rows.push(normRow({
+        method: prev ? prev.method : 'spray',
+        farmId: pl.farm_id || null, plotId: pl.id,
+        trees: Number(pl.tree_count) || 0,
+        carrier: prev ? prev.carrier : 0,
+        round: prev ? prev.round : '', timing: prev ? prev.timing : '',
+        materials: prev ? (prev.materials || []).map(function (m) {
+          return { name: m.name, mode: m.mode, value: m.value, price: m.price };
+        }) : []
+      }));
+      n++;
+    });
+    if (!n) { toast('\u26a0\ufe0f ' + tt('לא נבחרו חלקות', 'ไม่ได้เลือก', 'لم تُختر قطع')); return; }
+    save();
+    toast('\u2705 ' + n + ' ' + tt('חלקות נוספו', 'แปลงถูกเพิ่ม', 'قطع أُضيفت'));
+    showPlan(pid);
+  }
+
+  function _setFarmNote(pid, fid, v) {
+    var p = planById(pid);
+    if (!p) return;
+    if (!p.farmNotes) p.farmNotes = {};
+    p.farmNotes[String(fid)] = v;
+  }
+
+  // ── document design ──
+  // Palettes come from ReportTheme so a plan and a spray log printed on the
+  // same day are visibly the same document family.
+  function themeEditor(pid) {
+    var p = planById(pid);
+    if (!p) return;
+    var host = document.getElementById('apPicker');
+    if (!host) return;
+    var t = p.report_theme || {};
+    var presets = (window.ReportTheme && ReportTheme.PRESETS) ? ReportTheme.PRESETS : {};
+    var sw = Object.keys(presets).map(function (k) {
+      var pr = presets[k];
+      var on = (t.preset || 'forest') === k;
+      return '<button onclick="AgriPlan._theme(' + pid + ',\'preset\',\'' + k + '\')" ' +
+        'style="padding:8px 12px;border-radius:10px;cursor:pointer;font-family:inherit;font-weight:700;' +
+        'font-size:.78rem;color:' + pr.headText + ';background:linear-gradient(135deg,' + pr.c1 + ',' + pr.c3 + ');' +
+        'border:' + (on ? '2.5px solid var(--accent,#ff9f43)' : '1px solid rgba(255,255,255,.2)') + ';">' +
+        esc(pr.label ? pr.label[0] : k) + '</button>';
+    }).join(' ');
+
+    host.innerHTML =
+      '<div class="ap-card" style="border:1.5px solid var(--primary,#2d6a4f);">' +
+        '<div style="font-weight:800;margin-bottom:6px;">\ud83c\udfa8 ' +
+          tt('עיצוב המסמך', 'ออกแบบเอกสาร', 'تصميم المستند') + '</div>' +
+        '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">' + sw + '</div>' +
+        '<div class="ap-rowgrid" style="grid-template-columns:1fr 1fr;">' +
+          '<div><div class="ap-lbl">' + tt('כותרת המסמך', 'ชื่อเอกสาร', 'عنوان المستند') + '</div>' +
+            '<input class="ap-in" data-k="dt" value="' + esc(p.docTitle) + '" placeholder="' +
+              esc(p.name) + '" oninput="AgriPlan._setPlan(' + pid + ',\'docTitle\',this.value)"></div>' +
+          '<div><div class="ap-lbl">' + tt('כותרת משנה', 'คำบรรยาย', 'عنوان فرعي') + '</div>' +
+            '<input class="ap-in" data-k="ds" value="' + esc(p.docSub) + '" ' +
+              'oninput="AgriPlan._setPlan(' + pid + ',\'docSub\',this.value)"></div>' +
+        '</div>' +
+        '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;font-size:.82rem;">' +
+          '<label><input type="radio" name="apOri"' +
+            ((t.orientation || 'landscape') === 'landscape' ? ' checked' : '') +
+            ' onchange="AgriPlan._theme(' + pid + ',\'orientation\',\'landscape\')"> ' +
+            tt('לרוחב', 'แนวนอน', 'أفقي') + '</label>' +
+          '<label><input type="radio" name="apOri"' +
+            (t.orientation === 'portrait' ? ' checked' : '') +
+            ' onchange="AgriPlan._theme(' + pid + ',\'orientation\',\'portrait\')"> ' +
+            tt('לאורך', 'แนวตั้ง', 'عمودي') + '</label>' +
+          '<label><input type="checkbox"' + (t.signature ? ' checked' : '') +
+            ' onchange="AgriPlan._theme(' + pid + ',\'signature\',this.checked)"> ' +
+            tt('שורת חתימה', 'ช่องเซ็น', 'سطر توقيع') + '</label>' +
+        '</div>' +
+        '<div class="ap-lbl" style="margin-top:8px;">' + tt('כיתוב תחתון', 'ท้ายกระดาษ', 'تذييل') + '</div>' +
+        '<input class="ap-in" data-k="df" value="' + esc(t.footer || '') + '" ' +
+          'oninput="AgriPlan._theme(' + pid + ',\'footer\',this.value)">' +
+        '<div style="display:flex;gap:6px;margin-top:8px;">' +
+          '<button class="ap-btn" onclick="AgriPlan.printPlan(' + pid + ')">\ud83d\udda8 ' +
+            tt('תצוגה מקדימה', 'ดูตัวอย่าง', 'معاينة') + '</button>' +
+          '<button class="ap-btn ghost" onclick="AgriPlan._cancelSeed()">' +
+            tt('סגור', 'ปิด', 'إغلاق') + '</button>' +
+        '</div>' +
+      '</div>';
+    host.scrollIntoView({ block: 'nearest' });
+  }
+
+  function _theme(pid, k, v) {
+    var p = planById(pid);
+    if (!p) return;
+    if (!p.report_theme) p.report_theme = {};
+    p.report_theme[k] = v;
+    save();
+    if (k === 'preset' || k === 'orientation') themeEditor(pid);
+  }
+
   // ── outputs ──
   // Print colours are hardcoded: the sheet opens in a bare tab with none of
   // the app's CSS variables defined, so theme values would render invisible.
@@ -738,88 +1052,128 @@ var AgriPlan = (function () {
     var p = planById(id);
     if (!p) return;
     var t = totals(p);
+    // resolve() reads .report_theme off whatever object it is handed, so the
+    // plan borrows the spray log's palettes without pretending to be a farm.
+    var th = (window.ReportTheme && ReportTheme.resolve)
+      ? ReportTheme.resolve(p)
+      : { c1: '#1a5632', c2: '#2d6a4f', c3: '#40916c', accent: '#2d6a4f',
+          headText: '#fff', radius: 16, orientation: 'landscape', footer: '', signature: false };
 
     var rows = '';
     (p.rows || []).forEach(function (r) {
       var pl = plotById(r.plotId);
       var m = r.materials || [];
       var cells = '';
+      // One cell per material carrying BOTH the concentration and the litres
+      // that plot needs. A reader should never have to multiply anything.
       for (var k = 0; k < 3; k++) {
-        cells += '<td>' + (m[k] ? esc(m[k].name) : '') + '</td><td>' +
-          (m[k] ? (m[k].mode === 'pct' ? m[k].value + '%' : m[k].value + ' cc') : '') + '</td>';
+        if (m[k]) {
+          cells += '<td><b>' + esc(m[k].name) + '</b><br>' +
+            '<span class="rate">' + (m[k].mode === 'pct' ? m[k].value + '%' : m[k].value + ' סמ"ק/עץ') +
+            '</span><br><span class="qty">' + n1(rowMaterialL(r, m[k])) + ' ליטר</span></td>';
+        } else cells += '<td></td>';
       }
-      var outs = m.map(function (mm) { return n1(rowMaterialL(r, mm)); }).join(' / ');
-      rows += '<tr><td>' + esc(methodLabel(r.method)) + '</td>' +
+      rows += '<tr><td><b>' + esc(methodLabel(r.method)) + '</b><br>' +
+          '<span class="mode">' + esc(modeLabel(r.method)) + '</span></td>' +
         '<td>' + esc(farmName(r.farmId)) + '</td>' +
         '<td>' + esc((pl ? pl.name : '') + (r.cohort ? ' \u2014 ' + r.cohort : '')) + '</td>' +
         '<td>' + (r.trees || 0).toLocaleString() + '</td>' + cells +
         '<td>' + esc(r.round) + '</td><td>' + esc(r.timing) + '</td>' +
-        '<td>' + n1(r.carrier) + '</td><td><b>' + outs + '</b></td></tr>';
+        '<td>' + n1(r.carrier) + (r.method === 'inject' ? ' סמ"ק' : ' ליטר') + '</td>' +
+        '<td><b>' + n1(rowCarrierL(r)).toLocaleString() + '</b></td></tr>';
     });
 
     var totRows = '';
     Object.keys(t.byMat).sort().forEach(function (nm) {
-      totRows += '<tr><td>' + esc(nm) + '</td><td>' + n1(t.byMat[nm]) + '</td>' +
+      totRows += '<tr><td>' + esc(nm) + '</td><td><b>' + n1(t.byMat[nm]) + '</b></td>' +
         '<td>' + (t.price[nm] ? money(t.price[nm]) : '\u2014') + '</td>' +
         '<td>' + (t.price[nm] ? money(t.byMat[nm] * t.price[nm]) : '\u2014') + '</td></tr>';
     });
 
-    var farmRows = '';
+    var farmSec = '';
     Object.keys(t.farmMat).forEach(function (fid) {
       var mm = t.farmMat[fid];
-      Object.keys(mm).sort().forEach(function (nm) {
-        farmRows += '<tr><td>' + esc(farmName(Number(fid))) + '</td><td>' + esc(nm) +
-          '</td><td>' + n1(mm[nm]) + '</td></tr>';
-      });
+      var body = Object.keys(mm).sort().map(function (nm) {
+        return '<tr><td>' + esc(nm) + '</td><td><b>' + n1(mm[nm]) + ' ליטר</b></td></tr>';
+      }).join('');
+      if (!body) return;
+      var note = (p.farmNotes || {})[String(fid)] || '';
+      farmSec += '<div class="farm"><h3>\ud83c\udf33 ' + esc(farmName(Number(fid))) + '</h3>' +
+        (note ? '<p class="note">' + esc(note) + '</p>' : '') +
+        '<table class="mini"><tbody>' + body + '</tbody></table></div>';
     });
 
     var html = '<!DOCTYPE html><html dir="rtl" lang="he"><head><meta charset="utf-8">' +
-      '<title>' + esc(p.name) + '</title><style>' +
-      '@page{size:A4 landscape;margin:10mm;}' +
-      'body{font-family:Heebo,Arial,sans-serif;direction:rtl;color:#222;background:#fff;padding:14px;}' +
-      'h1{font-size:1.25rem;margin:0 0 2px;}h2{font-size:1rem;margin:18px 0 6px;}' +
-      '.meta{font-size:.82rem;color:#555;line-height:1.6;margin-bottom:10px;}' +
-      'table{width:100%;border-collapse:collapse;margin-bottom:12px;}' +
-      'th,td{border:1px solid #bbb;padding:4px 6px;font-size:.72rem;text-align:right;}' +
-      'th{background:#eef3ee;font-weight:800;}' +
-      'tfoot td{font-weight:800;background:#f7f9f7;}' +
+      '<title>' + esc(p.docTitle || p.name) + '</title><style>' +
+      '@page{size:A4 ' + th.orientation + ';margin:9mm;}' +
+      'body{font-family:Heebo,Arial,sans-serif;direction:rtl;color:#222;background:#fff;padding:0;margin:0;}' +
+      '.hd{background:linear-gradient(135deg,' + th.c1 + ',' + th.c3 + ');color:' + th.headText + ';' +
+        'padding:18px 22px;border-radius:0 0 ' + th.radius + 'px ' + th.radius + 'px;margin-bottom:14px;}' +
+      '.hd h1{margin:0;font-size:1.4rem;}' +
+      '.hd .sub{opacity:.9;font-size:.9rem;margin-top:3px;}' +
+      '.hd .kpi{margin-top:10px;font-size:.82rem;opacity:.95;}' +
+      '.wrap{padding:0 14px 14px;}' +
+      'h2{font-size:1rem;margin:16px 0 6px;color:' + th.c2 + ';border-bottom:2px solid ' + th.c3 + ';' +
+        'padding-bottom:3px;}' +
+      'h3{font-size:.9rem;margin:0 0 4px;color:' + th.c2 + ';}' +
+      'table{width:100%;border-collapse:collapse;margin-bottom:10px;}' +
+      'th,td{border:1px solid #c4ccc6;padding:4px 6px;font-size:.7rem;text-align:right;vertical-align:top;}' +
+      'th{background:' + th.c2 + ';color:' + th.headText + ';font-weight:800;}' +
+      'tfoot td{font-weight:800;background:#f2f6f3;}' +
+      '.qty{color:' + th.accent + ';font-weight:800;font-size:.76rem;}' +
+      '.rate{color:#666;font-size:.66rem;}' +
+      '.mode{color:#8a5a2b;font-size:.66rem;font-weight:700;}' +
+      '.farms{display:flex;flex-wrap:wrap;gap:10px;}' +
+      '.farm{flex:1 1 220px;border:1px solid #d5ddd7;border-radius:' + th.radius + 'px;padding:8px 10px;}' +
+      '.farm .note{font-size:.72rem;color:#8a5a2b;margin:0 0 5px;font-style:italic;}' +
+      '.mini td{border:none;border-bottom:1px solid #eee;font-size:.72rem;padding:2px 0;}' +
+      '.sig{margin-top:26px;display:flex;gap:40px;font-size:.78rem;}' +
+      '.sig div{flex:1;border-top:1px solid #999;padding-top:4px;}' +
+      '.ft{margin-top:16px;font-size:.72rem;color:#666;}' +
       '</style></head><body>' +
-      '<h1>' + tt('תוכנית טיפול', 'แผนการดูแล', 'خطة معالجة') + ' \u2014 ' + esc(p.name) + '</h1>' +
-      '<div class="meta">' +
-        (p.target ? tt('מזיק', 'ศัตรูพืช', 'الآفة') + ': ' + esc(p.target) + ' \u00b7 ' : '') +
-        tt('עונה', 'ฤดูกาล', 'الموسم') + ': ' + esc(year) + ' \u00b7 ' +
-        t.trees.toLocaleString() + ' ' + tt('עצים', 'ต้น', 'شجرة') + ' \u00b7 ' +
-        n1(t.waterL).toLocaleString() + ' ' + tt('ליטר תמיסה', 'ลิตรสารละลาย', 'لتر محلول') +
-        (p.notes ? '<br>' + esc(p.notes) : '') + '</div>' +
+
+      '<div class="hd"><h1>' + esc(p.docTitle || p.name || tt('תוכנית טיפול', 'แผน', 'خطة')) + '</h1>' +
+        (p.docSub ? '<div class="sub">' + esc(p.docSub) + '</div>' : '') +
+        '<div class="kpi">' +
+          (p.target ? tt('מזיק', 'ศัตรูพืช', 'الآفة') + ': ' + esc(p.target) + ' \u00b7 ' : '') +
+          tt('עונה', 'ฤดูกาล', 'الموسم') + ' ' + esc(year) + ' \u00b7 ' +
+          t.trees.toLocaleString() + ' ' + tt('עצים', 'ต้น', 'شجرة') + ' \u00b7 ' +
+          n1(t.waterL).toLocaleString() + ' ' + tt('ליטר תמיסה', 'ลิตร', 'لتر محلول') +
+        '</div></div>' +
+
+      '<div class="wrap">' +
+      (p.notes ? '<p style="font-size:.82rem;">' + esc(p.notes) + '</p>' : '') +
 
       '<table><thead><tr>' +
         '<th>' + tt('אופן יישום', 'วิธี', 'طريقة') + '</th><th>' + tt('מטע', 'สวน', 'بستان') + '</th>' +
-        '<th>' + tt('חלקה', 'แปลง', 'قطعة') + '</th><th>' + tt('מס\' עצים', 'ต้น', 'أشجار') + '</th>' +
-        '<th>' + tt('חומר 1', 'สาร 1', 'مادة 1') + '</th><th>' + tt('ריכוז 1', 'เข้มข้น 1', 'تركيز 1') + '</th>' +
-        '<th>' + tt('חומר 2', 'สาร 2', 'مادة 2') + '</th><th>' + tt('ריכוז 2', 'เข้มข้น 2', 'تركيز 2') + '</th>' +
-        '<th>' + tt('חומר 3', 'สาร 3', 'مادة 3') + '</th><th>' + tt('ריכוז 3', 'เข้มข้น 3', 'تركيز 3') + '</th>' +
+        '<th>' + tt('חלקה', 'แปลง', 'قطعة') + '</th><th>' + tt('עצים', 'ต้น', 'أشجار') + '</th>' +
+        '<th>' + tt('חומר 1 / כמות לחלקה', 'สาร 1', 'مادة 1') + '</th>' +
+        '<th>' + tt('חומר 2 / כמות לחלקה', 'สาร 2', 'مادة 2') + '</th>' +
+        '<th>' + tt('חומר 3 / כמות לחלקה', 'สาร 3', 'مادة 3') + '</th>' +
         '<th>' + tt('סיבוב', 'รอบ', 'جولة') + '</th><th>' + tt('מועד מומלץ', 'ช่วงเวลา', 'الموعد') + '</th>' +
         '<th>' + tt('לעץ', 'ต่อต้น', 'لكل شجرة') + '</th>' +
-        '<th>' + tt('ליטר לחלקה', 'ลิตร/แปลง', 'لتر/قطعة') + '</th>' +
+        '<th>' + tt('סה"כ תמיסה (ל\')', 'รวมสารละลาย', 'إجمالي المحلول') + '</th>' +
       '</tr></thead><tbody>' + rows + '</tbody></table>' +
 
-      '<h2>' + tt('סה"כ חומרים', 'รวมสาร', 'إجمالي المواد') + '</h2>' +
+      '<h2>' + tt('סה"כ חומרים להזמנה', 'รวมสารสั่งซื้อ', 'إجمالي المواد للطلب') + '</h2>' +
       '<table><thead><tr><th>' + tt('חומר', 'สาร', 'مادة') + '</th><th>' +
         tt('ליטר', 'ลิตร', 'لتر') + '</th><th>' + tt('מחיר לליטר', 'ราคา/ลิตร', 'سعر/لتر') + '</th><th>' +
         tt('עלות', 'ต้นทุน', 'التكلفة') + '</th></tr></thead><tbody>' + totRows + '</tbody>' +
         '<tfoot><tr><td colspan="3">' + tt('סה"כ', 'รวม', 'المجموع') + '</td><td>' +
           money(t.cost) + '</td></tr></tfoot></table>' +
 
-      (farmRows ? '<h2>' + tt('פילוח לפי מטע', 'แยกตามสวน', 'حسب البستان') + '</h2>' +
-        '<table><thead><tr><th>' + tt('מטע', 'สวน', 'بستان') + '</th><th>' +
-        tt('חומר', 'สาร', 'مادة') + '</th><th>' + tt('ליטר', 'ลิตร', 'لتر') +
-        '</th></tr></thead><tbody>' + farmRows + '</tbody></table>' : '') +
+      (farmSec ? '<h2>' + tt('פילוח לפי מטע', 'แยกตามสวน', 'حسب البستان') + '</h2>' +
+        '<div class="farms">' + farmSec + '</div>' : '') +
 
-      '<p style="margin-top:18px;font-size:.8rem;">\u05e9\u05d5\u05e8\u05e9\u05d9\u05dd \u05e4\u05dc\u05d5\u05e1 \u05d1\u05e2"\u05de / ROOTS PLUS LTD</p>' +
-      '</body></html>';
+      (th.signature ? '<div class="sig"><div>' + tt('אחראי הגנת הצומח', 'ผู้รับผิดชอบ', 'مسؤول وقاية النبات') +
+        '</div><div>' + tt('מנהל המטע', 'ผู้จัดการสวน', 'مدير البستان') + '</div></div>' : '') +
+      '<div class="ft">' + (th.footer ? esc(th.footer) + '<br>' : '') +
+        '\u05e9\u05d5\u05e8\u05e9\u05d9\u05dd \u05e4\u05dc\u05d5\u05e1 \u05d1\u05e2"\u05de / ROOTS PLUS LTD \u00b7 ' +
+        new Date().toLocaleDateString('he-IL') + '</div>' +
+      '</div></body></html>';
 
     if (window.Util && typeof window.Util.exportReport === 'function') {
-      window.Util.exportReport(html, (p.name || 'plan').replace(/\s+/g, '_') + '_' + year + '.html');
+      window.Util.exportReport(html, (p.docTitle || p.name || 'plan').replace(/\s+/g, '_') + '_' + year + '.html');
     }
   }
 
@@ -859,6 +1213,14 @@ var AgriPlan = (function () {
     showPlan: showPlan,
     addRow: addRow,
     seedFromFarm: seedFromFarm,
+    bulkMaterial: bulkMaterial,
+    pickPlots: pickPlots,
+    themeEditor: themeEditor,
+    _applyBulk: _applyBulk,
+    _pickAll: _pickAll,
+    _addPicked: _addPicked,
+    _setFarmNote: _setFarmNote,
+    _theme: _theme,
     _doSeed: _doSeed,
     _cancelSeed: _cancelSeed,
     printPlan: printPlan,

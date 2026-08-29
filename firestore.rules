@@ -82,7 +82,9 @@ service cloud.firestore {
         'shorashim-manager-teams',
         'shorashim-receipts',
         'shorashim-suppliers',
-        'shorashim-orders'
+        'shorashim-orders',
+        'shorashim-build-projects',
+        'shorashim-build-catalog'
       ];
 
       // Operator+: one pest-monitoring document per growing year

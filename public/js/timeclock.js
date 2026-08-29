@@ -745,6 +745,7 @@ var TimeClock = (function() {
       // finding turns into; orders.js is reachable from inside it.
       html += '<button onclick="AgriPlan.open();TimeClock.closeMenu()" style="' + menuBtn + 'background:#e8f5e9;">' + tt('🌿 תוכניות טיפול', '🌿 แผนการดูแล', '🌿 خطط المعالجة') + '</button>';
       html += '<button onclick="Orders.open();TimeClock.closeMenu()" style="' + menuBtn + 'background:#fff8e1;">' + tt('📦 הזמנות לספקים', '📦 ใบสั่งซื้อ', '📦 طلبات الموردين') + '</button>';
+      html += '<button onclick="BuildPlan.open();TimeClock.closeMenu()" style="' + menuBtn + 'background:#eceff1;">' + tt('🏗 פרויקטי בנייה', '🏗 โครงการก่อสร้าง', '🏗 مشاريع البناء') + '</button>';
     }
 
     // ── הגדרות (collapsible) ──

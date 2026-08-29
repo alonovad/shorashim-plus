@@ -2237,6 +2237,49 @@
     }
   };
 
+  // ── MapAccess ──────────────────────────────────────────────────────
+  // A deliberately narrow window onto the Leaflet map for modules that own
+  // a different kind of geometry than a plot. buildplan.js draws project
+  // footprints (a service shed, a concrete slab) — those are maintenance
+  // objects with their own lifecycle, not rows in `plots`, so they get
+  // their own layer and their own store rather than polluting plot data.
+  //
+  // setExternalDraw() parks app.js's own state machine on the sentinel
+  // 'external'. Every internal handler tests drawMode against 'polygon' or
+  // 'rect', so none of them fire, while `if (!drawMode) showPlotDetails()`
+  // correctly sees a draw in progress and stops opening plot popups under
+  // the user's clicks.
+  window.MapAccess = {
+    getMap: function () { return map; },
+    // Shoelace on the sphere, same maths the plot tool uses — returned in
+    // m² here because a shed is measured in metres, not dunam.
+    areaFromLatLngs: function (pts) {
+      if (!pts || pts.length < 3) return 0;
+      var a = 0;
+      for (var i = 0; i < pts.length; i++) {
+        var j = (i + 1) % pts.length;
+        var xi = pts[i].lng * Math.PI / 180, yi = pts[i].lat * Math.PI / 180;
+        var xj = pts[j].lng * Math.PI / 180, yj = pts[j].lat * Math.PI / 180;
+        a += (xj - xi) * (2 + Math.sin(yi) + Math.sin(yj));
+      }
+      return Math.abs(a * 6378137 * 6378137 / 2);
+    },
+    isDrawing: function () { return !!drawMode; },
+    setExternalDraw: function (on) {
+      if (on) {
+        if (drawMode && drawMode !== 'external') return false;  // never steal an active draw
+        drawMode = 'external';
+        mapEl.classList.add('drawing');
+        return true;
+      }
+      if (drawMode === 'external') {
+        drawMode = null;
+        mapEl.classList.remove('drawing');
+      }
+      return true;
+    }
+  };
+
   function initMapAndData() {
     // Clear existing map layers before reloading
     drawnItems.clearLayers();
