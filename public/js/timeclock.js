@@ -739,6 +739,12 @@ var TimeClock = (function() {
 
       // ── מחלקת תחזוקה (standalone, renamed) ──
       html += '<button onclick="Maintenance.showProjectsList();TimeClock.closeMenu()" style="' + menuBtn + 'background:#efebe9;">' + tt('🔧 מחלקת תחזוקה', '🔧 แผนกซ่อมบำรุง', '🔧 قسم الصيانة') + '</button>';
+
+      // תוכניות טיפול — the forward half of plant protection.
+      // Sits next to דוחות סיור because a plan is what a monitoring
+      // finding turns into; orders.js is reachable from inside it.
+      html += '<button onclick="AgriPlan.open();TimeClock.closeMenu()" style="' + menuBtn + 'background:#e8f5e9;">' + tt('🌿 תוכניות טיפול', '🌿 แผนการดูแล', '🌿 خطط المعالجة') + '</button>';
+      html += '<button onclick="Orders.open();TimeClock.closeMenu()" style="' + menuBtn + 'background:#fff8e1;">' + tt('📦 הזמנות לספקים', '📦 ใบสั่งซื้อ', '📦 طلبات الموردين') + '</button>';
     }
 
     // ── הגדרות (collapsible) ──

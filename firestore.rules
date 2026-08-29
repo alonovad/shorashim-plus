@@ -66,7 +66,8 @@ service cloud.firestore {
         'shorashim-valve-plot-map',
         'shorashim-crop-types',
         'shorashim-maintenance',
-        'shorashim-maintenance-access'
+        'shorashim-maintenance-access',
+        'shorashim-payroll'
       ];
 
       // Operator+: operational data
@@ -79,7 +80,9 @@ service cloud.firestore {
         'shorashim-custom-worker-groups',
         'shorashim-workers',
         'shorashim-manager-teams',
-        'shorashim-receipts'
+        'shorashim-receipts',
+        'shorashim-suppliers',
+        'shorashim-orders'
       ];
 
       // Operator+: one pest-monitoring document per growing year
@@ -87,6 +90,12 @@ service cloud.firestore {
       // literal list so a new season needs no rules deploy.
       allow write: if (isOperatorOrAbove() || noRoleYet()) &&
                       docId.matches('shorashim-pest-monitor-[0-9]{4}');
+
+      // Operator+: one treatment-plan document per growing year
+      // (shorashim-agri-plan-2026, -2027, ...). Same prefix trick as
+      // pest monitoring above — a new season needs no rules deploy.
+      allow write: if (isOperatorOrAbove() || noRoleYet()) &&
+                      docId.matches('shorashim-agri-plan-[0-9]{4}');
 
       // Worker+: worklogs
       allow write: if (isWorkerOrAbove() || noRoleYet()) && docId.matches('shorashim-worklog.*');

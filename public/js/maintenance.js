@@ -555,7 +555,7 @@ var Maintenance = (function() {
 
           // Action buttons
           bodyH += '<div style="display:flex;gap:6px;flex-wrap:wrap;">' +
-            '<button onclick="Maintenance._quotePDF(' + pid + ')" style="flex:1;padding:10px;border-radius:10px;border:none;background:#1565c0;color:white;font-family:inherit;font-weight:700;cursor:pointer;font-size:0.85rem;">📄 ' + tt('הצעת מחיר','ใบเสนอราคา','عرض سعر') + '</button>' +
+            '<button onclick="Maintenance._quoteSetup(' + pid + ')" style="flex:1;padding:10px;border-radius:10px;border:none;background:#1565c0;color:white;font-family:inherit;font-weight:700;cursor:pointer;font-size:0.85rem;">📄 ' + tt('הצעת מחיר','ใบเสนอราคา','عرض سعر') + '</button>' +
             '<button onclick="Maintenance._shipPDF(' + pid + ')" style="flex:1;padding:10px;border-radius:10px;border:none;background:#7e57c2;color:white;font-family:inherit;font-weight:700;cursor:pointer;font-size:0.85rem;">🚚 ' + tt('יומן משלוחים','บันทึกจัดส่ง','سجل الشحنات') + '</button>' +
             (canEdit ? '<button onclick="Maintenance.showNewProject(' + pid + ')" style="flex:1;padding:10px;border-radius:10px;border:none;background:#ff9800;color:white;font-family:inherit;font-weight:700;cursor:pointer;font-size:0.85rem;">✏️ ' + tt('עריכה','แก้ไข','تعديل') + '</button>' : '') +
           '</div>' +
@@ -1081,9 +1081,133 @@ var Maintenance = (function() {
   }
 
   // Quote PDF (client-facing)
-  function _quotePDF(pid) {
+  // ── Quote composer ──
+  // A quote is a sales document, not a data dump. Printing every section the
+  // project happens to hold produces lines like "עבודה ₪0.00", which reads as
+  // an unfinished form rather than an offer. So the sections are chosen at
+  // export time, per quote, and remembered on the project.
+  //
+  // Defaults are picked so the common case needs no thought: a section with
+  // nothing in it is off, a section with content is on.
+  function defaultQuoteOpts(p) {
+    var t = calcProject(p);
+    var saved = p.quoteOpts || {};
+    function pick(key, fallback) { return (saved[key] !== undefined) ? saved[key] : fallback; }
+    return {
+      showMaterials: pick('showMaterials', (p.materials || []).length > 0),
+      showLabor:     pick('showLabor',     t.laborRaw > 0),
+      detail:        pick('detail', 'full'),          // full | totals | single
+      singleLabel:   pick('singleLabel', ''),
+      showSummary:   pick('showSummary', true),
+      showVat:       pick('showVat', p.includeVat !== false),
+      notes:         pick('notes', '')
+    };
+  }
+
+  function _quoteSetup(pid) {
     loadProjects().then(function(projects) {
       var p = projects.find(function(x) { return x.id === pid; }); if (!p) return;
+      var o = defaultQuoteOpts(p);
+      var t = calcProject(p);
+      var host = document.getElementById('modalContainer'); if (!host) return;
+
+      function row(id, label, checked, hint) {
+        return '<label style="display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:9px;background:var(--surface-glass, #f5f7f5);margin-bottom:6px;cursor:pointer;">' +
+          '<input type="checkbox" id="' + id + '"' + (checked ? ' checked' : '') + ' style="width:17px;height:17px;accent-color:#2e7d32;">' +
+          '<span style="flex:1;font-size:0.86rem;">' + label +
+            (hint ? '<span style="display:block;font-size:0.7rem;color:var(--text-muted, #999);">' + hint + '</span>' : '') +
+          '</span></label>';
+      }
+      function radio(val, label, hint) {
+        return '<label style="display:flex;align-items:flex-start;gap:9px;padding:8px 10px;border-radius:9px;background:var(--surface-glass, #f5f7f5);margin-bottom:6px;cursor:pointer;">' +
+          '<input type="radio" name="qDetail" value="' + val + '"' + (o.detail === val ? ' checked' : '') + ' style="width:17px;height:17px;accent-color:#2e7d32;margin-top:2px;">' +
+          '<span style="flex:1;font-size:0.86rem;">' + label +
+            '<span style="display:block;font-size:0.7rem;color:var(--text-muted, #999);">' + hint + '</span></span></label>';
+      }
+
+      var matCount = (p.materials || []).length;
+      var labCount = (p.labor || []).length;
+
+      host.innerHTML =
+        '<div class="modal-overlay" onclick="if(event.target===this) document.getElementById(\'modalContainer\').innerHTML=\'\'">' +
+          '<div class="modal" style="max-width:460px;">' +
+            '<h3 style="font-weight:700;margin-bottom:4px;">📄 ' + tt('הרכב הצעת מחיר','จัดองค์ประกอบใบเสนอราคา','تكوين عرض السعر') + '</h3>' +
+            '<div style="font-size:0.76rem;color:var(--text-muted, #888);margin-bottom:12px;">' +
+              tt('בחר מה יופיע במסמך שהלקוח מקבל.','เลือกสิ่งที่จะแสดงในเอกสารของลูกค้า','اختر ما يظهر في المستند الذي يستلمه العميل.') + '</div>' +
+
+            '<div style="font-size:0.76rem;font-weight:700;color:var(--text-muted, #777);margin-bottom:5px;">' + tt('סעיפים','หมวด','البنود') + '</div>' +
+            (matCount ? row('qMat', '📦 ' + tt('חומרים','วัสดุ','مواد'), o.showMaterials, matCount + ' ' + tt('שורות','รายการ','بنود') + ' · ₪' + fmt(t.materialsTotal)) : '') +
+            (labCount ? row('qLab', '👷 ' + tt('עבודה','แรงงาน','عمل'), o.showLabor,
+                labCount + ' ' + tt('שורות','รายการ','بنود') + ' · ₪' + fmt(t.laborTotal) +
+                (t.laborRaw <= 0 ? ' · ' + tt('ריק — מוסתר כברירת מחדל','ว่าง — ซ่อนโดยค่าเริ่มต้น','فارغ — مخفي افتراضياً') : '')) : '') +
+            row('qSum', '💰 ' + tt('טבלת סיכום','ตารางสรุป','جدول الملخص'), o.showSummary, tt('שורות אפס לא מודפסות','ไม่พิมพ์แถวศูนย์','لا تُطبع صفوف الصفر')) +
+            row('qVat', '🧾 ' + tt('מע"מ 18%','VAT 18%','ضريبة 18%'), o.showVat, '') +
+
+            '<div style="font-size:0.76rem;font-weight:700;color:var(--text-muted, #777);margin:12px 0 5px;">' + tt('רמת פירוט','ระดับรายละเอียด','مستوى التفصيل') + '</div>' +
+            radio('full',   tt('מלא','เต็ม','كامل'),      tt('כמות, מחיר ליחידה וסה"כ לכל שורה','จำนวน ราคาต่อหน่วย และรวม','الكمية وسعر الوحدة والمجموع')) +
+            radio('totals', tt('מקוצר','ย่อ','مختصر'),     tt('שם הפריט וסה"כ בלבד — בלי כמות ומחיר ליחידה','ชื่อรายการและยอดรวมเท่านั้น','اسم البند والمجموع فقط')) +
+            radio('single', tt('שורה אחת','บรรทัดเดียว','سطر واحد'), tt('סכום אחד לכל העבודה, ללא פירוט','ยอดเดียวไม่มีรายละเอียด','مبلغ واحد بدون تفصيل')) +
+
+            '<div id="qSingleWrap" style="' + (o.detail === 'single' ? '' : 'display:none;') + 'margin-bottom:8px;">' +
+              '<label style="' + lblS + '">' + tt('תיאור השורה','คำอธิบายบรรทัด','وصف السطر') + '</label>' +
+              '<input id="qSingleLabel" type="text" value="' + escAttr(o.singleLabel || p.name || '') + '" style="' + inputS + '">' +
+            '</div>' +
+
+            '<label style="' + lblS + '">' + tt('הערות להצעה (אופציונלי)','หมายเหตุ (ไม่บังคับ)','ملاحظات (اختياري)') + '</label>' +
+            '<textarea id="qNotes" style="' + inputS + 'height:60px;resize:vertical;">' + escHtml(o.notes || '') + '</textarea>' +
+
+            '<div style="display:flex;gap:8px;margin-top:14px;">' +
+              '<button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'" style="flex:1;padding:10px;border-radius:10px;border:none;background:var(--surface-glass, #eee);color:var(--text, inherit);font-family:inherit;cursor:pointer;">' + tt('ביטול','ยกเลิก','إلغاء') + '</button>' +
+              '<button onclick="Maintenance._quoteGo(' + pid + ')" style="flex:2;padding:10px;border-radius:10px;border:none;background:#1565c0;color:#fff;font-family:inherit;font-weight:700;cursor:pointer;">📄 ' + tt('צור הצעה','สร้างใบเสนอราคา','إنشاء العرض') + '</button>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+
+      // Reveal the single-line description only when that mode is chosen.
+      Array.prototype.forEach.call(document.querySelectorAll('input[name="qDetail"]'), function(r) {
+        r.addEventListener('change', function() {
+          var w = document.getElementById('qSingleWrap');
+          if (w) w.style.display = (this.value === 'single') ? '' : 'none';
+        });
+      });
+    });
+  }
+
+  function escHtml(v) {
+    return String(v == null ? '' : v)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+  function escAttr(v) { return escHtml(v).replace(/"/g, '&quot;'); }
+
+  function _quoteGo(pid) {
+    function chk(id, dflt) { var e = document.getElementById(id); return e ? e.checked : dflt; }
+    var detail = 'full';
+    Array.prototype.forEach.call(document.querySelectorAll('input[name="qDetail"]'), function(r) {
+      if (r.checked) detail = r.value;
+    });
+    var opts = {
+      showMaterials: chk('qMat', false),
+      showLabor:     chk('qLab', false),
+      showSummary:   chk('qSum', true),
+      showVat:       chk('qVat', true),
+      detail:        detail,
+      singleLabel:   (document.getElementById('qSingleLabel') || {}).value || '',
+      notes:         (document.getElementById('qNotes') || {}).value || ''
+    };
+    // Remember the choices so the next quote for this project opens the same
+    // way — a manager who always sends single-line quotes shouldn't re-pick.
+    loadProjects().then(function(projects) {
+      var p = projects.find(function(x) { return x.id === pid; });
+      if (p) { p.quoteOpts = opts; saveProjects(projects); }
+      document.getElementById('modalContainer').innerHTML = '';
+      _quotePDF(pid, opts);
+    });
+  }
+
+  function _quotePDF(pid, opts) {
+    loadProjects().then(function(projects) {
+      var p = projects.find(function(x) { return x.id === pid; }); if (!p) return;
+      var O = opts || defaultQuoteOpts(p);
       var tot = calcProject(p);
       var lang = (typeof currentLang !== 'undefined') ? currentLang : 'he';
       var dirA = (lang === 'th') ? 'ltr' : 'rtl';
@@ -1122,25 +1246,71 @@ var Maintenance = (function() {
         var raw = (m.quantity||0)*(m.unitPrice||0);
         var lineTot = clientLine(raw, f);
         var unitC = (m.quantity||0) > 0 ? (lineTot / m.quantity) : ((m.unitPrice||0) * f);
-        matR += '<tr><td>' + (i+1) + '</td><td>' + m.name + '</td><td>' + m.quantity + ' ' + (m.unit||'') + '</td><td>₪' + fmt(unitC) + '</td><td style="font-weight:700;">₪' + fmt(lineTot) + '</td></tr>';
+        matR += '<tr><td>' + (i+1) + '</td><td>' + m.name + '</td>' +
+          (O.detail === 'totals' ? '' : '<td>' + m.quantity + ' ' + (m.unit||'') + '</td><td>₪' + fmt(unitC) + '</td>') +
+          '<td style="font-weight:700;">₪' + fmt(lineTot) + '</td></tr>';
       });
       var labR = ''; (p.labor || []).forEach(function(l, i) {
         var raw = (l.hours||0)*(l.hourlyRate||0);
         var lineTot = clientLine(raw, f);
         var rateC = (l.hours||0) > 0 ? (lineTot / l.hours) : ((l.hourlyRate||0) * f);
-        labR += '<tr><td>' + (i+1) + '</td><td>' + l.description + '</td><td>' + l.hours + ' ' + L.hours + '</td><td>₪' + fmt(rateC) + '</td><td style="font-weight:700;">₪' + fmt(lineTot) + '</td></tr>';
+        labR += '<tr><td>' + (i+1) + '</td><td>' + l.description + '</td>' +
+          (O.detail === 'totals' ? '' : '<td>' + l.hours + ' ' + L.hours + '</td><td>₪' + fmt(rateC) + '</td>') +
+          '<td style="font-weight:700;">₪' + fmt(lineTot) + '</td></tr>';
       });
+      // ── Assemble only the sections the composer asked for ──
+      // These switches change how much of the working is shown, never the
+      // price: the grand total is tot.beforeVat (+VAT) no matter which
+      // sections print, so a terse quote and a full one cost the same.
+      var showMat = O.showMaterials && (p.materials || []).length > 0;
+      var showLab = O.showLabor && (p.labor || []).length > 0;
+      var single  = (O.detail === 'single');
+      var terse   = (O.detail === 'totals');
+
+      var secMat = '', secLab = '', summaryH = '', notesH = '';
+
+      if (single) {
+        // One line, one number — nothing to itemise, nothing to pick apart.
+        var oneLabel = (O.singleLabel || '').trim() || p.name || L.title;
+        secMat = '<table><thead><tr><th>#</th><th>' + L.item + '</th><th>' + L.total + '</th></tr></thead><tbody>' +
+          '<tr><td>1</td><td>' + escHtml(oneLabel) + '</td><td style="font-weight:700;">₪' + fmt(tot.beforeVat) + '</td></tr>' +
+          '</tbody></table>';
+      } else {
+        if (showMat) {
+          secMat = '<div class="section">📦 ' + L.materials + '</div><table><thead><tr><th>#</th><th>' + L.item + '</th>' +
+            (terse ? '' : '<th>' + L.qty + '</th><th>' + L.unitPrice + '</th>') +
+            '<th>' + L.total + '</th></tr></thead><tbody>' + matR + '</tbody>' +
+            '<tfoot><tr><td colspan="' + (terse ? 2 : 4) + '">' + L.totMat + '</td><td>₪' + fmt(tot.materialsTotal) + '</td></tr></tfoot></table>';
+        }
+        if (showLab) {
+          secLab = '<div class="section">👷 ' + L.labor + '</div><table><thead><tr><th>#</th><th>' + L.desc + '</th>' +
+            (terse ? '' : '<th>' + L.qty + '</th><th>' + L.rate + '</th>') +
+            '<th>' + L.total + '</th></tr></thead><tbody>' + labR + '</tbody>' +
+            '<tfoot><tr><td colspan="' + (terse ? 2 : 4) + '">' + L.totLab + '</td><td>₪' + fmt(tot.laborTotal) + '</td></tr></tfoot></table>';
+        }
+      }
+
+      if (O.showSummary) {
+        // A zero row reads as an unfinished form rather than an offer, and a
+        // breakdown row is meaningless when its section wasn't printed — so
+        // both are dropped rather than shown as ₪0.00.
+        var sumRows = '';
+        if (!single && showMat && tot.materialsTotal > 0) sumRows += '<div class="sr"><span>' + L.materials + '</span><span>₪' + fmt(tot.materialsTotal) + '</span></div>';
+        if (!single && showLab && tot.laborTotal > 0)     sumRows += '<div class="sr"><span>' + L.labor + '</span><span>₪' + fmt(tot.laborTotal) + '</span></div>';
+        sumRows += '<div class="sr"><span>' + L.beforeVat + '</span><span>₪' + fmt(tot.beforeVat) + '</span></div>';
+        if (O.showVat) sumRows += '<div class="sr"><span>' + L.vat + '</span><span>₪' + fmt(tot.vat) + '</span></div>';
+        sumRows += '<div class="sr st"><span>' + L.grandTot + '</span><span>₪' + fmt(O.showVat ? tot.total : tot.beforeVat) + '</span></div>';
+        summaryH = '<div class="summary"><div style="font-weight:700;margin-bottom:8px;">💰 ' + L.summary + '</div>' + sumRows + '</div>';
+      }
+
+      if ((O.notes || '').trim()) {
+        notesH = '<div style="font-size:.86rem;color:var(--text-muted, #555);margin-top:14px;white-space:pre-wrap;">' + escHtml(O.notes.trim()) + '</div>';
+      }
+
       var html = '<!DOCTYPE html><html dir="' + dirA + '" lang="' + lang + '"><head><meta charset="utf-8"><title>' + L.title + ' — ' + p.name + '</title><style>' + pdfCss + 'body{--accent:#1c8c7a;--accent-strong:#0d4f4a;--accent-soft:#e6f4f0}</style></head><body>' +
         '<div class="header"><img src="' + window.OGEN_LOGO + '" alt="OGEN" class="brandmark"><h1>🔧 ' + L.title + '</h1><div class="meta">' + p.name + (p.client ? ' · ' + L.forCust + ': ' + p.client : '') + ' · ' + today + '</div></div><div class="content">' +
         (p.description ? '<div style="font-size:.88rem;color:var(--text-muted, #555);margin-bottom:14px;">' + p.description + '</div>' : '') +
-        ((p.materials||[]).length ? '<div class="section">📦 ' + L.materials + '</div><table><thead><tr><th>#</th><th>' + L.item + '</th><th>' + L.qty + '</th><th>' + L.unitPrice + '</th><th>' + L.total + '</th></tr></thead><tbody>' + matR + '</tbody><tfoot><tr><td colspan="4">' + L.totMat + '</td><td>₪' + fmt(tot.materialsTotal) + '</td></tr></tfoot></table>' : '') +
-        ((p.labor||[]).length ? '<div class="section">👷 ' + L.labor + '</div><table><thead><tr><th>#</th><th>' + L.desc + '</th><th>' + L.qty + '</th><th>' + L.rate + '</th><th>' + L.total + '</th></tr></thead><tbody>' + labR + '</tbody><tfoot><tr><td colspan="4">' + L.totLab + '</td><td>₪' + fmt(tot.laborTotal) + '</td></tr></tfoot></table>' : '') +
-        '<div class="summary"><div style="font-weight:700;margin-bottom:8px;">💰 ' + L.summary + '</div>' +
-          '<div class="sr"><span>' + L.materials + '</span><span>₪' + fmt(tot.materialsTotal) + '</span></div>' +
-          '<div class="sr"><span>' + L.labor + '</span><span>₪' + fmt(tot.laborTotal) + '</span></div>' +
-          '<div class="sr"><span>' + L.beforeVat + '</span><span>₪' + fmt(tot.beforeVat) + '</span></div>' +
-          (p.includeVat ? '<div class="sr"><span>' + L.vat + '</span><span>₪' + fmt(tot.vat) + '</span></div>' : '') +
-          '<div class="sr st"><span>' + L.grandTot + '</span><span>₪' + fmt(tot.total) + '</span></div></div>' +
+        secMat + secLab + summaryH + notesH +
         '<div style="font-size:.82rem;color:var(--text-muted, #666);margin-top:16px;"><strong>' + L.terms + ':</strong> ' + L.validity + '</div>' +
         '</div><div class="footer"><span style="color:#2d6a4f;font-weight:700;">🌿 ' + L.brand + '</span> · ' + L.title + ' · ' + today + '</div></body></html>';
       _downloadPDF(html, 'quote-' + p.name.replace(/\s+/g, '-') + '-' + new Date().toISOString().slice(0,10) + '.pdf');
@@ -1380,6 +1550,6 @@ var Maintenance = (function() {
     _updateCostPrice: _updateCostPrice, _updateCostRate: _updateCostRate,
     showAccessControl: showAccessControl, _addAccess: _addAccess, _editAccess: _editAccess, _saveAccess: _saveAccess, _delAccess: _delAccess,
     showHistory: showHistory,
-    _quotePDF: _quotePDF, _shipPDF: _shipPDF, _internalPDF: _internalPDF, _invoicesPDF: _invoicesPDF, _contractPDF: _contractPDF,
+    _quoteSetup: _quoteSetup, _quoteGo: _quoteGo, _quotePDF: _quotePDF, _shipPDF: _shipPDF, _internalPDF: _internalPDF, _invoicesPDF: _invoicesPDF, _contractPDF: _contractPDF,
   };
 })();
