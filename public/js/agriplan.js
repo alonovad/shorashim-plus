@@ -280,9 +280,15 @@ var AgriPlan = (function () {
     load().then(function (s) { S = s; listen(); _openPlan = null; renderList(); });
   }
 
-  function css() {
-    if (document.getElementById('apCss')) return '';
-    return '<style id="apCss">' +
+  // The stylesheet lives in <head>, NOT inside the modal markup.
+  // paint() replaces modalContainer.innerHTML, which would delete a
+  // <style> tag rendered inside it — so the first screen was styled and
+  // every screen after it lost its CSS and reflowed to the page bottom.
+  function ensureCss() {
+    if (document.getElementById('apCss')) return;
+    var st = document.createElement('style');
+    st.id = 'apCss';
+    st.textContent =
       '.ap-back{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9000;overflow:auto;padding:14px;}' +
       '.ap-sheet{max-width:1100px;margin:0 auto;background:var(--surface,#fff);color:var(--text,#222);' +
         'border-radius:16px;padding:16px;box-shadow:0 10px 40px rgba(0,0,0,.35);}' +
@@ -306,11 +312,13 @@ var AgriPlan = (function () {
         'border-bottom:1px solid var(--border,#eee);}' +
       '.ap-empty{text-align:center;color:var(--text-muted,#999);padding:18px;font-size:.86rem;}' +
       '@media(max-width:760px){.ap-rowgrid{grid-template-columns:1fr 1fr;}.ap-mat{grid-template-columns:1fr .6fr .7fr 30px;}}' +
-      '</style>';
+      '';
+    document.head.appendChild(st);
   }
 
   function shell(title, bar, body) {
-    return css() + '<div class="ap-back" id="apRoot"><div class="ap-sheet">' +
+    ensureCss();
+    return '<div class="ap-back" id="apRoot"><div class="ap-sheet">' +
       '<div class="ap-head"><div><h3>' + title + '</h3></div>' +
       '<button class="ap-btn ghost" onclick="AgriPlan.close()">\u2715 ' +
         tt('סגור', 'ปิด', 'إغلاق') + '</button></div>' +
@@ -436,6 +444,7 @@ var AgriPlan = (function () {
       '</div>' +
 
       '<datalist id="apMats">' + matList + '</datalist>' +
+      '<div id="apPicker"></div>' +
       rows +
 
       '<div class="ap-card">' +
@@ -620,22 +629,59 @@ var AgriPlan = (function () {
   // Fan a whole farm out into one row per plot, tree counts seeded from the
   // map. This is the realistic entry path — the sheets cover every plot in
   // a מטע, and typing thirty rows by hand invites transcription errors.
+  // Fan a whole farm out into one row per plot, tree counts seeded from the
+  // map. This is the realistic entry path — the sheets cover every plot in
+  // a מטע, and typing thirty rows by hand invites transcription errors.
+  // Rendered as an in-sheet picker rather than window.prompt: a native
+  // prompt cannot show plot counts, cannot be styled, and asked the user to
+  // retype a number they had just read off a list.
   function seedFromFarm(pid) {
     var p = planById(pid);
     if (!p) return;
     var fs = farms();
     if (!fs.length) { toast('\u26a0\ufe0f ' + tt('אין מטעים', 'ไม่มีสวน', 'لا بساتين')); return; }
-    var names = fs.map(function (f, i) { return (i + 1) + '. ' + f.name; }).join('\n');
-    var pick = prompt(tt('מספר המטע להוספה:', 'เลือกสวน:', 'اختر البستان:') + '\n' + names);
-    var idx = parseInt(pick, 10);
-    if (!idx || idx < 1 || idx > fs.length) return;
-    var farm = fs[idx - 1];
+    var all = plots();
+    var opts = fs.map(function (f) {
+      var n = all.filter(function (pl) { return pl.farm_id === f.id; }).length;
+      var trees = 0;
+      all.forEach(function (pl) { if (pl.farm_id === f.id) trees += Number(pl.tree_count) || 0; });
+      return '<option value="' + f.id + '">' + esc(f.name) + '  \u00b7  ' + n + ' ' +
+        tt('חלקות', 'แปลง', 'قطع') + '  \u00b7  ' + trees.toLocaleString() + ' ' +
+        tt('עצים', 'ต้น', 'شجرة') + '</option>';
+    }).join('');
+
+    var host = document.getElementById('apPicker');
+    if (!host) return;
+    host.innerHTML =
+      '<div class="ap-card" style="border:1.5px solid var(--primary,#2d6a4f);">' +
+        '<div class="ap-lbl">' + tt('בחר מטע להוספה', 'เลือกสวน', 'اختر البستان') + '</div>' +
+        '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">' +
+          '<select class="ap-in" id="apFarmPick" style="flex:1;min-width:200px;">' + opts + '</select>' +
+          '<button class="ap-btn" onclick="AgriPlan._doSeed(' + pid + ')">\u2795 ' +
+            tt('הוסף', 'เพิ่ม', 'إضافة') + '</button>' +
+          '<button class="ap-btn ghost" onclick="AgriPlan._cancelSeed()">' +
+            tt('ביטול', 'ยกเลิก', 'إلغاء') + '</button>' +
+        '</div>' +
+      '</div>';
+    host.scrollIntoView({ block: 'nearest' });
+  }
+
+  function _cancelSeed() {
+    var host = document.getElementById('apPicker');
+    if (host) host.innerHTML = '';
+  }
+
+  function _doSeed(pid) {
+    var p = planById(pid);
+    var sel = document.getElementById('apFarmPick');
+    if (!p || !sel) return;
+    var fid = Number(sel.value);
     var prev = p.rows[p.rows.length - 1];
     var added = 0;
-    plots().filter(function (pl) { return pl.farm_id === farm.id; }).forEach(function (pl) {
+    plots().filter(function (pl) { return pl.farm_id === fid; }).forEach(function (pl) {
       p.rows.push(normRow({
         method: prev ? prev.method : 'spray',
-        farmId: farm.id, plotId: pl.id,
+        farmId: fid, plotId: pl.id,
         trees: Number(pl.tree_count) || 0,
         carrier: prev ? prev.carrier : 0,
         round: prev ? prev.round : '', timing: prev ? prev.timing : '',
@@ -645,10 +691,12 @@ var AgriPlan = (function () {
       }));
       added++;
     });
+    if (!added) { toast('\u26a0\ufe0f ' + tt('אין חלקות במטע זה', 'ไม่มีแปลง', 'لا قطع')); return; }
     save();
     toast('\u2705 ' + added + ' ' + tt('חלקות נוספו', 'แปลงถูกเพิ่ม', 'قطع أُضيفت'));
     showPlan(pid);
   }
+
   function _addMat(pid, i) {
     var p = planById(pid);
     if (!p || !p.rows[i]) return;
@@ -811,6 +859,8 @@ var AgriPlan = (function () {
     showPlan: showPlan,
     addRow: addRow,
     seedFromFarm: seedFromFarm,
+    _doSeed: _doSeed,
+    _cancelSeed: _cancelSeed,
     printPlan: printPlan,
     toOrder: toOrder,
     save: save,

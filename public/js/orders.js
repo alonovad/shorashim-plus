@@ -270,9 +270,15 @@ var Orders = (function () {
     loadAll().then(function () { listen(); renderSuppliers(); });
   }
 
-  function css() {
-    if (document.getElementById('ordCss')) return '';
-    return '<style id="ordCss">' +
+  // The stylesheet lives in <head>, NOT inside the modal markup.
+  // paint() replaces modalContainer.innerHTML, which would delete a
+  // <style> tag rendered inside it — so the first screen was styled and
+  // every screen after it lost its CSS and reflowed to the page bottom.
+  function ensureCss() {
+    if (document.getElementById('ordCss')) return;
+    var st = document.createElement('style');
+    st.id = 'ordCss';
+    st.textContent =
       '.ord-back{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9000;overflow:auto;padding:14px;}' +
       '.ord-sheet{max-width:960px;margin:0 auto;background:var(--surface,#fff);color:var(--text,#222);' +
         'border-radius:16px;padding:16px;box-shadow:0 10px 40px rgba(0,0,0,.35);}' +
@@ -294,11 +300,13 @@ var Orders = (function () {
       '.ord-pill{display:inline-block;padding:2px 9px;border-radius:20px;font-size:.7rem;font-weight:700;color:#fff;}' +
       '.ord-empty{text-align:center;color:var(--text-muted,#999);padding:18px;font-size:.86rem;}' +
       '@media(max-width:640px){.ord-row{grid-template-columns:1fr 70px 60px 32px;}.ord-row .ord-hide-sm{display:none;}}' +
-      '</style>';
+      '';
+    document.head.appendChild(st);
   }
 
   function shell(title, bar, body) {
-    return css() + '<div class="ord-back" id="ordRoot"><div class="ord-sheet">' +
+    ensureCss();
+    return '<div class="ord-back" id="ordRoot"><div class="ord-sheet">' +
       '<div class="ord-head"><div><h3>' + title + '</h3></div>' +
       '<button class="ord-btn ghost" onclick="Orders.close()">\u2715 ' +
         tt('סגור', 'ปิด', 'إغلاق') + '</button></div>' +
