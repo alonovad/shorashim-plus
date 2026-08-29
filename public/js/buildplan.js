@@ -321,7 +321,9 @@ var BuildPlan = (function () {
     var girtRows = Math.max(0, Math.ceil(d.eaves / d.girtSp) - 1);
     var roofArea = 2 * rafterLen * d.length;
     var gable = d.span * rise / 2;                            // one triangle
-    var wallArea = d.walls ? (2 * d.length + 2 * d.span) * d.eaves + 2 * gable : 0;
+    var wallArea = (d.wallMode !== 'open')
+      ? (2 * d.length + 2 * d.span) * (d.wallMode === 'half' ? d.eaves*0.5 : d.eaves) + 2 * gable
+      : 0;
     return {
       half: half, rise: rise, rafterLen: rafterLen, bays: bays, actualBay: actualBay,
       frames: frames, purlinRuns: purlinRuns, girtRows: girtRows,
@@ -400,12 +402,12 @@ var BuildPlan = (function () {
       g.frames * 2 + ' ' + tt('קורות', 'คาน', 'روافد') + ' × ' + n1(g.rafterLen) + ' מ\'');
     push(d.purlinProfile, g.purlinRuns * 2 * d.length * w, "מ'",
       (g.purlinRuns * 2) + ' ' + tt('שורות מרישים', 'แถวแป', 'صفوف') + ' × ' + n1(d.length) + ' מ\'');
-    if (d.walls) {
+    if (d.wallMode !== 'open') {
       push(d.girtProfile, g.girtRows * g.perimeter * w, "מ'",
         g.girtRows + ' ' + tt('שורות', 'แถว', 'صفوف'));
     }
     push(d.roofPanel, g.roofArea * w, 'מ"ר', tt('כולל פחת', 'รวมเผื่อ', 'شامل الهدر'));
-    if (d.walls) push(d.wallPanel, g.wallArea * w, 'מ"ר', tt('כולל פחת', 'รวมเผื่อ', 'شامل الهدر'));
+    if (d.wallMode !== 'open') push(d.wallPanel, g.wallArea * w, 'מ"ר', tt('כולל פחת', 'รวมเผื่อ', 'شامل الهدر'));
     push('פלטת בסיס', g.frames * 2, "יח'", '');
     push('בורג עיגון', g.frames * 2 * 4, "יח'", tt('4 לעמוד', '4 ต่อเสา', '4 لكل عمود'));
     if (d.gutter) {
@@ -510,7 +512,7 @@ var BuildPlan = (function () {
         (eR.y + (apex.y - eR.y) * f) + '" r="3" fill="var(--accent,#ff9f43)"/>');
     }
     // girts on the walls
-    if (d.walls) {
+    if (d.wallMode !== 'open') {
       for (var r = 1; r <= g.girtRows; r++) {
         var yy = Y(d.eaves * r / (g.girtRows + 1));
         parts.push('<line x1="' + eL.x + '" y1="' + yy + '" x2="' + (eL.x + 12) + '" y2="' + yy +
@@ -571,31 +573,34 @@ var BuildPlan = (function () {
     var d = p.dims;
     var a = slabArea(p);
     var W = 620, H = 220, pad = 44;
-    var L = d.length, S = d.span;
+    // Deliberately NOT named L — that is Leaflet's global, and shadowing it
+    // anywhere in this module makes `typeof L` ambiguous for every other
+    // function in it.
+    var sLen = d.length, sWid = d.span;
     if (p.footprintArea > 0) {
       // Keep the drawn proportion but scale it to the measured area, so the
       // sketch matches the polygon rather than the unused typed rectangle.
-      var k = Math.sqrt(a / Math.max(L * S, 0.01));
-      L = L * k; S = S * k;
+      var k = Math.sqrt(a / Math.max(sLen * sWid, 0.01));
+      sLen = sLen * k; sWid = sWid * k;
     }
-    var s = Math.min((W - pad * 2) / L, (H - pad * 2) / S);
-    var x0 = (W - L * s) / 2, y0 = (H - S * s) / 2;
+    var s = Math.min((W - pad * 2) / sLen, (H - pad * 2) / sWid);
+    var x0 = (W - sLen * s) / 2, y0 = (H - sWid * s) / 2;
     var out = [];
-    out.push('<rect x="' + x0 + '" y="' + y0 + '" width="' + (L * s) + '" height="' + (S * s) +
+    out.push('<rect x="' + x0 + '" y="' + y0 + '" width="' + (sLen * s) + '" height="' + (sWid * s) +
       '" fill="var(--text-muted,#888)" opacity=".22" stroke="var(--text-muted,#aaa)" stroke-width="2"/>');
     // mesh
     for (var i = 1; i < 8; i++) {
-      out.push('<line x1="' + (x0 + L * s * i / 8) + '" y1="' + y0 + '" x2="' + (x0 + L * s * i / 8) +
-        '" y2="' + (y0 + S * s) + '" stroke="var(--water,#4fc3f7)" stroke-width="1" opacity=".5"/>');
+      out.push('<line x1="' + (x0 + sLen * s * i / 8) + '" y1="' + y0 + '" x2="' + (x0 + sLen * s * i / 8) +
+        '" y2="' + (y0 + sWid * s) + '" stroke="var(--water,#4fc3f7)" stroke-width="1" opacity=".5"/>');
     }
     for (var j = 1; j < 4; j++) {
-      out.push('<line x1="' + x0 + '" y1="' + (y0 + S * s * j / 4) + '" x2="' + (x0 + L * s) +
-        '" y2="' + (y0 + S * s * j / 4) + '" stroke="var(--water,#4fc3f7)" stroke-width="1" opacity=".5"/>');
+      out.push('<line x1="' + x0 + '" y1="' + (y0 + sWid * s * j / 4) + '" x2="' + (x0 + sLen * s) +
+        '" y2="' + (y0 + sWid * s * j / 4) + '" stroke="var(--water,#4fc3f7)" stroke-width="1" opacity=".5"/>');
     }
-    out.push('<text x="' + (x0 + L * s / 2) + '" y="' + (y0 + S * s / 2 + 5) +
+    out.push('<text x="' + (x0 + sLen * s / 2) + '" y="' + (y0 + sWid * s / 2 + 5) +
       '" fill="var(--text,#eee)" font-size="15" font-weight="800" text-anchor="middle">' +
       n1(a) + ' \u05de"\u05e8 \u00b7 ' + d.slabTh + ' \u05de\'</text>');
-    out.push('<text x="' + (x0 + L * s / 2) + '" y="' + (y0 + S * s + 24) +
+    out.push('<text x="' + (x0 + sLen * s / 2) + '" y="' + (y0 + sWid * s + 24) +
       '" fill="var(--text-muted,#aaa)" font-size="12" text-anchor="middle">' +
       n2(a * d.slabTh) + ' \u05de"\u05e7 ' + tt('בטון', 'คอนกรีต', 'خرسانة') + '</text>');
     return '<div class="bp-draw"><svg viewBox="0 0 ' + W + ' ' + H +
@@ -611,8 +616,11 @@ var BuildPlan = (function () {
 
   function layer() {
     var m = map();
-    if (!m) return null;
-    if (!_layer) _layer = L.layerGroup().addTo(m);
+    if (!m || !window.L) return null;
+    // Re-add if a previous attempt created the group before the map existed,
+    // or if something cleared the map's layers underneath us.
+    if (!_layer) _layer = L.layerGroup();
+    if (!m.hasLayer(_layer)) _layer.addTo(m);
     return _layer;
   }
 
@@ -1064,6 +1072,20 @@ var BuildPlan = (function () {
                : n1(slabArea(p)) + ' \u05de"\u05e8 \u00b7 ' + n2(slabArea(p) * p.dims.slabTh) + ' \u05de"\u05e7') +
             (t.cost ? ' \u00b7 ' + money(t.cost) : '') +
             (p.footprint.length ? ' \u00b7 \ud83d\uddfa ' + n1(p.footprintArea) + ' \u05de"\u05e8' : '') +
+          '</div>' +
+          '<div style="display:flex;gap:6px;margin-top:8px;" onclick="event.stopPropagation()">' +
+            (p.footprint.length
+              ? '<button class="bp-btn ghost" style="padding:5px 10px;font-size:.74rem;" ' +
+                  'onclick="BuildPlan.zoomTo(' + p.id + ')">\ud83d\udccd ' +
+                  tt('במפה', 'แผนที่', 'خريطة') + '</button>'
+              : '<button class="bp-btn ghost" style="padding:5px 10px;font-size:.74rem;" ' +
+                  'onclick="BuildPlan.startFootprint(' + p.id + ')">\u2b20 ' +
+                  tt('מקם', 'วาง', 'حدد') + '</button>') +
+            '<button class="bp-btn ghost" style="padding:5px 10px;font-size:.74rem;" ' +
+              'onclick="BuildPlan.openProject(' + p.id + ')">\u270f\ufe0f ' +
+              tt('ערוך', 'แก้ไข', 'تحرير') + '</button>' +
+            '<button class="bp-btn warn" style="padding:5px 10px;font-size:.74rem;" ' +
+              'onclick="BuildPlan.delProject(' + p.id + ')">\ud83d\uddd1</button>' +
           '</div></div>';
       });
 
@@ -1150,6 +1172,8 @@ var BuildPlan = (function () {
         tt('הדפסה', 'พิมพ์', 'طباعة') + '</button>' +
       '<button class="bp-btn ghost" onclick="BuildPlan.toOrder(' + p.id + ')">\ud83d\udce6 ' +
         tt('צור הזמנה', 'ใบสั่งซื้อ', 'إنشاء طلب') + '</button>' +
+      '<button class="bp-btn warn" onclick="BuildPlan.delProject(' + p.id + ')">\ud83d\uddd1 ' +
+        tt('מחק', 'ลบ', 'حذف') + '</button>' +
       '<button class="bp-btn ghost" onclick="BuildPlan.render()">\u21a9 ' +
         tt('חזרה', 'กลับ', 'رجوع') + '</button>';
 
@@ -1169,8 +1193,15 @@ var BuildPlan = (function () {
   }
 
   function delProject(id) {
-    if (!confirm(tt('למחוק את הפרויקט?', 'ลบโครงการ?', 'حذف المشروع؟'))) return;
     var before = projById(id);
+    if (!before) { render(); return; }
+    if (!isManager()) { toast('\u26d4 ' + tt('אין הרשאה', 'ไม่มีสิทธิ์', 'لا صلاحية')); return; }
+    var ok = (typeof window.confirm === 'function')
+      ? window.confirm(tt('למחוק את הפרויקט?', 'ลบโครงการ?', 'حذف المشروع؟')) : true;
+    if (!ok) return;
+    // Drop the view state too, or a later project could inherit this one's
+    // hidden layers.
+    _v3dState = null; _v3dFor = null;
     P.projects = (P.projects || []).filter(function (p) { return p.id !== id; });
     saveP();
     if (window.Audit && Audit.log) Audit.log('delete', 'buildplan', String(id), { before: before });
@@ -1389,7 +1420,7 @@ var BuildPlan = (function () {
     var d = p.dims;
     return {
       span: d.span, length: d.length, eaves: d.eaves, bay: d.bay, pitch: d.pitch,
-      roofType: d.roofType, wallMode: d.walls ? d.wallMode : 'open',
+      roofType: d.roofType, wallMode: d.wallMode,
       roofClad: d.roofClad, wallClad: d.wallClad,
       purlinSp: d.purlinSp, girtSp: d.girtSp, slabTh: d.slabTh,
       footings: d.footings, footW: d.footW, footD: d.footD,
@@ -1448,7 +1479,7 @@ var BuildPlan = (function () {
       sub: (d.rafterType === 'truss' ? tt('סבכה', 'โครงถัก', 'جملون') + ' ' + n1(d.trussDepth) + 'm  ' : '') +
         d.rafterProfile + '  ' + qty(d.rafterProfile) };
     out.purlin = { title: memberLabel('purlin'), sub: d.purlinProfile + '  ' + qty(d.purlinProfile) };
-    if (d.walls && d.wallMode !== 'open') {
+    if (d.wallMode !== 'open') {
       out.girt = { title: memberLabel('girt'), sub: d.girtProfile + '  ' + qty(d.girtProfile) };
       out.wall = { title: memberLabel('wall'), sub: d.wallClad + '  ' + qty(d.wallPanel) };
     }
@@ -1484,7 +1515,7 @@ var BuildPlan = (function () {
     LAYER_ORDER.forEach(function (g) {
       if (!present[g]) return;
       var off = _v3d.isHidden(g);
-      html += '<div class="bp-layer' + (off ? ' off' : '') + '" onclick="BuildPlan.layer(\'' + g + '\')">' +
+      html += '<div class="bp-layer' + (off ? ' off' : '') + '" onclick="BuildPlan.toggleLayer(\'' + g + '\')">' +
         '<span class="bp-sw" style="background:' + (pal[g] || '#999') + ';"></span>' +
         '<span style="flex:1;">' + memberLabel(g).replace('\ud83d\udc46 ', '') + '</span>' +
         '<span style="opacity:.6;font-size:.72rem;">' + (off ? '\u25cb' : '\u25c9') + '</span></div>';
@@ -1497,7 +1528,11 @@ var BuildPlan = (function () {
     '</div>';
   }
 
-  function layer(g) {
+  // Named toggleLayer, not layer(): layer() is the Leaflet layer-group
+  // accessor above, and a second declaration with the same name silently
+  // replaced it for the whole module — which is why footprints stopped
+  // appearing on the map.
+  function toggleLayer(g) {
     if (!_v3d) return;
     _v3d.toggleLayer(g);
     var host = document.getElementById('bpLayers');
@@ -1505,7 +1540,9 @@ var BuildPlan = (function () {
   }
   function layersAll(show) {
     if (!_v3d) return;
-    _v3d.setHidden(show ? {} : {});
+    var next = {};
+    if (!show) Object.keys(_v3d.groups()).forEach(function (g) { next[g] = true; });
+    _v3d.setHidden(next);
     var host = document.getElementById('bpLayers');
     if (host && _open) host.innerHTML = layersPanel(projById(_open));
   }
@@ -1518,7 +1555,7 @@ var BuildPlan = (function () {
   }
 
   function memberLabel(g) {
-    var map = {
+    var names = {
       column:  tt('עמודים', 'เสา', 'أعمدة'),
       rafter:  tt('קורות גג', 'คาน', 'روافد'),
       purlin:  tt('מרישים', 'แป', 'مرايش'),
@@ -1537,7 +1574,7 @@ var BuildPlan = (function () {
       door:    tt('דלת/שער', 'ประตู', 'باب'),
       mezz:    tt('גלריה', 'ชั้นลอย', 'ميزانين')
     };
-    return '\ud83d\udc46 ' + (map[g] || g);
+    return '\ud83d\udc46 ' + (names[g] || g);
   }
 
   function designTab(p) {
@@ -1566,6 +1603,12 @@ var BuildPlan = (function () {
     }
 
     var g = geom(d), ft = footing(d), con = concrete(p);
+
+    var models = Object.keys(MODELS).map(function (k) {
+      return '<button class="bp-btn ' + (d._model === k ? 'on' : 'ghost') +
+        '" style="padding:7px 11px;font-size:.76rem;" onclick="BuildPlan.applyModel(' + id +
+        ',\'' + k + '\')">' + esc(MODELS[k].label[0]) + '</button>';
+    }).join('');
 
     // Left column holds the model and the derived numbers and stays put;
     // the right column scrolls. Previously every panel was stacked in one
@@ -2108,15 +2151,36 @@ var BuildPlan = (function () {
   }
 
   // Footprints should be visible on the map without opening the module.
+  // Login happens well after load, so this waits for a manager session and
+  // a live map instead of testing once and giving up.
+  var _booted = false;
   function boot() {
-    if (!isManager()) return;
+    if (_booted) return true;
+    if (!isManager()) return false;
+    if (!(window.MapAccess && MapAccess.getMap && MapAccess.getMap())) return false;
+    if (!window.L) return false;
+    _booted = true;
     loadAll().then(function () { listen(); drawFootprints(); }).catch(function () {});
+    return true;
   }
+
+  function watchForSession() {
+    if (boot()) return;
+    var tries = 0;
+    var iv = setInterval(function () {
+      tries++;
+      if (boot() || tries > 120) clearInterval(iv);   // give up after ~4 min
+    }, 2000);
+  }
+
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', function () { setTimeout(boot, 1500); });
+    document.addEventListener('DOMContentLoaded', function () { setTimeout(watchForSession, 1200); });
   } else {
-    setTimeout(boot, 1500);
+    setTimeout(watchForSession, 1200);
   }
+
+  // Re-assert the layer after a login or a tab switch repaints the map.
+  window.addEventListener('focus', function () { if (_booted) drawFootprints(); });
 
   return {
     open: openModule,
@@ -2129,7 +2193,7 @@ var BuildPlan = (function () {
     setTab: setTab,
     _live: _live,
     _commit: _commit,
-    layer: layer,
+    toggleLayer: toggleLayer,
     layersAll: layersAll,
     layersFrame: layersFrame,
     applyModel: applyModel,

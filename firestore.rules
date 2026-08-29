@@ -84,7 +84,11 @@ service cloud.firestore {
         'shorashim-suppliers',
         'shorashim-orders',
         'shorashim-build-projects',
-        'shorashim-build-catalog'
+        'shorashim-build-catalog',
+        // timeclock.js saveWorkplaces() writes this; it was never
+        // whitelisted, so every workplace edit has been silently denied in
+        // production. Same class of failure as the payroll document.
+        'shorashim-workplaces'
       ];
 
       // Operator+: one pest-monitoring document per growing year

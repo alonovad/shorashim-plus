@@ -778,9 +778,9 @@ var Shed3D = (function () {
       ctx.font = '700 11px Heebo,Arial,sans-serif';
 
       present.forEach(function (o, i) {
-        var L = labels[o.g];
+        var lab = labels[o.g];
         var onLeft = o.p[0] < w/2;
-        var txt = L.title + (L.sub ? '  ' + L.sub : '');
+        var txt = lab.title + (lab.sub ? '  ' + lab.sub : '');
         var tw = ctx.measureText(txt).width + 14;
         var bx = onLeft ? 8 : w - tw - 8;
         var by = onLeft ? leftY : rightY;

@@ -259,10 +259,10 @@ var AgriPlan = (function () {
       if (!farmMat[fid]) farmMat[fid] = {};
       (r.materials || []).forEach(function (m) {
         if (!m.name) return;
-        var L = rowMaterialL(r, m);
-        byMat[m.name] = (byMat[m.name] || 0) + L;
-        farmMat[fid][m.name] = (farmMat[fid][m.name] || 0) + L;
-        byFarm[fid] += L;
+        var litres = rowMaterialL(r, m);
+        byMat[m.name] = (byMat[m.name] || 0) + litres;
+        farmMat[fid][m.name] = (farmMat[fid][m.name] || 0) + litres;
+        byFarm[fid] += litres;
         // Last non-zero price entered for a material wins — one product has
         // one price across the plan, so a price typed on any row applies.
         if (m.price > 0) price[m.name] = m.price;
@@ -369,6 +369,7 @@ var AgriPlan = (function () {
 
   // ── plan list ──
   function renderList() {
+    if (!S) S = blankSeason();
     _openPlan = null;
     var yrs = '';
     var now = new Date().getFullYear();
@@ -416,12 +417,14 @@ var AgriPlan = (function () {
   }
 
   function planById(id) {
+    if (!S) return null;              // load() still in flight
     var hit = null;
     (S.plans || []).forEach(function (p) { if (p.id === id) hit = p; });
     return hit;
   }
 
   function newPlan() {
+    if (!S) S = blankSeason();
     var u = window.currentUser || {};
     var p = normPlan({ id: uid(), name: '', target: '', createdAt: Date.now(), createdBy: u.username || '' });
     S.plans.push(p);
@@ -560,7 +563,7 @@ var AgriPlan = (function () {
 
     var mats = '';
     (r.materials || []).forEach(function (m, mi) {
-      var L = rowMaterialL(r, m);
+      var litres = rowMaterialL(r, m);
       mats += '<div class="ap-mat">' +
         '<input class="ap-in" list="apMats" data-k="m' + i + '-' + mi + '-n" value="' + esc(m.name) + '" placeholder="' +
           tt('חומר', 'สาร', 'مادة') + '" ' +
@@ -576,7 +579,7 @@ var AgriPlan = (function () {
         '<button class="ap-btn warn" style="padding:5px 7px;" ' +
           'onclick="AgriPlan._delMat(' + pid + ',' + i + ',' + mi + ')">\u2715</button>' +
         '<div style="grid-column:1/-1;font-size:.74rem;color:var(--primary,#2d6a4f);font-weight:700;">' +
-          '\u2192 ' + n1(L) + ' ' + tt('ליטר לחלקה', 'ลิตร/แปลง', 'لتر/قطعة') +
+          '\u2192 ' + n1(litres) + ' ' + tt('ליטר לחלקה', 'ลิตร/แปลง', 'لتر/قطعة') +
           ' \u00b7 ' + modeLabel(r.method) + '</div>' +
       '</div>';
     });

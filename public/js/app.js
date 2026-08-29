@@ -2265,6 +2265,22 @@
       return Math.abs(a * 6378137 * 6378137 / 2);
     },
     isDrawing: function () { return !!drawMode; },
+    // Bring the map tab to the front and re-measure. Leaflet computes
+    // fitBounds against the container's current size, so calling it while
+    // the pane is display:none frames nothing — which is why "show on map"
+    // appeared to do nothing at all from inside a modal.
+    goToMap: function () {
+      var modal = document.getElementById('modalContainer');
+      if (modal) modal.innerHTML = '';
+      document.querySelectorAll('.tab').forEach(function (tb) { tb.classList.remove('active'); });
+      document.querySelectorAll('.tab-content').forEach(function (c) { c.classList.remove('active'); });
+      var mt = document.querySelector('[data-tab="map"]');
+      if (mt) mt.classList.add('active');
+      var mp = document.getElementById('tabMap');
+      if (mp) mp.classList.add('active');
+      activeTab = 'map';
+      setTimeout(function () { try { map.invalidateSize(); } catch (e) {} }, 50);
+    },
     setExternalDraw: function (on) {
       if (on) {
         if (drawMode && drawMode !== 'external') return false;  // never steal an active draw
