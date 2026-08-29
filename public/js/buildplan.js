@@ -84,8 +84,32 @@ var BuildPlan = (function () {
     { g: 'אביזרים',       n: 'פלטת בסיס', kg: 0, u: "יח'" },
     { g: 'אביזרים',       n: 'בורג עיגון', kg: 0, u: "יח'" },
     { g: 'אביזרים',       n: 'מרזב', kg: 0, u: "מ'" },
+    { g: 'אביזרים',       n: 'שער הזזה', kg: 0, u: "יח'" },
+    { g: 'אביזרים',       n: 'עמוד גדר', kg: 0, u: "יח'" },
+    { g: 'אביזרים',       n: 'רשת גדר', kg: 0, u: "מ'" },
     { g: 'אביזרים',       n: 'צינור ניקוז', kg: 0, u: "יח'" }
   ];
+
+  // Starting points, not templates to be printed as-is. Each is a shape the
+  // maintenance team actually builds, so a project starts one click from
+  // something recognisable instead of from a blank 10×20 box.
+  var MODELS = {
+    canopy:   { label: ['סככת צל פתוחה', 'โรงเรือนเปิด', 'مظلة مفتوحة'],
+                span: 10, length: 20, eaves: 4, bay: 5, pitch: 8,
+                roofType: 'gable', wallMode: 'open', roofClad: 'iskurit', walls: false },
+    leanto:   { label: ['סככה חד-שיפועית', 'หลังคาเพิงหมาแหงน', 'سقيفة بميل واحد'],
+                span: 6, length: 12, eaves: 3.2, bay: 4, pitch: 7,
+                roofType: 'mono', wallMode: 'half', roofClad: 'iskurit', walls: true },
+    service:  { label: ['סככת שירות סגורה', 'อาคารบริการปิด', 'سقيفة خدمة مغلقة'],
+                span: 8, length: 15, eaves: 3.5, bay: 5, pitch: 10,
+                roofType: 'gable', wallMode: 'full', roofClad: 'panel', walls: true },
+    warehouse:{ label: ['מחסן / אריזה', 'โกดัง', 'مستودع'],
+                span: 16, length: 40, eaves: 6, bay: 6, pitch: 12,
+                roofType: 'gable', wallMode: 'full', roofClad: 'panel', walls: true },
+    ramp:     { label: ['רמפת העמסה מקורה', 'ทางลาดมีหลังคา', 'منحدر تحميل مغطى'],
+                span: 6, length: 24, eaves: 4.5, bay: 6, pitch: 6,
+                roofType: 'mono', wallMode: 'open', roofClad: 'iskurit', walls: false }
+  };
 
   var TYPES = [
     { v: 'shed',  icon: '\ud83c\udfd7' },
@@ -142,7 +166,39 @@ var BuildPlan = (function () {
       roofPanel:     String(d.roofPanel     || 'פאנל מבודד 5 ס"מ'),
       wallPanel:     String(d.wallPanel     || 'איסכורית 5 גלים'),
       walls:  d.walls === false ? false : true,
-      gutter: d.gutter === false ? false : true
+      gutter: d.gutter === false ? false : true,
+      // 3D / buildability
+      roofType: (d.roofType === 'mono') ? 'mono' : 'gable',
+      wallMode: (d.wallMode === 'open' || d.wallMode === 'half') ? d.wallMode : 'full',
+      roofClad: String(d.roofClad || 'iskurit'),   // iskurit | panel | none
+      wallClad: String(d.wallClad || 'iskurit'),
+      footings: d.footings === false ? false : true,
+      footW: Number(d.footW) || 1.0,               // pad side, m
+      footD: Number(d.footD) || 0.8,               // pad depth, m
+      soilBearing: Number(d.soilBearing) || 150,   // kPa
+      roofLoad: Number(d.roofLoad) || 0.55,        // kN/m², dead + live
+      fence: !!d.fence,
+      fenceH: Number(d.fenceH) || 2,
+      fenceOff: Number(d.fenceOff) || 2,
+      // structure detail
+      rafterType: (d.rafterType === 'truss') ? 'truss' : 'solid',
+      trussDepth: Number(d.trussDepth) || 0.8,
+      haunch: d.haunch === false ? false : true,
+      taper: !!d.taper,
+      bracing: d.bracing === false ? false : true,
+      skylights: Number(d.skylights) || 0,
+      door: !!d.door,
+      doorW: Number(d.doorW) || 4,
+      doorH: Number(d.doorH) || 3.5,
+      leanTo: Number(d.leanTo) || 0,
+      mezz: Number(d.mezz) || 0,
+      mezzH: Number(d.mezzH) || 3,
+      // scene
+      palms: d.palms === false ? false : true,
+      shadows: d.shadows === false ? false : true,
+      dims: d.dims === false ? false : true,
+      sunAz: Number(d.sunAz) || 130,
+      sunEl: Number(d.sunEl) || 48
     };
   }
 
@@ -269,6 +325,36 @@ var BuildPlan = (function () {
     };
   }
 
+  // Preliminary pad-footing check. Tributary area per column × roof load
+  // gives the axial load; required area = load / allowable bearing.
+  // This is a SIZING AID, not a structural design — it assumes uniform
+  // load, no wind uplift, no moment at the base and a homogeneous soil,
+  // and the UI says so. A real footing needs an engineer and a soil report.
+  function footing(d) {
+    var g = geom(d);
+    var trib = g.actualBay * (d.span / 2);          // per column, m²
+    var axial = trib * d.roofLoad;                  // kN
+    var selfW = d.footW * d.footW * d.footD * 25;   // pad self-weight, kN
+    var reqA = (axial + selfW) / d.soilBearing;     // m²
+    var reqSide = Math.sqrt(Math.max(reqA, 0.01));
+    var n = g.frames * 2;
+    return {
+      trib: trib, axial: axial, reqSide: reqSide, n: n,
+      ok: d.footW >= reqSide,
+      suggest: Math.ceil(reqSide * 10) / 10,
+      volEach: d.footW * d.footW * d.footD,
+      volAll: n * d.footW * d.footW * d.footD
+    };
+  }
+
+  function concrete(p) {
+    var d = p.dims;
+    var a = slabArea(p);
+    var slab = a * d.slabTh;
+    var f = (p.type === 'slab' || !d.footings) ? { volAll: 0, n: 0 } : footing(d);
+    return { area: a, slab: slab, footings: f.volAll, pads: f.n, total: slab + f.volAll };
+  }
+
   function slabArea(p) {
     var d = p.dims;
     // A footprint traced on the map beats a typed rectangle — it is the
@@ -323,6 +409,35 @@ var BuildPlan = (function () {
     // Foundation under the frame, always poured with a shed.
     var fa = slabArea(p);
     push('בטון ב-30', fa * d.slabTh * w, 'מ"ק', tt('רצפה', 'พื้น', 'أرضية'));
+    if (d.footings) {
+      var ft = footing(d);
+      push('בטון ב-30', ft.volAll * w, 'מ"ק',
+        ft.n + ' ' + tt('בסיסי עמוד', 'ฐานเสา', 'قواعد أعمدة') + ' ' +
+        n1(d.footW) + '\u00d7' + n1(d.footW) + '\u00d7' + n1(d.footD) + ' מ\'');
+      push('ברזל זיון 12 מ"מ', ft.n * d.footW * 8 * 2 * w, "מ'",
+        tt('כלוב זיון לבסיסים', 'เหล็กฐาน', 'تسليح القواعد'));
+    }
+    if (d.skylights > 0) {
+      var skyA = (d.skylights * (d.length / (d.skylights * 2 + 1))) * g.rafterLen * 2;
+      push('לוח סקיילייט', skyA * w, 'מ"ר', d.skylights + ' ' + tt('רצועות', 'แถบ', 'شرائط'));
+    }
+    if (d.leanTo > 0) {
+      var lRaf = d.leanTo / Math.cos(Math.max(4, d.pitch * 0.6) * Math.PI / 180);
+      push(d.rafterProfile, g.frames * lRaf * w, "מ'", tt('סככת צד', 'เพิงข้าง', 'جناح جانبي'));
+      push(d.colProfile, g.frames * d.eaves * 0.85 * w, "מ'", tt('עמודי סככת צד', 'เสาเพิง', 'أعمدة الجناح'));
+      push(d.roofPanel, d.length * lRaf * w, 'מ"ר', tt('גג סככת צד', 'หลังคาเพิง', 'سقف الجناح'));
+    }
+    if (d.mezz > 0) {
+      push(d.rafterProfile, (g.bays + 1) * d.mezz * w, "מ'", tt('קורות גלריה', 'คานชั้นลอย', 'روافد الميزانين'));
+      push('רשת פלדה Q188', Math.ceil(d.length * d.mezz / (6 * 2.35) * 1.1), "יח'",
+        tt('רצפת גלריה', 'พื้นชั้นลอย', 'أرضية الميزانين'));
+    }
+    if (d.door) push('שער הזזה', 1, "יח'", n1(d.doorW) + '\u00d7' + n1(d.doorH) + ' מ\'');
+    if (d.fence) {
+      var per = 2 * ((d.length + d.fenceOff * 2) + (d.span + d.fenceOff * 2));
+      push('עמוד גדר', Math.ceil(per / 2.5), "יח'", n1(d.fenceH) + ' מ\'');
+      push('רשת גדר', per, "מ'", n1(d.fenceH) + ' מ\' ' + tt('גובה', 'สูง', 'ارتفاع'));
+    }
     push('רשת פלדה Q188', Math.ceil(fa / (6 * 2.35) * 1.1), "יח'", tt('רצפה', 'พื้น', 'أرضية'));
     (p.extras || []).forEach(function (e) { push(e.name, e.qty, e.unit, ''); });
     return out;
@@ -523,10 +638,74 @@ var BuildPlan = (function () {
       return;
     }
     close();
-    _draw = { id: id, pts: [], markers: [], line: null };
+    _draw = { id: id, pts: [], markers: [], labels: [], line: null, area: 0, per: 0 };
     m.on('click', onDrawClick);
+    m.on('mousemove', onDrawMove);
     banner(true);
   }
+
+  // ── live measurement ──────────────────────────────────────────────
+  // Every edge is labelled with its length as it is drawn, and area,
+  // perimeter and the closing edge update on each click and on mouse move.
+  // Tracing a slab blind and discovering afterwards that it came out 9.2 m
+  // instead of 10 means re-walking the site.
+  function metres(a, b) { return map().distance(a, b); }
+
+  function fmtM(x) {
+    return (x < 10 ? x.toFixed(2) : x.toFixed(1)) + ' m';
+  }
+
+  function edgeLabel(a, b, cls) {
+    var mid = L.latLng((a.lat + b.lat) / 2, (a.lng + b.lng) / 2);
+    return L.marker(mid, {
+      interactive: false,
+      icon: L.divIcon({
+        className: '',
+        html: '<div style="transform:translate(-50%,-50%);background:rgba(8,18,12,.92);' +
+          'color:' + (cls === 'close' ? '#9fb3c8' : '#ffd166') + ';padding:2px 7px;border-radius:8px;' +
+          'font:700 11px/1.3 Heebo,Arial,sans-serif;white-space:nowrap;' +
+          'border:1px solid rgba(255,255,255,.18);">' + fmtM(metres(a, b)) + '</div>',
+        iconSize: [0, 0]
+      })
+    });
+  }
+
+  function refreshMeasure(hover) {
+    if (!_draw) return;
+    var m = map();
+    (_draw.labels || []).forEach(function (l) { m.removeLayer(l); });
+    _draw.labels = [];
+    var pts = _draw.pts.slice();
+    if (hover) pts.push(hover);
+    for (var i = 0; i + 1 < pts.length; i++) {
+      var lb = edgeLabel(pts[i], pts[i + 1]);
+      lb.addTo(m); _draw.labels.push(lb);
+    }
+    // The closing edge is shown in a muted colour: it is implied by the
+    // polygon, not yet drawn by the user.
+    if (pts.length > 2) {
+      var cl = edgeLabel(pts[pts.length - 1], pts[0], 'close');
+      cl.addTo(m); _draw.labels.push(cl);
+    }
+    if (_draw.line) m.removeLayer(_draw.line);
+    _draw.line = null;
+    if (pts.length > 1) {
+      _draw.line = L.polygon(pts, {
+        color: '#ff9f43', weight: 2, fillOpacity: .18, dashArray: hover ? '6,5' : null
+      }).addTo(m);
+    }
+    var area = (window.MapAccess && pts.length > 2) ? MapAccess.areaFromLatLngs(pts) : 0;
+    var per = 0;
+    for (var j = 0; j < pts.length; j++) {
+      if (j + 1 < pts.length) per += metres(pts[j], pts[j + 1]);
+    }
+    if (pts.length > 2) per += metres(pts[pts.length - 1], pts[0]);
+    _draw.area = area;
+    _draw.per = per;
+    banner(true);
+  }
+
+  function onDrawMove(e) { if (_draw) refreshMeasure(e.latlng); }
 
   function onDrawClick(e) {
     if (!_draw) return;
@@ -534,11 +713,7 @@ var BuildPlan = (function () {
     _draw.pts.push(e.latlng);
     var mk = L.circleMarker(e.latlng, { radius: 5, color: '#ff9f43', fillOpacity: 1 }).addTo(m);
     _draw.markers.push(mk);
-    if (_draw.line) m.removeLayer(_draw.line);
-    if (_draw.pts.length > 1) {
-      _draw.line = L.polygon(_draw.pts, { color: '#ff9f43', weight: 2, fillOpacity: .18 }).addTo(m);
-    }
-    banner(true);
+    refreshMeasure(null);
   }
 
   function banner(show) {
@@ -550,12 +725,20 @@ var BuildPlan = (function () {
       document.body.appendChild(b);
     }
     var n = _draw ? _draw.pts.length : 0;
+    var ar = _draw ? (_draw.area || 0) : 0;
+    var pe = _draw ? (_draw.per || 0) : 0;
+    var readout = ar > 0
+      ? '<span style="background:rgba(255,209,102,.16);border:1px solid rgba(255,209,102,.4);' +
+        'padding:4px 10px;border-radius:9px;color:#ffd166;">\u25b1 ' + n1(ar) + ' \u05de"\u05e8' +
+        (ar >= 1000 ? ' (' + (ar / 1000).toFixed(2) + ' \u05d3\u05d5\u05e0\u05dd)' : '') +
+        ' \u00b7 \u21ba ' + n1(pe) + ' m</span>'
+      : '';
     b.innerHTML =
       '<div style="position:fixed;top:0;inset-inline:0;z-index:10060;padding:12px;' +
         'background:rgba(8,18,12,.96);color:#fff;display:flex;gap:8px;align-items:center;' +
         'justify-content:center;flex-wrap:wrap;font-weight:700;font-size:.88rem;">' +
         '<span>\u2b20 ' + tt('לחץ על המפה לסימון גבול הפרויקט', 'แตะแผนที่เพื่อกำหนดขอบเขต',
-          'انقر على الخريطة لتحديد الحدود') + ' (' + n + ')</span>' +
+          'انقر على الخريطة لتحديد الحدود') + ' (' + n + ')</span>' + readout +
         '<button onclick="BuildPlan.undoPoint()" style="padding:7px 12px;border-radius:9px;border:none;' +
           'background:rgba(255,255,255,.14);color:#fff;font-family:inherit;font-weight:700;">\u21a9</button>' +
         '<button onclick="BuildPlan.finishFootprint()" style="padding:7px 14px;border-radius:9px;border:none;' +
@@ -568,22 +751,19 @@ var BuildPlan = (function () {
 
   function undoPoint() {
     if (!_draw || !_draw.pts.length) return;
-    var m = map();
+    map().removeLayer(_draw.markers.pop());
     _draw.pts.pop();
-    m.removeLayer(_draw.markers.pop());
-    if (_draw.line) { m.removeLayer(_draw.line); _draw.line = null; }
-    if (_draw.pts.length > 1) {
-      _draw.line = L.polygon(_draw.pts, { color: '#ff9f43', weight: 2, fillOpacity: .18 }).addTo(m);
-    }
-    banner(true);
+    refreshMeasure(null);
   }
 
   function clearDraw() {
     var m = map();
     if (_draw && m) {
       _draw.markers.forEach(function (mk) { m.removeLayer(mk); });
+      (_draw.labels || []).forEach(function (l) { m.removeLayer(l); });
       if (_draw.line) m.removeLayer(_draw.line);
       m.off('click', onDrawClick);
+      m.off('mousemove', onDrawMove);
     }
     _draw = null;
     banner(false);
@@ -789,6 +969,30 @@ var BuildPlan = (function () {
 
     paint(shell((p.type === 'slab' ? '\ud83e\uddf1 ' : '\ud83c\udfd7 ') +
       esc(p.name || typeLabel(p.type)), bar, body));
+    if (_tab === 'design' && p.type !== 'slab') mount3d(p);
+  }
+
+  function applyModel(id, key) {
+    var p = projById(id), src = MODELS[key];
+    if (!p || !src) return;
+    Object.keys(src).forEach(function (k) {
+      if (k !== 'label') p.dims[k] = src[k];
+    });
+    p.dims._model = key;
+    saveP();
+    open(id);
+  }
+
+  function view3d(yaw, pitch) { if (_v3d) _v3d.setView(yaw, pitch); }
+  function resetView() { if (_v3d) _v3d.resetView(); }
+  // Sun is a view setting, not a property of the building — it moves the
+  // shadows so the client can see the shade the structure will actually
+  // throw, which for a farm canopy is often the entire point of building it.
+  function sun(id, k, v) {
+    var p = projById(id);
+    if (!p) return;
+    p.dims[k] = Number(v) || 0;
+    if (_v3d) _v3d.setSun(p.dims.sunAz*Math.PI/180, p.dims.sunEl*Math.PI/180);
   }
 
   // A slider and a number field on the same value: drag to explore the
@@ -812,11 +1016,71 @@ var BuildPlan = (function () {
       o + '</select>';
   }
 
+  var _v3d = null;
+
+  function model3d(p) {
+    var d = p.dims;
+    return {
+      span: d.span, length: d.length, eaves: d.eaves, bay: d.bay, pitch: d.pitch,
+      roofType: d.roofType, wallMode: d.walls ? d.wallMode : 'open',
+      roofClad: d.roofClad, wallClad: d.wallClad,
+      purlinSp: d.purlinSp, girtSp: d.girtSp, slabTh: d.slabTh,
+      footings: d.footings, footW: d.footW, footD: d.footD,
+      fence: d.fence, fenceH: d.fenceH, fenceOff: d.fenceOff,
+      rafterType: d.rafterType, trussDepth: d.trussDepth,
+      haunch: d.haunch, taper: d.taper, bracing: d.bracing,
+      skylights: d.skylights, door: d.door, doorW: d.doorW, doorH: d.doorH,
+      leanTo: d.leanTo, mezz: d.mezz, mezzH: d.mezzH,
+      gutter: d.gutter, palms: d.palms, shadows: d.shadows, dims: d.dims,
+      context: true
+    };
+  }
+
+  // Mounted after paint(), because the canvas has no size until it is in the
+  // document. Rebuilt rather than reused across repaints — the host node is
+  // replaced by every innerHTML swap, so a retained instance would be
+  // pointing at a detached canvas.
+  function mount3d(p) {
+    var host = document.getElementById('bp3d');
+    if (!host || typeof Shed3D === 'undefined') return;
+    _v3d = Shed3D.mount(host, model3d(p), {
+      onSelect: function (g) {
+        var el = document.getElementById('bpSel');
+        if (el) el.textContent = g ? memberLabel(g) : '';
+      }
+    });
+    _v3d.setSun(p.dims.sunAz*Math.PI/180, p.dims.sunEl*Math.PI/180);
+  }
+
+  function memberLabel(g) {
+    var map = {
+      column:  tt('עמודים', 'เสา', 'أعمدة'),
+      rafter:  tt('קורות גג', 'คาน', 'روافد'),
+      purlin:  tt('מרישים', 'แป', 'مرايش'),
+      girt:    tt('מסילות קיר', 'แปผนัง', 'مرايش الجدار'),
+      roof:    tt('חיפוי גג', 'หลังคา', 'تغطية السقف'),
+      wall:    tt('חיפוי קיר', 'ผนัง', 'تغطية الجدار'),
+      slab:    tt('משטח בטון', 'พื้นคอนกรีต', 'سطح خرساني'),
+      footing: tt('בסיסי עמודים', 'ฐานเสา', 'قواعد الأعمدة'),
+      fence:   tt('גדר', 'รั้ว', 'سياج'),
+      haunch:  tt('חיזוק פינה (האנץ\')', 'ฮันช์', 'تقوية الركن'),
+      strut:   tt('קורת שפה', 'คานชายคา', 'رافدة الحافة'),
+      brace:   tt('אלכסוני ייצוב', 'ค้ำยัน', 'دعامات'),
+      gutter:  tt('מרזב וניקוז', 'รางน้ำ', 'مزراب'),
+      ridge:   tt('רכס גג', 'สันหลังคา', 'قمة السقف'),
+      skylight:tt('לוח סקיילייט', 'สกายไลท์', 'لوح إضاءة'),
+      door:    tt('דלת/שער', 'ประตู', 'باب'),
+      mezz:    tt('גלריה', 'ชั้นลอย', 'ميزانين')
+    };
+    return '\ud83d\udc46 ' + (map[g] || g);
+  }
+
   function designTab(p) {
     var id = p.id, d = p.dims;
-    var h = '<div class="bp-card">' + svg(p) + '</div>';
+    var h = '';
 
     if (p.type === 'slab') {
+      h += '<div class="bp-card">' + svg(p) + '</div>';
       h += '<div class="bp-card"><div class="bp-grid">' +
         ctl(id, 'length', tt('אורך (מ\')', 'ยาว', 'الطول'), d.length, 2, 80, 0.5) +
         ctl(id, 'span',   tt('רוחב (מ\')', 'กว้าง', 'العرض'), d.span, 2, 40, 0.5) +
@@ -830,7 +1094,177 @@ var BuildPlan = (function () {
       return h;
     }
 
-    var g = geom(d);
+    var g = geom(d), ft = footing(d), con = concrete(p);
+
+    var models = Object.keys(MODELS).map(function (k) {
+      return '<button class="bp-btn ' + (d._model === k ? 'on' : 'ghost') +
+        '" style="padding:7px 11px;font-size:.76rem;" onclick="BuildPlan.applyModel(' + id +
+        ',\'' + k + '\')">' + esc(MODELS[k].label[0]) + '</button>';
+    }).join('');
+
+    h += '<div class="bp-card">' +
+      '<div class="bp-lbl" style="margin-bottom:6px;">' +
+        tt('דגם התחלתי', 'แบบเริ่มต้น', 'نموذج أولي') + '</div>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;">' + models + '</div></div>' +
+
+      '<div class="bp-card">' +
+        '<div id="bp3d" style="height:min(58vh,520px);border-radius:12px;overflow:hidden;' +
+          'background:radial-gradient(circle at 50% 30%,rgba(255,255,255,.06),rgba(0,0,0,.25));"></div>' +
+        '<div style="display:flex;justify-content:space-between;gap:8px;margin-top:6px;flex-wrap:wrap;">' +
+          '<span style="font-size:.74rem;color:var(--text-muted,#888);">' +
+            tt('גרירה = סיבוב \u00b7 Shift+גרירה = הזזה \u00b7 גלגלת = זום \u00b7 לחיצה = בחירה',
+               'ลาก=หมุน Shift=เลื่อน ล้อ=ซูม แตะ=เลือก',
+               'سحب=تدوير \u00b7 Shift=تحريك \u00b7 عجلة=تكبير \u00b7 نقر=تحديد') + '</span>' +
+          '<span id="bpSel" style="font-size:.78rem;font-weight:800;color:var(--accent,#ff9f43);"></span>' +
+        '</div>' +
+        '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">' +
+          '<button class="bp-btn ghost" style="padding:6px 10px;font-size:.74rem;" ' +
+            'onclick="BuildPlan.view3d(-0.62,0.42)">\u2934 ' + tt('איזומטרי', 'ไอโซ', 'أيزومتري') + '</button>' +
+          '<button class="bp-btn ghost" style="padding:6px 10px;font-size:.74rem;" ' +
+            'onclick="BuildPlan.view3d(0,0.02)">\u25ad ' + tt('חזית', 'ด้านหน้า', 'واجهة') + '</button>' +
+          '<button class="bp-btn ghost" style="padding:6px 10px;font-size:.74rem;" ' +
+            'onclick="BuildPlan.view3d(1.5708,0.02)">\u25b1 ' + tt('צד', 'ด้านข้าง', 'جانب') + '</button>' +
+          '<button class="bp-btn ghost" style="padding:6px 10px;font-size:.74rem;" ' +
+            'onclick="BuildPlan.view3d(0,1.35)">\u2b1c ' + tt('מבט על', 'ด้านบน', 'علوي') + '</button>' +
+          '<button class="bp-btn ghost" style="padding:6px 10px;font-size:.74rem;" ' +
+            'onclick="BuildPlan.resetView()">\u21ba ' + tt('איפוס', 'รีเซ็ต', 'إعادة') + '</button>' +
+        '</div>' +
+      '</div>' +
+
+      '<div class="bp-card"><div class="bp-lbl">' + tt('גג וחיפוי', 'หลังคา', 'السقف والتغطية') +
+        '</div><div class="bp-grid">' +
+        '<div><div class="bp-lbl">' + tt('סוג גג', 'ชนิดหลังคา', 'نوع السقف') + '</div>' +
+          '<select class="bp-in" onchange="BuildPlan._dim(' + id + ',\'roofType\',this.value)">' +
+            '<option value="gable"' + (d.roofType === 'gable' ? ' selected' : '') + '>' +
+              tt('אגוזי (שני שיפועים)', 'จั่ว', 'جملوني') + '</option>' +
+            '<option value="mono"' + (d.roofType === 'mono' ? ' selected' : '') + '>' +
+              tt('חד-שיפועי', 'เพิงหมาแหงน', 'ميل واحد') + '</option></select></div>' +
+        '<div><div class="bp-lbl">' + tt('חיפוי גג', 'วัสดุหลังคา', 'مادة السقف') + '</div>' +
+          '<select class="bp-in" onchange="BuildPlan._dim(' + id + ',\'roofClad\',this.value)">' +
+            '<option value="iskurit"' + (d.roofClad === 'iskurit' ? ' selected' : '') + '>' +
+              tt('איסכורית', 'เมทัลชีท', 'صاج مموج') + '</option>' +
+            '<option value="panel"' + (d.roofClad === 'panel' ? ' selected' : '') + '>' +
+              tt('פאנל מבודד', 'แผ่นฉนวน', 'بانل معزول') + '</option>' +
+            '<option value="none"' + (d.roofClad === 'none' ? ' selected' : '') + '>' +
+              tt('ללא', 'ไม่มี', 'بدون') + '</option></select></div>' +
+        '<div><div class="bp-lbl">' + tt('קירות', 'ผนัง', 'الجدران') + '</div>' +
+          '<select class="bp-in" onchange="BuildPlan._dim(' + id + ',\'wallMode\',this.value)">' +
+            '<option value="full"' + (d.wallMode === 'full' ? ' selected' : '') + '>' +
+              tt('סגור', 'ปิด', 'مغلق') + '</option>' +
+            '<option value="half"' + (d.wallMode === 'half' ? ' selected' : '') + '>' +
+              tt('חצי גובה', 'ครึ่ง', 'نصف') + '</option>' +
+            '<option value="open"' + (d.wallMode === 'open' ? ' selected' : '') + '>' +
+              tt('פתוח', 'เปิด', 'مفتوح') + '</option></select></div>' +
+        '<div><div class="bp-lbl">' + tt('חיפוי קיר', 'วัสดุผนัง', 'مادة الجدار') + '</div>' +
+          '<select class="bp-in" onchange="BuildPlan._dim(' + id + ',\'wallClad\',this.value)">' +
+            '<option value="iskurit"' + (d.wallClad === 'iskurit' ? ' selected' : '') + '>' +
+              tt('איסכורית', 'เมทัลชีท', 'صاج مموج') + '</option>' +
+            '<option value="panel"' + (d.wallClad === 'panel' ? ' selected' : '') + '>' +
+              tt('פאנל מבודד', 'แผ่นฉนวน', 'بانل معزول') + '</option></select></div>' +
+      '</div>' +
+      '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;font-size:.8rem;">' +
+        '<label><input type="checkbox"' + (d.fence ? ' checked' : '') +
+          ' onchange="BuildPlan._dim(' + id + ',\'fence\',this.checked)"> ' +
+          tt('גידור היקפי', 'รั้วรอบ', 'سياج محيطي') + '</label>' +
+        (d.fence ? '<label style="font-size:.78rem;">' + tt('גובה', 'สูง', 'ارتفاع') +
+          ' <input type="number" step="0.1" value="' + d.fenceH + '" style="width:60px;" class="bp-in" ' +
+          'onchange="BuildPlan._dim(' + id + ',\'fenceH\',this.value)"></label>' +
+          '<label style="font-size:.78rem;">' + tt('מרחק מהמבנה', 'ระยะห่าง', 'المسافة') +
+          ' <input type="number" step="0.5" value="' + d.fenceOff + '" style="width:60px;" class="bp-in" ' +
+          'onchange="BuildPlan._dim(' + id + ',\'fenceOff\',this.value)"></label>' : '') +
+      '</div></div>' +
+
+      '<div class="bp-card"><div class="bp-lbl">' +
+        tt('שלד ורכיבים', 'โครงสร้าง', 'الهيكل والمكونات') + '</div>' +
+        '<div class="bp-grid">' +
+          '<div><div class="bp-lbl">' + tt('סוג קורת גג', 'ชนิดคาน', 'نوع الرافدة') + '</div>' +
+            '<select class="bp-in" onchange="BuildPlan._dim(' + id + ',\'rafterType\',this.value)">' +
+              '<option value="solid"' + (d.rafterType === 'solid' ? ' selected' : '') + '>' +
+                tt('קורה מלאה (H/IPE)', 'คานตัน', 'رافدة صلبة') + '</option>' +
+              '<option value="truss"' + (d.rafterType === 'truss' ? ' selected' : '') + '>' +
+                tt('סבכה / רפפה', 'โครงถัก', 'جملون شبكي') + '</option></select></div>' +
+          (d.rafterType === 'truss'
+            ? ctl(id, 'trussDepth', tt('גובה סבכה (מ\')', 'ความลึก', 'عمق الجملون'), d.trussDepth, 0.3, 2, 0.05)
+            : '') +
+          ctl(id, 'skylights', tt('רצועות סקיילייט', 'สกายไลท์', 'شرائط إضاءة'), d.skylights, 0, 6, 1) +
+          ctl(id, 'leanTo', tt('סככת צד (מ\')', 'เพิงข้าง', 'جناح جانبي'), d.leanTo, 0, 10, 0.5) +
+          ctl(id, 'mezz', tt('עומק גלריה (מ\')', 'ชั้นลอย', 'عمق الميزانين'), d.mezz, 0, 12, 0.5) +
+          (d.mezz > 0 ? ctl(id, 'mezzH', tt('גובה גלריה (מ\')', 'สูงชั้นลอย', 'ارتفاع الميزانين'), d.mezzH, 2, 6, 0.1) : '') +
+        '</div>' +
+        '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;font-size:.8rem;">' +
+          '<label><input type="checkbox"' + (d.haunch ? ' checked' : '') +
+            ' onchange="BuildPlan._dim(' + id + ',\'haunch\',this.checked)"> ' +
+            tt('חיזוק פינה', 'ฮันช์', 'تقوية الركن') + '</label>' +
+          '<label><input type="checkbox"' + (d.taper ? ' checked' : '') +
+            ' onchange="BuildPlan._dim(' + id + ',\'taper\',this.checked)"> ' +
+            tt('עמוד משתנה', 'เสาเรียว', 'عمود متغير') + '</label>' +
+          '<label><input type="checkbox"' + (d.bracing ? ' checked' : '') +
+            ' onchange="BuildPlan._dim(' + id + ',\'bracing\',this.checked)"> ' +
+            tt('אלכסוני ייצוב', 'ค้ำยัน', 'دعامات') + '</label>' +
+          '<label><input type="checkbox"' + (d.gutter ? ' checked' : '') +
+            ' onchange="BuildPlan._dim(' + id + ',\'gutter\',this.checked)"> ' +
+            tt('מרזבים', 'รางน้ำ', 'مزاريب') + '</label>' +
+          '<label><input type="checkbox"' + (d.door ? ' checked' : '') +
+            ' onchange="BuildPlan._dim(' + id + ',\'door\',this.checked)"> ' +
+            tt('שער', 'ประตู', 'بوابة') + '</label>' +
+        '</div>' +
+        (d.door ? '<div class="bp-grid" style="margin-top:6px;">' +
+          ctl(id, 'doorW', tt('רוחב שער', 'กว้างประตู', 'عرض البوابة'), d.doorW, 1, 12, 0.5) +
+          ctl(id, 'doorH', tt('גובה שער', 'สูงประตู', 'ارتفاع البوابة'), d.doorH, 1.8, 8, 0.1) +
+        '</div>' : '') +
+      '</div>' +
+
+      '<div class="bp-card"><div class="bp-lbl">' +
+        tt('סביבה ותאורה', 'สภาพแวดล้อม', 'البيئة والإضاءة') + '</div>' +
+        '<div class="bp-grid">' +
+          '<div><div class="bp-lbl">' + tt('כיוון שמש', 'ทิศดวงอาทิตย์', 'اتجاه الشمس') + '</div>' +
+            '<input class="bp-rng" type="range" min="0" max="360" step="5" value="' + d.sunAz + '" ' +
+              'oninput="BuildPlan.sun(' + id + ',\'sunAz\',this.value)"></div>' +
+          '<div><div class="bp-lbl">' + tt('גובה שמש', 'มุมสูง', 'ارتفاع الشمس') + '</div>' +
+            '<input class="bp-rng" type="range" min="8" max="88" step="2" value="' + d.sunEl + '" ' +
+              'oninput="BuildPlan.sun(' + id + ',\'sunEl\',this.value)"></div>' +
+        '</div>' +
+        '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;font-size:.8rem;">' +
+          '<label><input type="checkbox"' + (d.palms ? ' checked' : '') +
+            ' onchange="BuildPlan._dim(' + id + ',\'palms\',this.checked)"> ' +
+            tt('דקלים לקנה מידה', 'ต้นปาล์ม', 'نخيل للمقياس') + '</label>' +
+          '<label><input type="checkbox"' + (d.shadows ? ' checked' : '') +
+            ' onchange="BuildPlan._dim(' + id + ',\'shadows\',this.checked)"> ' +
+            tt('צללים', 'เงา', 'ظلال') + '</label>' +
+          '<label><input type="checkbox"' + (d.dims ? ' checked' : '') +
+            ' onchange="BuildPlan._dim(' + id + ',\'dims\',this.checked)"> ' +
+            tt('מידות', 'ขนาด', 'أبعاد') + '</label>' +
+        '</div>' +
+      '</div>' +
+
+      '<div class="bp-card"><div class="bp-lbl">' +
+        tt('ביסוס עמודים', 'ฐานราก', 'أساسات الأعمدة') + '</div>' +
+        '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:6px;font-size:.8rem;">' +
+          '<label><input type="checkbox"' + (d.footings ? ' checked' : '') +
+            ' onchange="BuildPlan._dim(' + id + ',\'footings\',this.checked)"> ' +
+            tt('בסיסים בודדים', 'ฐานแยก', 'قواعد منفصلة') + '</label></div>' +
+        '<div class="bp-grid">' +
+          ctl(id, 'footW', tt('צלע בסיס (מ\')', 'ด้านฐาน', 'ضلع القاعدة'), d.footW, 0.4, 3, 0.1) +
+          ctl(id, 'footD', tt('עומק בסיס (מ\')', 'ลึกฐาน', 'عمق القاعدة'), d.footD, 0.4, 2.5, 0.1) +
+          ctl(id, 'slabTh', tt('עובי משטח (מ\')', 'หนาพื้น', 'سماكة السطح'), d.slabTh, 0.08, 0.5, 0.01) +
+          ctl(id, 'soilBearing', tt('כושר נשיאה (kPa)', 'กำลังรับดิน', 'تحمل التربة'), d.soilBearing, 60, 400, 10) +
+        '</div>' +
+        '<div class="bp-tot" style="margin-top:8px;"><span>' +
+          tt('שטח משפיע לעמוד', 'พื้นที่รับต่อเสา', 'المساحة لكل عمود') + '</span><strong>' +
+          n1(ft.trib) + ' \u05de"\u05e8 \u00b7 ' + n1(ft.axial) + ' kN</strong></div>' +
+        '<div class="bp-tot"><span>' + tt('צלע נדרשת', 'ด้านที่ต้องการ', 'الضلع المطلوب') +
+          '</span><strong style="color:' + (ft.ok ? 'var(--primary,#2d6a4f)' : '#e65100') + ';">' +
+          n2(ft.reqSide) + ' \u05de\' ' + (ft.ok ? '\u2713' : '\u2014 ' +
+          tt('הגדל ל-', 'เพิ่มเป็น', 'زد إلى') + ' ' + ft.suggest) + '</strong></div>' +
+        '<div class="bp-tot" style="border:none;"><span>' + tt('בטון', 'คอนกรีต', 'خرسانة') +
+          '</span><strong>' + n2(con.slab) + ' + ' + n2(con.footings) + ' = ' +
+          n2(con.total) + ' \u05de"\u05e7</strong></div>' +
+        '<div style="font-size:.72rem;color:var(--text-muted,#888);margin-top:6px;">\u26a0\ufe0f ' +
+          tt('הערכה ראשונית בלבד: עומס אחיד, ללא רוח/מומנט, קרקע הומוגנית. נדרש אישור מהנדס וסקר קרקע.',
+             'ประมาณการเบื้องต้นเท่านั้น ต้องมีวิศวกรรับรอง',
+             'تقدير أولي فقط — يلزم اعتماد مهندس وتقرير تربة') + '</div>' +
+      '</div>';
+
     h += '<div class="bp-card"><div class="bp-grid">' +
       ctl(id, 'span',   tt('מפתח (מ\')', 'ช่วงกว้าง', 'الباع'), d.span, 4, 40, 0.5) +
       ctl(id, 'length', tt('אורך (מ\')', 'ยาว', 'الطول'), d.length, 4, 100, 0.5) +
@@ -953,12 +1387,27 @@ var BuildPlan = (function () {
   }
 
   function _set(id, k, v) { var p = projById(id); if (p) p[k] = v; }
+  var BOOL = { walls: 1, gutter: 1, footings: 1, fence: 1,
+               haunch: 1, taper: 1, bracing: 1, door: 1,
+               palms: 1, shadows: 1, dims: 1 };
+  var TEXT = { roofType: 1, wallMode: 1, roofClad: 1, wallClad: 1, rafterType: 1,
+               colProfile: 1, rafterProfile: 1, purlinProfile: 1, girtProfile: 1,
+               roofPanel: 1, wallPanel: 1 };
+  // Numbers only nudge the model, so the viewer is updated in place and the
+  // sheet is left alone — a full repaint on every slider tick would rebuild
+  // the canvas 60 times a second and lose the camera angle mid-drag.
+  var _num = null;
   function _dim(id, k, v) {
     var p = projById(id);
     if (!p) return;
-    p.dims[k] = (k === 'walls' || k === 'gutter') ? !!v
-      : (typeof v === 'string' && /^[a-zA-Z\u0590-\u05FF]/.test(v)) ? v : (Number(v) || 0);
-    open(id);   // the drawing IS the feedback — repaint on every change
+    p.dims[k] = BOOL[k] ? !!v : TEXT[k] ? String(v) : (Number(v) || 0);
+    var TOPO = { skylights: 1, leanTo: 1, mezz: 1 };
+    if (BOOL[k] || TEXT[k] || TOPO[k]) { saveP(); open(id); return; }
+    if (_v3d) _v3d.update(model3d(p));
+    // Numbers still have to reach the readouts, but only once the user
+    // pauses — otherwise every keystroke rewrites the DOM under the cursor.
+    if (_num) clearTimeout(_num);
+    _num = setTimeout(function () { saveP(); open(id); }, 550);
   }
   function saveNow() {
     saveP();
@@ -1113,6 +1562,10 @@ var BuildPlan = (function () {
     newProject: newProject,
     delProject: delProject,
     setTab: setTab,
+    applyModel: applyModel,
+    view3d: view3d,
+    resetView: resetView,
+    sun: sun,
     openCatalog: openCatalog,
     startFootprint: startFootprint,
     finishFootprint: finishFootprint,
