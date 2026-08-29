@@ -16,8 +16,9 @@
  *   girts, wind bracing, ridge cap, gutters, downspouts, skylight strips,
  *   roller door, optional lean-to aisle and mezzanine deck.
  *   Site — graded ground, slab, pad footings, perimeter fence and date
- *   palms for scale. A frame drawn floating in a void gives no sense of how
- *   it will actually sit next to a 12 m palm.
+ *   Site — the actual satellite imagery under the project footprint, drawn
+ *   as a textured ground plane, plus slab, pad footings and fence. Real
+ *   imagery orients you; invented scenery does not.
  *
  * COORDINATES  x along length, y across span, z up. Origin at slab centre,
  * so orbit and zoom stay framed on the building whatever the dimensions.
@@ -38,7 +39,7 @@ var Shed3D = (function () {
     roof: '#8fa3b8', wall: '#c2c9d2', gutter: '#7f8c8d', ridge: '#6d7b7f',
     slab: '#b9b6ae', footing: '#7d6b58', fence: '#6c757d',
     door: '#5d6d7e', skylight: '#dff3ff', mezz: '#a9855f',
-    trunk: '#6d5233', frond: '#3f6b34', ground: '#c8b98f', sel: '#ffd166'
+    ground: '#c8b98f', sel: '#ffd166'
   };
 
   // ── vectors ──
@@ -114,27 +115,15 @@ var Shed3D = (function () {
     // ── site ──
     if (m.context !== false) {
       var pad = Math.max(span, len) * 0.9;
+      // Extent is recorded so the texture can be mapped 1:1 in metres.
       F = F.concat(quad([x0-pad,y0-pad,-0.02], [x1+pad,y0-pad,-0.02],
                         [x1+pad,y1+pad,-0.02], [x0-pad,y1+pad,-0.02],
                         PALETTE.ground, 'ground', 0, 1));
-      // Date palms for scale. This is a date-farm app; a 12 m palm beside a
-      // 6 m eave is the fastest way to read the height as real.
-      if (m.palms) {
-        var seed = 7;
-        var rnd = function () { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
-        for (var t = 0; t < 8; t++) {
-          var px = x0 - pad*0.5 + rnd()*(len + pad);
-          var py = (t % 2 ? 1 : -1) * (half + 5 + rnd()*pad*0.45);
-          var ph = 7 + rnd()*5;
-          F = F.concat(strut([px,py,0], [px,py,ph], 0.22, PALETTE.trunk, 'palm'));
-          for (var fr = 0; fr < 9; fr++) {
-            var a0 = fr/9*Math.PI*2;
-            F = F.concat(strut([px,py,ph],
-              [px + Math.cos(a0)*2.6, py + Math.sin(a0)*2.6, ph + (fr % 2 ? 0.6 : -0.9)],
-              0.10, PALETTE.frond, 'palm'));
-          }
-        }
-      }
+      F[F.length-1].extent = { x0: x0-pad, x1: x1+pad, y0: y0-pad, y1: y1+pad };
+      // No invented scenery. The ground is a crop of the actual satellite
+      // imagery under the project footprint, supplied by buildplan.js and
+      // drawn as a textured quad below — a made-up tree tells you nothing
+      // about the site, and a real one you can recognise tells you a lot.
     }
 
     // ── slab + footings ──
@@ -367,10 +356,17 @@ var Shed3D = (function () {
     host.appendChild(cv);
     var ctx = cv.getContext('2d');
 
-    var cam = { yaw: -0.68, pitch: 0.34, zoom: 1, px: 0, py: 0 };
-    var m = model, geo = build(m), sel = null;
+    // A remount must not throw away where the user was looking. buildplan
+    // repaints the sheet on every checkbox and every slider release, so
+    // without this the camera snapped back to isometric constantly.
+    var st = opts.state || {};
+    var cam = st.cam
+      ? { yaw: st.cam.yaw, pitch: st.cam.pitch, zoom: st.cam.zoom, px: st.cam.px, py: st.cam.py }
+      : { yaw: -0.68, pitch: 0.34, zoom: 1, px: 0, py: 0 };
+    var m = model, geo = build(m), sel = st.sel || null;
     var drag = null, moved = 0, pan = false, busy = false;
-    var sunAz = 2.3, sunEl = 0.85;
+    var sunAz = (opts.state && opts.state.sunAz != null) ? opts.state.sunAz : 2.3;
+    var sunEl = (opts.state && opts.state.sunEl != null) ? opts.state.sunEl : 0.85;
 
     function sunVec() {
       return nrm([Math.cos(sunAz)*Math.cos(sunEl), Math.sin(sunAz)*Math.cos(sunEl), Math.sin(sunEl)]);
@@ -404,42 +400,116 @@ var Shed3D = (function () {
       };
     }
 
-    function shade(color, l, on) {
-      var k = 0.48 + 0.52*Math.max(0, l);
+    // Three terms instead of one: warm sun, cool sky bounce from above, and
+    // a flat ambient floor. A single lambert made every surface read as the
+    // same plastic; separating them lets steel look like steel and gives
+    // upward-facing panels the cool cast they actually have outdoors.
+    function shade(color, l, up, on) {
       if (on) color = PALETTE.sel;
       var r = parseInt(color.slice(1,3), 16),
           g = parseInt(color.slice(3,5), 16),
           b = parseInt(color.slice(5,7), 16);
-      return 'rgb(' + Math.round(r*k) + ',' + Math.round(g*k) + ',' + Math.round(b*k) + ')';
+      var sun = 0.62*Math.max(0, l);
+      var amb = 0.36;
+      var sky = 0.16*Math.max(0, up);        // cool bounce, strongest on horizontal faces
+      var k = amb + sun;
+      r = r*k + 128*sky*0.55;
+      g = g*k + 168*sky*0.55;
+      b = b*k + 210*sky*0.55;
+      return 'rgb(' + Math.min(255,Math.round(r)) + ',' +
+                      Math.min(255,Math.round(g)) + ',' +
+                      Math.min(255,Math.round(b)) + ')';
     }
 
-    var lastPolys = [], wheelIdle = null;
+    var lastPolys = [], wheelIdle = null, calloutBoxes = [];
+    var hidden = (opts.state && opts.state.hidden) ? opts.state.hidden : {};
+    var rafPending = false;
+
+    // Every input event used to trigger a full rebuild+repaint synchronously,
+    // which is why the sliders felt notchy: the browser could not keep up
+    // with one geometry rebuild per pointer sample. Coalescing to one draw
+    // per animation frame makes them track the finger smoothly.
+    function schedule() {
+      if (rafPending) return;
+      rafPending = true;
+      requestAnimationFrame(function () { rafPending = false; draw(); });
+    }
+    var groundImg = (opts.state && opts.state.groundImg) || null;
+    var groundExtent = (opts.state && opts.state.groundExtent) || null;
+
+    function drawGround(fc, P) {
+      var e = fc.extent, N = busy ? 6 : 14;
+      var iw = groundImg.width, ih = groundImg.height;
+      // The texture covers groundExtent metres; the quad covers e metres.
+      // Mapping through metres keeps the imagery pinned to the site when
+      // the building is resized rather than stretching with it.
+      var gx0 = groundExtent ? groundExtent.x0 : e.x0, gx1 = groundExtent ? groundExtent.x1 : e.x1;
+      var gy0 = groundExtent ? groundExtent.y0 : e.y0, gy1 = groundExtent ? groundExtent.y1 : e.y1;
+      ctx.save();
+      for (var r = 0; r < N; r++) {
+        for (var c = 0; c < N; c++) {
+          var mx0 = e.x0 + (e.x1-e.x0)*c/N,     mx1 = e.x0 + (e.x1-e.x0)*(c+1)/N;
+          var my0 = e.y0 + (e.y1-e.y0)*r/N,     my1 = e.y0 + (e.y1-e.y0)*(r+1)/N;
+          var u0 = (mx0-gx0)/(gx1-gx0), u1 = (mx1-gx0)/(gx1-gx0);
+          var v0 = 1-(my0-gy0)/(gy1-gy0), v1 = 1-(my1-gy0)/(gy1-gy0);
+          if (u1 < 0 || u0 > 1 || Math.min(v0,v1) > 1 || Math.max(v0,v1) < 0) continue;
+          var A = P([mx0,my0,-0.02]), B = P([mx1,my0,-0.02]), C = P([mx0,my1,-0.02]);
+          var sx0 = u0*iw, sy0 = Math.min(v0,v1)*ih;
+          var sw = (u1-u0)*iw, sh = Math.abs(v1-v0)*ih;
+          if (sw <= 0 || sh <= 0) continue;
+          ctx.save();
+          ctx.beginPath();
+          var D = P([mx1,my1,-0.02]);
+          ctx.moveTo(A[0],A[1]); ctx.lineTo(B[0],B[1]); ctx.lineTo(D[0],D[1]); ctx.lineTo(C[0],C[1]);
+          ctx.closePath(); ctx.clip();
+          ctx.transform((B[0]-A[0])/sw, (B[1]-A[1])/sw,
+                        (C[0]-A[0])/sh, (C[1]-A[1])/sh, A[0], A[1]);
+          ctx.drawImage(groundImg, sx0, sy0, sw, sh, 0, 0, sw, sh);
+          ctx.restore();
+        }
+      }
+      ctx.restore();
+    }
 
     function draw() {
       var d = size(), w = d.w, h = d.h;
       var P = projector(w, h), S = sunVec();
 
       var sky = ctx.createLinearGradient(0, 0, 0, h);
-      sky.addColorStop(0, '#7fb6d6');
-      sky.addColorStop(0.62, '#cfe4ee');
-      sky.addColorStop(1, '#e8e0cc');
+      sky.addColorStop(0, '#5b93bd');
+      sky.addColorStop(0.42, '#9dc4dc');
+      sky.addColorStop(0.72, '#d7e6ee');
+      sky.addColorStop(1, '#efe7d4');
       ctx.fillStyle = sky;
       ctx.fillRect(0, 0, w, h);
 
-      var list = geo.faces.map(function (fc) {
+      // A soft glow where the sun is, so rotating the model past the sun
+      // reads as rotating in a place rather than in a lightbox.
+      var sunP = P([S[0]*400, S[1]*400, S[2]*400]);
+      if (sunP[0] > -300 && sunP[0] < w+300) {
+        var gl = ctx.createRadialGradient(sunP[0], sunP[1], 0, sunP[0], sunP[1], Math.min(w,h)*0.55);
+        gl.addColorStop(0, 'rgba(255,247,214,.55)');
+        gl.addColorStop(1, 'rgba(255,247,214,0)');
+        ctx.fillStyle = gl;
+        ctx.fillRect(0, 0, w, h);
+      }
+
+      var vis = geo.faces.filter(function (fc) { return !hidden[fc.group]; });
+      var list = vis.map(function (fc) {
         var pr = fc.pts.map(P);
         var dep = pr.reduce(function (s, p) { return s + p[2]; }, 0)/pr.length;
         var n = nrm(cross(sub(fc.pts[1], fc.pts[0]), sub(fc.pts[2], fc.pts[0])));
-        return { fc: fc, pr: pr, depth: dep, l: Math.abs(dot(n, S)) };
+        return { fc: fc, pr: pr, depth: dep, l: Math.abs(dot(n, S)), up: Math.abs(n[2]) };
       }).sort(function (a, b) { return b.depth - a.depth; });
 
-      // A fully clad truss frame with palms is ~2,500 faces. Filling that
+      // A fully clad truss frame is well over 1,000 faces. Filling that
       // twice per frame stutters on a phone, so shadows and corrugation are
       // dropped while the camera is actually moving and restored on release.
       if (m.shadows !== false && !busy && S[2] > 0.12) {
-        ctx.globalAlpha = 0.15;
-        ctx.fillStyle = '#2b2416';
-        geo.faces.forEach(function (fc) {
+        ctx.globalAlpha = 0.13;
+        ctx.fillStyle = '#2a2418';
+        ctx.filter = busy ? 'none' : 'blur(1.5px)';
+        vis.forEach(function (fc) {
           if (fc.group === 'ground' || fc.group === 'slab' || fc.group === 'footing') return;
           var sp = fc.pts.map(function (p) {
             var t = p[2]/S[2];
@@ -451,17 +521,26 @@ var Shed3D = (function () {
           ctx.closePath();
           ctx.fill();
         });
+        ctx.filter = 'none';
         ctx.globalAlpha = 1;
       }
 
       lastPolys = list;
       list.forEach(function (it) {
+        // The ground is the one face with a bitmap. Canvas 2D has no
+        // projective transform, so the quad is subdivided and each cell
+        // drawn with the affine map from three of its corners — at 14×14
+        // the residual error is under a pixel at any usable camera angle.
+        if (it.fc.group === 'ground' && groundImg && it.fc.extent) {
+          drawGround(it.fc, P);
+          return;
+        }
         var pr = it.pr, fc = it.fc;
         ctx.beginPath();
         ctx.moveTo(pr[0][0], pr[0][1]);
         for (var i = 1; i < pr.length; i++) ctx.lineTo(pr[i][0], pr[i][1]);
         ctx.closePath();
-        ctx.fillStyle = shade(fc.color, it.l, sel === fc.group);
+        ctx.fillStyle = shade(fc.color, it.l, it.up, sel === fc.group);
         ctx.globalAlpha = fc.alpha != null ? fc.alpha : 1;
         ctx.fill();
         ctx.globalAlpha = 1;
@@ -486,6 +565,8 @@ var Shed3D = (function () {
       });
 
       if (m.dims !== false) drawDims(P);
+      if (m.scaleRef && m.scaleRef !== 'none') drawScaleRef(P);
+      if (m.callouts !== false && !busy) drawCallouts(P, w, h);
     }
 
     // Dimension tags live in the scene, so a rotated view still says which
@@ -508,6 +589,230 @@ var Shed3D = (function () {
       if (g.ridgeZ > g.eaves + 0.05) tag([0, 0, g.ridgeZ+1], g.ridgeZ.toFixed(1) + ' m');
     }
 
+    // ── scale reference ────────────────────────────────────────────────
+    // Drawn in screen space rather than as scene geometry, anchored to a
+    // world point and sized by projecting its base and top. A chunky
+    // low-poly tree standing next to the building read as clutter; a
+    // graduated staff reads as a drawing convention and stays legible at
+    // any zoom because the linework never gets tessellated.
+    function drawScaleRef(P) {
+      var g = geom_meta();
+      var kind = m.scaleRef;
+      var H = kind === 'person' ? 1.75 : (kind === 'staff' ? 5 : (m.scaleH || 9));
+      // Off the front-left corner, clear of the building and its shadow.
+      var ax = -g.length/2 - Math.max(2.5, g.span*0.12);
+      var ay = -g.span/2 - Math.max(2.5, g.span*0.12);
+
+      var base = P([ax, ay, 0]), top = P([ax, ay, H]);
+      var px = base[0], py = base[1];
+      var hpx = base[1] - top[1];                 // on-screen height of H metres
+      if (!(hpx > 8)) return;
+      var u = hpx / H;                            // px per metre at this spot
+
+      ctx.save();
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
+
+      if (kind === 'staff') drawStaff(px, py, u, H);
+      else if (kind === 'person') drawPerson(px, py, u);
+      else drawPalm(px, py, u, H);
+
+      // Height dimension beside it: the number is the whole point.
+      var dx = px + Math.max(16, u * 0.55);
+      ctx.strokeStyle = 'rgba(20,28,22,.75)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(dx, py); ctx.lineTo(dx, py - hpx);
+      ctx.moveTo(dx - 4, py); ctx.lineTo(dx + 4, py);
+      ctx.moveTo(dx - 4, py - hpx); ctx.lineTo(dx + 4, py - hpx);
+      ctx.stroke();
+      // arrowheads
+      [[py, 1], [py - hpx, -1]].forEach(function (a) {
+        ctx.beginPath();
+        ctx.moveTo(dx, a[0]);
+        ctx.lineTo(dx - 3, a[0] - 6*a[1]);
+        ctx.lineTo(dx + 3, a[0] - 6*a[1]);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(20,28,22,.75)';
+        ctx.fill();
+      });
+      var lbl = H.toFixed(kind === 'person' ? 2 : 1) + ' m';
+      ctx.font = '700 11px Heebo,Arial,sans-serif';
+      ctx.textAlign = 'left';
+      var tw = ctx.measureText(lbl).width + 8;
+      ctx.fillStyle = 'rgba(8,18,12,.82)';
+      ctx.fillRect(dx + 6, py - hpx/2 - 8, tw, 16);
+      ctx.fillStyle = '#ffd166';
+      ctx.fillText(lbl, dx + 10, py - hpx/2 + 4);
+      ctx.restore();
+    }
+
+    function geom_meta() { return geo.meta; }
+
+    // Survey staff: alternating half-metre bands, ticks every 0.5 m and a
+    // number on every whole metre — the same object a surveyor holds, so it
+    // needs no explaining.
+    function drawStaff(px, py, u, H) {
+      var w2 = Math.max(2.5, u * 0.09);
+      for (var i = 0; i < H*2; i++) {
+        var z0 = i/2, z1 = Math.min(H, (i+1)/2);
+        ctx.fillStyle = (i % 2) ? '#f4f4ef' : '#c0392b';
+        ctx.fillRect(px - w2, py - z1*u, w2*2, (z1 - z0)*u);
+      }
+      ctx.strokeStyle = 'rgba(20,28,22,.65)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(px - w2, py - H*u, w2*2, H*u);
+      if (u > 9) {
+        ctx.font = '600 9px Heebo,Arial,sans-serif';
+        ctx.textAlign = 'right';
+        ctx.fillStyle = 'rgba(20,28,22,.85)';
+        for (var mtr = 1; mtr <= H; mtr++) ctx.fillText(mtr, px - w2 - 3, py - mtr*u + 3);
+      }
+    }
+
+    // A person at 1.75 m: the fastest scale cue there is, drawn as a plain
+    // silhouette so it never competes with the structure for attention.
+    function drawPerson(px, py, u) {
+      var h = 1.75*u;
+      ctx.fillStyle = 'rgba(40,52,44,.72)';
+      ctx.beginPath();
+      ctx.arc(px, py - h*0.90, h*0.075, 0, 6.29);        // head
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(px - h*0.085, py - h*0.82);              // torso
+      ctx.lineTo(px + h*0.085, py - h*0.82);
+      ctx.lineTo(px + h*0.075, py - h*0.45);
+      ctx.lineTo(px + h*0.070, py);                       // legs
+      ctx.lineTo(px + h*0.018, py);
+      ctx.lineTo(px, py - h*0.42);
+      ctx.lineTo(px - h*0.018, py);
+      ctx.lineTo(px - h*0.070, py);
+      ctx.lineTo(px - h*0.075, py - h*0.45);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // A palm, but drawn as a restrained line silhouette with graduations up
+    // the trunk rather than a solid green blob of boxes.
+    function drawPalm(px, py, u, H) {
+      var th = Math.max(1.6, u*0.055);
+      var crown = py - H*u*0.86;
+      // trunk, tapering, with the frond-scar rings a date palm actually has
+      ctx.strokeStyle = 'rgba(92,74,52,.85)';
+      ctx.lineWidth = th*2;
+      ctx.beginPath();
+      ctx.moveTo(px, py);
+      ctx.quadraticCurveTo(px + th*0.6, py - H*u*0.45, px, crown);
+      ctx.stroke();
+      ctx.lineWidth = 0.8;
+      ctx.strokeStyle = 'rgba(60,48,34,.45)';
+      for (var r = 1; r < H*1.6; r++) {
+        var yy = py - (r/(H*1.6))*(py - crown);
+        ctx.beginPath();
+        ctx.moveTo(px - th, yy); ctx.lineTo(px + th, yy); ctx.stroke();
+      }
+      // crown: arching fronds, thin, with a few leaflet ticks
+      var n = 11, len = H*u*0.20;
+      ctx.strokeStyle = 'rgba(64,102,58,.85)';
+      for (var f = 0; f < n; f++) {
+        var a = -Math.PI + (f/(n-1))*Math.PI;
+        var ex = px + Math.cos(a)*len*1.25;
+        var ey = crown + Math.sin(a)*len*0.55 + len*0.35;
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.moveTo(px, crown);
+        ctx.quadraticCurveTo(px + Math.cos(a)*len*0.75, crown + Math.sin(a)*len*0.30 - len*0.28, ex, ey);
+        ctx.stroke();
+      }
+      // graduation ladder beside the trunk so the height is readable, not
+      // just implied
+      if (u > 7) {
+        ctx.strokeStyle = 'rgba(20,28,22,.55)';
+        ctx.lineWidth = 1;
+        ctx.font = '600 9px Heebo,Arial,sans-serif';
+        ctx.textAlign = 'right';
+        ctx.fillStyle = 'rgba(20,28,22,.8)';
+        for (var mm = 1; mm <= H; mm++) {
+          var y2 = py - mm*u;
+          var wide = mm % 5 === 0;
+          ctx.beginPath();
+          ctx.moveTo(px - th - 2, y2);
+          ctx.lineTo(px - th - (wide ? 9 : 5), y2);
+          ctx.stroke();
+          if (wide) ctx.fillText(mm, px - th - 11, y2 + 3);
+        }
+      }
+    }
+
+    // Thin leaders from a representative point on each member group out to
+    // a chip naming it. This is what turns the model from a picture into a
+    // drawing: the same information the reference section conveys with
+    // annotation, on a view you can rotate.
+    var calloutBoxes = [];
+
+    function drawCallouts(P, w, h) {
+      calloutBoxes = [];
+      var labels = opts.labels || {};
+      var groups = Object.keys(labels);
+      if (!groups.length) return;
+
+      // One anchor per group: the centroid of its highest visible face, so
+      // the leader lands on the member rather than in the middle of the mass.
+      var anchor = {};
+      geo.faces.forEach(function (fc) {
+        if (!labels[fc.group] || hidden[fc.group]) return;
+        var c = [0,0,0];
+        fc.pts.forEach(function (p) { c[0]+=p[0]; c[1]+=p[1]; c[2]+=p[2]; });
+        c = [c[0]/fc.pts.length, c[1]/fc.pts.length, c[2]/fc.pts.length];
+        if (!anchor[fc.group] || c[2] > anchor[fc.group][2]) anchor[fc.group] = c;
+      });
+
+      var present = groups.filter(function (g) { return anchor[g]; })
+        .map(function (g) { return { g: g, p: P(anchor[g]) }; })
+        .filter(function (o) { return o.p[0] > -200 && o.p[0] < w+200; })
+        .sort(function (a, b) { return a.p[1] - b.p[1]; });
+
+      // Chips stack down the left and right gutters, alternating, so
+      // leaders stay short and never cross each other.
+      var leftY = 26, rightY = 26, LH = 26;
+      ctx.font = '700 11px Heebo,Arial,sans-serif';
+
+      present.forEach(function (o, i) {
+        var L = labels[o.g];
+        var onLeft = o.p[0] < w/2;
+        var txt = L.title + (L.sub ? '  ' + L.sub : '');
+        var tw = ctx.measureText(txt).width + 14;
+        var bx = onLeft ? 8 : w - tw - 8;
+        var by = onLeft ? leftY : rightY;
+        if (onLeft) leftY += LH; else rightY += LH;
+        if (by > h - 20) return;
+
+        var ax = onLeft ? bx + tw : bx;
+        ctx.strokeStyle = 'rgba(255,255,255,.75)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(ax, by + 9);
+        ctx.lineTo(ax + (onLeft ? 12 : -12), by + 9);
+        ctx.lineTo(o.p[0], o.p[1]);
+        ctx.stroke();
+        ctx.fillStyle = 'rgba(255,255,255,.9)';
+        ctx.beginPath(); ctx.arc(o.p[0], o.p[1], 2.6, 0, 6.29); ctx.fill();
+
+        var on = sel === o.g;
+        ctx.fillStyle = on ? 'rgba(255,209,102,.95)' : 'rgba(8,18,12,.86)';
+        ctx.strokeStyle = on ? '#ffd166' : 'rgba(255,255,255,.28)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(bx, by, tw, 18, 6);
+        else ctx.rect(bx, by, tw, 18);
+        ctx.fill(); ctx.stroke();
+        ctx.fillStyle = on ? '#20180a' : '#e9eee9';
+        ctx.textAlign = 'left';
+        ctx.fillText(txt, bx + 7, by + 13);
+        calloutBoxes.push({ g: o.g, x: bx, y: by, w: tw, h: 18 });
+      });
+    }
+
     function inPoly(pt, poly) {
       var ins = false;
       for (var i = 0, j = poly.length-1; i < poly.length; j = i++) {
@@ -519,9 +824,13 @@ var Shed3D = (function () {
     }
 
     function pick(x, y) {
+      for (var c = 0; c < calloutBoxes.length; c++) {
+        var b = calloutBoxes[c];
+        if (x >= b.x && x <= b.x+b.w && y >= b.y && y <= b.y+b.h) return b.g;
+      }
       for (var i = lastPolys.length-1; i >= 0; i--) {
         var g = lastPolys[i].fc.group;
-        if (g === 'ground' || g === 'palm') continue;   // scenery is not selectable
+        if (g === 'ground') continue;   // the site is not a selectable member
         if (inPoly([x, y], lastPolys[i].pr)) return g;
       }
       return null;
@@ -576,9 +885,26 @@ var Shed3D = (function () {
       update: function (nm) { m = nm; geo = build(m); draw(); },
       setView: function (y, p) { cam.yaw = y; cam.pitch = p; cam.px = 0; cam.py = 0; draw(); },
       setSun: function (az, el) { sunAz = az; sunEl = el; draw(); },
+      setGround: function (img, extent) { groundImg = img; groundExtent = extent || null; draw(); },
+      setHidden: function (map2) { hidden = map2 || {}; draw(); },
+      toggleLayer: function (g) { hidden[g] = !hidden[g]; draw(); return !!hidden[g]; },
+      isHidden: function (g) { return !!hidden[g]; },
+      groups: function () {
+        var seen = {};
+        geo.faces.forEach(function (f) { if (f.group !== 'ground') seen[f.group] = (seen[f.group]||0)+1; });
+        return seen;
+      },
+      // Rebuild geometry then repaint on the next frame — used by sliders.
+      nudge: function (nm) { m = nm; geo = build(m); schedule(); },
       resetView: function () { cam = { yaw:-0.68, pitch:0.34, zoom:1, px:0, py:0 }; draw(); },
       select: function (g) { sel = g; draw(); },
       meta: function () { return geo.meta; },
+      // Everything a remount needs to look like nothing happened.
+      getState: function () {
+        return { cam: { yaw: cam.yaw, pitch: cam.pitch, zoom: cam.zoom, px: cam.px, py: cam.py },
+                 hidden: hidden, sel: sel, sunAz: sunAz, sunEl: sunEl,
+                 groundImg: groundImg, groundExtent: groundExtent };
+      },
       snapshot: function () { return cv.toDataURL('image/png'); },
       redraw: draw,
       destroy: function () {
