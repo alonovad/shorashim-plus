@@ -1667,20 +1667,64 @@
   // it looked like the map had disappeared. With maxNativeZoom set, the
   // last level between them upscales real tiles instead of requesting
   // ones that do not exist, so there is no blank state at any zoom.
-  var MAX_ZOOM = 20, MAX_NATIVE = 19, MIN_ZOOM = 3;
+  // ── zoom and pan limits ────────────────────────────────────────────
+  // MAX_ZOOM is how far the user may go in. MAX_NATIVE is the deepest level
+  // we will actually REQUEST from the tile server; anything past it is
+  // produced by upscaling a real tile, so there is no blank state.
+  //
+  // 18, not 19: Esri publishes high-resolution imagery at z19+ only in some
+  // regions. Setting maxNativeZoom to a level the server does not hold for
+  // the Jordan Valley and the Arava means it answers with nothing and the
+  // map goes white — which is the "map disappears when I zoom in" problem.
+  // z18 is available essentially everywhere in Israel, and z19 upscales it.
+  var MAX_ZOOM = 19, MAX_NATIVE = 18, MIN_ZOOM = 6;
+
+  // A neutral tile for anything that still fails, so a gap in coverage is a
+  // grey square and not a hole in the page.
+  var BLANK_TILE = 'data:image/svg+xml;base64,' + btoa(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256">' +
+    '<rect width="256" height="256" fill="#3a4a3f"/></svg>');
+
+  // Israel and the immediate surroundings. Panning past this used to leave
+  // the imagery entirely and land the user in grey void with no way back.
+  var MAP_BOUNDS = L.latLngBounds(L.latLng(29.2, 33.8), L.latLng(33.5, 36.4));
+
   var map = L.map('map', {
     center: [31.8, 35.2], zoom: 13, zoomControl: false,
-    maxZoom: MAX_ZOOM, minZoom: MIN_ZOOM
+    maxZoom: MAX_ZOOM, minZoom: MIN_ZOOM,
+    maxBounds: MAP_BOUNDS,
+    maxBoundsViscosity: 0.85,     // firm edge, but not a hard wall
+    bounceAtZoomLimits: true      // pinch past the limit springs back
   });
   L.control.zoom({ position: 'bottomright' }).addTo(map);
 
   var satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-    attribution: 'Esri', maxZoom: MAX_ZOOM, maxNativeZoom: MAX_NATIVE
+    attribution: 'Esri', maxZoom: MAX_ZOOM, maxNativeZoom: MAX_NATIVE,
+    noWrap: true, bounds: MAP_BOUNDS, errorTileUrl: BLANK_TILE, keepBuffer: 2
   }).addTo(map);
 
   var streetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: 'OpenStreetMap', maxZoom: MAX_ZOOM, maxNativeZoom: MAX_NATIVE
+    attribution: 'OpenStreetMap', maxZoom: MAX_ZOOM, maxNativeZoom: MAX_NATIVE,
+    noWrap: true, bounds: MAP_BOUNDS, errorTileUrl: BLANK_TILE, keepBuffer: 2
   });
+
+  // Coverage varies by region even below MAX_NATIVE. If a run of tiles fails
+  // at the current level, step the native ceiling down once and redraw —
+  // the user keeps zooming, the imagery just gets softer instead of vanishing.
+  (function () {
+    var fails = 0, floor = 15;
+    satelliteLayer.on('tileerror', function () {
+      fails++;
+      if (fails < 6) return;
+      fails = 0;
+      var nz = satelliteLayer.options.maxNativeZoom;
+      if (nz > floor) {
+        satelliteLayer.options.maxNativeZoom = nz - 1;
+        satelliteLayer.redraw();
+      }
+    });
+    satelliteLayer.on('load', function () { fails = 0; });
+  })();
 
   var drawnItems = new L.FeatureGroup();
   map.addLayer(drawnItems);

@@ -193,9 +193,19 @@ var BuildPlan = (function () {
     { g: 'מרישים',        n: 'Z 200x2.0', kg: 5.80, u: "מ'" },
     { g: 'מרישים',        n: 'C 150x2.0', kg: 4.40, u: "מ'" },
     { g: 'מרישים',        n: 'C 200x2.5', kg: 7.10, u: "מ'" },
-    { g: 'חיפוי',         n: 'איסכורית 5 גלים', kg: 0,  u: 'מ"ר' },
-    { g: 'חיפוי',         n: 'פאנל מבודד 4 ס"מ', kg: 0, u: 'מ"ר' },
-    { g: 'חיפוי',         n: 'פאנל מבודד 5 ס"מ', kg: 0, u: 'מ"ר' },
+    // Cladding is sold by sheet thickness and, for panels, by core type and
+    // thickness — a 0.4 mm sheet and a 0.7 mm sheet are different products
+    // at different prices, and quoting one for the other is a real error.
+    { g: 'חיפוי',         n: 'איסכורית 0.4 מ"מ', kg: 3.4, u: 'מ"ר' },
+    { g: 'חיפוי',         n: 'איסכורית 0.5 מ"מ', kg: 4.3, u: 'מ"ר' },
+    { g: 'חיפוי',         n: 'איסכורית 0.6 מ"מ', kg: 5.1, u: 'מ"ר' },
+    { g: 'חיפוי',         n: 'איסכורית 0.7 מ"מ', kg: 6.0, u: 'מ"ר' },
+    { g: 'חיפוי',         n: 'פאנל קלקר 5 ס"מ',  kg: 9.5,  u: 'מ"ר' },
+    { g: 'חיפוי',         n: 'פאנל קלקר 7.5 ס"מ', kg: 10.5, u: 'מ"ר' },
+    { g: 'חיפוי',         n: 'פאנל קלקר 10 ס"מ', kg: 11.5, u: 'מ"ר' },
+    { g: 'חיפוי',         n: 'פאנל קלקר 15 ס"מ', kg: 13.0, u: 'מ"ר' },
+    { g: 'חיפוי',         n: 'פאנל צמר סלעים 5 ס"מ',  kg: 15.0, u: 'מ"ר' },
+    { g: 'חיפוי',         n: 'פאנל צמר סלעים 10 ס"מ', kg: 21.0, u: 'מ"ר' },
     { g: 'חיפוי',         n: 'לוח סקיילייט', kg: 0,   u: 'מ"ר' },
     { g: 'בטון',          n: 'בטון ב-30',   kg: 0,   u: 'מ"ק' },
     { g: 'בטון',          n: 'רשת פלדה Q188', kg: 0,  u: "יח'" },
@@ -257,9 +267,16 @@ var BuildPlan = (function () {
     'חיפוי':         ['วัสดุปิดผิว', 'تغطية'],
     'בטון':          ['คอนกรีต', 'خرسانة'],
     'אביזרים':       ['อุปกรณ์', 'ملحقات'],
-    'איסכורית 5 גלים':   ['เมทัลชีท 5 ลอน', 'صاج مموج 5 موجات'],
-    'פאנל מבודד 4 ס"מ':  ['แผ่นฉนวน 4 ซม.', 'بانل معزول 4 سم'],
-    'פאנל מבודד 5 ס"מ':  ['แผ่นฉนวน 5 ซม.', 'بانل معزول 5 سم'],
+    'איסכורית 0.4 מ"מ': ['เมทัลชีท 0.4 มม.', 'صاج 0.4 مم'],
+    'איסכורית 0.5 מ"מ': ['เมทัลชีท 0.5 มม.', 'صاج 0.5 مم'],
+    'איסכורית 0.6 מ"מ': ['เมทัลชีท 0.6 มม.', 'صاج 0.6 مم'],
+    'איסכורית 0.7 מ"מ': ['เมทัลชีท 0.7 มม.', 'صاج 0.7 مم'],
+    'פאנל קלקר 5 ס"מ':   ['แผ่นฉนวน EPS 5 ซม.', 'بانل فلين 5 سم'],
+    'פאנל קלקר 7.5 ס"מ': ['แผ่นฉนวน EPS 7.5 ซม.', 'بانل فلين 7.5 سم'],
+    'פאנל קלקר 10 ס"מ':  ['แผ่นฉนวน EPS 10 ซม.', 'بانل فلين 10 سم'],
+    'פאנל קלקר 15 ס"מ':  ['แผ่นฉนวน EPS 15 ซม.', 'بانل فلين 15 سم'],
+    'פאנל צמר סלעים 5 ס"מ':  ['แผ่นใยหิน 5 ซม.', 'بانل صوف صخري 5 سم'],
+    'פאנל צמר סלעים 10 ס"מ': ['แผ่นใยหิน 10 ซม.', 'بانل صوف صخري 10 سم'],
     'לוח סקיילייט':      ['แผ่นสกายไลท์', 'لوح إضاءة'],
     'בטון ב-30':         ['คอนกรีต B-30', 'خرسانة B-30'],
     'רשת פלדה Q188':     ['ตะแกรงเหล็ก Q188', 'شبكة حديد Q188'],
@@ -343,8 +360,8 @@ var BuildPlan = (function () {
       rafterProfile: String(d.rafterProfile || 'IPE 200'),
       purlinProfile: String(d.purlinProfile || 'Z 200x2.0'),
       girtProfile:   String(d.girtProfile   || 'C 150x2.0'),
-      roofPanel:     String(d.roofPanel     || 'פאנל מבודד 5 ס"מ'),
-      wallPanel:     String(d.wallPanel     || 'איסכורית 5 גלים'),
+      roofPanel:     String(d.roofPanel     || 'פאנל קלקר 5 ס"מ'),
+      wallPanel:     String(d.wallPanel     || 'איסכורית 0.5 מ"מ'),
       walls:  d.walls === false ? false : true,
       gutter: d.gutter === false ? false : true,
       // 3D / buildability
@@ -428,7 +445,8 @@ var BuildPlan = (function () {
 
   function normCat(d) {
     var s = (d && typeof d === 'object') ? d : {};
-    var out = { profiles: [] };
+    var out = { profiles: [], steelPerKg: Number(s.steelPerKg) || 0,
+                pricedAt: Number(s.pricedAt) || 0 };
     if (Array.isArray(s.profiles) && s.profiles.length) {
       out.profiles = s.profiles.map(function (p) {
         return {
@@ -600,11 +618,18 @@ var BuildPlan = (function () {
       push(d.girtProfile, g.girtRows * g.perimeter * w, "מ'",
         g.girtRows + ' ' + tt('שורות', 'แถว', 'صفوف'));
     }
-    push(d.roofPanel, g.roofArea * w, 'מ"ר', tt('כולל פחת', 'รวมเผื่อ', 'شامل الهدر'));
-    if (d.wallMode !== 'open') push(d.wallPanel, g.wallArea * w, 'מ"ר', tt('כולל פחת', 'รวมเผื่อ', 'شامل الهدر'));
+    // Cladding is billed only when it is actually specified. The model
+    // honoured 'ללא' and 'פתוח'; the takeoff did not, so switching the roof
+    // off changed the drawing and left the price alone.
+    if (d.roofClad !== 'none') {
+      push(d.roofPanel, g.roofArea * w, 'מ"ר', tt('כולל פחת', 'รวมเผื่อ', 'شامل الهدر'));
+    }
+    if (d.wallMode !== 'open' && d.wallClad !== 'none') {
+      push(d.wallPanel, g.wallArea * w, 'מ"ר', tt('כולל פחת', 'รวมเผื่อ', 'شامل الهدر'));
+    }
     push('פלטת בסיס', g.frames * 2, "יח'", '');
     push('בורג עיגון', g.frames * 2 * 4, "יח'", tt('4 לעמוד', '4 ต่อเสา', '4 لكل عمود'));
-    if (d.gutter) {
+    if (d.gutter && d.roofClad !== 'none') {
       push('מרזב', 2 * d.length, "מ'", '');
       push('צינור ניקוז', Math.max(2, Math.ceil(d.length / 12) * 2), "יח'", '');
     }
@@ -619,7 +644,7 @@ var BuildPlan = (function () {
       push('ברזל זיון 12 מ"מ', ft.n * d.footW * 8 * 2 * w, "מ'",
         tt('כלוב זיון לבסיסים', 'เหล็กฐาน', 'تسليح القواعد'));
     }
-    if (d.skylights > 0) {
+    if (d.skylights > 0 && d.roofClad !== 'none') {
       var skyA = (d.skylights * (d.length / (d.skylights * 2 + 1))) * g.rafterLen * 2;
       push('לוח סקיילייט', skyA * w, 'מ"ר', d.skylights + ' ' + tt('רצועות', 'แถบ', 'شرائط'));
     }
@@ -627,7 +652,9 @@ var BuildPlan = (function () {
       var lRaf = d.leanTo / Math.cos(Math.max(4, d.pitch * 0.6) * Math.PI / 180);
       push(d.rafterProfile, g.frames * lRaf * w, "מ'", tt('סככת צד', 'เพิงข้าง', 'جناح جانبي'));
       push(d.colProfile, g.frames * d.eaves * 0.85 * w, "מ'", tt('עמודי סככת צד', 'เสาเพิง', 'أعمدة الجناح'));
-      push(d.roofPanel, d.length * lRaf * w, 'מ"ר', tt('גג סככת צד', 'หลังคาเพิง', 'سقف الجناح'));
+      if (d.roofClad !== 'none') {
+        push(d.roofPanel, d.length * lRaf * w, 'מ"ר', tt('גג סככת צד', 'หลังคาเพิง', 'سقف الجناح'));
+      }
     }
     if (d.mezz > 0) {
       push(d.rafterProfile, (g.bays + 1) * d.mezz * w, "מ'", tt('קורות גלריה', 'คานชั้นลอย', 'روافد الميزانين'));
@@ -843,6 +870,58 @@ var BuildPlan = (function () {
   // ground and useless for laying out a shed that does not exist yet.
   // This is the other mode: drag it out, then set the numbers.
   var _ge = null;
+
+  // One tap: put a rectangle of the project's own dimensions at the centre
+  // of the current map view, ready to drag into position. Making the user
+  // draw a box and then type the numbers they already entered on the design
+  // tab was work the app could do for them.
+  function placeFromDims(id) {
+    var p = projById(id), m = map();
+    if (!p) return;
+    if (!m) { toast('\u26a0\ufe0f ' + tt('המפה לא זמינה', 'แผนที่ไม่พร้อม', 'الخريطة غير متاحة')); return; }
+    if (typeof GeoEdit === 'undefined') return;
+    if (window.MapAccess && !MapAccess.setExternalDraw(true)) {
+      toast('\u26a0\ufe0f ' + tt('סיים את הסימון הפעיל', 'จบการวาดก่อน', 'أنهِ الرسم الحالي'));
+      return;
+    }
+    if (window.MapAccess && MapAccess.goToMap) MapAccess.goToMap(); else close();
+
+    var w = p.type === 'slab' ? (p.dims.span || 10) : (p.dims.span || 10);
+    var h = p.dims.length || 20;
+    var c = m.getCenter();
+    _ge = { id: id };
+    setTimeout(function () {
+      m.invalidateSize();
+      var ctr = m.getCenter();
+      GeoEdit.start(m, {
+        mode: 'edit',
+        rect: { lat: ctr.lat, lng: ctr.lng, w: w, h: h, rot: (p.rect && p.rect.rot) || 0 },
+        pts: [{ lat: ctr.lat, lng: ctr.lng }, { lat: ctr.lat, lng: ctr.lng },
+              { lat: ctr.lat, lng: ctr.lng }],
+        onChange: rectReadout
+      });
+      GeoEdit.setDims(w, h, (p.rect && p.rect.rot) || 0);
+      rectBanner(id);
+      toast('\u25ad ' + n1(w) + ' \u00d7 ' + n1(h) + ' m \u00b7 ' +
+        tt('גרור למקום', 'ลากไปยังตำแหน่ง', 'اسحب إلى الموقع'));
+    }, 120);
+    void c;
+  }
+
+  // The reverse: take the drawn rectangle's sides as the building's span
+  // and length, so a footprint measured on site drives the model.
+  function dimsFromRect(id) {
+    var p = projById(id);
+    if (!p || !p.rect || !(p.rect.w > 0)) {
+      toast('\u26a0\ufe0f ' + tt('אין מלבן מסומן', 'ยังไม่มีสี่เหลี่ยม', 'لا يوجد مستطيل'));
+      return;
+    }
+    p.dims.span = n1(p.rect.w);
+    p.dims.length = n1(p.rect.h);
+    saveP();
+    toast('\u2705 ' + n1(p.rect.w) + ' \u00d7 ' + n1(p.rect.h) + ' m');
+    open(id);
+  }
 
   function startRect(id) {
     var m = map();
@@ -1728,7 +1807,10 @@ var BuildPlan = (function () {
     // sensible number of tiles — too coarse is blurry, too fine is 60 fetches.
     var mpp = 156543.03392 * Math.cos(lat * Math.PI/180);
     var need = Math.max(halfX, halfY) * 2;
-    var z = 19;
+    // 18, matching the map's maxNativeZoom. Requesting z19 here hit the same
+    // patchy coverage that blanked the map, and a missing tile left a hole
+    // in the satellite ground plane.
+    var z = 18;
     while (z > 14 && (mpp / Math.pow(2, z)) * 256 * 3 < need) z--;
     var res = mpp / Math.pow(2, z);
 
@@ -1759,7 +1841,9 @@ var BuildPlan = (function () {
     }
 
     return Promise.all(jobs).then(function (r) {
-      if (r.filter(Boolean).length < r.length * 0.6) return null;
+      // A composite that is mostly missing tiles is worse than none: the
+      // ground plane would show holes where imagery should be.
+      if (r.filter(Boolean).length < r.length * 0.75) return null;
       // Metre extents of the composited canvas, relative to the footprint
       // centroid — this is what pins the imagery to the model 1:1.
       var out = new Image();
@@ -1960,7 +2044,9 @@ var BuildPlan = (function () {
   // Tap a member, see what else would carry it. Every candidate shows its
   // utilisation, so the choice is between sections that work rather than a
   // dropdown of every section in the catalogue.
+  var _swapRole = null;
   function swapPanel(role) {
+    _swapRole = ROLE_KEY[role] ? role : null;
     var host = document.getElementById('bpSwap');
     if (!host) return;
     if (!ROLE_KEY[role] || !_open) { host.innerHTML = ''; return; }
@@ -2027,6 +2113,7 @@ var BuildPlan = (function () {
   }
 
   function closeSwap() {
+    _swapRole = null;
     var host = document.getElementById('bpSwap');
     if (host) host.innerHTML = '';
     if (_v3d) _v3d.select(null);
@@ -2145,10 +2232,12 @@ var BuildPlan = (function () {
             ctl(id, 'pitch',  tt('שיפוע גג (\u00b0)', 'ความชัน', 'الميل'), d.pitch, 0, 35, 1) +
             ctl(id, 'waste',  tt('פחת %', 'เผื่อ %', 'هدر %'), d.waste, 0, 25, 1) +
           '</div>' +
-          (Math.abs(g.actualBay - d.bay) > 0.05 ?
-            '<div style="font-size:.75rem;color:var(--accent,#ff9f43);margin-top:6px;">\u26a0\ufe0f ' +
-            tt('המרווח הותאם ל-', 'ปรับระยะเป็น ', 'تم ضبط التباعد إلى ') + n1(g.actualBay) + ' m ' +
-            tt('כדי לחלק את האורך שווה בשווה', 'เพื่อแบ่งเท่ากัน', 'لتقسيم متساوٍ') + '</div>' : '') +
+          '<div id="bpBayWarn" style="font-size:.75rem;color:var(--accent,#ff9f43);margin-top:6px;">' +
+            (Math.abs(g.actualBay - d.bay) > 0.05
+              ? '\u26a0\ufe0f ' + tt('המרווח הותאם ל-', 'ปรับระยะเป็น ', 'تم ضبط التباعد إلى ') +
+                n1(g.actualBay) + ' m ' +
+                tt('כדי לחלק את האורך שווה בשווה', 'เพื่อแบ่งเท่ากัน', 'لتقسيم متساوٍ')
+              : '') + '</div>' +
         '</div></details>' +
 
         '<details class="bp-acc"><summary>' +
@@ -2181,7 +2270,9 @@ var BuildPlan = (function () {
             '<option value="iskurit"' + (d.wallClad === 'iskurit' ? ' selected' : '') + '>' +
               tt('איסכורית', 'เมทัลชีท', 'صاج مموج') + '</option>' +
             '<option value="panel"' + (d.wallClad === 'panel' ? ' selected' : '') + '>' +
-              tt('פאנל מבודד', 'แผ่นฉนวน', 'بانل معزول') + '</option></select></div>' +
+              tt('פאנל מבודד', 'แผ่นฉนวน', 'بانل معزول') + '</option>' +
+            '<option value="none"' + (d.wallClad === 'none' ? ' selected' : '') + '>' +
+              tt('ללא', 'ไม่มี', 'بدون') + '</option></select></div>' +
       '</div>' +
       '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;font-size:.8rem;">' +
         '<label><input type="checkbox"' + (d.fence ? ' checked' : '') +
@@ -2269,16 +2360,7 @@ var BuildPlan = (function () {
           ctl(id, 'slabTh', tt('עובי משטח (מ\')', 'หนาพื้น', 'سماكة السطح'), d.slabTh, 0.08, 0.5, 0.01) +
           ctl(id, 'soilBearing', tt('כושר נשיאה (kPa)', 'กำลังรับดิน', 'تحمل التربة'), d.soilBearing, 60, 400, 10) +
         '</div>' +
-        '<div class="bp-tot" style="margin-top:8px;"><span>' +
-          tt('שטח משפיע לעמוד', 'พื้นที่รับต่อเสา', 'المساحة لكل عمود') + '</span><strong>' +
-          n1(ft.trib) + ' \u05de"\u05e8 \u00b7 ' + n1(ft.axial) + ' kN</strong></div>' +
-        '<div class="bp-tot"><span>' + tt('צלע נדרשת', 'ด้านที่ต้องการ', 'الضلع المطلوب') +
-          '</span><strong style="color:' + (ft.ok ? 'var(--primary,#2d6a4f)' : '#e65100') + ';">' +
-          n2(ft.reqSide) + ' \u05de\' ' + (ft.ok ? '\u2713' : '\u2014 ' +
-          tt('הגדל ל-', 'เพิ่มเป็น', 'زد إلى') + ' ' + ft.suggest) + '</strong></div>' +
-        '<div class="bp-tot" style="border:none;"><span>' + tt('בטון', 'คอนกรีต', 'خرسانة') +
-          '</span><strong>' + n2(con.slab) + ' + ' + n2(con.footings) + ' = ' +
-          n2(con.total) + ' \u05de"\u05e7</strong></div>' +
+        '<div id="bpFound" style="margin-top:8px;">' + footingSummary(p) + '</div>' +
         '<div style="font-size:.72rem;color:var(--text-muted,#888);margin-top:6px;">\u26a0\ufe0f ' +
           tt('הערכה ראשונית בלבד: עומס אחיד, ללא רוח/מומנט, קרקע הומוגנית. נדרש אישור מהנדס וסקר קרקע.',
              'ประมาณการเบื้องต้นเท่านั้น ต้องมีวิศวกรรับรอง',
@@ -2518,9 +2600,16 @@ var BuildPlan = (function () {
         : '<div class="bp-empty">' + tt('הפרויקט עדיין לא ממוקם על המפה.',
             'ยังไม่ได้กำหนดตำแหน่ง', 'لم يُحدَّد الموقع بعد') + '</div>') +
       '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">' +
-        '<button class="bp-btn" onclick="BuildPlan.startRect(' + p.id + ')">\u25ad ' +
-          (has ? tt('ערוך מלבן / הזז / סובב', 'แก้ไข / ย้าย / หมุน', 'تحرير / نقل / تدوير')
+        '<button class="bp-btn" onclick="BuildPlan.placeFromDims(' + p.id + ')">\u2b1a ' +
+          tt('מקם לפי המידות', 'วางตามขนาด', 'ضع حسب الأبعاد') +
+          ' (' + n1(p.dims.span) + '\u00d7' + n1(p.dims.length) + ')</button>' +
+        '<button class="bp-btn ghost" onclick="BuildPlan.startRect(' + p.id + ')">\u25ad ' +
+          (has ? tt('ערוך / הזז / סובב', 'แก้ไข / ย้าย / หมุน', 'تحرير / نقل / تدوير')
                : tt('צייר מלבן', 'วาดสี่เหลี่ยม', 'ارسم مستطيلاً')) + '</button>' +
+        (p.rect && p.rect.w > 0
+          ? '<button class="bp-btn ghost" onclick="BuildPlan.dimsFromRect(' + p.id + ')">\u2b07 ' +
+            tt('קח מידות מהמלבן', 'ใช้ขนาดจากรูป', 'خذ الأبعاد من المستطيل') + '</button>'
+          : '') +
         '<button class="bp-btn ghost" onclick="BuildPlan.startFootprint(' + p.id + ')">\u2b20 ' +
           (has ? tt('סמן מחדש נקודה-נקודה', 'วาดทีละจุด', 'ارسم نقطة بنقطة')
                : tt('סמן נקודה-נקודה', 'วาดทีละจุด', 'ارسم نقطة بنقطة')) + '</button>' +
@@ -2696,14 +2785,57 @@ var BuildPlan = (function () {
 
   // Release: persist, and repaint once so anything structural (new controls
   // appearing, the takeoff, the callouts) catches up.
+  // Releasing a slider used to repaint the entire sheet, which tore down and
+  // rebuilt the canvas — that flash IS the jump. A number never changes
+  // which controls exist, so nothing needs re-rendering: save it, and patch
+  // the handful of places that display derived values.
   function _commit(id, k, v) {
     var p = projById(id);
     if (!p) return;
     p.dims[k] = Number(v) || 0;
     if (_liveSave) { clearTimeout(_liveSave); _liveSave = null; }
     saveP();
-    if (_num) clearTimeout(_num);
-    _num = setTimeout(function () { open(id); }, 60);
+    refreshDerived(p);
+  }
+
+  // Everything on the design tab that is computed rather than typed.
+  // Updated in place so the DOM the user is touching is never replaced.
+  function refreshDerived(p) {
+    refreshReadouts(p);
+    legendPanel(p);
+    if (_v3d) {
+      var g = _v3d.isHidden ? null : null;
+      void g;
+    }
+    // the bay-fit warning
+    var warn = document.getElementById('bpBayWarn');
+    if (warn && p.type !== 'slab') {
+      var gg = geom(p.dims);
+      warn.innerHTML = (Math.abs(gg.actualBay - p.dims.bay) > 0.05)
+        ? '\u26a0\ufe0f ' + tt('המרווח הותאם ל-', 'ปรับระยะเป็น ', 'تم ضبط التباعد إلى ') +
+          n1(gg.actualBay) + ' m ' +
+          tt('כדי לחלק את האורך שווה בשווה', 'เพื่อแบ่งเท่ากัน', 'لتقسيم متساوٍ')
+        : '';
+    }
+    // the foundation summary
+    var fo = document.getElementById('bpFound');
+    if (fo && p.type !== 'slab') fo.innerHTML = footingSummary(p);
+    // utilisation in an open swap panel
+    if (_v3d && _swapRole) swapPanel(_swapRole);
+  }
+
+  function footingSummary(p) {
+    var d = p.dims, ft = footing(d), con = concrete(p);
+    return '<div class="bp-tot"><span>' +
+        tt('שטח משפיע לעמוד', 'พื้นที่รับต่อเสา', 'المساحة لكل عمود') + '</span><strong>' +
+        n1(ft.trib) + ' \u05de"\u05e8 \u00b7 ' + n1(ft.axial) + ' kN</strong></div>' +
+      '<div class="bp-tot"><span>' + tt('צלע נדרשת', 'ด้านที่ต้องการ', 'الضلع المطلوب') +
+        '</span><strong style="color:' + (ft.ok ? 'var(--primary,#2d6a4f)' : '#e65100') + ';">' +
+        n2(ft.reqSide) + ' \u05de\' ' + (ft.ok ? '\u2713' : '\u2014 ' +
+        tt('הגדל ל-', 'เพิ่มเป็น', 'زد إلى') + ' ' + ft.suggest) + '</strong></div>' +
+      '<div class="bp-tot" style="border:none;"><span>' + tt('בטון', 'คอนกรีต', 'خرسانة') +
+        '</span><strong>' + n2(con.slab) + ' + ' + n2(con.footings) + ' = ' +
+        n2(con.total) + ' \u05de"\u05e7</strong></div>';
   }
 
   // The numbers that answer "did the rafter actually get longer when I
@@ -2784,7 +2916,8 @@ var BuildPlan = (function () {
         tt('שמור', 'บันทึก', 'حفظ') + '</button>' +
       '<button class="bp-btn ghost" onclick="BuildPlan.render()">\u21a9 ' +
         tt('חזרה', 'กลับ', 'رجوع') + '</button>';
-    paint(shell('\ud83d\udcd0 ' + tt('קטלוג פרופילים', 'แคตตาล็อกโปรไฟล์', 'كتالوج المقاطع'), bar, body));
+    paint(shell('\ud83d\udcd0 ' + tt('קטלוג פרופילים', 'แคตตาล็อกโปรไฟล์', 'كتالوج المقاطع'),
+      bar, priceHeader() + body));
   }
   function _prof(pid, k, v) {
     (C.profiles || []).forEach(function (x) {
@@ -2800,6 +2933,55 @@ var BuildPlan = (function () {
     saveC();
     openCatalog();
   }
+  // Steel is sold by weight, not by the metre. Every merchant quotes a
+  // shekels-per-kilo figure and the section price follows from kg/m, so
+  // keeping the catalogue current is one number rather than seventeen.
+  // There is no public price feed for Israeli steel — the pages that look
+  // like one are generated content quoting different figures for the same
+  // section on sibling pages — so this stays a number you set from a real
+  // quote, with the sources listed next to it.
+  function applySteelPrice() {
+    var v = Number((document.getElementById('bpKgPrice') || {}).value);
+    if (!(v > 0)) { toast('\u26a0\ufe0f ' + tt('הזן מחיר לק"ג', 'ใส่ราคา/กก.', 'أدخل السعر/كغ')); return; }
+    var n = 0;
+    (C.profiles || []).forEach(function (pr) {
+      if (pr.kgPerM > 0 && pr.unit === "מ'") { pr.price = Math.round(pr.kgPerM * v * 100) / 100; n++; }
+    });
+    C.steelPerKg = v;
+    C.pricedAt = Date.now();
+    saveC();
+    toast('\u2705 ' + n + ' ' + tt('פרופילים תומחרו', 'โปรไฟล์ตั้งราคาแล้ว', 'مقاطع تم تسعيرها'));
+    openCatalog();
+  }
+
+  function priceHeader() {
+    var when = C.pricedAt ? new Date(C.pricedAt).toLocaleDateString('he-IL') : '\u2014';
+    return '<div class="bp-card">' +
+      '<div class="bp-lbl" style="margin-bottom:6px;">\u2696\ufe0f ' +
+        tt('תמחור פלדה לפי משקל', 'ราคาเหล็กตามน้ำหนัก', 'تسعير الحديد بالوزن') + '</div>' +
+      '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">' +
+        '<input class="bp-in" id="bpKgPrice" type="number" step="0.1" style="width:110px;" ' +
+          'value="' + (C.steelPerKg || '') + '" placeholder="\u20aa/kg">' +
+        '<button class="bp-btn" onclick="BuildPlan.applySteelPrice()">' +
+          tt('עדכן את כל הפרופילים', 'อัปเดตทั้งหมด', 'تحديث الكل') + '</button>' +
+        '<span style="font-size:.74rem;color:var(--text-muted,#888);">' +
+          tt('עודכן', 'อัปเดต', 'حُدّث') + ': ' + when + '</span>' +
+      '</div>' +
+      '<div style="font-size:.72rem;color:var(--text-muted,#888);margin-top:8px;line-height:1.6;">' +
+        tt('אין הזנת מחירים אוטומטית לפלדה בישראל — האתרים שנראים כמו מחירון הם תוכן שיווקי שמצטט מחירים סותרים. עדכנו מהצעת מחיר אמיתית. מקורות שימושיים:',
+           'ไม่มีฟีดราคาอัตโนมัติ อัปเดตจากใบเสนอราคาจริง',
+           'لا توجد تغذية أسعار تلقائية — حدّث من عرض سعر حقيقي') + '<br>' +
+        '<a href="https://www.saf.co.il/sal/list.php?t=24" target="_blank" rel="noopener" ' +
+          'style="color:var(--accent,#ff9f43);">saf.co.il</a> \u00b7 ' +
+        '<a href="https://panel-hashomron.co.il/%D7%9E%D7%95%D7%A6%D7%A8%D7%99%D7%9D/" target="_blank" ' +
+          'rel="noopener" style="color:var(--accent,#ff9f43);">panel-hashomron.co.il</a> \u00b7 ' +
+        '<a href="https://marzevit.co.il/product-category/%D7%9E%D7%95%D7%A6%D7%A8%D7%99-%D7%91%D7%A0%D7%99%D7%94-%D7%A7%D7%9C%D7%94/k-panelim/" ' +
+          'target="_blank" rel="noopener" style="color:var(--accent,#ff9f43);">marzevit.co.il</a> \u00b7 ' +
+        '<a href="https://www.biad.co.il/ipn" target="_blank" rel="noopener" ' +
+          'style="color:var(--accent,#ff9f43);">biad.co.il</a>' +
+      '</div></div>';
+  }
+
   function _saveCat() {
     saveC();
     toast('\u2705 ' + tt('נשמר', 'บันทึกแล้ว', 'تم الحفظ'));
@@ -2948,6 +3130,8 @@ var BuildPlan = (function () {
     openCatalog: openCatalog,
     startFootprint: startFootprint,
     startRect: startRect,
+    placeFromDims: placeFromDims,
+    dimsFromRect: dimsFromRect,
     geApply: geApply,
     geRot: geRot,
     geRedraw: geRedraw,
@@ -2970,6 +3154,7 @@ var BuildPlan = (function () {
     _prof: _prof,
     _addProf: _addProf,
     _delProf: _delProf,
-    _saveCat: _saveCat
+    _saveCat: _saveCat,
+    applySteelPrice: applySteelPrice
   };
 })();
