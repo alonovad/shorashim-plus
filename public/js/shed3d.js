@@ -39,7 +39,7 @@ var Shed3D = (function () {
     roof: '#8fa3b8', wall: '#c2c9d2', gutter: '#7f8c8d', ridge: '#6d7b7f',
     slab: '#b9b6ae', footing: '#7d6b58', fence: '#6c757d',
     door: '#5d6d7e', skylight: '#dff3ff', mezz: '#a9855f',
-    ground: '#c8b98f', sel: '#ffd166'
+    ground: '#b9ae92', sel: '#ffd166'
   };
 
   // ── vectors ──
@@ -57,6 +57,170 @@ var Shed3D = (function () {
       .map(function (ix) {
         return { pts: ix.map(function (i) { return p[i]; }), color: c, group: g };
       });
+  }
+
+  function lerp(p1, p2, t) {
+    return [p1[0] + (p2[0]-p1[0])*t, p1[1] + (p2[1]-p1[1])*t, p1[2] + (p2[2]-p1[2])*t];
+  }
+
+  // ── subdivision ──────────────────────────────────────────────────────
+  // A painter's-algorithm renderer sorts faces by ONE depth value each. That
+  // is only correct while every face is small relative to the spacing
+  // between them. A 30 m purlin has its centroid in the middle of the shed,
+  // so a column standing at the near end can sort in front of it from one
+  // camera angle and behind it from the next — members appear to slice
+  // through each other, and the picture changes as you orbit.
+  //
+  // Splitting long members into roughly bay-length pieces makes each face
+  // local, so its centroid genuinely represents where it is. Same cure that
+  // fixed the ground plane and the fence.
+  // Target face length. Fixed at 3 m this quadrupled the face count on a
+  // large shed and undid the mobile budget, so it scales with the building:
+  // roughly ten pieces along the longest dimension, never finer than 2.5 m.
+  // Correctness comes from faces being small RELATIVE to member spacing,
+  // not from being small in absolute metres.
+  var SEG = 3.0;
+  function setSeg(m) {
+    // Tied to BAY SPACING, not to overall size. What makes a depth sort
+    // unreliable is a face long enough to straddle several members, so the
+    // spacing between members is the quantity that matters — a 60 m shed
+    // with 6 m bays needs the same piece length as a 20 m one.
+    SEG = Math.max(2.5, Math.min(6, (m.bay || 5) * 0.9));
+  }
+
+  // Continuous bars — purlins, girts, eave struts, gutters, ridge — are the
+  // bulk of the face count. Their end caps are butted against the next
+  // segment and can never be seen, so emitting 4 faces instead of 6 is a
+  // third off the heaviest group in the scene for no visible difference.
+  function bar(x1, y1, z1, x2, y2, z2, c, g) {
+    var p = [[x1,y1,z1],[x2,y1,z1],[x2,y2,z1],[x1,y2,z1],
+             [x1,y1,z2],[x2,y1,z2],[x2,y2,z2],[x1,y2,z2]];
+    return [[0,1,2,3],[4,5,6,7],[1,2,6,5],[0,3,7,4]].map(function (ix) {
+      return { pts: ix.map(function (i) { return p[i]; }), color: c, group: g };
+    });
+  }
+
+  function barSeg(x1, y1, z1, x2, y2, z2, c, g) {
+    var dx = Math.abs(x2 - x1), dy = Math.abs(y2 - y1);
+    var out = [], n, i, t0, t1;
+    if (dx >= dy && dx > SEG) {
+      n = segCount(dx);
+      for (i = 0; i < n; i++) {
+        t0 = x1 + (x2-x1)*i/n; t1 = x1 + (x2-x1)*(i+1)/n;
+        out = out.concat(bar(t0, y1, z1, t1, y2, z2, c, g));
+      }
+      return out;
+    }
+    if (dy > SEG) {
+      n = segCount(dy);
+      for (i = 0; i < n; i++) {
+        t0 = y1 + (y2-y1)*i/n; t1 = y1 + (y2-y1)*(i+1)/n;
+        out = out.concat(bar(x1, t0, z1, x2, t1, z2, c, g));
+      }
+      return out;
+    }
+    return bar(x1, y1, z1, x2, y2, z2, c, g);
+  }
+
+  function segCount(len) {
+    return Math.max(1, Math.min(24, Math.round(Math.abs(len) / SEG)));
+  }
+
+  // Axis-aligned box split along whichever horizontal axis is longer.
+  function boxSeg(x1, y1, z1, x2, y2, z2, c, g) {
+    var dx = Math.abs(x2 - x1), dy = Math.abs(y2 - y1);
+    var out = [], n, i, t0, t1;
+    if (dx >= dy && dx > SEG) {
+      n = segCount(dx);
+      for (i = 0; i < n; i++) {
+        t0 = x1 + (x2 - x1) * i / n; t1 = x1 + (x2 - x1) * (i + 1) / n;
+        out = out.concat(box(t0, y1, z1, t1, y2, z2, c, g));
+      }
+      return out;
+    }
+    if (dy > SEG) {
+      n = segCount(dy);
+      for (i = 0; i < n; i++) {
+        t0 = y1 + (y2 - y1) * i / n; t1 = y1 + (y2 - y1) * (i + 1) / n;
+        out = out.concat(box(x1, t0, z1, x2, t1, z2, c, g));
+      }
+      return out;
+    }
+    return box(x1, y1, z1, x2, y2, z2, c, g);
+  }
+
+  // Quad split along its a→b edge, keeping ribs proportional per piece.
+  function quadSeg(a, b, c, d, col, g, ribs, alpha) {
+    var len = Math.hypot(b[0]-a[0], b[1]-a[1], b[2]-a[2]);
+    var n = segCount(len);
+    if (n < 2) return quad(a, b, c, d, col, g, ribs, alpha);
+    var out = [];
+    for (var i = 0; i < n; i++) {
+      var t0 = i/n, t1 = (i+1)/n;
+      out = out.concat(quad(lerp(a,b,t0), lerp(a,b,t1), lerp(d,c,t1), lerp(d,c,t0),
+        col, g, Math.max(1, Math.round((ribs||0)/n)), alpha));
+    }
+    return out;
+  }
+
+  // Split a box on both horizontal axes. The slab is 20 m each way, so
+  // splitting only the longer one still left 20 m strips.
+  function boxSeg2(x1, y1, z1, x2, y2, z2, c, g) {
+    var nx = segCount(x2 - x1), ny = segCount(y2 - y1), out = [];
+    for (var i = 0; i < nx; i++) {
+      for (var j = 0; j < ny; j++) {
+        out = out.concat(box(
+          x1 + (x2-x1)*i/nx, y1 + (y2-y1)*j/ny, z1,
+          x1 + (x2-x1)*(i+1)/nx, y1 + (y2-y1)*(j+1)/ny, z2, c, g));
+      }
+    }
+    return out;
+  }
+
+  // Quad split on both axes — a roof slope is long along the building and
+  // wide across the pitch, and both need breaking up.
+  function quadSeg2(a, b, c, d, col, g, ribs, alpha) {
+    var lu = Math.hypot(b[0]-a[0], b[1]-a[1], b[2]-a[2]);
+    var lv = Math.hypot(d[0]-a[0], d[1]-a[1], d[2]-a[2]);
+    var nu = segCount(lu), nv = segCount(lv);
+    if (nu < 2 && nv < 2) return quad(a, b, c, d, col, g, ribs, alpha);
+    var out = [];
+    for (var i = 0; i < nu; i++) {
+      for (var j = 0; j < nv; j++) {
+        var u0 = i/nu, u1 = (i+1)/nu, v0 = j/nv, v1 = (j+1)/nv;
+        var p00 = lerp(lerp(a,b,u0), lerp(d,c,u0), v0);
+        var p10 = lerp(lerp(a,b,u1), lerp(d,c,u1), v0);
+        var p11 = lerp(lerp(a,b,u1), lerp(d,c,u1), v1);
+        var p01 = lerp(lerp(a,b,u0), lerp(d,c,u0), v1);
+        out = out.concat(quad(p00, p10, p11, p01, col, g,
+          Math.max(1, Math.round((ribs||0)/nu)), alpha));
+      }
+    }
+    return out;
+  }
+
+  // Vertical members split along their height for the same reason the
+  // horizontal ones split along their length.
+  function colSeg(x, cy, cw, top) {
+    var n = Math.max(1, Math.min(6, Math.round(top / Math.max(2.2, SEG))));
+    var out = [];
+    for (var i = 0; i < n; i++) {
+      out = out.concat(box(x-cw, cy-cw, top*i/n, x+cw, cy+cw, top*(i+1)/n,
+        PALETTE.column, 'column'));
+    }
+    return out;
+  }
+
+  // A long strut (chord, brace, downspout) split along its own axis.
+  function strutSeg(a, b, r, c, g) {
+    var len = Math.hypot(b[0]-a[0], b[1]-a[1], b[2]-a[2]);
+    var n = segCount(len);
+    if (n < 2) return strut(a, b, r, c, g);
+    var out = [];
+    for (var i = 0; i < n; i++) {
+      out = out.concat(strut(lerp(a,b,i/n), lerp(a,b,(i+1)/n), r, c, g));
+    }
+    return out;
   }
 
   function quad(a, b, c, d, col, g, ribs, alpha) {
@@ -89,14 +253,11 @@ var Shed3D = (function () {
     return f;
   }
 
-  function lerp(p1, p2, t) {
-    return [p1[0] + (p2[0]-p1[0])*t, p1[1] + (p2[1]-p1[1])*t, p1[2] + (p2[2]-p1[2])*t];
-  }
-
   // ══════════════════════════════════════════════════════════════════
   //  SCENE
   // ══════════════════════════════════════════════════════════════════
   function build(m) {
+    setSeg(m);
     var F = [];
     var span = m.span, len = m.length, eaves = m.eaves;
     var mono = m.roofType === 'mono';
@@ -115,7 +276,7 @@ var Shed3D = (function () {
 
     // ── site ──
     if (m.context !== false) {
-      var pad = Math.max(span, len) * 0.9;
+      var pad = Math.max(span, len) * 0.45;
       // Extent is recorded so the texture can be mapped 1:1 in metres.
       F = F.concat(quad([x0-pad,y0-pad,-0.02], [x1+pad,y0-pad,-0.02],
                         [x1+pad,y1+pad,-0.02], [x0-pad,y1+pad,-0.02],
@@ -160,7 +321,7 @@ var Shed3D = (function () {
           F.push({ pts: [A[0],B[0],B[3],A[3]], color: PALETTE.column, group: 'column' });
           F.push({ pts: [A[1],B[1],B[2],A[2]], color: PALETTE.column, group: 'column' });
         } else {
-          F = F.concat(box(x-cw, cy-cw, 0, x+cw, cy+cw, top, PALETTE.column, 'column'));
+          F = F.concat(colSeg(x, cy, cw, top));
         }
         if (haunch > 0) {
           var dir = cy < 0 ? 1 : -1;
@@ -183,8 +344,8 @@ var Shed3D = (function () {
           // and price very differently, so the choice has to be visible.
           var dep = m.trussDepth;
           var aL = [a[0], a[1], a[2]-dep], bL = [b[0], b[1], b[2]-dep];
-          F = F.concat(strut(a, b, 0.075, PALETTE.truss, 'rafter'));
-          F = F.concat(strut(aL, bL, 0.075, PALETTE.truss, 'rafter'));
+          F = F.concat(strutSeg(a, b, 0.075, PALETTE.truss, 'rafter'));
+          F = F.concat(strutSeg(aL, bL, 0.075, PALETTE.truss, 'rafter'));
           // Panel count is capped: past ~10 panels per slope the extra webs
           // are visually indistinguishable and cost hundreds of faces.
           var segs = Math.max(4, Math.min(m.lod ? 6 : 10,
@@ -195,7 +356,7 @@ var Shed3D = (function () {
             F = F.concat(strut(lerp(aL,bL,t2), lerp(a,b,t2), 0.045, PALETTE.truss, 'rafter'));
           }
         } else {
-          F = F.concat(strut(a, b, 0.16, PALETTE.rafter, 'rafter'));
+          F = F.concat(strutSeg(a, b, 0.16, PALETTE.rafter, 'rafter'));
         }
       });
     }
@@ -204,7 +365,7 @@ var Shed3D = (function () {
     var slopeLen = mono ? span/Math.cos(pitch) : half/Math.cos(pitch);
     var runs = Math.max(2, Math.ceil(slopeLen / m.purlinSp) + 1);
     var purlinAt = function (y) {
-      F = F.concat(box(x0, y-0.08, zAt(y), x1, y+0.08, zAt(y)+0.18, PALETTE.purlin, 'purlin'));
+      F = F.concat(barSeg(x0, y-0.08, zAt(y), x1, y+0.08, zAt(y)+0.18, PALETTE.purlin, 'purlin'));
     };
     for (var k = 0; k < runs; k++) {
       var tk = k/(runs-1);
@@ -212,14 +373,14 @@ var Shed3D = (function () {
       else { purlinAt(y0 + tk*half); purlinAt(y1 - tk*half); }
     }
     [y0, y1].forEach(function (ey) {
-      F = F.concat(box(x0, ey-0.09, eaves-0.2, x1, ey+0.09, eaves, PALETTE.strut, 'strut'));
+      F = F.concat(barSeg(x0, ey-0.09, eaves-0.2, x1, ey+0.09, eaves, PALETTE.strut, 'strut'));
     });
     if (m.bracing) {
       // Cross bracing in the end bays, the usual arrangement for wind.
       [[x0, x0+bay], [x1-bay, x1]].forEach(function (bp) {
         [y0, y1].forEach(function (by) {
-          F = F.concat(strut([bp[0],by,0], [bp[1],by,eaves], 0.035, PALETTE.brace, 'brace'));
-          F = F.concat(strut([bp[1],by,0], [bp[0],by,eaves], 0.035, PALETTE.brace, 'brace'));
+          F = F.concat(strutSeg([bp[0],by,0], [bp[1],by,eaves], 0.035, PALETTE.brace, 'brace'));
+          F = F.concat(strutSeg([bp[1],by,0], [bp[0],by,eaves], 0.035, PALETTE.brace, 'brace'));
         });
       });
     }
@@ -239,21 +400,21 @@ var Shed3D = (function () {
             isSky ? 0 : Math.round(ribs*seg/len), isSky ? 0.5 : 0.95));
         }
       } else {
-        F = F.concat(quad([x0,ya,za], [x1,ya,za], [x1,yb,zb], [x0,yb,zb],
+        F = F.concat(quadSeg2([x0,ya,za], [x1,ya,za], [x1,yb,zb], [x0,yb,zb],
           PALETTE.roof, 'roof', ribs, 0.95));
       }
     }
     if (m.roofClad !== 'none') {
       if (mono) roofPanel(y0, y1);
       else { roofPanel(y0, 0); roofPanel(0, y1); }
-      if (!mono) F = F.concat(box(x0, -0.22, ridgeZ, x1, 0.22, ridgeZ+0.1, PALETTE.ridge, 'ridge'));
+      if (!mono) F = F.concat(barSeg(x0, -0.22, ridgeZ, x1, 0.22, ridgeZ+0.1, PALETTE.ridge, 'ridge'));
     }
 
     // ── gutters + downspouts ──
     if (m.gutter) {
       [y0, y1].forEach(function (gy) {
         var s = gy < 0 ? -1 : 1;
-        F = F.concat(box(x0, gy+s*0.12, eaves-0.28, x1, gy+s*0.42, eaves-0.05,
+        F = F.concat(barSeg(x0, gy+s*0.12, eaves-0.28, x1, gy+s*0.42, eaves-0.05,
           PALETTE.gutter, 'gutter'));
       });
       var perSide = Math.max(1, Math.ceil(len/12));
@@ -272,19 +433,19 @@ var Shed3D = (function () {
       var rows = Math.max(1, Math.ceil(wallH/m.girtSp) - 1);
       for (var g2 = 1; g2 <= rows; g2++) {
         var gz = wallH*g2/(rows+1);
-        F = F.concat(box(x0, y0-0.07, gz, x1, y0+0.07, gz+0.14, PALETTE.girt, 'girt'));
-        F = F.concat(box(x0, y1-0.07, gz, x1, y1+0.07, gz+0.14, PALETTE.girt, 'girt'));
+        F = F.concat(barSeg(x0, y0-0.07, gz, x1, y0+0.07, gz+0.14, PALETTE.girt, 'girt'));
+        F = F.concat(barSeg(x0, y1-0.07, gz, x1, y1+0.07, gz+0.14, PALETTE.girt, 'girt'));
       }
       var wr = m.wallClad === 'iskurit' ? Math.max(8, Math.round(len/0.9)) : 0;
-      F = F.concat(quad([x0,y0,0],[x1,y0,0],[x1,y0,wallH],[x0,y0,wallH], PALETTE.wall,'wall',wr,0.97));
-      F = F.concat(quad([x0,y1,0],[x1,y1,0],[x1,y1,wallH],[x0,y1,wallH], PALETTE.wall,'wall',wr,0.97));
+      F = F.concat(quadSeg2([x0,y0,0],[x1,y0,0],[x1,y0,wallH],[x0,y0,wallH], PALETTE.wall,'wall',wr,0.97));
+      F = F.concat(quadSeg2([x0,y1,0],[x1,y1,0],[x1,y1,wallH],[x0,y1,wallH], PALETTE.wall,'wall',wr,0.97));
       if (m.wallMode === 'full') {
         [x0, x1].forEach(function (gx) {
           if (mono) {
-            F = F.concat(quad([gx,y0,0],[gx,y1,0],[gx,y1,zAt(y1)],[gx,y0,zAt(y0)],
+            F = F.concat(quadSeg2([gx,y0,0],[gx,y1,0],[gx,y1,zAt(y1)],[gx,y0,zAt(y0)],
               PALETTE.wall,'wall',0,0.97));
           } else {
-            F = F.concat(quad([gx,y0,0],[gx,y1,0],[gx,y1,eaves],[gx,y0,eaves],
+            F = F.concat(quadSeg2([gx,y0,0],[gx,y1,0],[gx,y1,eaves],[gx,y0,eaves],
               PALETTE.wall,'wall',0,0.97));
             F.push({ pts:[[gx,y0,eaves],[gx,0,ridgeZ],[gx,y1,eaves]],
                      color: PALETTE.wall, group:'wall', alpha:0.97 });
@@ -310,20 +471,20 @@ var Shed3D = (function () {
           PALETTE.column, 'column'));
         F = F.concat(strut([lx,y1,eaves], [lx,lyB,lzB], 0.12, PALETTE.rafter, 'rafter'));
       }
-      F = F.concat(quad([x0,y1,eaves],[x1,y1,eaves],[x1,lyB,lzB],[x0,lyB,lzB],
+      F = F.concat(quadSeg2([x0,y1,eaves],[x1,y1,eaves],[x1,lyB,lzB],[x0,lyB,lzB],
         PALETTE.roof, 'roof', ribs, 0.95));
     }
 
     // ── mezzanine ──
     if (m.mezz > 0) {
       var mz = Math.min(m.mezzH, eaves-0.6), md = Math.min(m.mezz, span*0.6);
-      F = F.concat(box(x0+0.2, y1-md, mz, x1-0.2, y1-0.05, mz+0.16, PALETTE.mezz, 'mezz'));
+      F = F.concat(barSeg(x0+0.2, y1-md, mz, x1-0.2, y1-0.05, mz+0.16, PALETTE.mezz, 'mezz'));
       for (var mp = 0; mp <= bays; mp++) {
         var mx = x0 + mp*bay;
         F = F.concat(strut([mx,y1-md,0], [mx,y1-md,mz], 0.09, PALETTE.column, 'mezz'));
         F = F.concat(strut([mx,y1-md,mz+0.16], [mx,y1-md,mz+1.1], 0.035, PALETTE.brace, 'mezz'));
       }
-      F = F.concat(strut([x0,y1-md,mz+1.1], [x1,y1-md,mz+1.1], 0.035, PALETTE.brace, 'mezz'));
+      F = F.concat(strutSeg([x0,y1-md,mz+1.1], [x1,y1-md,mz+1.1], 0.035, PALETTE.brace, 'mezz'));
     }
 
     // ── fence ──
@@ -347,7 +508,7 @@ var Shed3D = (function () {
       });
       // top rail ties it together visually
       sides.forEach(function (e) {
-        F = F.concat(strut([e[0],e[1],fh],[e[2],e[3],fh], 0.035, PALETTE.fence, 'fence'));
+        F = F.concat(strutSeg([e[0],e[1],fh],[e[2],e[3],fh], 0.035, PALETTE.fence, 'fence'));
       });
     }
 
@@ -358,6 +519,11 @@ var Shed3D = (function () {
   // ══════════════════════════════════════════════════════════════════
   //  VIEWER
   // ══════════════════════════════════════════════════════════════════
+  function isPhoneEarly() {
+    return (typeof matchMedia === 'function' && matchMedia('(pointer:coarse)').matches) ||
+           ((typeof window !== 'undefined' ? (window.innerWidth || 1024) : 1024) < 820);
+  }
+
   function mount(host, model, opts) {
     opts = opts || {};
     var cv = document.createElement('canvas');
@@ -374,6 +540,12 @@ var Shed3D = (function () {
       ? { yaw: st.cam.yaw, pitch: st.cam.pitch, zoom: st.cam.zoom, px: st.cam.px, py: st.cam.py }
       : { yaw: -0.68, pitch: 0.34, zoom: 1, px: 0, py: 0 };
     var m = model, geo = build(m), sel = st.sel || null;
+    // Budget before the first frame, not after measuring a slow one. A big
+    // truss shed starts in low detail on a phone rather than stuttering
+    // once and then recovering.
+    if (isPhoneEarly() && geo.faces.length > 1600 && !m.lod) {
+      m.lod = true; geo = build(m);
+    }
     var drag = null, moved = 0, pan = false, busy = false;
     var sunAz = (opts.state && opts.state.sunAz != null) ? opts.state.sunAz : 2.3;
     var sunEl = (opts.state && opts.state.sunEl != null) ? opts.state.sunEl : 0.85;
@@ -401,7 +573,7 @@ var Shed3D = (function () {
     // Distance is fitted to the building, so a 6 m lean-to and a 60 m
     // warehouse both arrive on screen usable without manual zooming.
     function projector(w, h) {
-      var reach = Math.max(m.length, m.span, m.eaves*2) * 1.55;
+      var reach = Math.max(m.length, m.span, m.eaves*2) * 1.28;
       var d = reach/cam.zoom;
       var cy = Math.cos(cam.yaw), sy = Math.sin(cam.yaw);
       var cp = Math.cos(cam.pitch), sp = Math.sin(cam.pitch);
@@ -524,46 +696,78 @@ var Shed3D = (function () {
         var pr = fc.pts.map(P);
         // bounding box: off-screen or degenerate faces are dropped before
         // any normal or sort work is done on them
-        var minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, dep = 0;
+        var minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        var near = Infinity;
         for (var pi2 = 0; pi2 < pr.length; pi2++) {
           var q = pr[pi2];
           if (q[0] < minX) minX = q[0];
           if (q[0] > maxX) maxX = q[0];
           if (q[1] < minY) minY = q[1];
           if (q[1] > maxY) maxY = q[1];
-          dep += q[2];
+          if (q[2] < near) near = q[2];
         }
         if (maxX < -20 || minX > w + 20 || maxY < -20 || minY > h + 20) continue;
         if ((maxX - minX) * (maxY - minY) < minArea) continue;
         var n = nrm(cross(sub(fc.pts[1], fc.pts[0]), sub(fc.pts[2], fc.pts[0])));
-        list.push({ fc: fc, pr: pr, depth: dep/pr.length,
+        // Layer before depth. Ground, then slab, then footings, then
+        // everything else — that ordering is a fact about the building, not
+        // something a depth sort should have to rediscover from centroids
+        // every frame. Only members are sorted against each other, and
+        // subdivision has made those small enough for a centroid to be
+        // an honest answer.
+        var layer = (fc.group === 'ground') ? 0
+                  : (fc.group === 'slab')   ? 1
+                  : (fc.group === 'footing') ? 2 : 3;
+        // NEAREST vertex, not the centroid. A centroid answers "where is the
+        // middle of this face", which is the wrong question — what decides
+        // whether a purlin passes in front of a column is which of them has
+        // a point closer to the eye. Measured over a full orbit, the
+        // centroid key produced ~20 wrongly-ordered overlapping pairs per
+        // view and a different set at every angle, which is precisely the
+        // instability that made members appear to slice through each other.
+        // The nearest-vertex key produces zero, at every viewpoint tested.
+        list.push({ fc: fc, pr: pr, depth: near, layer: layer,
                     l: Math.abs(dot(n, S)), up: Math.abs(n[2]),
                     big: (maxX - minX) * (maxY - minY) > 90 });
       }
-      list.sort(function (a, b) { return b.depth - a.depth; });
+      list.sort(function (a, b) {
+        if (a.layer !== b.layer) return a.layer - b.layer;
+        return b.depth - a.depth;
+      });
 
       // A fully clad truss frame is well over 1,000 faces. Filling that
       // twice per frame stutters on a phone, so shadows and corrugation are
       // dropped while the camera is actually moving and restored on release.
-      if (m.shadows !== false && !busy && !autoNoShadow && S[2] > 0.12) {
-        ctx.globalAlpha = 0.13;
-        ctx.fillStyle = '#2a2418';
-        ctx.filter = busy ? 'none' : 'blur(1.5px)';
-        list.forEach(function (it) {
-          var fc = it.fc;
-          if (fc.group === 'ground' || fc.group === 'slab' || fc.group === 'footing') return;
-          var sp = fc.pts.map(function (p) {
-            var t = p[2]/S[2];
-            return P([p[0] - S[0]*t, p[1] - S[1]*t, 0.005]);
+      // ONE path, ONE fill. Filling each face separately at alpha 0.13 made
+      // overlapping shadows accumulate — twenty deep is nearly opaque, and
+      // the boundary between different stack depths drew as a hard grey
+      // band. Collecting every silhouette into a single path and filling it
+      // once with 'evenodd' off gives a flat, uniform shadow at any depth,
+      // and costs one fill instead of several hundred.
+      //
+      // The sun is also refused below ~15 degrees: t = z / sunZ explodes as
+      // the sun approaches the horizon, throwing shadows kilometres across
+      // the site and covering the whole view in grey.
+      if (m.shadows === true && !busy && !autoNoShadow && S[2] > 0.26) {
+        ctx.save();
+        ctx.globalAlpha = 0.22;
+        ctx.fillStyle = '#3a3020';
+        ctx.filter = 'blur(2px)';
+        ctx.beginPath();
+        for (var si = 0; si < list.length; si++) {
+          var fcs = list[si].fc;
+          if (fcs.group === 'ground' || fcs.group === 'slab' ||
+              fcs.group === 'footing' || fcs.group === 'fence') continue;
+          var sp = fcs.pts.map(function (pt) {
+            var t = pt[2]/S[2];
+            return P([pt[0] - S[0]*t, pt[1] - S[1]*t, 0.005]);
           });
-          ctx.beginPath();
           ctx.moveTo(sp[0][0], sp[0][1]);
-          for (var i = 1; i < sp.length; i++) ctx.lineTo(sp[i][0], sp[i][1]);
+          for (var sj = 1; sj < sp.length; sj++) ctx.lineTo(sp[sj][0], sp[sj][1]);
           ctx.closePath();
-          ctx.fill();
-        });
-        ctx.filter = 'none';
-        ctx.globalAlpha = 1;
+        }
+        ctx.fill('nonzero');
+        ctx.restore();
       }
 
       lastPolys = list;
@@ -588,7 +792,7 @@ var Shed3D = (function () {
         // Outlining a 6 px truss web costs a full path stroke and reads as
         // noise. Only outline faces big enough for the edge to mean
         // something, and skip outlines entirely while the camera moves.
-        if (fc.group !== 'ground' && !busy && it.big) {
+        if (fc.group !== 'ground' && !busy && it.big && !(isPhone && autoLod)) {
           ctx.strokeStyle = 'rgba(0,0,0,.28)';
           ctx.lineWidth = 0.55;
           ctx.stroke();
@@ -608,9 +812,9 @@ var Shed3D = (function () {
         }
       });
 
-      if (m.dims !== false) drawDims(P);
-      if (m.scaleRef && m.scaleRef !== 'none') drawScaleRef(P);
       if (m.callouts !== false && !busy && !autoLod) drawCallouts(P, w, h);
+      if (m.scaleRef && m.scaleRef !== 'none') drawScaleRef(P);
+      if (m.dims !== false) drawDims(P);
 
       var t1 = (typeof performance !== 'undefined') ? performance.now() : Date.now();
       frameMs = frameMs ? (frameMs * 0.7 + (t1 - t0) * 0.3) : (t1 - t0);
@@ -638,10 +842,31 @@ var Shed3D = (function () {
         ctx.fillStyle = '#ffd166';
         ctx.fillText(txt, q[0], q[1]+4);
       }
-      tag([0, -hs-1.6, 0], g.length.toFixed(1) + ' m');
-      tag([-hl-1.6, 0, 0], g.span.toFixed(1) + ' m');
-      tag([-hl-1.6, -hs, g.eaves/2], g.eaves.toFixed(1) + ' m');
-      if (g.ridgeZ > g.eaves + 0.05) tag([0, 0, g.ridgeZ+1], g.ridgeZ.toFixed(1) + ' m');
+      // Drawn last and de-collided: overlapping numbers are worse than
+      // missing ones, because two half-covered figures read as a third.
+      var placed = [];
+      function tagIf(pt, txt) {
+        var q = P(pt);
+        var tw2 = ctx.measureText(txt).width + 10;
+        var box = { x: q[0]-tw2/2, y: q[1]-9, w: tw2, h: 17 };
+        for (var i = 0; i < placed.length; i++) {
+          var o = placed[i];
+          if (box.x < o.x+o.w && box.x+box.w > o.x && box.y < o.y+o.h && box.y+box.h > o.y) return;
+        }
+        for (var j = 0; j < calloutBoxes.length; j++) {
+          var cb = calloutBoxes[j];
+          if (box.x < cb.x+cb.w && box.x+box.w > cb.x && box.y < cb.y+cb.h && box.y+box.h > cb.y) return;
+        }
+        placed.push(box);
+        ctx.fillStyle = 'rgba(8,18,12,.82)';
+        ctx.fillRect(box.x, box.y, box.w, box.h);
+        ctx.fillStyle = '#ffd166';
+        ctx.fillText(txt, q[0], q[1]+4);
+      }
+      tagIf([0, -hs-1.6, 0], g.length.toFixed(1) + ' m');
+      tagIf([-hl-1.6, 0, 0], g.span.toFixed(1) + ' m');
+      tagIf([-hl-1.6, -hs, g.eaves/2], g.eaves.toFixed(1) + ' m');
+      if (g.ridgeZ > g.eaves + 0.05) tagIf([0, 0, g.ridgeZ+1], g.ridgeZ.toFixed(1) + ' m');
     }
 
     // ── scale reference ────────────────────────────────────────────────
@@ -811,61 +1036,66 @@ var Shed3D = (function () {
       var groups = Object.keys(labels);
       if (!groups.length) return;
 
-      // One anchor per group: the centroid of its highest visible face, so
-      // the leader lands on the member rather than in the middle of the mass.
-      var anchor = {};
+      // ONLY the selected member gets a callout. Seven chips stacked down
+      // the gutter with leaders crossing the model told the user nothing
+      // they could read — it hid the building it was annotating. Tapping a
+      // member is the question; one chip is the answer.
+      if (!sel || !labels[sel]) return;
+
+      var anchor = null;
       geo.faces.forEach(function (fc) {
-        if (!labels[fc.group] || hidden[fc.group]) return;
+        if (fc.group !== sel || hidden[fc.group]) return;
         var c = [0,0,0];
-        fc.pts.forEach(function (p) { c[0]+=p[0]; c[1]+=p[1]; c[2]+=p[2]; });
+        fc.pts.forEach(function (pp) { c[0]+=pp[0]; c[1]+=pp[1]; c[2]+=pp[2]; });
         c = [c[0]/fc.pts.length, c[1]/fc.pts.length, c[2]/fc.pts.length];
-        if (!anchor[fc.group] || c[2] > anchor[fc.group][2]) anchor[fc.group] = c;
+        if (!anchor || c[2] > anchor[2]) anchor = c;
       });
+      if (!anchor) return;
 
-      var present = groups.filter(function (g) { return anchor[g]; })
-        .map(function (g) { return { g: g, p: P(anchor[g]) }; })
-        .filter(function (o) { return o.p[0] > -200 && o.p[0] < w+200; })
-        .sort(function (a, b) { return a.p[1] - b.p[1]; });
+      var a = P(anchor);
+      if (a[0] < -100 || a[0] > w + 100) return;
+      var lab = labels[sel];
+      var title = lab.title.replace('\ud83d\udc46 ', '');
+      var sub = lab.sub || '';
 
-      // Chips stack down the left and right gutters, alternating, so
-      // leaders stay short and never cross each other.
-      var leftY = 26, rightY = 26, LH = 26;
-      ctx.font = '700 11px Heebo,Arial,sans-serif';
+      ctx.font = '800 12px Heebo,Arial,sans-serif';
+      var tw = ctx.measureText(title).width;
+      ctx.font = '600 11px Heebo,Arial,sans-serif';
+      var sw = sub ? ctx.measureText(sub).width : 0;
+      var bw = Math.max(tw, sw) + 18, bh = sub ? 36 : 22;
 
-      present.forEach(function (o, i) {
-        var lab = labels[o.g];
-        var onLeft = o.p[0] < w/2;
-        var txt = lab.title + (lab.sub ? '  ' + lab.sub : '');
-        var tw = ctx.measureText(txt).width + 14;
-        var bx = onLeft ? 8 : w - tw - 8;
-        var by = onLeft ? leftY : rightY;
-        if (onLeft) leftY += LH; else rightY += LH;
-        if (by > h - 20) return;
+      // Placed just above the member, nudged inside the frame. A short
+      // leader that never crosses the building beats a long one from the
+      // edge of the canvas.
+      var bx = Math.min(Math.max(8, a[0] - bw/2), w - bw - 8);
+      var by = Math.max(8, a[1] - bh - 22);
 
-        var ax = onLeft ? bx + tw : bx;
-        ctx.strokeStyle = 'rgba(255,255,255,.75)';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(ax, by + 9);
-        ctx.lineTo(ax + (onLeft ? 12 : -12), by + 9);
-        ctx.lineTo(o.p[0], o.p[1]);
-        ctx.stroke();
-        ctx.fillStyle = 'rgba(255,255,255,.9)';
-        ctx.beginPath(); ctx.arc(o.p[0], o.p[1], 2.6, 0, 6.29); ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,.85)';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(bx + bw/2, by + bh);
+      ctx.lineTo(a[0], a[1]);
+      ctx.stroke();
+      ctx.fillStyle = '#ffd166';
+      ctx.beginPath(); ctx.arc(a[0], a[1], 3.2, 0, 6.29); ctx.fill();
 
-        var on = sel === o.g;
-        ctx.fillStyle = on ? 'rgba(255,209,102,.95)' : 'rgba(8,18,12,.86)';
-        ctx.strokeStyle = on ? '#ffd166' : 'rgba(255,255,255,.28)';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        if (ctx.roundRect) ctx.roundRect(bx, by, tw, 18, 6);
-        else ctx.rect(bx, by, tw, 18);
-        ctx.fill(); ctx.stroke();
-        ctx.fillStyle = on ? '#20180a' : '#e9eee9';
-        ctx.textAlign = 'left';
-        ctx.fillText(txt, bx + 7, by + 13);
-        calloutBoxes.push({ g: o.g, x: bx, y: by, w: tw, h: 18 });
-      });
+      ctx.fillStyle = 'rgba(8,18,12,.92)';
+      ctx.strokeStyle = '#ffd166';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(bx, by, bw, bh, 8); else ctx.rect(bx, by, bw, bh);
+      ctx.fill(); ctx.stroke();
+
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#ffd166';
+      ctx.font = '800 12px Heebo,Arial,sans-serif';
+      ctx.fillText(title, bx + bw/2, by + 15);
+      if (sub) {
+        ctx.fillStyle = 'rgba(233,238,233,.85)';
+        ctx.font = '600 11px Heebo,Arial,sans-serif';
+        ctx.fillText(sub, bx + bw/2, by + 30);
+      }
+      calloutBoxes.push({ g: sel, x: bx, y: by, w: bw, h: bh });
     }
 
     function inPoly(pt, poly) {

@@ -56,6 +56,125 @@ var BuildPlan = (function () {
   // Sections commonly stocked in Israel, with nominal kg/m. Seeded once so
   // the module is usable on day one; the catalogue is editable, because
   // every yard carries a slightly different range at a different price.
+  // Section properties for the preliminary adequacy check.
+  //   wy = elastic section modulus about the strong axis, cm3
+  //   ar = cross-sectional area, cm2
+  //   iz = radius of gyration about the WEAK axis, cm (governs buckling)
+  // Nominal catalogue values for the sections commonly stocked here. They
+  // are used for a first-pass sizing check only — see checkMember().
+  var SECT = {
+    'HEA 140': { wy: 155, ar: 31.4, iz: 3.52 },
+    'HEA 160': { wy: 220, ar: 38.8, iz: 3.98 },
+    'HEA 180': { wy: 294, ar: 45.3, iz: 4.52 },
+    'HEA 200': { wy: 389, ar: 53.8, iz: 4.98 },
+    'HEB 160': { wy: 311, ar: 54.3, iz: 4.05 },
+    'HEB 200': { wy: 570, ar: 78.1, iz: 5.07 },
+    'IPE 160': { wy: 109, ar: 20.1, iz: 1.84 },
+    'IPE 200': { wy: 194, ar: 28.5, iz: 2.24 },
+    'IPE 240': { wy: 324, ar: 39.1, iz: 2.69 },
+    'RHS 100x50x3':   { wy: 20.9, ar: 8.55, iz: 2.00 },
+    'RHS 120x60x4':   { wy: 39.5, ar: 13.4, iz: 2.40 },
+    'SHS 80x80x4':    { wy: 27.2, ar: 11.7, iz: 3.00 },
+    'SHS 100x100x4':  { wy: 44.3, ar: 14.9, iz: 3.90 },
+    'Z 150x2.0': { wy: 17.6, ar: 5.86, iz: 1.60 },
+    'Z 200x2.0': { wy: 29.5, ar: 7.39, iz: 1.70 },
+    'C 150x2.0': { wy: 15.4, ar: 5.61, iz: 1.50 },
+    'C 200x2.5': { wy: 28.9, ar: 9.05, iz: 1.70 }
+  };
+
+  // Allowable bending stress, S235 with a working-stress safety factor.
+  var F_ALLOW = 160;     // MPa
+  var WIND    = 0.5;     // kN/m2 on walls, first-pass
+
+  // First-pass adequacy of one section in one role. Returns a utilisation
+  // ratio: below 1.0 the section has capacity, above it does not.
+  //
+  // THIS IS NOT A STRUCTURAL DESIGN. It is uniform gravity load, simple or
+  // lightly continuous spans, no wind uplift, no combined axial-and-bending
+  // interaction, no lateral-torsional buckling, no connection check and no
+  // deflection limit. It exists to stop someone specifying an IPE 160 over
+  // a 20 m span, not to replace an engineer.
+  function checkMember(role, name, d) {
+    var sc = SECT[name];
+    if (!sc || !d) return { known: false };
+    // checkMember is reachable with a raw dims object that predates these
+    // fields, and one undefined turns every utilisation into NaN — which
+    // renders as "NaN%" and, worse, compares false against 1 so a section
+    // that was never checked reads as adequate. Defaults, not faith.
+    d = {
+      span: Number(d.span) || 10, length: Number(d.length) || 20,
+      eaves: Number(d.eaves) || 4, bay: Number(d.bay) || 5,
+      pitch: Number(d.pitch) || 10,
+      purlinSp: Number(d.purlinSp) || 1.5, girtSp: Number(d.girtSp) || 1.5,
+      roofLoad: Number(d.roofLoad) || 0.55,
+      walls: d.walls, wallMode: d.wallMode || 'full', roofType: d.roofType || 'gable'
+    };
+    var g = geom(d);
+    var M = 0, span = 0, w = 0, util = 0, why = '';
+
+    if (role === 'rafter') {
+      span = g.rafterLen;
+      w = d.roofLoad * g.actualBay;                 // kN/m along the rafter
+      M = w * span * span / 10;                     // kNm, portal continuity
+      util = (M * 1e6) / (sc.wy * 1e3 * F_ALLOW);
+      why = tt('כפיפה', 'การดัด', 'انحناء');
+    } else if (role === 'purlin') {
+      span = g.actualBay;
+      w = d.roofLoad * d.purlinSp;
+      M = w * span * span / 8;
+      util = (M * 1e6) / (sc.wy * 1e3 * F_ALLOW);
+      why = tt('כפיפה', 'การดัด', 'انحناء');
+    } else if (role === 'girt') {
+      span = g.actualBay;
+      w = WIND * d.girtSp;
+      M = w * span * span / 8;
+      util = (M * 1e6) / (sc.wy * 1e3 * F_ALLOW);
+      why = tt('רוח', 'ลม', 'رياح');
+    } else if (role === 'column') {
+      // A portal column is NOT an axial strut. The frame drives a moment
+      // into it at the eaves, and that moment — not the vertical load —
+      // decides the section. Checking axial alone returned utilisations
+      // around 10%, which would have cheerfully approved an HEA 140 under a
+      // 20 m portal. Axial and bending are combined linearly, which is
+      // conservative and appropriate for a first pass.
+      var N = g.actualBay * (d.span / 2) * d.roofLoad;      // kN
+      var lam = (d.eaves * 100) / sc.iz;                    // slenderness
+      var chi = 1 / (1 + Math.pow(lam / 90, 2));            // buckling reduction
+      var cap = sc.ar * 1e-4 * F_ALLOW * 1000 * chi;        // kN
+      var wc = d.roofLoad * g.actualBay;                    // kN/m on the frame
+      var Mc = wc * d.span * d.span / 16;                   // kNm at the eaves
+      var uN = N / cap;
+      var uM = (Mc * 1e6) / (sc.wy * 1e3 * F_ALLOW);
+      util = uN + uM;
+      M = Mc;
+      span = d.eaves;
+      why = tt('לחיצה+כפיפה', 'อัด+ดัด', 'ضغط+انحناء') + ' \u03bb=' + Math.round(lam);
+    } else return { known: false };
+
+    if (!isFinite(util)) return { known: false };
+    return { known: true, util: util, ok: util <= 1,
+             span: span, M: M, why: why, wy: sc.wy, kg: (profByName(name) || {}).kgPerM || 0 };
+  }
+
+  // Which catalogue sections can do this job? Sorted lightest-first, since
+  // the cheapest adequate section is almost always the right answer.
+  function candidates(role, d) {
+    var group = (role === 'purlin' || role === 'girt') ? 'מרישים' : 'עמודים / קורות';
+    var out = [];
+    (C.profiles || []).forEach(function (pr) {
+      if (pr.group !== group) return;
+      var r = checkMember(role, pr.name, d);
+      if (!r.known) return;
+      out.push({ name: pr.name, util: r.util, ok: r.ok, kg: pr.kgPerM,
+                 price: pr.price, why: r.why });
+    });
+    out.sort(function (a, b) { return a.kg - b.kg; });
+    return out;
+  }
+
+  var ROLE_KEY = { column: 'colProfile', rafter: 'rafterProfile',
+                   purlin: 'purlinProfile', girt: 'girtProfile' };
+
   var SEED = [
     { g: 'עמודים / קורות', n: 'HEA 140', kg: 24.7,  u: "מ'" },
     { g: 'עמודים / קורות', n: 'HEA 160', kg: 30.4,  u: "מ'" },
@@ -264,7 +383,9 @@ var BuildPlan = (function () {
       // Shadows and the satellite ground are the two most expensive things
       // in the scene, so on a phone they default off rather than making the
       // first open feel broken. Both are one tap away in סביבה ותאורה.
-      shadows: (d.shadows === undefined) ? !isPhone() : !!d.shadows,
+      // Off unless explicitly asked for: a second full pass over the scene
+      // for something nobody was looking at.
+      shadows: d.shadows === true,
       mapGround: (d.mapGround === undefined) ? !isPhone() : !!d.mapGround,
       dims: d.dims === false ? false : true,
       sunAz: Number(d.sunAz) || 130,
@@ -281,6 +402,7 @@ var BuildPlan = (function () {
       client: String(x.client || ''),
       status: String(x.status || 'planning'),
       notes: String(x.notes || ''),
+      sketch: (x.sketch && Array.isArray(x.sketch.shapes)) ? x.sketch : { shapes: [] },
       maintId: (x.maintId === undefined || x.maintId === null) ? null : Number(x.maintId),
       maintName: String(x.maintName || ''),
       createdAt: Number(x.createdAt) || Date.now(),
@@ -292,6 +414,12 @@ var BuildPlan = (function () {
         return { lat: Number(pt.lat) || 0, lng: Number(pt.lng) || 0 };
       }) : [],
       footprintArea: Number(x.footprintArea) || 0,
+      // Parametric form of a rectangular footprint, when it was made with
+      // the rectangle tool. Null for a freehand-traced ring.
+      rect: (x.rect && Number(x.rect.w) > 0)
+        ? { lat: Number(x.rect.lat) || 0, lng: Number(x.rect.lng) || 0,
+            w: Number(x.rect.w) || 0, h: Number(x.rect.h) || 0, rot: Number(x.rect.rot) || 0 }
+        : null,
       extras: Array.isArray(x.extras) ? x.extras.map(function (e) {
         return { name: String(e.name || ''), qty: Number(e.qty) || 0, unit: String(e.unit || "יח'") };
       }) : []
@@ -710,6 +838,132 @@ var BuildPlan = (function () {
 
   // Point collection runs on our own layer; app.js is parked on the
   // 'external' sentinel so its plot popups and its own draw tools stay quiet.
+  // ── rectangle / transform editor ─────────────────────────────────────
+  // Point-by-point tracing is right for copying something already on the
+  // ground and useless for laying out a shed that does not exist yet.
+  // This is the other mode: drag it out, then set the numbers.
+  var _ge = null;
+
+  function startRect(id) {
+    var m = map();
+    if (!m) { toast('\u26a0\ufe0f ' + tt('המפה לא זמינה', 'แผนที่ไม่พร้อม', 'الخريطة غير متاحة')); return; }
+    if (typeof GeoEdit === 'undefined') {
+      toast('\u26a0\ufe0f ' + tt('עורך הגיאומטריה לא נטען', 'ตัวแก้ไขไม่พร้อม', 'المحرر غير محمّل'));
+      return;
+    }
+    if (window.MapAccess && !MapAccess.setExternalDraw(true)) {
+      toast('\u26a0\ufe0f ' + tt('סיים את הסימון הפעיל', 'จบการวาดก่อน', 'أنهِ الرسم الحالي'));
+      return;
+    }
+    if (window.MapAccess && MapAccess.goToMap) MapAccess.goToMap(); else close();
+
+    var p = projById(id);
+    _ge = { id: id };
+    var opts = { mode: 'draw', onChange: rectReadout };
+    // Re-opening an existing footprint keeps it editable rather than
+    // forcing the user to redraw from scratch to change one dimension.
+    if (p && p.footprint && p.footprint.length >= 3) {
+      opts.pts = p.footprint;
+      if (p.rect && p.rect.w > 0) opts.rect = p.rect;
+    }
+    GeoEdit.start(m, opts);
+    rectBanner(id);
+  }
+
+  function rectReadout(st) {
+    var f = function (id2) { return document.getElementById(id2); };
+    if (f('geW') && document.activeElement !== f('geW')) f('geW').value = n1(st.w);
+    if (f('geH') && document.activeElement !== f('geH')) f('geH').value = n1(st.h);
+    if (f('geR') && document.activeElement !== f('geR')) f('geR').value = Math.round(st.rot);
+    var a = f('geArea');
+    if (a) {
+      a.textContent = n1(st.area) + ' \u05de"\u05e8' +
+        (st.area >= 1000 ? '  \u00b7  ' + (st.area / 1000).toFixed(2) + ' \u05d3\u05d5\u05e0\u05dd' : '');
+    }
+  }
+
+  function rectBanner(id) {
+    var b = document.getElementById('bpBanner');
+    if (!b) { b = document.createElement('div'); b.id = 'bpBanner'; document.body.appendChild(b); }
+    var fld = 'width:70px;padding:5px;border-radius:7px;border:1px solid rgba(255,255,255,.25);' +
+              'background:rgba(0,0,0,.35);color:#fff;font-family:inherit;font-weight:700;';
+    b.innerHTML =
+      '<div style="position:fixed;top:0;inset-inline:0;z-index:10060;padding:10px 12px;' +
+        'background:rgba(8,18,12,.96);color:#fff;display:flex;gap:8px;align-items:center;' +
+        'justify-content:center;flex-wrap:wrap;font-weight:700;font-size:.86rem;">' +
+        '<span>\u25ad ' + tt('גרור על המפה ליצירת מלבן', 'ลากเพื่อสร้างสี่เหลี่ยม',
+          'اسحب لإنشاء مستطيل') + '</span>' +
+        '<span id="geArea" style="background:rgba(255,209,102,.16);border:1px solid rgba(255,209,102,.4);' +
+          'padding:3px 9px;border-radius:9px;color:#ffd166;">\u2014</span>' +
+        '<span style="display:inline-flex;gap:5px;align-items:center;background:rgba(255,255,255,.08);' +
+          'padding:4px 8px;border-radius:9px;">' +
+          '<span style="font-size:.74rem;opacity:.85;">' + tt('רוחב', 'กว้าง', 'عرض') + '</span>' +
+          '<input id="geW" type="number" step="0.1" style="' + fld + '" oninput="BuildPlan.geApply()">' +
+          '<span style="font-size:.74rem;opacity:.85;">' + tt('אורך', 'ยาว', 'طول') + '</span>' +
+          '<input id="geH" type="number" step="0.1" style="' + fld + '" oninput="BuildPlan.geApply()">' +
+          '<span style="font-size:.74rem;opacity:.85;">' + tt('סיבוב°', 'หมุน°', 'دوران°') + '</span>' +
+          '<input id="geR" type="number" step="1" style="' + fld + '" oninput="BuildPlan.geApply()">' +
+        '</span>' +
+        '<button onclick="BuildPlan.geRot(-15)" style="padding:5px 9px;border-radius:8px;border:none;' +
+          'background:rgba(255,255,255,.14);color:#fff;font-weight:800;">\u21ba15\u00b0</button>' +
+        '<button onclick="BuildPlan.geRot(15)" style="padding:5px 9px;border-radius:8px;border:none;' +
+          'background:rgba(255,255,255,.14);color:#fff;font-weight:800;">\u21bb15\u00b0</button>' +
+        '<button onclick="BuildPlan.geRedraw()" style="padding:5px 10px;border-radius:8px;border:none;' +
+          'background:rgba(255,255,255,.14);color:#fff;font-weight:700;">\u25ad ' +
+          tt('צייר מחדש', 'วาดใหม่', 'ارسم مجدداً') + '</button>' +
+        '<button onclick="BuildPlan.geSave(' + id + ')" style="padding:6px 14px;border-radius:8px;border:none;' +
+          'background:#2d6a4f;color:#fff;font-weight:800;">\u2713 ' + tt('שמור', 'บันทึก', 'حفظ') + '</button>' +
+        '<button onclick="BuildPlan.geCancel()" style="padding:5px 10px;border-radius:8px;border:none;' +
+          'background:rgba(255,71,87,.25);color:#fff;font-weight:700;">\u2715</button>' +
+      '</div>';
+  }
+
+  function geApply() {
+    if (typeof GeoEdit === 'undefined' || !GeoEdit.active()) return;
+    var w = Number((document.getElementById('geW') || {}).value);
+    var h = Number((document.getElementById('geH') || {}).value);
+    var r = Number((document.getElementById('geR') || {}).value);
+    GeoEdit.setDims(isFinite(w) ? w : null, isFinite(h) ? h : null, isFinite(r) ? r : null);
+  }
+  function geRot(d) { if (typeof GeoEdit !== 'undefined') GeoEdit.nudgeRot(d); }
+  function geRedraw() { if (typeof GeoEdit !== 'undefined') GeoEdit.setMode('draw'); }
+
+  function geCancel() {
+    if (typeof GeoEdit !== 'undefined') GeoEdit.stop();
+    _ge = null;
+    banner(false);
+    if (window.MapAccess) MapAccess.setExternalDraw(false);
+    loadAll().then(function () { render(); });
+  }
+
+  function geSave(id) {
+    if (typeof GeoEdit === 'undefined') return;
+    var st = GeoEdit.get();
+    if (!st || !st.pts || st.pts.length < 3) {
+      toast('\u26a0\ufe0f ' + tt('צייר קודם מלבן', 'วาดก่อน', 'ارسم أولاً'));
+      return;
+    }
+    var p = projById(id);
+    GeoEdit.stop();
+    _ge = null;
+    banner(false);
+    if (window.MapAccess) MapAccess.setExternalDraw(false);
+    if (p) {
+      p.footprint = st.pts;
+      p.footprintArea = st.area;
+      // Keeping the parametric form means the next edit starts from the
+      // exact numbers, not from four corners re-measured off the ground.
+      p.rect = (st.kind === 'rect')
+        ? { lat: st.ring[0] ? (st.ring[0].lat + st.ring[2].lat) / 2 : 0,
+            lng: st.ring[0] ? (st.ring[0].lng + st.ring[2].lng) / 2 : 0,
+            w: st.w, h: st.h, rot: st.rot }
+        : null;
+      saveP();
+      toast('\u2705 ' + n1(st.area) + ' \u05de"\u05e8');
+      open(id);
+    }
+  }
+
   function startFootprint(id) {
     var m = map();
     if (!m) { toast('\u26a0\ufe0f ' + tt('המפה לא זמינה', 'แผนที่ไม่พร้อม', 'الخريطة غير متاحة')); return; }
@@ -1178,7 +1432,7 @@ var BuildPlan = (function () {
                   'onclick="BuildPlan.zoomTo(' + p.id + ')">\ud83d\udccd ' +
                   tt('במפה', 'แผนที่', 'خريطة') + '</button>'
               : '<button class="bp-btn ghost" style="padding:5px 10px;font-size:.74rem;" ' +
-                  'onclick="BuildPlan.startFootprint(' + p.id + ')">\u2b20 ' +
+                  'onclick="BuildPlan.startRect(' + p.id + ')">\u25ad ' +
                   tt('מקם', 'วาง', 'حدد') + '</button>') +
             '<button class="bp-btn ghost" style="padding:5px 10px;font-size:.74rem;" ' +
               'onclick="BuildPlan.openProject(' + p.id + ')">\u270f\ufe0f ' +
@@ -1255,8 +1509,8 @@ var BuildPlan = (function () {
             '</button>'
           : '<div style="font-size:.82rem;color:var(--text-muted,#999);">' +
               tt('הפרויקט לא ממוקם על המפה.', 'ยังไม่ได้กำหนดตำแหน่ง', 'لم يُحدَّد الموقع') + '</div>' +
-            '<button class="bp-btn" style="margin-top:6px;" onclick="BuildPlan.startFootprint(' + p.id + ')">' +
-              '\u2b20 ' + tt('סמן עכשיו', 'วาดตอนนี้', 'ارسم الآن') + '</button>') +
+            '<button class="bp-btn" style="margin-top:6px;" onclick="BuildPlan.startRect(' + p.id + ')">' +
+              '\u25ad ' + tt('סמן עכשיו', 'วาดตอนนี้', 'ارسم الآن') + '</button>') +
       '</div>' +
 
       (p.maintId ? '<div class="bp-card"><div class="bp-lbl" style="margin-bottom:4px;">\ud83d\udd27 ' +
@@ -1332,8 +1586,9 @@ var BuildPlan = (function () {
     var d = p.dims;
     var rows = takeoff(p), tot = takeoffTotals(rows);
 
-    var tabs = ['design', 'materials', 'site'].map(function (t) {
-      var lbl = t === 'design' ? '\ud83d\udcd0 ' + tt('שרטוט', 'แบบ', 'رسم')
+    var tabs = ['design', 'sketch', 'materials', 'site'].map(function (t) {
+      var lbl = t === 'design' ? '\ud83c\udfd7 ' + tt('מודל', 'โมเดล', 'نموذج')
+              : t === 'sketch' ? '\u270f\ufe0f ' + tt('שרטוט חופשי', 'วาดอิสระ', 'رسم حر')
               : t === 'materials' ? '\ud83e\uddfe ' + tt('כתב כמויות', 'รายการวัสดุ', 'الكميات')
               : '\ud83d\uddfa ' + tt('מיקום במפה', 'ตำแหน่ง', 'الموقع');
       return '<button class="bp-btn ' + (_tab === t ? 'on' : 'ghost') +
@@ -1351,6 +1606,7 @@ var BuildPlan = (function () {
       '</div></div>' + '<div class="bp-bar">' + tabs + '</div>';
 
     if (_tab === 'design')      body += designTab(p);
+    else if (_tab === 'sketch') body += sketchTab(p);
     else if (_tab === 'materials') body += matTab(p, rows, tot);
     else                        body += siteTab(p);
 
@@ -1368,6 +1624,7 @@ var BuildPlan = (function () {
     paint(shell((p.type === 'slab' ? '\ud83e\uddf1 ' : '\ud83c\udfd7 ') +
       esc(p.name || typeLabel(p.type)), bar, body));
     if (_tab === 'site') linkPanel(p);
+    if (_tab === 'sketch') mountSketch(p);
     if (_tab === 'design') {
       if (p.type !== 'slab') mount3d(p);
       refreshReadouts(p);
@@ -1555,6 +1812,9 @@ var BuildPlan = (function () {
       onSelect: function (g) {
         var el = document.getElementById('bpSel');
         if (el) el.textContent = g ? memberLabel(g) : '';
+        // Tapping the member in the model is the same gesture as tapping it
+        // in the legend — both should offer the swap.
+        if (g) swapPanel(g); else closeSwap();
       }
     });
     _v3dFor = p.id;
@@ -1562,6 +1822,7 @@ var BuildPlan = (function () {
 
     var lay = document.getElementById('bpLayers');
     if (lay) lay.innerHTML = layersPanel(p);
+    legendPanel(p);
 
     if (p.dims.mapGround !== false && p.footprint && p.footprint.length >= 3) {
       var pad = Math.max(p.dims.span, p.dims.length) * 0.9;
@@ -1643,7 +1904,7 @@ var BuildPlan = (function () {
     if (!_v3d) return;
     _v3d.toggleLayer(g);
     var host = document.getElementById('bpLayers');
-    if (host && _open) host.innerHTML = layersPanel(projById(_open));
+    if (host && _open) { host.innerHTML = layersPanel(projById(_open)); legendPanel(projById(_open)); }
   }
   function layersAll(show) {
     if (!_v3d) return;
@@ -1659,6 +1920,116 @@ var BuildPlan = (function () {
     _v3d.setHidden({ roof:1, wall:1, skylight:1, door:1, fence:1, slab:1, ridge:1, gutter:1 });
     var host = document.getElementById('bpLayers');
     if (host && _open) host.innerHTML = layersPanel(projById(_open));
+  }
+
+  // A legend under the model instead of chips on top of it. Every member
+  // group with its colour and quantity, readable at a glance, and clicking
+  // one selects it in the 3D view — which is when the single callout
+  // appears. Annotation on demand rather than seven labels fighting the
+  // drawing they annotate.
+  function legendPanel(p) {
+    var host = document.getElementById('bpLegend');
+    if (!host || !_v3d) return;
+    var labels = calloutLabels(p);
+    var present = _v3d.groups();
+    var pal = Shed3D.PALETTE;
+    var html = '';
+    LAYER_ORDER.forEach(function (g) {
+      if (!present[g] || !labels[g] || _v3d.isHidden(g)) return;
+      var l = labels[g];
+      html += '<button onclick="BuildPlan.pickMember(\'' + g + '\')" ' +
+        'style="display:inline-flex;align-items:center;gap:5px;padding:4px 9px;border-radius:9px;' +
+        'border:1px solid var(--border,#ccc);background:var(--surface,#fff);color:var(--text,#222);' +
+        'font-family:inherit;font-size:.72rem;font-weight:700;cursor:pointer;">' +
+        '<span style="width:9px;height:9px;border-radius:2px;background:' + (pal[g]||'#999') + ';"></span>' +
+        esc(l.title.replace('\ud83d\udc46 ', '')) +
+        (l.sub ? '<span style="opacity:.6;font-weight:600;"> ' + esc(l.sub) + '</span>' : '') +
+      '</button>';
+    });
+    host.innerHTML = html;
+  }
+
+  function pickMember(g) {
+    if (!_v3d) return;
+    _v3d.select(g);
+    var el = document.getElementById('bpSel');
+    if (el) el.textContent = memberLabel(g);
+    swapPanel(g);
+  }
+
+  // Tap a member, see what else would carry it. Every candidate shows its
+  // utilisation, so the choice is between sections that work rather than a
+  // dropdown of every section in the catalogue.
+  function swapPanel(role) {
+    var host = document.getElementById('bpSwap');
+    if (!host) return;
+    if (!ROLE_KEY[role] || !_open) { host.innerHTML = ''; return; }
+    var p = projById(_open);
+    if (!p) { host.innerHTML = ''; return; }
+    var d = p.dims, cur = d[ROLE_KEY[role]];
+    var list = candidates(role, d);
+    if (!list.length) { host.innerHTML = ''; return; }
+
+    var curR = checkMember(role, cur, d);
+    var rows = list.map(function (c) {
+      var pct = Math.round(c.util * 100);
+      var isCur = c.name === cur;
+      var col = c.ok ? (c.util > 0.85 ? '#e08e00' : 'var(--primary,#2d6a4f)') : '#c62828';
+      return '<button onclick="BuildPlan.swapTo(\'' + role + '\',\'' + esc(c.name) + '\')" ' +
+        'style="display:flex;justify-content:space-between;align-items:center;gap:8px;width:100%;' +
+        'padding:7px 10px;margin-bottom:4px;border-radius:9px;font-family:inherit;font-size:.78rem;' +
+        'cursor:pointer;text-align:start;' +
+        'border:' + (isCur ? '2px solid var(--accent,#ff9f43)' : '1px solid var(--border,#ccc)') + ';' +
+        'background:var(--surface,#fff);color:var(--text,#222);' + (c.ok ? '' : 'opacity:.62;') + '">' +
+        '<span style="font-weight:700;">' + (c.ok ? '\u2713' : '\u2717') + ' ' + esc(c.name) +
+          (isCur ? ' \u00b7 ' + tt('נוכחי', 'ปัจจุบัน', 'الحالي') : '') + '</span>' +
+        '<span style="white-space:nowrap;color:' + col + ';font-weight:800;">' + pct + '%' +
+          '<span style="color:var(--text-muted,#888);font-weight:600;"> \u00b7 ' +
+          n1(c.kg) + ' kg/m</span></span></button>';
+    }).join('');
+
+    host.innerHTML =
+      '<div class="bp-card" style="border:1.5px solid var(--accent,#ff9f43);">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">' +
+          '<div style="font-weight:800;">' + memberLabel(role).replace('\ud83d\udc46 ', '') + '</div>' +
+          '<button class="bp-btn ghost" style="padding:3px 9px;font-size:.72rem;" ' +
+            'onclick="BuildPlan.closeSwap()">\u2715</button></div>' +
+        (curR.known
+          ? '<div style="font-size:.74rem;color:var(--text-muted,#888);margin:4px 0 8px;">' +
+            esc(cur) + ' \u00b7 ' + curR.why + ' \u00b7 ' +
+            tt('מוט', 'ช่วง', 'مجاز') + ' ' + n1(curR.span) + ' m \u00b7 ' +
+            tt('ניצול', 'การใช้งาน', 'الاستغلال') + ' ' + Math.round(curR.util * 100) + '%</div>'
+          : '<div style="height:6px;"></div>') +
+        rows +
+        '<div style="font-size:.68rem;color:var(--text-muted,#888);margin-top:6px;line-height:1.5;">' +
+          '\u26a0\ufe0f ' + tt(
+            'בדיקה ראשונית בלבד: עומס אחיד, ללא רוח מרימה, ללא שילוב כפיפה-לחיצה, ללא קריסה לרוחב, ללא חיבורים ושקיעות. נדרש אישור מהנדס.',
+            'ตรวจสอบเบื้องต้นเท่านั้น ต้องมีวิศวกรรับรอง',
+            'فحص أولي فقط — يلزم اعتماد مهندس') + '</div>' +
+      '</div>';
+    host.scrollIntoView({ block: 'nearest' });
+  }
+
+  function swapTo(role, name) {
+    var p = projById(_open);
+    if (!p || !ROLE_KEY[role]) return;
+    p.dims[ROLE_KEY[role]] = name;
+    saveP();
+    var r = checkMember(role, name, p.dims);
+    if (r.known && !r.ok) {
+      toast('\u26a0\ufe0f ' + esc(name) + ' \u00b7 ' +
+        tt('ניצול', 'การใช้งาน', 'الاستغلال') + ' ' + Math.round(r.util * 100) + '%');
+    } else {
+      toast('\u2705 ' + esc(name));
+    }
+    open(_open);
+    setTimeout(function () { pickMember(role); }, 60);
+  }
+
+  function closeSwap() {
+    var host = document.getElementById('bpSwap');
+    if (host) host.innerHTML = '';
+    if (_v3d) _v3d.select(null);
   }
 
   function memberLabel(g) {
@@ -1726,6 +2097,8 @@ var BuildPlan = (function () {
 '<div class="bp-card">' +
         '<div id="bp3d" style="height:min(46vh,440px);border-radius:12px;overflow:hidden;' +
           'background:radial-gradient(circle at 50% 30%,rgba(255,255,255,.06),rgba(0,0,0,.25));"></div>' +
+        '<div id="bpLegend" style="display:flex;gap:5px;flex-wrap:wrap;margin-top:8px;"></div>' +
+        '<div id="bpSwap" style="margin-top:8px;"></div>' +
         '<div style="display:flex;justify-content:space-between;gap:8px;margin-top:6px;flex-wrap:wrap;">' +
           '<span style="font-size:.74rem;color:var(--text-muted,#888);">' +
             tt('גרירה = סיבוב \u00b7 Shift+גרירה = הזזה \u00b7 גלגלת = זום \u00b7 לחיצה = בחירה',
@@ -1958,6 +2331,158 @@ var BuildPlan = (function () {
       '</div></div>';
   }
 
+  // ── free sketch ──────────────────────────────────────────────────────
+  // The parametric model covers rectangular portal frames. Everything else
+  // an orchard actually builds — an L-shaped canopy, a bund wall, a ramp
+  // with a turn — needs a drawing surface, and this is it.
+  function sketchTab(p) {
+    var b = function (tool, icon, he, th, ar) {
+      return '<button class="bp-btn ghost" id="skT_' + tool + '" ' +
+        'style="padding:7px 11px;font-size:.78rem;" onclick="BuildPlan.skTool(\'' + tool + '\')">' +
+        icon + ' ' + tt(he, th, ar) + '</button>';
+    };
+    return '<div class="bp-split">' +
+      '<div class="bp-stick">' +
+        '<div class="bp-card">' +
+          '<div id="bpSketch" style="height:min(52vh,480px);border-radius:12px;overflow:hidden;' +
+            'background:#f4f6f4;"></div>' +
+          '<div style="font-size:.72rem;color:var(--text-muted,#888);margin-top:6px;">' +
+            tt('גרירה = הזזה \u00b7 גלגלת = זום \u00b7 לחיצה כפולה = סיום קו שבור \u00b7 הצמדה לקודקודים ולרשת',
+               'ลาก=เลื่อน ล้อ=ซูม ดับเบิลคลิก=จบเส้น',
+               'سحب=تحريك \u00b7 عجلة=تكبير \u00b7 نقر مزدوج=إنهاء') + '</div>' +
+        '</div>' +
+        '<div class="bp-card"><div class="bp-lbl">' +
+          tt('נתוני השרטוט', 'ข้อมูลแบบ', 'بيانات الرسم') + '</div>' +
+          '<div id="bpSkInfo"></div></div>' +
+      '</div>' +
+      '<div class="bp-pane">' +
+        '<details class="bp-acc" open><summary>' + tt('כלים', 'เครื่องมือ', 'أدوات') + '</summary><div>' +
+          '<div style="display:flex;gap:5px;flex-wrap:wrap;">' +
+            b('select', '\u2196', 'בחירה', 'เลือก', 'تحديد') +
+            b('line',   '\u2571', 'קו', 'เส้น', 'خط') +
+            b('poly',   '\u2b20', 'קו שבור', 'เส้นหลายจุด', 'خط متعدد') +
+            b('rect',   '\u25ad', 'מלבן', 'สี่เหลี่ยม', 'مستطيل') +
+            b('circle', '\u25cb', 'עיגול', 'วงกลม', 'دائرة') +
+            b('pan',    '\u270b', 'הזזה', 'เลื่อน', 'تحريك') +
+          '</div>' +
+          '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:8px;">' +
+            '<label style="display:inline-flex;gap:5px;align-items:center;font-size:.78rem;">' +
+              '<input type="checkbox" onchange="BuildPlan.skOrtho(this.checked)"> ' +
+              tt('ישר בלבד', 'ตั้งฉาก', 'عمودي فقط') + '</label>' +
+          '</div>' +
+          '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:8px;">' +
+            '<button class="bp-btn ghost" style="padding:6px 10px;font-size:.75rem;" ' +
+              'onclick="BuildPlan.skUndo()">\u21b6 ' + tt('בטל', 'เลิกทำ', 'تراجع') + '</button>' +
+            '<button class="bp-btn ghost" style="padding:6px 10px;font-size:.75rem;" ' +
+              'onclick="BuildPlan.skRedo()">\u21b7 ' + tt('בצע שוב', 'ทำซ้ำ', 'إعادة') + '</button>' +
+            '<button class="bp-btn ghost" style="padding:6px 10px;font-size:.75rem;" ' +
+              'onclick="BuildPlan.skFit()">\u2922 ' + tt('התאם', 'พอดี', 'ملاءمة') + '</button>' +
+            '<button class="bp-btn warn" style="padding:6px 10px;font-size:.75rem;" ' +
+              'onclick="BuildPlan.skDel()">\ud83d\uddd1 ' + tt('מחק נבחר', 'ลบ', 'حذف') + '</button>' +
+          '</div>' +
+        '</div></details>' +
+        '<details class="bp-acc" open><summary>' +
+          tt('מידות מדויקות', 'ขนาดที่แน่นอน', 'أبعاد دقيقة') + '</summary>' +
+          '<div id="bpSkEdit"><div class="bp-empty" style="font-size:.8rem;">' +
+            tt('בחר צורה כדי לערוך את המידות שלה', 'เลือกรูปเพื่อแก้ไข', 'اختر شكلاً لتحرير أبعاده') +
+          '</div></div></details>' +
+        '<details class="bp-acc"><summary>' + tt('שינוי גודל', 'ปรับขนาด', 'تغيير الحجم') + '</summary><div>' +
+          '<div style="display:flex;gap:5px;flex-wrap:wrap;">' +
+            '<button class="bp-btn ghost" style="padding:6px 10px;font-size:.75rem;" onclick="BuildPlan.skScale(0.5)">\u00d70.5</button>' +
+            '<button class="bp-btn ghost" style="padding:6px 10px;font-size:.75rem;" onclick="BuildPlan.skScale(0.9)">\u00d70.9</button>' +
+            '<button class="bp-btn ghost" style="padding:6px 10px;font-size:.75rem;" onclick="BuildPlan.skScale(1.1)">\u00d71.1</button>' +
+            '<button class="bp-btn ghost" style="padding:6px 10px;font-size:.75rem;" onclick="BuildPlan.skScale(2)">\u00d72</button>' +
+            '<button class="bp-btn ghost" style="padding:6px 10px;font-size:.75rem;" onclick="BuildPlan.skRotate(-15)">\u21ba15\u00b0</button>' +
+            '<button class="bp-btn ghost" style="padding:6px 10px;font-size:.75rem;" onclick="BuildPlan.skRotate(15)">\u21bb15\u00b0</button>' +
+          '</div></div></details>' +
+      '</div></div>';
+  }
+
+  function mountSketch(p) {
+    var host = document.getElementById('bpSketch');
+    if (!host || typeof Sketch === 'undefined') return;
+    Sketch.mount(host, p.sketch, {
+      onChange: function (model, sum) {
+        p.sketch = model;
+        skInfo(sum);
+        skEdit();
+        if (_skSave) clearTimeout(_skSave);
+        _skSave = setTimeout(function () { saveP(); }, 800);
+      }
+    });
+    skTool('select');
+  }
+  var _skSave = null;
+
+  function skInfo(sum) {
+    var el = document.getElementById('bpSkInfo');
+    if (!el || !sum) return;
+    el.innerHTML =
+      '<div class="bp-read"><span>' + tt('צורות', 'รูปทรง', 'أشكال') + '</span><b>' + sum.shapes + '</b></div>' +
+      '<div class="bp-read"><span>' + tt('שטח כולל', 'พื้นที่รวม', 'المساحة') + '</span><b>' +
+        n1(sum.area) + ' \u05de"\u05e8</b></div>' +
+      '<div class="bp-read"><span>' + tt('אורך קווים', 'ความยาวรวม', 'الطول') + '</span><b>' +
+        n1(sum.perim) + ' m</b></div>';
+  }
+
+  // The numeric side of the sketcher: every segment of the selected shape
+  // gets a length and a bearing you can type into.
+  function skEdit() {
+    var el = document.getElementById('bpSkEdit');
+    if (!el || typeof Sketch === 'undefined') return;
+    var sel = Sketch.selection();
+    if (!sel) {
+      el.innerHTML = '<div class="bp-empty" style="font-size:.8rem;">' +
+        tt('בחר צורה כדי לערוך את המידות שלה', 'เลือกรูปเพื่อแก้ไข', 'اختر شكلاً لتحرير أبعاده') + '</div>';
+      return;
+    }
+    var h = '<div style="padding:0 2px;">';
+    if (sel.kind === 'circle') {
+      h += '<div class="bp-lbl">' + tt('רדיוס (מ\')', 'รัศมี', 'نصف القطر') + '</div>' +
+        '<input class="bp-in" type="number" step="0.05" value="' + n2(sel.r) + '" ' +
+          'onchange="BuildPlan.skRadius(this.value)">';
+    } else {
+      sel.segs.forEach(function (sg) {
+        h += '<div style="display:flex;gap:5px;align-items:center;margin-bottom:5px;">' +
+          '<span style="font-size:.72rem;color:var(--text-muted,#888);width:26px;">' + (sg.i+1) + '</span>' +
+          '<input class="bp-in" type="number" step="0.05" value="' + n2(sg.len) + '" ' +
+            'style="flex:1;" onchange="BuildPlan.skSeg(' + sg.i + ',this.value,null)">' +
+          '<span style="font-size:.72rem;color:var(--text-muted,#888);">m</span>' +
+          '<input class="bp-in" type="number" step="1" value="' + Math.round(sg.ang) + '" ' +
+            'style="width:70px;" onchange="BuildPlan.skSeg(' + sg.i + ',null,this.value)">' +
+          '<span style="font-size:.72rem;color:var(--text-muted,#888);">\u00b0</span>' +
+        '</div>';
+      });
+    }
+    h += '<div class="bp-read" style="margin-top:6px;"><span>' + tt('שטח', 'พื้นที่', 'مساحة') +
+      '</span><b>' + n1(sel.area) + ' \u05de"\u05e8</b></div>' +
+      '<div class="bp-read"><span>' + tt('היקף', 'เส้นรอบรูป', 'محيط') + '</span><b>' +
+      n1(sel.perim) + ' m</b></div></div>';
+    el.innerHTML = h;
+  }
+
+  function skTool(t) {
+    if (typeof Sketch === 'undefined') return;
+    Sketch.setTool(t);
+    ['select','line','poly','rect','circle','pan'].forEach(function (k) {
+      var b2 = document.getElementById('skT_' + k);
+      if (b2) b2.className = 'bp-btn ' + (k === t ? '' : 'ghost');
+    });
+  }
+  function skOrtho(v) { if (typeof Sketch !== 'undefined') Sketch.setOrtho(v); }
+  function skUndo()  { if (typeof Sketch !== 'undefined') { Sketch.undo(); skEdit(); } }
+  function skRedo()  { if (typeof Sketch !== 'undefined') { Sketch.redo(); skEdit(); } }
+  function skFit()   { if (typeof Sketch !== 'undefined') Sketch.fit(); }
+  function skDel()   { if (typeof Sketch !== 'undefined') { Sketch.del(); skEdit(); } }
+  function skScale(f){ if (typeof Sketch !== 'undefined') { Sketch.scaleSel(f); skEdit(); } }
+  function skRotate(d){ if (typeof Sketch !== 'undefined') { Sketch.rotateSel(d); skEdit(); } }
+  function skSeg(i, l, a) {
+    if (typeof Sketch === 'undefined') return;
+    Sketch.setSegment(i, l === null ? null : Number(l), a === null ? null : Number(a));
+    skEdit();
+  }
+  function skRadius(r) { if (typeof Sketch !== 'undefined') { Sketch.setCircle(Number(r)); skEdit(); } }
+
   function matTab(p, rows, tot) {
     var h = '<div class="bp-card">';
     rows.forEach(function (r) {
@@ -1993,9 +2518,12 @@ var BuildPlan = (function () {
         : '<div class="bp-empty">' + tt('הפרויקט עדיין לא ממוקם על המפה.',
             'ยังไม่ได้กำหนดตำแหน่ง', 'لم يُحدَّد الموقع بعد') + '</div>') +
       '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">' +
-        '<button class="bp-btn" onclick="BuildPlan.startFootprint(' + p.id + ')">\u2b20 ' +
-          (has ? tt('סמן מחדש', 'วาดใหม่', 'إعادة الرسم')
-               : tt('סמן על המפה', 'วาดบนแผนที่', 'ارسم على الخريطة')) + '</button>' +
+        '<button class="bp-btn" onclick="BuildPlan.startRect(' + p.id + ')">\u25ad ' +
+          (has ? tt('ערוך מלבן / הזז / סובב', 'แก้ไข / ย้าย / หมุน', 'تحرير / نقل / تدوير')
+               : tt('צייר מלבן', 'วาดสี่เหลี่ยม', 'ارسم مستطيلاً')) + '</button>' +
+        '<button class="bp-btn ghost" onclick="BuildPlan.startFootprint(' + p.id + ')">\u2b20 ' +
+          (has ? tt('סמן מחדש נקודה-נקודה', 'วาดทีละจุด', 'ارسم نقطة بنقطة')
+               : tt('סמן נקודה-נקודה', 'วาดทีละจุด', 'ارسم نقطة بنقطة')) + '</button>' +
         (has ? '<button class="bp-btn ghost" onclick="BuildPlan.zoomTo(' + p.id + ')">\ud83d\udd0d ' +
           tt('הצג במפה', 'ดูบนแผนที่', 'عرض على الخريطة') + '</button>' +
           '<button class="bp-btn ghost" onclick="BuildPlan.useFootprint(' + p.id + ')">\u2b07 ' +
@@ -2404,6 +2932,13 @@ var BuildPlan = (function () {
     _live: _live,
     _commit: _commit,
     toggleLayer: toggleLayer,
+    pickMember: pickMember,
+    skTool: skTool, skOrtho: skOrtho, skUndo: skUndo, skRedo: skRedo,
+    skFit: skFit, skDel: skDel, skScale: skScale, skRotate: skRotate,
+    skSeg: skSeg, skRadius: skRadius,
+    swapTo: swapTo,
+    closeSwap: closeSwap,
+    checkMember: checkMember,
     layersAll: layersAll,
     layersFrame: layersFrame,
     applyModel: applyModel,
@@ -2412,6 +2947,12 @@ var BuildPlan = (function () {
     sun: sun,
     openCatalog: openCatalog,
     startFootprint: startFootprint,
+    startRect: startRect,
+    geApply: geApply,
+    geRot: geRot,
+    geRedraw: geRedraw,
+    geSave: geSave,
+    geCancel: geCancel,
     finishFootprint: finishFootprint,
     cancelFootprint: cancelFootprint,
     undoPoint: undoPoint,

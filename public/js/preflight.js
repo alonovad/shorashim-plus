@@ -190,6 +190,11 @@ OWN.forEach(f => {
   // Arguments to dsp(), dspUnit(), qty() and push() are stable data keys
   // that get translated at render time, not literals shown as-is.
   m = m.replace(/(?:dsp|dspUnit|qty)\(\s*(?:'[^']*'|"[^"]*")\s*\)/g, x => x.replace(/./g, ' '));
+  // A local helper that takes (…, he, th, ar) and forwards to tt() is just
+  // as translated as an inline tt() call. Recognise three consecutive
+  // string literals as a language triple.
+  m = m.replace(/'(?:\\.|[^'\\])*'\s*,\s*'(?:\\.|[^'\\])*'\s*,\s*'(?:\\.|[^'\\])*'/g,
+                x => x.replace(/./g, ' '));
   m = m.replace(/push\(\s*(?:'[^']*'|"[^"]*")/g, x => x.replace(/./g, ' '));
   m = m.replace(/,\s*(?:'מ"[רק]'|"מ'"|"יח'"|'ליטר'|'טון')\s*,/g, x => x.replace(/./g, ' '));
   const hits = [];
@@ -200,6 +205,7 @@ OWN.forEach(f => {
     if (/^var UNITS/.test(t) || /^\s*"[^"]*":\s*\[/.test(t)) return;
     if (/^push\(/.test(t) || /profSel\(/.test(t)) return;   // catalogue keys
     if (/String\(d\.\w+\s*\|\|/.test(t)) return;              // catalogue defaults
+    if (/^var group\s*=/.test(t)) return;                     // catalogue group key
     const re = /'((?:\\.|[^'\\])*)'/g; let g;
     while ((g = re.exec(line))) if (HEB.test(g[1])) hits.push(i + 1);
   });
