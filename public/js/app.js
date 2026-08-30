@@ -1661,15 +1661,25 @@
   var gpsMarker = null;
 
   // ── Map ──
-  var map = L.map('map', { center: [31.8, 35.2], zoom: 13, zoomControl: false });
+  // MAX_ZOOM caps how far in the user can go; MAX_NATIVE is the deepest
+  // level Esri actually publishes imagery for. Without the cap Leaflet
+  // happily zoomed past the available tiles and the map went blank —
+  // it looked like the map had disappeared. With maxNativeZoom set, the
+  // last level between them upscales real tiles instead of requesting
+  // ones that do not exist, so there is no blank state at any zoom.
+  var MAX_ZOOM = 20, MAX_NATIVE = 19, MIN_ZOOM = 3;
+  var map = L.map('map', {
+    center: [31.8, 35.2], zoom: 13, zoomControl: false,
+    maxZoom: MAX_ZOOM, minZoom: MIN_ZOOM
+  });
   L.control.zoom({ position: 'bottomright' }).addTo(map);
 
   var satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-    attribution: 'Esri', maxZoom: 19
+    attribution: 'Esri', maxZoom: MAX_ZOOM, maxNativeZoom: MAX_NATIVE
   }).addTo(map);
 
   var streetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: 'OpenStreetMap', maxZoom: 19
+    attribution: 'OpenStreetMap', maxZoom: MAX_ZOOM, maxNativeZoom: MAX_NATIVE
   });
 
   var drawnItems = new L.FeatureGroup();
@@ -2251,6 +2261,7 @@
   // the user's clicks.
   window.MapAccess = {
     getMap: function () { return map; },
+    maxZoom: function () { return MAX_ZOOM; },
     // Shoelace on the sphere, same maths the plot tool uses — returned in
     // m² here because a shed is measured in metres, not dunam.
     areaFromLatLngs: function (pts) {

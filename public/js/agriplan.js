@@ -1072,8 +1072,9 @@ var AgriPlan = (function () {
       for (var k = 0; k < 3; k++) {
         if (m[k]) {
           cells += '<td><b>' + esc(m[k].name) + '</b><br>' +
-            '<span class="rate">' + (m[k].mode === 'pct' ? m[k].value + '%' : m[k].value + ' סמ"ק/עץ') +
-            '</span><br><span class="qty">' + n1(rowMaterialL(r, m[k])) + ' ליטר</span></td>';
+            '<span class="rate">' + (m[k].mode === 'pct' ? m[k].value + '%' : m[k].value + ' ' + tt('סמ"ק/עץ', 'ซีซี/ต้น', 'سم³/شجرة')) +
+            '</span><br><span class="qty">' + n1(rowMaterialL(r, m[k])) + ' ' +
+            tt('ליטר', 'ลิตร', 'لتر') + '</span></td>';
         } else cells += '<td></td>';
       }
       rows += '<tr><td><b>' + esc(methodLabel(r.method)) + '</b><br>' +
@@ -1082,7 +1083,8 @@ var AgriPlan = (function () {
         '<td>' + esc((pl ? pl.name : '') + (r.cohort ? ' \u2014 ' + r.cohort : '')) + '</td>' +
         '<td>' + (r.trees || 0).toLocaleString() + '</td>' + cells +
         '<td>' + esc(r.round) + '</td><td>' + esc(r.timing) + '</td>' +
-        '<td>' + n1(r.carrier) + (r.method === 'inject' ? ' סמ"ק' : ' ליטר') + '</td>' +
+        '<td>' + n1(r.carrier) + ' ' + (r.method === 'inject'
+          ? tt('סמ"ק', 'ซีซี', 'سم³') : tt('ליטר', 'ลิตร', 'لتر')) + '</td>' +
         '<td><b>' + n1(rowCarrierL(r)).toLocaleString() + '</b></td></tr>';
     });
 
@@ -1097,7 +1099,8 @@ var AgriPlan = (function () {
     Object.keys(t.farmMat).forEach(function (fid) {
       var mm = t.farmMat[fid];
       var body = Object.keys(mm).sort().map(function (nm) {
-        return '<tr><td>' + esc(nm) + '</td><td><b>' + n1(mm[nm]) + ' ליטר</b></td></tr>';
+        return '<tr><td>' + esc(nm) + '</td><td><b>' + n1(mm[nm]) + ' ' +
+          tt('ליטר', 'ลิตร', 'لتر') + '</b></td></tr>';
       }).join('');
       if (!body) return;
       var note = (p.farmNotes || {})[String(fid)] || '';

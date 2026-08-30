@@ -174,6 +174,47 @@ fs.existsSync(path.join(JS_DIR, 'firestore.rules'))
   ? bad('public/js/firestore.rules exists — served publicly and never deployed')
   : ok('none');
 
+// ── 8. untranslated user-facing Hebrew ────────────────────────────────
+// Every visible string must go through tt(he, th, ar). Data keys are
+// exempt: catalogue and unit names are stable identifiers that join
+// takeoff, orders and quotes, and are translated at render instead.
+head('8. Translation coverage');
+const HEB = /[\u0590-\u05FF]/;
+const OWN = ['orders.js','agriplan.js','buildplan.js','shed3d.js','stickyactions.js'];
+OWN.forEach(f => {
+  if (!src[f]) return;
+  let m = src[f].replace(/\/\*[\s\S]*?\*\//g, x => x.replace(/[^\n]/g, ' '))
+                .replace(/(^|[^:])\/\/[^\n]*/g, (x, p2) => p2 + x.slice(p2.length).replace(/./g, ' '));
+  m = m.replace(/tt\(\s*('(?:\\.|[^'\\])*')\s*,\s*('(?:\\.|[^'\\])*')\s*,\s*('(?:\\.|[^'\\])*')\s*\)/g,
+                x => x.replace(/./g, ' '));
+  // Arguments to dsp(), dspUnit(), qty() and push() are stable data keys
+  // that get translated at render time, not literals shown as-is.
+  m = m.replace(/(?:dsp|dspUnit|qty)\(\s*(?:'[^']*'|"[^"]*")\s*\)/g, x => x.replace(/./g, ' '));
+  m = m.replace(/push\(\s*(?:'[^']*'|"[^"]*")/g, x => x.replace(/./g, ' '));
+  m = m.replace(/,\s*(?:'מ"[רק]'|"מ'"|"יח'"|'ליטר'|'טון')\s*,/g, x => x.replace(/./g, ' '));
+  const hits = [];
+  m.split('\n').forEach((line, i) => {
+    const raw = src[f].split('\n')[i] || '';
+    const t = raw.trim();
+    if (/^'[^']*':\s*\[/.test(t) || /\{\s*g:\s*'/.test(t) || /label:\s*\[/.test(t)) return;
+    if (/^var UNITS/.test(t) || /^\s*"[^"]*":\s*\[/.test(t)) return;
+    if (/^push\(/.test(t) || /profSel\(/.test(t)) return;   // catalogue keys
+    if (/String\(d\.\w+\s*\|\|/.test(t)) return;              // catalogue defaults
+    const re = /'((?:\\.|[^'\\])*)'/g; let g;
+    while ((g = re.exec(line))) if (HEB.test(g[1])) hits.push(i + 1);
+  });
+  hits.length ? bad(`${f}: untranslated at lines ${[...new Set(hits)].slice(0,6).join(', ')}`)
+              : ok(f);
+});
+
+// ── 9. map zoom is bounded ────────────────────────────────────────────
+head('9. Map zoom bounds');
+const appSrc = src['app.js'] || '';
+/maxZoom:\s*MAX_ZOOM,\s*minZoom/.test(appSrc)
+  ? ok('map has maxZoom + minZoom') : bad('map is unbounded — tiles can run out and blank');
+(appSrc.match(/maxNativeZoom/g) || []).length >= 2
+  ? ok('both tile layers set maxNativeZoom') : bad('tile layer missing maxNativeZoom');
+
 console.log(`\n${'-'.repeat(52)}`);
 console.log(failures ? `\x1b[31m${failures} FAILURE(S)\x1b[0m of ${checks} checks`
                      : `\x1b[32mall ${checks} checks passed\x1b[0m`);

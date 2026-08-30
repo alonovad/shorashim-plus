@@ -123,6 +123,62 @@ var BuildPlan = (function () {
     return v;
   }
 
+  // ── display translation ──────────────────────────────────────────────
+  // Catalogue names double as the key that joins takeoff → catalogue →
+  // supplier order → maintenance material line. Renaming them per language
+  // would break every saved project, so the Hebrew string stays the key and
+  // this table translates it only at the moment it is displayed.
+  // Product designations (HEA 160, Q188, RHS 100x50x3) are international
+  // and deliberately absent — translating a section size would be wrong.
+  var DICT = {
+    'עמודים / קורות': ['เสา / คาน', 'أعمدة / روافد'],
+    'פרופיל מלבני':  ['โปรไฟล์สี่เหลี่ยมผืนผ้า', 'مقطع مستطيل'],
+    'פרופיל מרובע':  ['โปรไฟล์สี่เหลี่ยมจัตุรัส', 'مقطع مربع'],
+    'מרישים':        ['แป', 'مرايش'],
+    'חיפוי':         ['วัสดุปิดผิว', 'تغطية'],
+    'בטון':          ['คอนกรีต', 'خرسانة'],
+    'אביזרים':       ['อุปกรณ์', 'ملحقات'],
+    'איסכורית 5 גלים':   ['เมทัลชีท 5 ลอน', 'صاج مموج 5 موجات'],
+    'פאנל מבודד 4 ס"מ':  ['แผ่นฉนวน 4 ซม.', 'بانل معزول 4 سم'],
+    'פאנל מבודד 5 ס"מ':  ['แผ่นฉนวน 5 ซม.', 'بانل معزول 5 سم'],
+    'לוח סקיילייט':      ['แผ่นสกายไลท์', 'لوح إضاءة'],
+    'בטון ב-30':         ['คอนกรีต B-30', 'خرسانة B-30'],
+    'רשת פלדה Q188':     ['ตะแกรงเหล็ก Q188', 'شبكة حديد Q188'],
+    'ברזל זיון 12 מ"מ':  ['เหล็กเส้น 12 มม.', 'حديد تسليح 12 مم'],
+    'פלטת בסיס':     ['แผ่นฐาน', 'لوح قاعدة'],
+    'בורג עיגון':    ['สลักยึด', 'برغي تثبيت'],
+    'מרזב':          ['รางน้ำ', 'مزراب'],
+    'צינור ניקוז':   ['ท่อระบายน้ำ', 'أنبوب تصريف'],
+    'שער הזזה':      ['ประตูเลื่อน', 'بوابة منزلقة'],
+    'עמוד גדר':      ['เสารั้ว', 'عمود سياج'],
+    'רשת גדר':       ['ตาข่ายรั้ว', 'شبك سياج'],
+    // units
+    'ליטר': ['ลิตร', 'لتر'],   'ק"ג': ['กก.', 'كغ'],
+    "יח'":  ['ชิ้น', 'قطعة'],  "מ'":  ['ม.', 'م'],
+    'מ"ר':  ['ตร.ม.', 'م²'],   'מ"ק': ['ลบ.ม.', 'م³'],
+    'טון':  ['ตัน', 'طن'],     'שק':  ['ถุง', 'كيس'],
+    'גליל': ['ม้วน', 'لفة'],   'משטח': ['พาเลท', 'منصة'],
+    // notes emitted by the takeoff
+    'רצפה': ['พื้น', 'أرضية'],
+    'כולל חפיפה': ['รวมทาบ', 'شامل التداخل'],
+    'היקף וחיזוקים': ['ขอบและเสริม', 'محيط وتقوية'],
+    'כולל פחת': ['รวมเผื่อ', 'شامل الهدر']
+  };
+
+  // Translate a stored name for display. Unknown names — a profile the user
+  // added themselves — pass through unchanged rather than disappearing.
+  function dsp(name) {
+    var e = DICT[name];
+    if (!e) return String(name == null ? '' : name);
+    return tt(name, e[0], e[1]);
+  }
+
+  // Index a ['he','th','ar'] label array by the active language.
+  function pick(arr) {
+    if (!arr || !arr.length) return '';
+    return tt(arr[0], arr[1] || arr[0], arr[2] || arr[0]);
+  }
+
   // ── helpers ──
   function tt(he, th, ar) {
     return (typeof window.tt === 'function') ? window.tt(he, th, ar) : he;
@@ -134,6 +190,11 @@ var BuildPlan = (function () {
     });
   }
   function uid() { return Date.now() + Math.floor(Math.random() * 1000); }
+  // Coarse pointer or a narrow viewport: treat as a phone for defaults.
+  function isPhone() {
+    return (typeof matchMedia === 'function' && matchMedia('(pointer:coarse)').matches) ||
+           (window.innerWidth || 1024) < 820;
+  }
   function isManager() {
     var u = window.currentUser || {};
     return u.role === 'admin' || u.role === 'operator';
@@ -194,14 +255,17 @@ var BuildPlan = (function () {
       mezz: Number(d.mezz) || 0,
       mezzH: Number(d.mezzH) || 3,
       // scene
-      mapGround: d.mapGround === false ? false : true,
       // 'staff' by default: a graduated survey rod is a drawing convention,
       // reads at any zoom, and does not pretend the site has vegetation on
       // it that nobody has surveyed.
       scaleRef: ['none','staff','person','palm'].indexOf(d.scaleRef) >= 0 ? d.scaleRef : 'staff',
       scaleH: Number(d.scaleH) || 9,
       callouts: d.callouts === false ? false : true,
-      shadows: d.shadows === false ? false : true,
+      // Shadows and the satellite ground are the two most expensive things
+      // in the scene, so on a phone they default off rather than making the
+      // first open feel broken. Both are one tap away in סביבה ותאורה.
+      shadows: (d.shadows === undefined) ? !isPhone() : !!d.shadows,
+      mapGround: (d.mapGround === undefined) ? !isPhone() : !!d.mapGround,
       dims: d.dims === false ? false : true,
       sunAz: Number(d.sunAz) || 130,
       sunEl: Number(d.sunEl) || 48
@@ -217,6 +281,8 @@ var BuildPlan = (function () {
       client: String(x.client || ''),
       status: String(x.status || 'planning'),
       notes: String(x.notes || ''),
+      maintId: (x.maintId === undefined || x.maintId === null) ? null : Number(x.maintId),
+      maintName: String(x.maintName || ''),
       createdAt: Number(x.createdAt) || Date.now(),
       createdBy: String(x.createdBy || ''),
       dims: normDim(x.dims),
@@ -387,7 +453,7 @@ var BuildPlan = (function () {
     if (p.type === 'slab') {
       var a = slabArea(p);
       push('בטון ב-30', a * d.slabTh * w, 'מ"ק',
-        n1(a) + ' מ"ר × ' + d.slabTh + ' מ\'');
+        n1(a) + ' ' + dsp('מ"ר') + ' \u00d7 ' + d.slabTh + ' ' + dsp("מ'"));
       // Q188 sheets are 6×2.35 m; 10% is the standard lap allowance.
       push('רשת פלדה Q188', Math.ceil(a / (6 * 2.35) * 1.1), "יח'", tt('כולל חפיפה', 'รวมทาบ', 'شامل التداخل'));
       push('ברזל זיון 12 מ"מ', Math.sqrt(a) * 4 * 2 * w, "מ'", tt('היקף וחיזוקים', 'ขอบและเสริม', 'محيط وتقوية'));
@@ -397,11 +463,11 @@ var BuildPlan = (function () {
 
     var g = geom(d);
     push(d.colProfile,    g.frames * 2 * d.eaves * w, "מ'",
-      g.frames * 2 + ' ' + tt('עמודים', 'เสา', 'أعمدة') + ' × ' + n1(d.eaves) + ' מ\'');
+      g.frames * 2 + ' ' + tt('עמודים', 'เสา', 'أعمدة') + ' \u00d7 ' + n1(d.eaves) + ' ' + dsp("מ'"));
     push(d.rafterProfile, g.frames * 2 * g.rafterLen * w, "מ'",
-      g.frames * 2 + ' ' + tt('קורות', 'คาน', 'روافد') + ' × ' + n1(g.rafterLen) + ' מ\'');
+      g.frames * 2 + ' ' + tt('קורות', 'คาน', 'روافد') + ' \u00d7 ' + n1(g.rafterLen) + ' ' + dsp("מ'"));
     push(d.purlinProfile, g.purlinRuns * 2 * d.length * w, "מ'",
-      (g.purlinRuns * 2) + ' ' + tt('שורות מרישים', 'แถวแป', 'صفوف') + ' × ' + n1(d.length) + ' מ\'');
+      (g.purlinRuns * 2) + ' ' + tt('שורות מרישים', 'แถวแป', 'صفوف') + ' \u00d7 ' + n1(d.length) + ' ' + dsp("מ'"));
     if (d.wallMode !== 'open') {
       push(d.girtProfile, g.girtRows * g.perimeter * w, "מ'",
         g.girtRows + ' ' + tt('שורות', 'แถว', 'صفوف'));
@@ -421,7 +487,7 @@ var BuildPlan = (function () {
       var ft = footing(d);
       push('בטון ב-30', ft.volAll * w, 'מ"ק',
         ft.n + ' ' + tt('בסיסי עמוד', 'ฐานเสา', 'قواعد أعمدة') + ' ' +
-        n1(d.footW) + '\u00d7' + n1(d.footW) + '\u00d7' + n1(d.footD) + ' מ\'');
+        n1(d.footW) + '\u00d7' + n1(d.footW) + '\u00d7' + n1(d.footD) + ' ' + dsp("מ'"));
       push('ברזל זיון 12 מ"מ', ft.n * d.footW * 8 * 2 * w, "מ'",
         tt('כלוב זיון לבסיסים', 'เหล็กฐาน', 'تسليح القواعد'));
     }
@@ -440,11 +506,11 @@ var BuildPlan = (function () {
       push('רשת פלדה Q188', Math.ceil(d.length * d.mezz / (6 * 2.35) * 1.1), "יח'",
         tt('רצפת גלריה', 'พื้นชั้นลอย', 'أرضية الميزانين'));
     }
-    if (d.door) push('שער הזזה', 1, "יח'", n1(d.doorW) + '\u00d7' + n1(d.doorH) + ' מ\'');
+    if (d.door) push('שער הזזה', 1, "יח'", n1(d.doorW) + '\u00d7' + n1(d.doorH) + ' ' + dsp("מ'"));
     if (d.fence) {
       var per = 2 * ((d.length + d.fenceOff * 2) + (d.span + d.fenceOff * 2));
-      push('עמוד גדר', Math.ceil(per / 2.5), "יח'", n1(d.fenceH) + ' מ\'');
-      push('רשת גדר', per, "מ'", n1(d.fenceH) + ' מ\' ' + tt('גובה', 'สูง', 'ارتفاع'));
+      push('עמוד גדר', Math.ceil(per / 2.5), "יח'", n1(d.fenceH) + ' ' + dsp("מ'"));
+      push('רשת גדר', per, "מ'", n1(d.fenceH) + ' ' + dsp("מ'") + ' ' + tt('גובה', 'สูง', 'ارتفاع'));
     }
     push('רשת פלדה Q188', Math.ceil(fa / (6 * 2.35) * 1.1), "יח'", tt('רצפה', 'พื้น', 'أرضية'));
     (p.extras || []).forEach(function (e) { push(e.name, e.qty, e.unit, ''); });
@@ -823,39 +889,40 @@ var BuildPlan = (function () {
     refreshMeasure(null);
   }
 
+  function bannerReadout() {
+    var el = document.getElementById('bpReadout');
+    if (!el || !_draw) return;
+    var n = _draw.pts.length, ar = _draw.area || 0, pe = _draw.per || 0;
+    el.innerHTML =
+      '<span>' + (_draw.snap
+        ? '\ud83d\udfe2 ' + tt('לחץ לסגירת המצולע', 'แตะเพื่อปิดรูป', 'انقر لإغلاق الشكل')
+        : '\u2b20 ' + tt('לחץ על המפה', 'แตะแผนที่', 'انقر على الخريطة')) + ' (' + n + ')</span>' +
+      (ar > 0
+        ? '<span style="margin-inline-start:8px;background:rgba(255,209,102,.16);' +
+          'border:1px solid rgba(255,209,102,.4);padding:3px 9px;border-radius:9px;color:#ffd166;">' +
+          '\u25b1 ' + n1(ar) + ' \u05de"\u05e8' +
+          (ar >= 1000 ? ' (' + (ar/1000).toFixed(2) + ' \u05d3\u05d5\u05e0\u05dd)' : '') +
+          ' \u00b7 \u21ba ' + n1(pe) + ' m</span>'
+        : '');
+  }
+
   function banner(show) {
     var b = document.getElementById('bpBanner');
     if (!show) { if (b) b.remove(); return; }
-    // The banner is rebuilt on every mouse move, so anything already typed
-    // into the length or rectangle fields has to survive the rewrite.
-    var keep = {};
-    ['bpSegLen','bpSegAng','bpRectA','bpRectB','bpRectR'].forEach(function (k) {
-      var el = document.getElementById(k);
-      if (el) keep[k] = el.value;
-    });
-    var focused = document.activeElement && document.activeElement.id;
+    // Built once. Rebuilding this on every pointer move made typing a
+    // rectangle dimension a race against the next mousemove — characters
+    // were being dropped mid-entry.
+    if (b) { bannerReadout(); return; }
     if (!b) {
       b = document.createElement('div');
       b.id = 'bpBanner';
       document.body.appendChild(b);
     }
-    var n = _draw ? _draw.pts.length : 0;
-    var ar = _draw ? (_draw.area || 0) : 0;
-    var pe = _draw ? (_draw.per || 0) : 0;
-    var readout = ar > 0
-      ? '<span style="background:rgba(255,209,102,.16);border:1px solid rgba(255,209,102,.4);' +
-        'padding:4px 10px;border-radius:9px;color:#ffd166;">\u25b1 ' + n1(ar) + ' \u05de"\u05e8' +
-        (ar >= 1000 ? ' (' + (ar / 1000).toFixed(2) + ' \u05d3\u05d5\u05e0\u05dd)' : '') +
-        ' \u00b7 \u21ba ' + n1(pe) + ' m</span>'
-      : '';
     b.innerHTML =
       '<div style="position:fixed;top:0;inset-inline:0;z-index:10060;padding:10px 12px;' +
         'background:rgba(8,18,12,.96);color:#fff;display:flex;gap:8px;align-items:center;' +
         'justify-content:center;flex-wrap:wrap;font-weight:700;font-size:.86rem;">' +
-        '<span>' + (_draw && _draw.snap
-          ? '\ud83d\udfe2 ' + tt('לחץ לסגירת המצולע', 'แตะเพื่อปิดรูป', 'انقر لإغلاق الشكل')
-          : '\u2b20 ' + tt('לחץ על המפה לסימון גבול', 'แตะแผนที่', 'انقر على الخريطة')) +
-          ' (' + n + ')</span>' + readout +
+        '<span id="bpReadout"></span>' +
         '<span style="display:inline-flex;gap:4px;align-items:center;background:rgba(255,255,255,.08);' +
           'padding:4px 8px;border-radius:9px;">' +
           '<span style="font-size:.74rem;opacity:.85;">' + tt('אורך', 'ยาว', 'طول') + '</span>' +
@@ -891,11 +958,7 @@ var BuildPlan = (function () {
         '<button onclick="BuildPlan.cancelFootprint()" style="padding:7px 12px;border-radius:9px;border:none;' +
           'background:rgba(255,71,87,.25);color:#fff;font-family:inherit;font-weight:700;">\u2715</button>' +
       '</div>';
-    Object.keys(keep).forEach(function (k) {
-      var el = document.getElementById(k);
-      if (el && keep[k] !== '') el.value = keep[k];
-    });
-    if (focused) { var f = document.getElementById(focused); if (f) f.focus(); }
+    bannerReadout();
   }
 
   function undoPoint() {
@@ -958,11 +1021,40 @@ var BuildPlan = (function () {
   function paint(h) {
     var m = document.getElementById('modalContainer');
     if (!m) return;
-    var prev = document.querySelector('.bp-back');
-    var top = prev ? prev.scrollTop : 0;
+    // Three things have to survive a repaint or the sheet feels like it
+    // resets under you: the backdrop scroll, the controls-column scroll,
+    // and which accordions were open.
+    var back = document.querySelector('.bp-back');
+    var pane = document.querySelector('.bp-pane');
+    var backTop = back ? back.scrollTop : 0;
+    var paneTop = pane ? pane.scrollTop : 0;
+    var openAcc = [];
+    document.querySelectorAll('.bp-acc').forEach(function (d, i) {
+      if (d.open) openAcc.push(i);
+    });
+    var act = document.activeElement;
+    var actId = (act && act.id) ? act.id : null;
+    var caret = (act && act.selectionStart != null) ? act.selectionStart : null;
+
     m.innerHTML = h;
-    var next = document.querySelector('.bp-back');
-    if (next && top) next.scrollTop = top;
+
+    var nBack = document.querySelector('.bp-back');
+    var nPane = document.querySelector('.bp-pane');
+    if (nBack && backTop) nBack.scrollTop = backTop;
+    if (nPane && paneTop) nPane.scrollTop = paneTop;
+    if (openAcc.length) {
+      var accs = document.querySelectorAll('.bp-acc');
+      accs.forEach(function (d, i) { d.open = openAcc.indexOf(i) >= 0; });
+    }
+    if (actId) {
+      var back2 = document.getElementById(actId);
+      if (back2 && back2.focus) {
+        back2.focus();
+        if (caret != null && back2.setSelectionRange) {
+          try { back2.setSelectionRange(caret, caret); } catch (e) {}
+        }
+      }
+    }
   }
   function repaint() {
     if (_open && projById(_open)) open(_open); else render();
@@ -1001,7 +1093,10 @@ var BuildPlan = (function () {
       // always on screen, because it is the feedback for every control.
       '.bp-split{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(300px,1fr);gap:12px;align-items:start;}' +
       '.bp-stick{position:sticky;top:8px;z-index:3;}' +
-      '.bp-pane{max-height:calc(100vh - 150px);overflow:auto;padding-inline-end:4px;}' +
+      '.bp-pane{max-height:calc(100vh - 168px);overflow-y:auto;overscroll-behavior:contain;' +
+        '-webkit-overflow-scrolling:touch;padding-inline-end:6px;padding-bottom:28px;}' +
+      '.bp-pane::-webkit-scrollbar{width:10px;}' +
+      '.bp-pane::-webkit-scrollbar-thumb{background:var(--border,#bbb);border-radius:6px;}' +
       '.bp-acc{background:var(--surface-glass,#f5f7f5);border-radius:12px;margin-bottom:8px;overflow:hidden;}' +
       '.bp-acc>summary{cursor:pointer;padding:10px 12px;font-weight:800;font-size:.85rem;list-style:none;' +
         'display:flex;justify-content:space-between;align-items:center;}' +
@@ -1047,7 +1142,10 @@ var BuildPlan = (function () {
       '<button class="bp-btn ghost" onclick="BuildPlan.openCatalog()">\ud83d\udcd0 ' +
         tt('קטלוג פרופילים', 'แคตตาล็อก', 'كتالوج') + '</button>' +
       '<button class="bp-btn ghost" onclick="Orders.open()">\ud83d\udce6 ' +
-        tt('הזמנות', 'ใบสั่งซื้อ', 'الطلبات') + '</button>';
+        tt('הזמנות', 'ใบสั่งซื้อ', 'الطلبات') + '</button>' +
+      (typeof Maintenance !== 'undefined'
+        ? '<button class="bp-btn ghost" onclick="BuildPlan.backToMaint()">\ud83d\udd27 ' +
+          tt('חזרה לתחזוקה', 'กลับซ่อมบำรุง', 'رجوع للصيانة') + '</button>' : '');
 
     var body = '';
     if (!(P.projects || []).length) {
@@ -1072,6 +1170,7 @@ var BuildPlan = (function () {
                : n1(slabArea(p)) + ' \u05de"\u05e8 \u00b7 ' + n2(slabArea(p) * p.dims.slabTh) + ' \u05de"\u05e7') +
             (t.cost ? ' \u00b7 ' + money(t.cost) : '') +
             (p.footprint.length ? ' \u00b7 \ud83d\uddfa ' + n1(p.footprintArea) + ' \u05de"\u05e8' : '') +
+            (p.maintId ? ' \u00b7 \ud83d\udd27 ' + esc(p.maintName || tt('מקושר','เชื่อม','مرتبط')) : '') +
           '</div>' +
           '<div style="display:flex;gap:6px;margin-top:8px;" onclick="event.stopPropagation()">' +
             (p.footprint.length
@@ -1110,8 +1209,8 @@ var BuildPlan = (function () {
       var pa = profByName(a.name), pb = profByName(b.name);
       return ((pb && pb.price ? b.qty*pb.price : 0)) - ((pa && pa.price ? a.qty*pa.price : 0));
     }).slice(0, 6).map(function (r) {
-      return '<div class="bp-tot" style="font-size:.8rem;"><span>' + esc(r.name) +
-        '</span><span>' + n1(r.qty) + ' ' + esc(r.unit) + '</span></div>';
+      return '<div class="bp-tot" style="font-size:.8rem;"><span>' + esc(dsp(r.name)) +
+        '</span><span>' + n1(r.qty) + ' ' + esc(dsp(r.unit)) + '</span></div>';
     }).join('');
 
     var body =
@@ -1159,6 +1258,13 @@ var BuildPlan = (function () {
             '<button class="bp-btn" style="margin-top:6px;" onclick="BuildPlan.startFootprint(' + p.id + ')">' +
               '\u2b20 ' + tt('סמן עכשיו', 'วาดตอนนี้', 'ارسم الآن') + '</button>') +
       '</div>' +
+
+      (p.maintId ? '<div class="bp-card"><div class="bp-lbl" style="margin-bottom:4px;">\ud83d\udd27 ' +
+        tt('פרויקט תחזוקה', 'โครงการซ่อมบำรุง', 'مشروع الصيانة') + '</div>' +
+        '<div class="bp-tot" style="border:none;"><span>' + esc(p.maintName || '\u2014') + '</span>' +
+        '<button class="bp-btn ghost" style="padding:4px 10px;font-size:.74rem;" ' +
+          'onclick="BuildPlan.openMaint(' + p.maintId + ')">' +
+          tt('פתח', 'เปิด', 'فتح') + '</button></div></div>' : '') +
 
       (top ? '<div class="bp-card"><div class="bp-lbl" style="margin-bottom:4px;">' +
         tt('פריטים עיקריים', 'วัสดุหลัก', 'المواد الرئيسية') + '</div>' + top + '</div>' : '') +
@@ -1261,6 +1367,7 @@ var BuildPlan = (function () {
 
     paint(shell((p.type === 'slab' ? '\ud83e\uddf1 ' : '\ud83c\udfd7 ') +
       esc(p.name || typeLabel(p.type)), bar, body));
+    if (_tab === 'site') linkPanel(p);
     if (_tab === 'design') {
       if (p.type !== 'slab') mount3d(p);
       refreshReadouts(p);
@@ -1325,7 +1432,7 @@ var BuildPlan = (function () {
     var o = '';
     (C.profiles || []).filter(function (x) { return x.group === group; }).forEach(function (x) {
       o += '<option value="' + esc(x.name) + '"' + (x.name === cur ? ' selected' : '') + '>' +
-        esc(x.name) + (x.kgPerM ? ' \u00b7 ' + x.kgPerM + ' kg/m' : '') +
+        esc(dsp(x.name)) + (x.kgPerM ? ' \u00b7 ' + x.kgPerM + ' kg/m' : '') +
         (x.price ? ' \u00b7 ' + money(x.price) : '') + '</option>';
     });
     return '<select class="bp-in" onchange="BuildPlan._dim(' + id + ',\'' + key + '\',this.value)">' +
@@ -1607,7 +1714,7 @@ var BuildPlan = (function () {
     var models = Object.keys(MODELS).map(function (k) {
       return '<button class="bp-btn ' + (d._model === k ? 'on' : 'ghost') +
         '" style="padding:7px 11px;font-size:.76rem;" onclick="BuildPlan.applyModel(' + id +
-        ',\'' + k + '\')">' + esc(MODELS[k].label[0]) + '</button>';
+        ',\'' + k + '\')">' + esc(pick(MODELS[k].label)) + '</button>';
     }).join('');
 
     // Left column holds the model and the derived numbers and stays put;
@@ -1617,7 +1724,7 @@ var BuildPlan = (function () {
     return '<div class="bp-split">' +
       '<div class="bp-stick">' +
 '<div class="bp-card">' +
-        '<div id="bp3d" style="height:min(58vh,520px);border-radius:12px;overflow:hidden;' +
+        '<div id="bp3d" style="height:min(46vh,440px);border-radius:12px;overflow:hidden;' +
           'background:radial-gradient(circle at 50% 30%,rgba(255,255,255,.06),rgba(0,0,0,.25));"></div>' +
         '<div style="display:flex;justify-content:space-between;gap:8px;margin-top:6px;flex-wrap:wrap;">' +
           '<span style="font-size:.74rem;color:var(--text-muted,#888);">' +
@@ -1855,9 +1962,9 @@ var BuildPlan = (function () {
     var h = '<div class="bp-card">';
     rows.forEach(function (r) {
       var pr = profByName(r.name);
-      h += '<div class="bp-tot"><span>' + esc(r.name) +
+      h += '<div class="bp-tot"><span>' + esc(dsp(r.name)) +
         (r.note ? '<br><span style="font-size:.7rem;color:var(--text-muted,#888);">' +
-          esc(r.note) + '</span>' : '') + '</span>' +
+          esc(dsp(r.note)) + '</span>' : '') + '</span>' +
         '<span style="white-space:nowrap;text-align:end;">' + n1(r.qty) + ' ' + esc(r.unit) +
         (r.kg ? '<br><span style="font-size:.7rem;color:var(--text-muted,#888);">' +
           n1(r.kg) + ' kg</span>' : '') +
@@ -1897,7 +2004,96 @@ var BuildPlan = (function () {
       (has ? '<div style="font-size:.75rem;color:var(--text-muted,#888);margin-top:8px;">' +
         tt('שטח שסומן על המפה גובר על המידות שהוקלדו בחישוב הבטון.',
            'พื้นที่จากแผนที่มีผลเหนือค่าที่พิมพ์', 'المساحة المرسومة تتقدم على المدخلة') + '</div>' : '') +
-    '</div>';
+    '</div>' +
+    '<div class="bp-card"><div class="bp-lbl" style="margin-bottom:6px;">\ud83d\udd27 ' +
+      tt('קישור לתחזוקה', 'เชื่อมกับซ่อมบำรุง', 'الربط بالصيانة') + '</div>' +
+      '<div id="bpLink"></div></div>';
+  }
+
+  // ══════════════════════════════════════════════════════════════════
+  //  MAINTENANCE LINK
+  // ══════════════════════════════════════════════════════════════════
+  // A shed is not a department of its own — it is a maintenance job that
+  // happens to have a 3D model. The takeoff becomes the material lines of a
+  // maintenance project, where markup, VAT, labour, shipping and invoicing
+  // already work; buildplan does not reimplement any of that.
+  function linkPanel(p) {
+    var host = document.getElementById('bpLink');
+    if (!host || typeof Maintenance === 'undefined') return;
+    Maintenance.loadProjects().then(function (list) {
+      var opts = '<option value="">' + tt('— בחר פרויקט תחזוקה —', '— เลือก —', '— اختر —') + '</option>';
+      (list || []).forEach(function (mp) {
+        opts += '<option value="' + mp.id + '"' + (p.maintId === mp.id ? ' selected' : '') + '>' +
+          esc(mp.name) + (mp.client ? ' \u00b7 ' + esc(mp.client) : '') + '</option>';
+      });
+      var linked = p.maintId ? (list || []).filter(function (mp) { return mp.id === p.maintId; })[0] : null;
+      host.innerHTML =
+        (linked
+          ? '<div class="bp-tot"><span>\ud83d\udd17 ' + tt('מקושר ל', 'เชื่อมกับ', 'مرتبط بـ') +
+            '</span><strong>' + esc(linked.name) + '</strong></div>' +
+            '<div class="bp-tot" style="border:none;"><span>' +
+              tt('שורות חומרים בפרויקט', 'รายการวัสดุ', 'بنود المواد') + '</span><strong>' +
+              ((linked.materials || []).length) + '</strong></div>'
+          : '<div style="font-size:.82rem;color:var(--text-muted,#999);margin-bottom:6px;">' +
+            tt('הפרויקט לא מקושר לפרויקט תחזוקה. הקישור מעביר את כתב הכמויות לתמחור, הזמנות וחשבוניות.',
+               'ยังไม่เชื่อมกับโครงการซ่อมบำรุง', 'غير مرتبط بمشروع صيانة') + '</div>') +
+        '<select class="bp-in" id="bpMaintSel" style="margin-bottom:6px;">' + opts + '</select>' +
+        '<div style="display:flex;gap:6px;flex-wrap:wrap;">' +
+          '<button class="bp-btn" onclick="BuildPlan.pushToMaint(' + p.id + ')">\u2b06 ' +
+            tt('העבר כתב כמויות', 'ส่งรายการวัสดุ', 'إرسال الكميات') + '</button>' +
+          '<button class="bp-btn ghost" onclick="BuildPlan.newMaint(' + p.id + ')">\u2795 ' +
+            tt('צור פרויקט תחזוקה', 'สร้างโครงการ', 'إنشاء مشروع') + '</button>' +
+          (linked ? '<button class="bp-btn ghost" onclick="BuildPlan.openMaint(' + linked.id + ')">\ud83d\udd27 ' +
+            tt('פתח בתחזוקה', 'เปิด', 'فتح') + '</button>' : '') +
+        '</div>';
+    });
+  }
+
+  function takeoffLines(p) {
+    return takeoff(p).map(function (r) {
+      var pr = profByName(r.name);
+      return { name: r.name, qty: n1(r.qty), unit: r.unit,
+               price: pr ? pr.price : 0, note: r.note };
+    });
+  }
+
+  function pushToMaint(id) {
+    var p = projById(id);
+    var sel = document.getElementById('bpMaintSel');
+    if (!p || !sel) return;
+    var mid = Number(sel.value) || 0;
+    if (!mid) { toast('\u26a0\ufe0f ' + tt('בחר פרויקט תחזוקה', 'เลือกโครงการ', 'اختر مشروعاً')); return; }
+    if (typeof Maintenance === 'undefined') {
+      toast('\u26a0\ufe0f ' + tt('מודול התחזוקה לא נטען', 'โมดูลไม่พร้อม', 'الوحدة غير محمّلة'));
+      return;
+    }
+    Maintenance.importTakeoff(mid, p.id, p.name, takeoffLines(p)).then(function (okd) {
+      if (!okd) { toast('\u26a0\ufe0f ' + tt('הפרויקט לא נמצא', 'ไม่พบ', 'غير موجود')); return; }
+      p.maintId = mid;
+      var opt = sel.options[sel.selectedIndex];
+      p.maintName = opt ? opt.text : '';
+      saveP();
+      toast('\u2705 ' + tt('כתב הכמויות הועבר', 'ส่งแล้ว', 'تم الإرسال'));
+      linkPanel(p);
+    });
+  }
+
+  function newMaint(id) {
+    var p = projById(id);
+    if (!p || typeof Maintenance === 'undefined') return;
+    Maintenance.createFromBuild(p.id, p.name, p.client, takeoffLines(p)).then(function (mid) {
+      p.maintId = mid;
+      p.maintName = p.name;
+      saveP();
+      toast('\u2705 ' + tt('נוצר פרויקט תחזוקה', 'สร้างแล้ว', 'تم الإنشاء'));
+      linkPanel(p);
+    });
+  }
+
+  function openMaint(mid) {
+    if (typeof Maintenance === 'undefined') return;
+    close();
+    Maintenance.showDetail(mid);
   }
 
   function zoomTo(id) {
@@ -1907,7 +2103,12 @@ var BuildPlan = (function () {
     var ring = p.footprint.map(function (pt) { return [pt.lat, pt.lng]; });
     // After the tab switch Leaflet needs a beat to re-measure before the
     // bounds mean anything.
-    setTimeout(function () { m.invalidateSize(); m.fitBounds(ring, { padding: [40, 40] }); }, 80);
+    setTimeout(function () {
+      m.invalidateSize();
+      // A 5x5 m slab would otherwise fit to the map's maximum, past the
+      // level Esri publishes. Stop one below so the tiles are always real.
+      m.fitBounds(ring, { padding: [40, 40], maxZoom: 18 });
+    }, 80);
     // A brief pulse: after a zoom the eye needs telling which of several
     // orange outlines is the one that was just asked for.
     var hl = L.polygon(ring, { color: '#2ecc71', weight: 4, fill: false }).addTo(m);
@@ -1959,7 +2160,11 @@ var BuildPlan = (function () {
     if (vEl) vEl.textContent = v;
     if (_v3d) _v3d.nudge(model3d(p));
     refreshReadouts(p);
+    // Persist on a trailing timer, independent of the `change` event.
+    if (_liveSave) clearTimeout(_liveSave);
+    _liveSave = setTimeout(function () { saveP(); }, 700);
   }
+  var _liveSave = null;
 
   // Release: persist, and repaint once so anything structural (new controls
   // appearing, the takeoff, the callouts) catches up.
@@ -1967,9 +2172,10 @@ var BuildPlan = (function () {
     var p = projById(id);
     if (!p) return;
     p.dims[k] = Number(v) || 0;
+    if (_liveSave) { clearTimeout(_liveSave); _liveSave = null; }
     saveP();
     if (_num) clearTimeout(_num);
-    _num = setTimeout(function () { open(id); }, 260);
+    _num = setTimeout(function () { open(id); }, 60);
   }
 
   // The numbers that answer "did the rafter actually get longer when I
@@ -2041,7 +2247,7 @@ var BuildPlan = (function () {
           '<button class="bp-btn warn" style="padding:5px 7px;" ' +
             'onclick="BuildPlan._delProf(' + x.id + ')">\u2715</button></div>';
       });
-      body += '<div class="bp-card"><div class="bp-lbl" style="margin-bottom:6px;">' + esc(g) +
+      body += '<div class="bp-card"><div class="bp-lbl" style="margin-bottom:6px;">' + esc(dsp(g)) +
         '</div>' + rows +
         '<button class="bp-btn ghost" style="padding:6px 10px;font-size:.78rem;" ' +
           'onclick="BuildPlan._addProf(\'' + esc(g) + '\')">\u2795</button></div>';
@@ -2100,8 +2306,8 @@ var BuildPlan = (function () {
     var body = '';
     rows.forEach(function (r, i) {
       var pr = profByName(r.name);
-      body += '<tr><td>' + (i + 1) + '</td><td>' + esc(r.name) + '</td><td>' + n1(r.qty) +
-        '</td><td>' + esc(r.unit) + '</td><td>' + (r.kg ? n1(r.kg) : '\u2014') + '</td>' +
+      body += '<tr><td>' + (i + 1) + '</td><td>' + esc(dsp(r.name)) + '</td><td>' + n1(r.qty) +
+        '</td><td>' + esc(dsp(r.unit)) + '</td><td>' + (r.kg ? n1(r.kg) : '\u2014') + '</td>' +
         '<td>' + (pr && pr.price ? money(pr.price) : '\u2014') + '</td>' +
         '<td>' + (pr && pr.price ? money(r.qty * pr.price) : '\u2014') + '</td>' +
         '<td>' + esc(r.note) + '</td></tr>';
@@ -2186,6 +2392,10 @@ var BuildPlan = (function () {
     open: openModule,
     openProject: open,
     card: card,
+    pushToMaint: pushToMaint,
+    newMaint: newMaint,
+    openMaint: openMaint,
+    backToMaint: function () { close(); if (typeof Maintenance !== 'undefined') Maintenance.showProjectsList(); },
     close: close,
     render: render,
     newProject: newProject,

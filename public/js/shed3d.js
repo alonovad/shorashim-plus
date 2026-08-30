@@ -83,8 +83,9 @@ var Shed3D = (function () {
       var j = (i + 1) % 4;
       f.push({ pts: [A[i], A[j], B[j], B[i]], color: c, group: g });
     }
-    f.push({ pts: A, color: c, group: g });
-    f.push({ pts: B, color: c, group: g });
+    // No end caps. On a 45 mm truss web they are sub-pixel and always
+    // hidden by the members they connect — 6 faces per strut became 4,
+    // which on a truss frame is a third of the entire scene.
     return f;
   }
 
@@ -184,7 +185,10 @@ var Shed3D = (function () {
           var aL = [a[0], a[1], a[2]-dep], bL = [b[0], b[1], b[2]-dep];
           F = F.concat(strut(a, b, 0.075, PALETTE.truss, 'rafter'));
           F = F.concat(strut(aL, bL, 0.075, PALETTE.truss, 'rafter'));
-          var segs = Math.max(4, Math.round(Math.hypot(b[1]-a[1], b[2]-a[2]) / 1.1));
+          // Panel count is capped: past ~10 panels per slope the extra webs
+          // are visually indistinguishable and cost hundreds of faces.
+          var segs = Math.max(4, Math.min(m.lod ? 6 : 10,
+            Math.round(Math.hypot(b[1]-a[1], b[2]-a[2]) / 1.1)));
           for (var w = 0; w < segs; w++) {
             var t1 = w/segs, t2 = (w+1)/segs;
             F = F.concat(strut(lerp(a,b,t1), lerp(aL,bL,t2), 0.045, PALETTE.truss, 'rafter'));
@@ -324,21 +328,27 @@ var Shed3D = (function () {
 
     // ── fence ──
     if (m.fence) {
-      var o = m.fenceOff, fh = m.fenceH;
+      var o = m.fenceOff, fh = m.fenceH, bayF = m.lod ? 5 : 2.5;
       var a1 = x0-o, a2 = x1+o, b1 = y0-o, b2 = y1+o;
-      [[a1,b1,a2,b1],[a1,b2,a2,b2],[a1,b1,a1,b2],[a2,b1,a2,b2]].forEach(function (e) {
-        F = F.concat(quad([e[0],e[1],0],[e[2],e[3],0],[e[2],e[3],fh],[e[0],e[1],fh],
-          PALETTE.fence, 'fence', Math.round(Math.hypot(e[2]-e[0], e[3]-e[1])/0.4), 0.30));
+      var sides = [[a1,b1,a2,b1],[a2,b1,a2,b2],[a2,b2,a1,b2],[a1,b2,a1,b1]];
+      sides.forEach(function (e) {
+        var len2 = Math.hypot(e[2]-e[0], e[3]-e[1]);
+        var segs = Math.max(1, Math.round(len2 / bayF));
+        for (var q = 0; q < segs; q++) {
+          var t0 = q/segs, t1 = (q+1)/segs;
+          var ax = e[0] + (e[2]-e[0])*t0, ay = e[1] + (e[3]-e[1])*t0;
+          var bx = e[0] + (e[2]-e[0])*t1, by = e[1] + (e[3]-e[1])*t1;
+          // mesh bay — few ribs, so it reads as wire rather than a grey wall
+          F = F.concat(quad([ax,ay,0],[bx,by,0],[bx,by,fh],[ax,ay,fh],
+            PALETTE.fence, 'fence', 5, 0.22));
+          // post at the start of each bay
+          F = F.concat(strut([ax,ay,0],[ax,ay,fh], 0.045, PALETTE.fence, 'fence'));
+        }
       });
-      var per = 2*(a2-a1) + 2*(b2-b1), pn = Math.ceil(per/2.5);
-      for (var pi = 0; pi < pn; pi++) {
-        var fq = pi/pn*per, px2, py2;
-        if (fq < (a2-a1)) { px2 = a1+fq; py2 = b1; }
-        else if (fq < (a2-a1)+(b2-b1)) { px2 = a2; py2 = b1+(fq-(a2-a1)); }
-        else if (fq < 2*(a2-a1)+(b2-b1)) { px2 = a2-(fq-(a2-a1)-(b2-b1)); py2 = b2; }
-        else { px2 = a1; py2 = b2-(fq-2*(a2-a1)-(b2-b1)); }
-        F = F.concat(strut([px2,py2,0],[px2,py2,fh], 0.05, PALETTE.fence, 'fence'));
-      }
+      // top rail ties it together visually
+      sides.forEach(function (e) {
+        F = F.concat(strut([e[0],e[1],fh],[e[2],e[3],fh], 0.035, PALETTE.fence, 'fence'));
+      });
     }
 
     return { faces: F, meta: { frames: frames, bay: bay, rise: rise, runs: runs,
@@ -372,11 +382,18 @@ var Shed3D = (function () {
       return nrm([Math.cos(sunAz)*Math.cos(sunEl), Math.sin(sunAz)*Math.cos(sunEl), Math.sin(sunEl)]);
     }
 
+    var isPhone = (typeof matchMedia === 'function' && matchMedia('(pointer:coarse)').matches) ||
+                  (window.innerWidth || 1024) < 820;
+
     function size() {
       var r = host.getBoundingClientRect();
-      var dpr = window.devicePixelRatio || 1;
+      var raw = window.devicePixelRatio || 1;
+      // A phone reporting dpr 3 means a 9x pixel area, and this renderer is
+      // fill-rate bound. Cap it — and drop further while the camera moves.
+      var cap = isPhone ? 1.5 : 2;
+      var dpr = Math.min(raw, busy ? Math.min(cap, 1.25) : cap);
       var w = Math.max(220, r.width), h = Math.max(200, r.height);
-      cv.width = w*dpr; cv.height = h*dpr;
+      cv.width = Math.round(w*dpr); cv.height = Math.round(h*dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       return { w: w, h: h };
     }
@@ -422,6 +439,10 @@ var Shed3D = (function () {
     }
 
     var lastPolys = [], wheelIdle = null, calloutBoxes = [];
+    // Rolling frame cost. If drawing consistently exceeds ~28 ms the device
+    // cannot hold 30 fps, so shadows go first, then the ground texture,
+    // then truss detail. Measured rather than guessed from the user agent.
+    var frameMs = 0, autoLod = false, autoNoShadow = false;
     var hidden = (opts.state && opts.state.hidden) ? opts.state.hidden : {};
     var rafPending = false;
 
@@ -438,7 +459,7 @@ var Shed3D = (function () {
     var groundExtent = (opts.state && opts.state.groundExtent) || null;
 
     function drawGround(fc, P) {
-      var e = fc.extent, N = busy ? 6 : 14;
+      var e = fc.extent, N = busy ? 4 : (isPhone || autoLod ? 8 : 14);
       var iw = groundImg.width, ih = groundImg.height;
       // The texture covers groundExtent metres; the quad covers e metres.
       // Mapping through metres keeps the imagery pinned to the site when
@@ -472,6 +493,7 @@ var Shed3D = (function () {
     }
 
     function draw() {
+      var t0 = (typeof performance !== 'undefined') ? performance.now() : Date.now();
       var d = size(), w = d.w, h = d.h;
       var P = projector(w, h), S = sunVec();
 
@@ -495,21 +517,40 @@ var Shed3D = (function () {
       }
 
       var vis = geo.faces.filter(function (fc) { return !hidden[fc.group]; });
-      var list = vis.map(function (fc) {
+      var minArea = busy ? 2.2 : 0.7;
+      var list = [];
+      for (var vi = 0; vi < vis.length; vi++) {
+        var fc = vis[vi];
         var pr = fc.pts.map(P);
-        var dep = pr.reduce(function (s, p) { return s + p[2]; }, 0)/pr.length;
+        // bounding box: off-screen or degenerate faces are dropped before
+        // any normal or sort work is done on them
+        var minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, dep = 0;
+        for (var pi2 = 0; pi2 < pr.length; pi2++) {
+          var q = pr[pi2];
+          if (q[0] < minX) minX = q[0];
+          if (q[0] > maxX) maxX = q[0];
+          if (q[1] < minY) minY = q[1];
+          if (q[1] > maxY) maxY = q[1];
+          dep += q[2];
+        }
+        if (maxX < -20 || minX > w + 20 || maxY < -20 || minY > h + 20) continue;
+        if ((maxX - minX) * (maxY - minY) < minArea) continue;
         var n = nrm(cross(sub(fc.pts[1], fc.pts[0]), sub(fc.pts[2], fc.pts[0])));
-        return { fc: fc, pr: pr, depth: dep, l: Math.abs(dot(n, S)), up: Math.abs(n[2]) };
-      }).sort(function (a, b) { return b.depth - a.depth; });
+        list.push({ fc: fc, pr: pr, depth: dep/pr.length,
+                    l: Math.abs(dot(n, S)), up: Math.abs(n[2]),
+                    big: (maxX - minX) * (maxY - minY) > 90 });
+      }
+      list.sort(function (a, b) { return b.depth - a.depth; });
 
       // A fully clad truss frame is well over 1,000 faces. Filling that
       // twice per frame stutters on a phone, so shadows and corrugation are
       // dropped while the camera is actually moving and restored on release.
-      if (m.shadows !== false && !busy && S[2] > 0.12) {
+      if (m.shadows !== false && !busy && !autoNoShadow && S[2] > 0.12) {
         ctx.globalAlpha = 0.13;
         ctx.fillStyle = '#2a2418';
         ctx.filter = busy ? 'none' : 'blur(1.5px)';
-        vis.forEach(function (fc) {
+        list.forEach(function (it) {
+          var fc = it.fc;
           if (fc.group === 'ground' || fc.group === 'slab' || fc.group === 'footing') return;
           var sp = fc.pts.map(function (p) {
             var t = p[2]/S[2];
@@ -544,14 +585,17 @@ var Shed3D = (function () {
         ctx.globalAlpha = fc.alpha != null ? fc.alpha : 1;
         ctx.fill();
         ctx.globalAlpha = 1;
-        if (fc.group !== 'ground') {
+        // Outlining a 6 px truss web costs a full path stroke and reads as
+        // noise. Only outline faces big enough for the edge to mean
+        // something, and skip outlines entirely while the camera moves.
+        if (fc.group !== 'ground' && !busy && it.big) {
           ctx.strokeStyle = 'rgba(0,0,0,.28)';
           ctx.lineWidth = 0.55;
           ctx.stroke();
         }
         // Corrugation interpolated across the quad, so ribs follow the
         // surface in perspective instead of being straight overlay lines.
-        if (fc.ribs > 0 && !busy && pr.length === 4) {
+        if (fc.ribs > 0 && !busy && !autoLod && it.big && pr.length === 4) {
           ctx.strokeStyle = 'rgba(0,0,0,.17)';
           ctx.lineWidth = 0.5;
           for (var r2 = 1; r2 < fc.ribs; r2++) {
@@ -566,7 +610,18 @@ var Shed3D = (function () {
 
       if (m.dims !== false) drawDims(P);
       if (m.scaleRef && m.scaleRef !== 'none') drawScaleRef(P);
-      if (m.callouts !== false && !busy) drawCallouts(P, w, h);
+      if (m.callouts !== false && !busy && !autoLod) drawCallouts(P, w, h);
+
+      var t1 = (typeof performance !== 'undefined') ? performance.now() : Date.now();
+      frameMs = frameMs ? (frameMs * 0.7 + (t1 - t0) * 0.3) : (t1 - t0);
+      if (frameMs > 28 && !autoNoShadow) { autoNoShadow = true; }
+      else if (frameMs > 34 && !autoLod) {
+        autoLod = true;
+        if (!m.lod) { m.lod = true; geo = build(m); }
+      } else if (frameMs < 12 && autoLod) {
+        autoLod = false; autoNoShadow = false;
+        if (m.lod) { m.lod = false; geo = build(m); }
+      }
     }
 
     // Dimension tags live in the scene, so a rotated view still says which
@@ -899,6 +954,8 @@ var Shed3D = (function () {
       resetView: function () { cam = { yaw:-0.68, pitch:0.34, zoom:1, px:0, py:0 }; draw(); },
       select: function (g) { sel = g; draw(); },
       meta: function () { return geo.meta; },
+      perf: function () { return { ms: Math.round(frameMs), faces: geo.faces.length,
+                                   lod: autoLod, shadows: !autoNoShadow, phone: isPhone }; },
       // Everything a remount needs to look like nothing happened.
       getState: function () {
         return { cam: { yaw: cam.yaw, pitch: cam.pitch, zoom: cam.zoom, px: cam.px, py: cam.py },

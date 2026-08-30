@@ -40,7 +40,21 @@ var Orders = (function () {
   var _listening = false;
   var _draft = null;   // pending draft handed in by another module
 
+  // Unit strings are stored on every order line and on every supplier
+  // catalogue item, so they are data. Kept in Hebrew as the key and
+  // translated only where they are shown.
   var UNITS = ['ליטר', 'ק"ג', "יח'", "מ'", 'מ"ר', 'מ"ק', 'טון', 'שק', 'גליל', 'משטח'];
+  var UNIT_TX = {
+    'ליטר': ['ลิตร', 'لتر'],   'ק"ג': ['กก.', 'كغ'],
+    "יח'":  ['ชิ้น', 'قطعة'],  "מ'":  ['ม.', 'م'],
+    'מ"ר':  ['ตร.ม.', 'م²'],   'מ"ק': ['ลบ.ม.', 'م³'],
+    'טון':  ['ตัน', 'طن'],     'שק':  ['ถุง', 'كيس'],
+    'גליל': ['ม้วน', 'لفة'],   'משטח': ['พาเลท', 'منصة']
+  };
+  function dspUnit(u) {
+    var e = UNIT_TX[u];
+    return e ? tt(u, e[0], e[1]) : String(u == null ? '' : u);
+  }
 
   var STATUS = [
     { v: 'draft',     c: '#9e9e9e' },
@@ -530,7 +544,7 @@ var Orders = (function () {
         'border-bottom:1px solid var(--border,#eee);font-size:.85rem;">' +
         '<span>' + esc(l.name) + (l.sku ? ' <span style="color:var(--text-muted,#999);">(' +
           esc(l.sku) + ')</span>' : '') + '</span>' +
-        '<span style="white-space:nowrap;">' + n2(l.qty) + ' ' + esc(l.unit) +
+        '<span style="white-space:nowrap;">' + n2(l.qty) + ' ' + esc(dspUnit(l.unit)) +
           (l.price ? ' \u00b7 ' + money(l.qty * l.price) : ' \u00b7 \u2014') + '</span></div>';
     });
 
@@ -602,7 +616,7 @@ var Orders = (function () {
     if (o.neededBy) lines.push(tt('נדרש עד', 'ภายใน', 'بحلول') + ': ' + o.neededBy);
     lines.push('');
     (o.lines || []).forEach(function (l) {
-      lines.push('\u2022 ' + l.name + ' \u2014 ' + n2(l.qty) + ' ' + l.unit + (l.sku ? ' [' + l.sku + ']' : ''));
+      lines.push('\u2022 ' + l.name + ' \u2014 ' + n2(l.qty) + ' ' + dspUnit(l.unit) + (l.sku ? ' [' + l.sku + ']' : ''));
     });
     lines.push('');
     lines.push('\u05e9\u05d5\u05e8\u05e9\u05d9\u05dd \u05e4\u05dc\u05d5\u05e1 / Roots Plus');
@@ -640,7 +654,7 @@ var Orders = (function () {
     var rows = '';
     (o.lines || []).forEach(function (l, i) {
       rows += '<tr><td>' + (i + 1) + '</td><td>' + esc(l.name) + '</td><td>' + esc(l.sku) + '</td>' +
-        '<td>' + n2(l.qty) + '</td><td>' + esc(l.unit) + '</td>' +
+        '<td>' + n2(l.qty) + '</td><td>' + esc(dspUnit(l.unit)) + '</td>' +
         '<td>' + (l.price ? money(l.price) : '\u2014') + '</td>' +
         '<td>' + (l.price ? money(l.qty * l.price) : '\u2014') + '</td></tr>';
     });
