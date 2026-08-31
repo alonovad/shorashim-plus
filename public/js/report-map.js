@@ -75,6 +75,22 @@ var ReportMap = (function () {
     return ring.length >= 3 ? ring : null;
   }
 
+  // Every ring a plot owns, primary plus any detached parts. A printed
+  // spray report that drew only the primary ring showed half a plot as the
+  // whole plot — and the map on a report is exactly what someone checks
+  // when they want to know what was treated.
+  function ringsOf(plot) {
+    var out = [];
+    var main = ringOf(plot);
+    if (main) out.push(main);
+    ((plot && plot.parts) || []).forEach(function (raw) {
+      if (!raw || raw.length < 3) return;
+      var r = raw.map(normLatLng).filter(Boolean);
+      if (r.length >= 3) out.push(r);
+    });
+    return out;
+  }
+
   function bboxOf(rings) {
     var b = { n: -90, s: 90, e: -180, w: 180 };
     rings.forEach(function (ring) {
@@ -223,14 +239,16 @@ var ReportMap = (function () {
   // subject = plots drawn in full colour (the ones the report covers)
   // context = other plots of the same farm, drawn faint for orientation
   function compose(subject, context) {
-    var subjRings = subject.map(function (p) {
-      var r = ringOf(p); return r ? { plot: p, ring: r } : null;
-    }).filter(Boolean);
+    var subjRings = [];
+    subject.forEach(function (p) {
+      ringsOf(p).forEach(function (r) { subjRings.push({ plot: p, ring: r }); });
+    });
     if (!subjRings.length) return Promise.reject(new Error('no-geometry'));
 
-    var ctxRings = (context || []).map(function (p) {
-      var r = ringOf(p); return r ? { plot: p, ring: r } : null;
-    }).filter(Boolean);
+    var ctxRings = [];
+    (context || []).forEach(function (p) {
+      ringsOf(p).forEach(function (r) { ctxRings.push({ plot: p, ring: r }); });
+    });
 
     var box = bboxOf(subjRings.map(function (o) { return o.ring; }));
     var z = fitZoom(box);
@@ -357,19 +375,25 @@ var ReportMap = (function () {
   // never silently degrades into "first plot in the list".
   function areaOf(plot) {
     if (plot && plot.area) return plot.area;
-    var ring = ringOf(plot);
-    if (!ring) return 0;
-    var latRef = ring[0].lat;
-    var mPerDegLat = 111320;
-    var mPerDegLng = 111320 * Math.cos(latRef * Math.PI / 180);
-    var a = 0;
-    for (var i = 0; i < ring.length; i++) {
-      var j = (i + 1) % ring.length;
-      var xi = ring[i].lng * mPerDegLng, yi = ring[i].lat * mPerDegLat;
-      var xj = ring[j].lng * mPerDegLng, yj = ring[j].lat * mPerDegLat;
-      a += xi * yj - xj * yi;
-    }
-    return Math.abs(a / 2) / 1000;   // m\u00b2 \u2192 dunam
+    // Sum every ring, or a split plot ranks by its primary block alone
+    // and loses 'largest plot' to a smaller neighbour.
+    var rings = ringsOf(plot);
+    if (!rings.length) return 0;
+    var total = 0;
+    rings.forEach(function (ring) {
+      var latRef = ring[0].lat;
+      var mPerDegLat = 111320;
+      var mPerDegLng = 111320 * Math.cos(latRef * Math.PI / 180);
+      var a = 0;
+      for (var i = 0; i < ring.length; i++) {
+        var j = (i + 1) % ring.length;
+        var xi = ring[i].lng * mPerDegLng, yi = ring[i].lat * mPerDegLat;
+        var xj = ring[j].lng * mPerDegLng, yj = ring[j].lat * mPerDegLat;
+        a += xi * yj - xj * yi;
+      }
+      total += Math.abs(a / 2);
+    });
+    return total / 1000;   // m\u00b2 \u2192 dunam
   }
 
   // target: {plotId} for one plot, or {farmId} for a whole farm, or {} for all.

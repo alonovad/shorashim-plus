@@ -1877,6 +1877,12 @@
         p.layer.on('click', function() {
           if (!drawMode) showPlotDetails(p.id);
         });
+        // A detached part is the plot. Clicking it opened nothing, which
+        // made it look like scenery rather than land you own.
+        (p.partLayers || []).forEach(function (l) {
+          l.on('click', function () { if (!drawMode) showPlotDetails(p.id); });
+          l.bindTooltip(p.name, { direction: 'center', className: 'plot-part-tip' });
+        });
       });
       colorIdx = plots.length;
       renderPlotList();
@@ -1897,13 +1903,15 @@
   window.setPlotVisibility = function(plotId, visible) {
     var p = plots.find(function(pl) { return pl.id === plotId; });
     if (!p || !p.layer) return;
-    if (visible) {
-      if (!drawnItems.hasLayer(p.layer)) drawnItems.addLayer(p.layer);
-      if (p.labelMarker && !drawnItems.hasLayer(p.labelMarker)) drawnItems.addLayer(p.labelMarker);
-    } else {
-      if (drawnItems.hasLayer(p.layer)) drawnItems.removeLayer(p.layer);
-      if (p.labelMarker && drawnItems.hasLayer(p.labelMarker)) drawnItems.removeLayer(p.labelMarker);
-    }
+    // Detached parts belong to the plot, so they follow it. Hiding a plot
+    // and leaving its second block on the map was the filter telling the
+    // user a lie about what is displayed.
+    var layers = [p.layer].concat(p.partLayers || []);
+    if (p.labelMarker) layers.push(p.labelMarker);
+    layers.forEach(function (l) {
+      if (visible) { if (!drawnItems.hasLayer(l)) drawnItems.addLayer(l); }
+      else { if (drawnItems.hasLayer(l)) drawnItems.removeLayer(l); }
+    });
   };
 
   // Plots the current user is allowed to see at all — the filter narrows
@@ -1912,7 +1920,8 @@
     return (typeof getAccessiblePlots === 'function' ? getAccessiblePlots() : plots)
       .map(function(p) {
         return { id: p.id, name: p.name, farm_id: p.farm_id || 0,
-                 crop_type: p.crop_type || '', hasGeometry: !!p.layer };
+                 crop_type: p.crop_type || '', hasGeometry: !!p.layer,
+                 parts: (p.parts || []).length };
       });
   };
 
@@ -2012,11 +2021,20 @@
         return;
       }
       try {
-        map.fitBounds(plot.layer.getBounds(), { padding: [50, 50], maxZoom: 17 });
+        // Frame every part. Fitting only the primary ring left a detached
+        // block off screen, so a two-part plot looked like it had moved.
+        var bounds = plot.layer.getBounds();
+        (plot.partLayers || []).forEach(function (l) {
+          try { bounds = bounds.extend(l.getBounds()); } catch (e2) {}
+        });
+        map.fitBounds(bounds, { padding: [50, 50], maxZoom: 17 });
         // Brief flash so the plot is obvious among its neighbours.
-        plot.layer.setStyle({ fillOpacity: 0.6 });
+        var flash = [plot.layer].concat(plot.partLayers || []);
+        flash.forEach(function (l) { try { l.setStyle({ fillOpacity: 0.6 }); } catch (e2) {} });
         setTimeout(function() {
-          try { plot.layer.setStyle({ fillOpacity: 0.25 }); } catch (e) {}
+          flash.forEach(function (l, i) {
+            try { l.setStyle({ fillOpacity: i === 0 ? 0.25 : 0.20 }); } catch (e2) {}
+          });
         }, 800);
       } catch (e) {
         showToast('📍 ' + t('לא ניתן למקד את החלקה'));
@@ -2470,7 +2488,11 @@
     if (primaryPlotId) {
       var plot = plots.find(function(p) { return p.id === primaryPlotId; });
       if (plot && plot.layer) {
-        map.fitBounds(plot.layer.getBounds(), { padding: [60, 60], maxZoom: 16 });
+        var b2 = plot.layer.getBounds();
+        (plot.partLayers || []).forEach(function (l) {
+          try { b2 = b2.extend(l.getBounds()); } catch (e2) {}
+        });
+        map.fitBounds(b2, { padding: [60, 60], maxZoom: 16 });
         return;
       }
     }
@@ -3318,6 +3340,13 @@
           '<div class="plot-meta">' +
             '<span>📐 ' + formatArea(p.area) + '</span>' +
             '<span>📍 ' + p.vertices + ' ' + t('נקודות') + '</span>' +
+            // A plot in separate blocks reads as one row here, which is
+            // correct — but the list should say so, or the extra land is
+            // invisible everywhere except the map.
+            ((p.parts && p.parts.length)
+              ? '<span title="' + t('חלקים נפרדים') + '">\u2b1a ' + (p.parts.length + 1) + ' ' +
+                t('חלקים') + '</span>'
+              : '') +
             (p.tree_count ? '<span>🌴 ' + p.tree_count + '</span>' : '') +
           '</div>' +
           getPlotIrrigationBadge(p.id) +
@@ -7070,6 +7099,18 @@
             '<div class="pd-sec-body">' +
             // Boundary editing lives on the map, not in this form — the
             // shape is the thing being edited, so the form gets out of the way.
+            // The measured figure sits next to the button because that is
+            // where someone decides whether the boundary needs redrawing.
+            ((plot.parts && plot.parts.length)
+              ? '<div style="background:var(--g6,#eef3ee);border-radius:9px;padding:8px 10px;' +
+                  'margin-bottom:8px;font-size:0.8rem;">' +
+                  '\u2b1a ' + t('חלקה מפוצלת') + ': ' + (plot.parts.length + 1) + ' ' + t('חלקים') +
+                  '<br><span style="color:var(--text-muted,#666);">' + t('מסומן במפה') + ': ' +
+                  (plot.areaMeasured != null ? Number(plot.areaMeasured).toFixed(2) : '\u2014') +
+                  ' ' + t('דונם') + ' \u00b7 ' + t('בכרטיס') + ': ' +
+                  (plot.area != null ? Number(plot.area).toFixed(2) : '\u2014') + ' ' + t('דונם') +
+                  '</span></div>'
+              : '') +
             '<button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\';PlotEdit.open(' + plot.id + ')" ' +
               'style="width:100%;padding:9px;border:none;border-radius:9px;margin-bottom:10px;' +
               'background:var(--primary,#2d6a4f);color:#fff;font-family:inherit;font-weight:700;' +
