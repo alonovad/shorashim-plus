@@ -1844,6 +1844,18 @@
           color: p.color, fillColor: p.color, weight: 3, fillOpacity: 0.25
         });
         p.layer = layer;
+        // Extra parts render as their own polygons in the plot's colour,
+        // dashed so it reads as "same plot, separate piece" rather than as
+        // a second plot that happens to match.
+        if (p.partLayers) {
+          p.partLayers.forEach(function (l) { try { drawnItems.removeLayer(l); } catch (e) {} });
+        }
+        p.partLayers = (p.parts || []).map(function (ring) {
+          return L.polygon(ring.map(function (c) { return L.latLng(c.lat, c.lng); }), {
+            color: p.color, fillColor: p.color, weight: 2,
+            fillOpacity: 0.20, dashArray: '7,5'
+          });
+        });
       });
 
       // Only display accessible plots on map
@@ -1851,6 +1863,7 @@
       accessiblePlots.forEach(function(p) {
         if (!p.layer) return;
         p.layer.addTo(drawnItems);
+        (p.partLayers || []).forEach(function (l) { l.addTo(drawnItems); });
         var center = p.layer.getBounds().getCenter();
         var label = L.divIcon({
           className: '',
@@ -1938,7 +1951,18 @@
           name_th: p.name_th || '',
           name_ar: p.name_ar || '',
           geofenceRadiusM: (p.geofenceRadiusM != null ? p.geofenceRadiusM : null),
-          latlngs: ll
+          latlngs: ll,
+          // Detached parts of the same plot — an orchard split by a wadi or a
+          // track is one חלקה with one tree count, not two plots. `latlngs`
+          // stays the primary ring so every existing reader keeps working
+          // untouched; only code that knows about parts looks at this.
+          parts: Array.isArray(p.parts)
+            ? p.parts.map(function (ring) {
+                return (ring || []).map(function (c) {
+                  return { lat: c.lat, lng: c.lng };
+                });
+              }).filter(function (ring) { return ring.length >= 3; })
+            : []
         };
       }),
       sprayEvents: sprayEvents || [],
@@ -2306,6 +2330,65 @@
   window.MapAccess = {
     getMap: function () { return map; },
     maxZoom: function () { return MAX_ZOOM; },
+    // ── plot geometry, for plotedit.js ──
+    // Rings out, rings in. The editor never touches the plots array, the
+    // layer cache or saveData directly — those stay app.js's business, so a
+    // change to how plots are stored cannot break the editor silently.
+    getPlotRings: function (plotId) {
+      var p = (plots || []).filter(function (x) { return x.id === plotId; })[0];
+      if (!p) return null;
+      var rings = [];
+      if (p.latlngs && p.latlngs.length >= 3) {
+        rings.push(p.latlngs.map(function (c) { return { lat: c.lat, lng: c.lng }; }));
+      }
+      (p.parts || []).forEach(function (r) {
+        if (r && r.length >= 3) rings.push(r.map(function (c) { return { lat: c.lat, lng: c.lng }; }));
+      });
+      return { id: p.id, name: p.name, color: p.color, rings: rings,
+               trees: p.tree_count || 0, area: plotArea(p) };
+    },
+    setPlotRings: function (plotId, rings) {
+      var p = (plots || []).filter(function (x) { return x.id === plotId; })[0];
+      if (!p || !rings || !rings.length) return false;
+      var clean = rings.filter(function (r) { return r && r.length >= 3; })
+        .map(function (r) { return r.map(function (c) { return { lat: c.lat, lng: c.lng }; }); });
+      if (!clean.length) return false;
+      p.latlngs = clean[0];
+      p.parts = clean.slice(1);
+      p.vertices = clean.reduce(function (n, r) { return n + r.length; }, 0);
+      p.area = plotArea(p);
+      // Rebuild the drawn layers from the new rings.
+      if (p.layer) { try { drawnItems.removeLayer(p.layer); } catch (e) {} }
+      (p.partLayers || []).forEach(function (l) { try { drawnItems.removeLayer(l); } catch (e) {} });
+      p.layer = L.polygon(p.latlngs.map(function (c) { return L.latLng(c.lat, c.lng); }), {
+        color: p.color, fillColor: p.color, weight: 3, fillOpacity: 0.25
+      });
+      p.partLayers = (p.parts || []).map(function (ring) {
+        return L.polygon(ring.map(function (c) { return L.latLng(c.lat, c.lng); }), {
+          color: p.color, fillColor: p.color, weight: 2, fillOpacity: 0.20, dashArray: '7,5'
+        });
+      });
+      p.layer.addTo(drawnItems);
+      p.partLayers.forEach(function (l) { l.addTo(drawnItems); });
+      saveData();
+      return true;
+    },
+    plotAreaOf: function (plotId) {
+      var p = (plots || []).filter(function (x) { return x.id === plotId; })[0];
+      return p ? plotArea(p) : 0;
+    },
+    // Every plot the user may see, with its rings — used for hover readout.
+    listPlotsWithRings: function () {
+      var src = (typeof getAccessiblePlots === 'function') ? getAccessiblePlots() : plots;
+      return (src || []).map(function (p) {
+        var rings = [];
+        if (p.latlngs && p.latlngs.length >= 3) rings.push(p.latlngs);
+        (p.parts || []).forEach(function (r) { if (r && r.length >= 3) rings.push(r); });
+        return { id: p.id, name: p.name, color: p.color, rings: rings,
+                 trees: p.tree_count || 0, crop: p.crop_type || '',
+                 farmId: p.farm_id || 0, area: plotArea(p) };
+      });
+    },
     // Shoelace on the sphere, same maths the plot tool uses — returned in
     // m² here because a shed is measured in metres, not dunam.
     areaFromLatLngs: function (pts) {
@@ -2860,6 +2943,31 @@
   }
 
   // ── Area calculation ──
+  // Area of one ring, in dunam.
+  function ringArea(latlngs) {
+    var area = 0;
+    for (var i = 0; i < latlngs.length; i++) {
+      var j = (i + 1) % latlngs.length;
+      var xi = latlngs[i].lng * Math.PI / 180, yi = latlngs[i].lat * Math.PI / 180;
+      var xj = latlngs[j].lng * Math.PI / 180, yj = latlngs[j].lat * Math.PI / 180;
+      area += (xj - xi) * (2 + Math.sin(yi) + Math.sin(yj));
+    }
+    return Math.abs(area * 6378137 * 6378137 / 2) / 1000;
+  }
+
+  // Total area of a plot including its detached parts. A plot whose second
+  // block is half its area would otherwise be under-reported by half in
+  // every dose calculation that works off dunam.
+  function plotArea(p) {
+    if (!p) return 0;
+    var main = (p.latlngs && p.latlngs.length >= 3)
+      ? ringArea(p.latlngs.map(function (c) { return { lat: c.lat, lng: c.lng }; })) : 0;
+    (p.parts || []).forEach(function (ring) {
+      if (ring && ring.length >= 3) main += ringArea(ring);
+    });
+    return main;
+  }
+
   function calcArea(layer) {
     var latlngs = layer.getLatLngs()[0];
     var area = 0;
@@ -6944,6 +7052,12 @@
           '<details class="pd-sec" data-pdsec="edit" open>' +
             '<summary>✏️ ' + t('עריכת חלקה') + '</summary>' +
             '<div class="pd-sec-body">' +
+            // Boundary editing lives on the map, not in this form — the
+            // shape is the thing being edited, so the form gets out of the way.
+            '<button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\';PlotEdit.open(' + plot.id + ')" ' +
+              'style="width:100%;padding:9px;border:none;border-radius:9px;margin-bottom:10px;' +
+              'background:var(--primary,#2d6a4f);color:#fff;font-family:inherit;font-weight:700;' +
+              'cursor:pointer;font-size:0.85rem;">\u2b20 ' + t('ערוך גבולות על המפה') + '</button>' +
             '<div class="form-group" style="margin-bottom: 10px;">' +
               '<label class="form-label" style="font-size: 0.78rem;">' + t('שם החלקה') + '</label>' +
               '<input type="text" class="form-input" id="pdEditName" value="' + (plot.name || '') + '" style="font-size: 0.9rem;">' +
