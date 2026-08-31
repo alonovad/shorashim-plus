@@ -1940,7 +1940,10 @@
           id: p.id || 0, 
           name: p.name || '', 
           color: p.color || '#4caf50', 
-          area: p.area || 0, 
+          area: p.area || 0,
+          // Declared area stays in `area`; what the drawn boundary actually
+          // encloses is kept separately so a discrepancy stays visible.
+          areaMeasured: (p.areaMeasured != null ? p.areaMeasured : 0),
           vertices: p.vertices || 0,
           farm_id: p.farm_id || 0,
           tree_count: p.tree_count || 0,
@@ -2345,9 +2348,11 @@
         if (r && r.length >= 3) rings.push(r.map(function (c) { return { lat: c.lat, lng: c.lng }; }));
       });
       return { id: p.id, name: p.name, color: p.color, rings: rings,
-               trees: p.tree_count || 0, area: plotArea(p) };
+               trees: p.tree_count || 0,
+               declared: Number(p.area) || 0,      // from the plot card
+               measured: plotArea(p) };            // from the drawn boundary
     },
-    setPlotRings: function (plotId, rings) {
+    setPlotRings: function (plotId, rings, adoptDeclared) {
       var p = (plots || []).filter(function (x) { return x.id === plotId; })[0];
       if (!p || !rings || !rings.length) return false;
       var clean = rings.filter(function (r) { return r && r.length >= 3; })
@@ -2356,7 +2361,16 @@
       p.latlngs = clean[0];
       p.parts = clean.slice(1);
       p.vertices = clean.reduce(function (n, r) { return n + r.length; }, 0);
-      p.area = plotArea(p);
+      // p.area is the figure the user recorded on the plot card — the
+      // registered or agreed area the farm actually works to. It is NOT the
+      // area of whatever was traced on the map, and editing the boundary
+      // must not silently redefine it. Measured area is derived on demand
+      // instead, so the two can be compared rather than confused.
+      p.areaMeasured = plotArea(p);
+      // Only when the user explicitly asked for it.
+      if (adoptDeclared != null && isFinite(adoptDeclared) && adoptDeclared > 0) {
+        p.area = Math.round(adoptDeclared * 100) / 100;
+      }
       // Rebuild the drawn layers from the new rings.
       if (p.layer) { try { drawnItems.removeLayer(p.layer); } catch (e) {} }
       (p.partLayers || []).forEach(function (l) { try { drawnItems.removeLayer(l); } catch (e) {} });
@@ -2386,7 +2400,9 @@
         (p.parts || []).forEach(function (r) { if (r && r.length >= 3) rings.push(r); });
         return { id: p.id, name: p.name, color: p.color, rings: rings,
                  trees: p.tree_count || 0, crop: p.crop_type || '',
-                 farmId: p.farm_id || 0, area: plotArea(p) };
+                 farmId: p.farm_id || 0,
+                 declared: Number(p.area) || 0,
+                 measured: plotArea(p) };
       });
     },
     // Shoelace on the sphere, same maths the plot tool uses — returned in

@@ -158,18 +158,44 @@ var PlotEdit = (function () {
     }
     var ext = extentOf(p.rings);
     var parts = p.rings.length;
+    var dec = Number(p.declared) || 0, mea = Number(p.measured) || 0;
+    // Two different facts, shown as two lines. The registered area is what
+    // the farm is billed and planned against; the traced boundary is what
+    // someone drew on a photo. They are rarely identical and pretending
+    // otherwise hides whichever one is wrong.
+    var diff = (dec > 0 && mea > 0) ? (mea - dec) : 0;
+    var diffPct = dec > 0 ? Math.abs(diff / dec) * 100 : 0;
+    var diffCol = diffPct > 10 ? '#ff6b6b' : diffPct > 3 ? '#ffb703' : '#a8e6a1';
+
     el.innerHTML =
       '<div style="display:flex;align-items:center;gap:6px;font-weight:800;font-size:13px;">' +
         '<span style="width:10px;height:10px;border-radius:3px;background:' + (p.color||'#2d6a4f') + ';"></span>' +
         esc(p.name) + '</div>' +
-      '<div style="color:#ffd166;font-weight:800;margin-top:3px;">' +
-        n2(p.area) + ' ' + tt('דונם', 'ดูนัม', 'دونم') + '</div>' +
-      '<div style="opacity:.85;">' + tt('מידות', 'ขนาด', 'الأبعاد') + ': ' +
-        n1(ext.w) + ' \u00d7 ' + n1(ext.h) + ' m</div>' +
-      (p.trees ? '<div style="opacity:.85;">' + tt('עצים', 'ต้น', 'أشجار') + ': ' +
-        p.trees.toLocaleString() + '</div>' : '') +
-      (p.crop ? '<div style="opacity:.7;">' + esc(p.crop) + '</div>' : '') +
-      (parts > 1 ? '<div style="opacity:.7;color:#a8e6a1;">' + parts + ' ' +
+
+      '<div style="display:flex;justify-content:space-between;gap:10px;margin-top:5px;">' +
+        '<span style="opacity:.8;">' + tt('בפועל (בכרטיס)', 'ตามบัตร', 'المسجّل') + '</span>' +
+        '<b style="color:#ffd166;">' + (dec > 0 ? n2(dec) + ' ' + tt('דונם','ดูนัม','دونم') : '\u2014') +
+      '</b></div>' +
+
+      '<div style="display:flex;justify-content:space-between;gap:10px;">' +
+        '<span style="opacity:.8;">' + tt('מסומן במפה', 'บนแผนที่', 'على الخريطة') + '</span>' +
+        '<b style="color:#9fd8ff;">' + n2(mea) + ' ' + tt('דונם','ดูนัม','دونم') + '</b></div>' +
+
+      (dec > 0 && mea > 0
+        ? '<div style="display:flex;justify-content:space-between;gap:10px;">' +
+            '<span style="opacity:.8;">' + tt('הפרש', 'ผลต่าง', 'الفارق') + '</span>' +
+            '<b style="color:' + diffCol + ';">' + (diff >= 0 ? '+' : '\u2212') +
+              n2(Math.abs(diff)) + '  (' + n1(diffPct) + '%)</b></div>'
+        : '') +
+
+      '<div style="display:flex;justify-content:space-between;gap:10px;opacity:.8;">' +
+        '<span>' + tt('מידות', 'ขนาด', 'الأبعاد') + '</span>' +
+        '<span>' + n1(ext.w) + ' \u00d7 ' + n1(ext.h) + ' m</span></div>' +
+      (p.trees ? '<div style="display:flex;justify-content:space-between;gap:10px;opacity:.8;">' +
+        '<span>' + tt('עצים', 'ต้น', 'أشجار') + '</span><span>' +
+        p.trees.toLocaleString() + '</span></div>' : '') +
+      (p.crop ? '<div style="opacity:.65;">' + esc(p.crop) + '</div>' : '') +
+      (parts > 1 ? '<div style="opacity:.75;color:#a8e6a1;">' + parts + ' ' +
         tt('חלקים', 'ส่วน', 'أجزاء') + '</div>' : '');
     el.style.display = 'block';
     moveCard(e);
@@ -195,7 +221,7 @@ var PlotEdit = (function () {
     hideCard();
 
     S = { id: plotId, name: data.name, color: data.color || '#2d6a4f',
-          trees: data.trees,
+          trees: data.trees, declared: Number(data.declared) || 0,
           rings: data.rings.map(function (r) {
             return r.map(function (c) { return L.latLng(c.lat, c.lng); });
           }),
@@ -383,9 +409,23 @@ var PlotEdit = (function () {
         'background:rgba(8,18,12,.96);color:#fff;display:flex;gap:8px;align-items:center;' +
         'justify-content:center;flex-wrap:wrap;font-weight:700;font-size:.85rem;">' +
         '<span>\u270f\ufe0f ' + esc(S.name) + '</span>' +
-        '<span style="background:rgba(255,209,102,.16);border:1px solid rgba(255,209,102,.4);' +
-          'padding:3px 9px;border-radius:9px;color:#ffd166;">' + n2(area) + ' ' +
-          tt('דונם', 'ดูนัม', 'دونم') + ' \u00b7 ' + n1(ext.w) + '\u00d7' + n1(ext.h) + ' m</span>' +
+        // Live comparison while dragging: the number you are trying to hit is
+      // the one on the card, so it is on screen next to the one you are
+      // changing rather than a screen away.
+      '<span style="background:rgba(159,216,255,.14);border:1px solid rgba(159,216,255,.4);' +
+          'padding:3px 9px;border-radius:9px;color:#9fd8ff;">' +
+          tt('מסומן', 'บนแผนที่', 'مرسوم') + ' ' + n2(area) + ' \u00b7 ' +
+          n1(ext.w) + '\u00d7' + n1(ext.h) + ' m</span>' +
+      (S.declared > 0
+        ? '<span style="background:rgba(255,209,102,.16);border:1px solid rgba(255,209,102,.4);' +
+            'padding:3px 9px;border-radius:9px;color:#ffd166;">' +
+            tt('בפועל', 'ตามบัตร', 'المسجّل') + ' ' + n2(S.declared) + '</span>' +
+          '<span style="padding:3px 9px;border-radius:9px;color:' +
+            (Math.abs(area - S.declared) / S.declared > 0.1 ? '#ff6b6b'
+              : Math.abs(area - S.declared) / S.declared > 0.03 ? '#ffb703' : '#a8e6a1') + ';">' +
+            (area >= S.declared ? '+' : '\u2212') + n2(Math.abs(area - S.declared)) + ' ' +
+            tt('דונם', 'ดูนัม', 'دونم') + '</span>'
+        : '') +
         partBtns +
         (S.adding
           ? '<button onclick="PlotEdit.finishPart()" style="' + btn + 'background:#2d6a4f;">\u2713 ' +
@@ -397,8 +437,13 @@ var PlotEdit = (function () {
               'background:' + (S.delMode ? '#c62828' : 'rgba(255,255,255,.12)') + ';">\ud83d\uddd1 ' +
               (S.delMode ? tt('לחץ על נקודה למחיקה', 'แตะจุดเพื่อลบ', 'انقر نقطة للحذف')
                          : tt('מחק נקודות', 'ลบจุด', 'حذف نقاط')) + '</button>') +
+        (S.declared > 0 && Math.abs(area - S.declared) > 0.01
+          ? '<button onclick="PlotEdit.adoptMeasured()" style="' + btn +
+              'background:rgba(255,209,102,.25);">\u21b3 ' +
+              tt('עדכן את הכרטיס ל-', 'อัปเดตบัตรเป็น', 'حدّث البطاقة إلى') + ' ' + n2(area) + '</button>'
+          : '') +
         '<button onclick="PlotEdit.save()" style="' + btn + 'background:#2d6a4f;">\ud83d\udcbe ' +
-          tt('שמור', 'บันทึก', 'حفظ') + '</button>' +
+          tt('שמור גבולות', 'บันทึกขอบเขต', 'حفظ الحدود') + '</button>' +
         '<button onclick="PlotEdit.cancel()" style="' + btn + 'background:rgba(255,71,87,.25);">\u2715</button>' +
       '</div>';
   }
@@ -419,13 +464,25 @@ var PlotEdit = (function () {
     if (window.MapAccess && MapAccess.setExternalDraw) MapAccess.setExternalDraw(false);
   }
 
+  // Explicit, never automatic. Redrawing a boundary more accurately is not
+  // the same claim as "the registered area was wrong", and only the person
+  // looking at both numbers can decide which one to trust.
+  function adoptMeasured() {
+    if (!S) return;
+    S.adopt = ringsArea(S.rings) / 1000;
+    S.declared = S.adopt;
+    redraw();
+    toast('\u2713 ' + tt('הכרטיס יעודכן בשמירה', 'จะอัปเดตเมื่อบันทึก', 'سيُحدَّث عند الحفظ'));
+  }
+
   function save() {
     if (!S) return;
     var rings = S.rings.map(function (r) {
       return r.map(function (c) { return { lat: c.lat, lng: c.lng }; });
     });
     var id = S.id, area = ringsArea(rings) / 1000;
-    var okd = MapAccess.setPlotRings(id, rings);
+    var adopt = S.adopt;
+    var okd = MapAccess.setPlotRings(id, rings, adopt);
     teardown();
     if (okd) {
       toast('\u2705 ' + n2(area) + ' ' + tt('דונם', 'ดูนัม', 'دونم'));
@@ -456,7 +513,7 @@ var PlotEdit = (function () {
   return {
     open: open, save: save, cancel: cancel,
     startPart: startPart, finishPart: finishPart, cancelPart: cancelPart,
-    delPart: delPart, armDelete: armDelete,
+    delPart: delPart, armDelete: armDelete, adoptMeasured: adoptMeasured,
     hideCard: hideCard, active: function () { return !!S; }
   };
 })();
