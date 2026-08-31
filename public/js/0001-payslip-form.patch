@@ -1,0 +1,1099 @@
+From 319ac3b6fd34bf7fca540c8dddcc316e727113f7 Mon Sep 17 00:00:00 2001
+From: Alon <alon@shorashim.local>
+Date: Mon, 31 Aug 2026 19:17:33 +0000
+Subject: [PATCH] =?UTF-8?q?feat(payroll):=20=D7=98=D7=95=D7=A4=D7=A1=20?=
+ =?UTF-8?q?=D7=A9=D7=A2=D7=95=D7=AA=20=D7=97=D7=95=D7=93=D7=A9=D7=99=20?=
+ =?UTF-8?q?=D7=9C=D7=A8=D7=95"=D7=97=20=E2=80=94=20accountant=20monthly=20?=
+ =?UTF-8?q?hours=20form?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+New PayslipForm module: employee roster, per-month hours sheet matching the
+paper form (ימי עבודה / שעות רגילות / 125% / 150% / שכר לשעה / חופש / מחלה /
+הבראה / חג / נסיעות / מפרעה / הערות), auto-fill from timeclock +
+attendance-events using payroll.js contract rules, A4 landscape print-to-PDF
+and CSV export.
+
+- public/js/payslip-form.js  new module (admin only)
+- public/index.html          script tag after hours-report.js
+- public/sw.js               cache list + CACHE_NAME v89 -> v90
+- firestore.rules            whitelist shorashim-payslip-form (admin block)
+- public/js/timeclock.js     top-level hamburger menu button
+---
+ firestore.rules           |   3 +-
+ public/index.html         |   1 +
+ public/js/payslip-form.js | 997 ++++++++++++++++++++++++++++++++++++++
+ public/js/timeclock.js    |   7 +
+ public/sw.js              |   3 +-
+ 5 files changed, 1009 insertions(+), 2 deletions(-)
+ create mode 100644 public/js/payslip-form.js
+
+diff --git a/firestore.rules b/firestore.rules
+index 4ed5695..20b7d7b 100644
+--- a/firestore.rules
++++ b/firestore.rules
+@@ -67,7 +67,8 @@ service cloud.firestore {
+         'shorashim-crop-types',
+         'shorashim-maintenance',
+         'shorashim-maintenance-access',
+-        'shorashim-payroll'
++        'shorashim-payroll',
++        'shorashim-payslip-form'
+       ];
+ 
+       // Operator+: operational data
+diff --git a/public/index.html b/public/index.html
+index ff9d223..eb95a09 100644
+--- a/public/index.html
++++ b/public/index.html
+@@ -810,6 +810,7 @@
+ <script src="js/payroll.js"></script>
+ <script src="js/monthly-report.js"></script>
+ <script src="js/hours-report.js"></script>
++<script src="js/payslip-form.js"></script>
+ <script src="js/taskboard.js"></script>
+ <script src="js/fieldreport.js"></script>
+ <script src="js/pestmonitor.js"></script>
+diff --git a/public/js/payslip-form.js b/public/js/payslip-form.js
+new file mode 100644
+index 0000000..c1a9433
+--- /dev/null
++++ b/public/js/payslip-form.js
+@@ -0,0 +1,997 @@
++// ── טופס שעות חודשי לרו"ח (PAYSLIP HOURS FORM) ──
++// The paper form the accountant needs every month: one row per employee with
++// ימי עבודה / שעות רגילות / 125% / 150% / שכר לשעה / חופש / מחלה / הבראה /
++// חג / נסיעות / מפרעה / הערות, printed A4 landscape with the standard
++// employer notes and signature line.
++//
++// This is a DATA ENTRY + OUTPUT screen, not a second payroll engine:
++//   • The roster and the per-employee defaults live here.
++//   • "מילוי מהשעון" pulls the month from `timeclock` + `attendance-events`
++//     and tiers it with the SAME contract rules payroll.js/hours-report.js
++//     use — so the form can never disagree with דוח שעות רוחבי.
++//   • Every cell stays hand-editable. A cell you type into is flagged in
++//     row.manual and a later auto-fill will NOT overwrite it.
++//
++// Storage: one admin-owned document, appData/shorashim-payslip-form, saved
++// through DB.save like every other config blob. One entry to whitelist in
++// firestore.rules. Employees who have no app account are supported — the
++// roster is standalone and only OPTIONALLY linked to a username.
++//
++// ⚠ This form reports HOURS AND AMOUNTS AS ENTERED. It is not a payslip and
++// computes no tax, pension, national insurance or sick-pay accrual. The
++// ₪ column on screen is an estimate for sanity-checking only; payroll of
++// record stays with the accountant. Same disclaimer as payroll.js.
++
++var PayslipForm = (function() {
++  'use strict';
++
++  var KEY = 'shorashim-payslip-form';
++  var MAX_MONTHS = 48;   // keep 4 years, prune older so the doc can't grow forever
++
++  function tt(he, th, ar) {
++    var lang = (typeof currentLang !== 'undefined') ? currentLang : 'he';
++    if (lang === 'th') return th || he;
++    if (lang === 'ar') return ar || he;
++    return he;
++  }
++
++  var MONTHS = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
++
++  // Column model — drives the screen table, the print table and the CSV, so
++  // the three can never drift apart.
++  var COLS = [
++    { k: 'days',     he: 'ימי עבודה',   unit: 'ימים', dec: 0, sum: true },
++    { k: 'reg',      he: 'שעות רגילות', unit: 'שעות', dec: 2, sum: true },
++    { k: 't125',     he: '125%',        unit: 'שעות', dec: 2, sum: true },
++    { k: 't150',     he: '150%',        unit: 'שעות', dec: 2, sum: true },
++    { k: 'rate',     he: 'שכר לשעה',    unit: '₪',    dec: 2, sum: false },
++    { k: 'vacation', he: 'חופש',        unit: 'ימים', dec: 2, sum: true },
++    { k: 'sick',     he: 'מחלה',        unit: 'ימים', dec: 2, sum: true },
++    { k: 'recup',    he: 'הבראה',       unit: 'ימים', dec: 2, sum: true },
++    { k: 'holiday',  he: 'חג',          unit: 'ימים', dec: 2, sum: true },
++    { k: 'travel',   he: 'נסיעות',      unit: '₪',    dec: 2, sum: true },
++    { k: 'advance',  he: 'מפרעה',       unit: '₪',    dec: 2, sum: true }
++  ];
++
++  // The employer notes printed on the form. Editable in הגדרות so a change in
++  // the law doesn't need a code deploy.
++  var DEFAULT_NOTES = [
++    'יש למלא טופס 101 לכל עובד בתחילת שנת המס.',
++    'יש למלא את כל הנתונים עד לא יאוחר מ-5 לכל חודש.',
++    'יש לשלם את המשכורת בצירוף התלוש לכל עובד לא יאוחר מ-9 לחודש.',
++    'יש חובה להפריש פנסיה לכל עובד.',
++    'יש חובה על המעסיק לתת הודעה בכתב לעובד בגין תנאי עבודתו.',
++    'יש להקפיד על מילוי הוראות תיקון חוק הגנת השכר החל מפברואר 2009.'
++  ];
++
++  // ── state ──
++  var data = null;
++  var state = {
++    year: 0, month: 0,
++    view: 'sheet',        // sheet | roster | settings
++    loading: false,
++    autofilling: false
++  };
++
++  // ── small helpers ──
++  function pad(n) { return (n < 10 ? '0' : '') + n; }
++
++  function esc(v) {
++    return String(v == null ? '' : v)
++      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
++      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
++  }
++
++  function toast(m) { if (typeof showToast === 'function') showToast(m); }
++
++  // Accepts "8.5", "8:30", "8,5" and plain numbers. Hours are stored as a
++  // decimal because that is what a payroll clerk keys into their software;
++  // HH:MM is only an input convenience.
++  function parseNum(v) {
++    if (v == null) return 0;
++    var s = String(v).trim().replace(',', '.');
++    if (!s) return 0;
++    if (s.indexOf(':') !== -1) {
++      var p = s.split(':');
++      var h = parseFloat(p[0]) || 0;
++      var m = parseFloat(p[1]) || 0;
++      return h + (h < 0 ? -m : m) / 60;
++    }
++    var n = parseFloat(s);
++    return isNaN(n) ? 0 : n;
++  }
++
++  function fmt(n, dec) {
++    n = Number(n) || 0;
++    if (!n) return '';
++    return n.toFixed(dec == null ? 2 : dec);
++  }
++
++  function newId() {
++    return 'e' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
++  }
++
++  function monthKey() { return state.year + '-' + pad(state.month + 1); }
++  function monthLabel() { return MONTHS[state.month] + ' ' + state.year; }
++
++  function isAdminRole() { return window.currentUser && window.currentUser.role === 'admin'; }
++
++  // ── data model ──
++  function blank() {
++    return {
++      employees: [],
++      months: {},
++      settings: { employer: '', notes: DEFAULT_NOTES.slice() }
++    };
++  }
++
++  function blankRow() {
++    return {
++      days: 0, reg: 0, t125: 0, t150: 0, rate: 0,
++      vacation: 0, sick: 0, recup: 0, holiday: 0,
++      travel: 0, advance: 0, note: '', manual: {}
++    };
++  }
++
++  // Backward compatible: every field defaults, so a document written by an
++  // older version (or a half-filled month) never crashes a render.
++  function normalise(raw) {
++    var d = raw && typeof raw === 'object' ? raw : {};
++    var out = blank();
++
++    if (Array.isArray(d.employees)) {
++      out.employees = d.employees.filter(function(e) { return e && e.name; }).map(function(e) {
++        return {
++          id: e.id || newId(),
++          name: String(e.name),
++          username: e.username || '',
++          hourlyRate: Number(e.hourlyRate) || 0,
++          travelDefault: Number(e.travelDefault) || 0,
++          active: e.active !== false,
++          note: e.note || ''
++        };
++      });
++    }
++
++    if (d.months && typeof d.months === 'object') {
++      Object.keys(d.months).forEach(function(mk) {
++        var m = d.months[mk] || {};
++        var rows = {};
++        if (m.rows && typeof m.rows === 'object') {
++          Object.keys(m.rows).forEach(function(rid) {
++            var r = m.rows[rid] || {};
++            var row = blankRow();
++            COLS.forEach(function(c) { row[c.k] = Number(r[c.k]) || 0; });
++            row.note = r.note || '';
++            row.manual = (r.manual && typeof r.manual === 'object') ? r.manual : {};
++            rows[rid] = row;
++          });
++        }
++        out.months[mk] = { rows: rows, updatedAt: m.updatedAt || 0 };
++      });
++    }
++
++    if (d.settings && typeof d.settings === 'object') {
++      out.settings.employer = d.settings.employer || '';
++      if (Array.isArray(d.settings.notes) && d.settings.notes.length) {
++        out.settings.notes = d.settings.notes.slice();
++      }
++    }
++    return out;
++  }
++
++  function _data() {
++    if (!data) {
++      var local = null;
++      try { local = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) { local = null; }
++      data = normalise(local);
++    }
++    return data;
++  }
++
++  function load() {
++    return new Promise(function(resolve) {
++      if (typeof DB === 'undefined') { resolve(_data()); return; }
++      DB.loadAsync(KEY).then(function(d) {
++        data = normalise(d);
++        resolve(data);
++      })['catch'](function() { resolve(_data()); });
++    });
++  }
++
++  function prune() {
++    var keys = Object.keys(_data().months).sort();
++    while (keys.length > MAX_MONTHS) {
++      delete _data().months[keys.shift()];
++    }
++  }
++
++  function save() {
++    prune();
++    if (typeof DB !== 'undefined') DB.save(KEY, _data());
++    if (typeof Audit !== 'undefined' && Audit && typeof Audit.log === 'function') {
++      try { Audit.log('edit', 'payslip-form', KEY, { month: monthKey() }); } catch (e) {}
++    }
++  }
++
++  function month(mk) {
++    var d = _data();
++    if (!d.months[mk]) d.months[mk] = { rows: {}, updatedAt: 0 };
++    return d.months[mk];
++  }
++
++  function row(empId) {
++    var m = month(monthKey());
++    if (!m.rows[empId]) {
++      var r = blankRow();
++      // A new row starts from the employee's standing defaults, so the common
++      // case (same rate, same travel allowance every month) is zero typing.
++      var emp = employeeById(empId);
++      if (emp) {
++        r.rate = emp.hourlyRate || 0;
++        r.travel = emp.travelDefault || 0;
++      }
++      m.rows[empId] = r;
++    }
++    return m.rows[empId];
++  }
++
++  function employeeById(id) {
++    var list = _data().employees;
++    for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i];
++    return null;
++  }
++
++  function activeEmployees() {
++    return _data().employees.filter(function(e) { return e.active !== false; });
++  }
++
++  // ── roster seeding ──
++  // First open on a fresh install: pull the app's own user list so the admin
++  // isn't retyping names that already exist. Workers without app accounts get
++  // added by hand in the עובדים tab.
++  function seedFromUsers() {
++    var users = (typeof window.users !== 'undefined' && window.users) ? window.users : {};
++    var have = {};
++    _data().employees.forEach(function(e) { if (e.username) have[e.username] = true; });
++
++    var added = 0;
++    Object.keys(users).forEach(function(u) {
++      var usr = users[u];
++      if (!usr || usr.role === 'viewer' || have[u]) return;
++      var payEmp = (typeof Payroll !== 'undefined' && Payroll.getEmployee) ? Payroll.getEmployee(u) : null;
++      _data().employees.push({
++        id: newId(),
++        name: usr.name || u,
++        username: u,
++        hourlyRate: (payEmp && Number(payEmp.hourlyRate)) || 0,
++        travelDefault: 0,
++        active: true,
++        note: ''
++      });
++      added++;
++    });
++    return added;
++  }
++
++  // ── auto-fill from the time clock ──
++  // Deliberately a copy of hours-report.js's tiering rather than a call into
++  // it: that module keeps its aggregation private, and duplicating ~30 lines
++  // is cheaper than exporting internals from a screen that is already shipped
++  // and working. If the contract rules ever change, they change in payroll.js
++  // (the single source) and both screens follow.
++  function contractFor(username) {
++    if (typeof Payroll !== 'undefined' && Payroll.getContract) return Payroll.getContract(username);
++    return { breakMin: 45, weeklyCapRegular: 2520, tier125Min: 120, tier150Min: 120 };
++  }
++
++  function recMin(r) {
++    if (r.duration) return Math.round(r.duration / 60000);
++    if (r.punchIn && r.punchOut) return Math.round((r.punchOut - r.punchIn) / 60000);
++    return 0;
++  }
++
++  function weekKey(dt) {
++    var d = new Date(dt.getTime());
++    d.setDate(d.getDate() - d.getDay());   // Sunday-start, Israeli work week
++    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
++  }
++
++  function monthBounds() {
++    var start = state.year + '-' + pad(state.month + 1) + '-01';
++    var lastDay = new Date(state.year, state.month + 1, 0).getDate();
++    return { start: start, end: state.year + '-' + pad(state.month + 1) + '-' + pad(lastDay) };
++  }
++
++  function fetchMonth() {
++    var b = monthBounds();
++    var out = { records: [], events: {} };
++    if (typeof db === 'undefined') return Promise.resolve(out);
++
++    var jobs = [
++      db.collection('timeclock')
++        .where('date', '>=', b.start).where('date', '<=', b.end).get()
++        .then(function(snap) {
++          snap.forEach(function(doc) { out.records.push(Object.assign({ _id: doc.id }, doc.data())); });
++        })['catch'](function(err) {
++          console.warn('PayslipForm timeclock load failed:', err && err.message);
++        }),
++      db.collection('attendance-events')
++        .where('date', '>=', b.start).where('date', '<=', b.end).get()
++        .then(function(snap) {
++          snap.forEach(function(doc) {
++            var e = doc.data();
++            if (!e || !e.username || !e.date) return;
++            if (!out.events[e.username]) out.events[e.username] = {};
++            out.events[e.username][e.date] = e.event || '';
++          });
++        })['catch'](function() {})
++    ];
++    return Promise.all(jobs).then(function() { return out; });
++  }
++
++  // Returns { username -> { days, reg, t125, t150, vacation, sick, holiday } }
++  // Hours are decimal; day counters are whole days.
++  function aggregate(raw) {
++    var days = {};
++    raw.records.forEach(function(r) {
++      if (!r || !r.username || !r.date) return;
++      var k = r.username + '|' + r.date;
++      if (!days[k]) days[k] = { username: r.username, date: r.date, gross: 0 };
++      days[k].gross += recMin(r);
++    });
++
++    var perWorker = {};
++    Object.keys(days).forEach(function(k) {
++      var d = days[k];
++      var c = contractFor(d.username);
++      d.net = Math.max(0, d.gross - (d.gross > 0 ? (c.breakMin || 0) : 0));
++      if (!perWorker[d.username]) perWorker[d.username] = [];
++      perWorker[d.username].push(d);
++    });
++
++    var out = {};
++    Object.keys(perWorker).forEach(function(u) {
++      var c = contractFor(u);
++      var weeks = {};
++      var dayCount = 0;
++      perWorker[u].forEach(function(d) {
++        if (d.net > 0) dayCount++;
++        weeks[weekKey(new Date(d.date + 'T00:00:00'))] = (weeks[weekKey(new Date(d.date + 'T00:00:00'))] || 0) + d.net;
++      });
++      var reg = 0, t125 = 0, t150 = 0;
++      Object.keys(weeks).forEach(function(w) {
++        var rem = weeks[w];
++        var r = Math.min(rem, c.weeklyCapRegular || 2520); reg += r; rem -= r;
++        var a = Math.min(rem, c.tier125Min || 120); t125 += a; rem -= a;
++        if (rem > 0) t150 += rem;
++      });
++      out[u] = {
++        days: dayCount,
++        reg: reg / 60, t125: t125 / 60, t150: t150 / 60,
++        vacation: 0, sick: 0, holiday: 0
++      };
++    });
++
++    // Paid absence days come from attendance-events, not from punches.
++    Object.keys(raw.events).forEach(function(u) {
++      if (!out[u]) out[u] = { days: 0, reg: 0, t125: 0, t150: 0, vacation: 0, sick: 0, holiday: 0 };
++      var byDate = raw.events[u];
++      Object.keys(byDate).forEach(function(dt) {
++        var code = byDate[dt];
++        if (code === 'vacation' || code === 'personal') out[u].vacation++;
++        else if (code === 'sick' || code === 'accident') out[u].sick++;
++        else if (code === 'holiday') out[u].holiday++;
++      });
++    });
++
++    return out;
++  }
++
++  function _autofill() {
++    if (state.autofilling) return;
++    state.autofilling = true;
++    render();
++    fetchMonth().then(function(raw) {
++      var agg = aggregate(raw);
++      var touched = 0, skipped = 0;
++
++      activeEmployees().forEach(function(emp) {
++        if (!emp.username) return;
++        var a = agg[emp.username];
++        if (!a) return;
++        var r = row(emp.id);
++        ['days', 'reg', 't125', 't150', 'vacation', 'sick', 'holiday'].forEach(function(f) {
++          if (r.manual[f]) { skipped++; return; }      // hand-edited — never clobber
++          r[f] = Math.round(a[f] * 100) / 100;
++        });
++        if (!r.manual.rate) {
++          var payEmp = (typeof Payroll !== 'undefined' && Payroll.getEmployee) ? Payroll.getEmployee(emp.username) : null;
++          var rate = (payEmp && Number(payEmp.hourlyRate)) || emp.hourlyRate || 0;
++          if (rate) r.rate = rate;
++        }
++        touched++;
++      });
++
++      month(monthKey()).updatedAt = Date.now();
++      save();
++      state.autofilling = false;
++      render();
++      toast('🔄 ' + touched + ' ' + tt('עובדים עודכנו','พนักงานอัปเดต','موظفين محدّثين') +
++            (skipped ? ' · ' + skipped + ' ' + tt('שדות ידניים נשמרו','ช่องที่แก้ด้วยมือถูกเก็บไว้','حقول يدوية محفوظة') : ''));
++    })['catch'](function(err) {
++      state.autofilling = false;
++      render();
++      console.error('[PayslipForm autofill]', err);
++      toast('❌ ' + tt('שגיאה במשיכת נתוני שעון','ดึงข้อมูลไม่สำเร็จ','فشل جلب البيانات'));
++    });
++  }
++
++  // ── totals & estimate ──
++  function rowGross(r) {
++    var rate = Number(r.rate) || 0;
++    return (Number(r.reg) || 0) * rate
++         + (Number(r.t125) || 0) * rate * 1.25
++         + (Number(r.t150) || 0) * rate * 1.5;
++  }
++
++  function totals() {
++    var t = {};
++    COLS.forEach(function(c) { if (c.sum) t[c.k] = 0; });
++    t._gross = 0;
++    activeEmployees().forEach(function(emp) {
++      var r = row(emp.id);
++      COLS.forEach(function(c) { if (c.sum) t[c.k] += Number(r[c.k]) || 0; });
++      t._gross += rowGross(r);
++    });
++    return t;
++  }
++
++  // ── render ──
++  function show() {
++    if (!isAdminRole()) {
++      toast('⛔ ' + tt('למנהל מערכת בלבד','สำหรับผู้ดูแลระบบเท่านั้น','للمسؤول فقط'));
++      return;
++    }
++    var now = new Date();
++    if (!state.year) {
++      // Default to the month you are actually reporting: the previous one,
++      // since the form is filled in the first days of the following month.
++      var prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
++      state.year = prev.getFullYear();
++      state.month = prev.getMonth();
++    }
++    state.view = 'sheet';
++    var warm = (typeof Payroll !== 'undefined' && Payroll.load) ? Payroll.load() : Promise.resolve();
++    Promise.all([load(), warm]).then(function() {
++      if (!_data().employees.length) {
++        var n = seedFromUsers();
++        if (n) { save(); }
++      }
++      render();
++    });
++  }
++
++  function tabBtn(id, label) {
++    var on = (state.view === id);
++    return '<button onclick="PayslipForm._tab(\'' + id + '\')" style="flex:1;padding:8px 4px;border:none;border-radius:9px;' +
++      'font-family:inherit;font-size:0.78rem;font-weight:700;cursor:pointer;' +
++      (on ? 'background:var(--g2,#4caf50);color:#fff;' : 'background:var(--g6,#eef3ee);color:var(--g1,#2e7d32);') + '">' + label + '</button>';
++  }
++
++  function render() {
++    var host = document.getElementById('modalContainer');
++    if (!host) return;
++
++    var body = (state.view === 'roster') ? renderRoster()
++             : (state.view === 'settings') ? renderSettings()
++             : renderSheet();
++
++    host.innerHTML =
++      '<div class="modal-overlay" onclick="if(event.target===this) PayslipForm._close()">' +
++        '<div class="modal" style="max-width:1000px;">' +
++          '<h2 style="margin-bottom:10px;">🧾 ' + tt('טופס שעות לרו&quot;ח','แบบฟอร์มชั่วโมงสำหรับบัญชี','نموذج ساعات للمحاسب') + '</h2>' +
++
++          '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">' +
++            '<button onclick="PayslipForm._nav(-1)" style="border:none;background:var(--g6,#eef3ee);border-radius:8px;padding:6px 12px;cursor:pointer;font-family:inherit;font-size:1rem;">›</button>' +
++            '<div style="flex:1;text-align:center;font-weight:700;font-size:0.95rem;">' + monthLabel() + '</div>' +
++            '<button onclick="PayslipForm._nav(1)" style="border:none;background:var(--g6,#eef3ee);border-radius:8px;padding:6px 12px;cursor:pointer;font-family:inherit;font-size:1rem;">‹</button>' +
++          '</div>' +
++
++          '<div style="display:flex;gap:6px;margin-bottom:12px;">' +
++            tabBtn('sheet',    '🧾 ' + tt('הטופס','แบบฟอร์ม','النموذج')) +
++            tabBtn('roster',   '👥 ' + tt('עובדים','พนักงาน','موظفون')) +
++            tabBtn('settings', '⚙️ ' + tt('הגדרות','ตั้งค่า','إعدادات')) +
++          '</div>' +
++
++          body +
++
++          '<div class="modal-buttons" style="margin-top:12px;flex-wrap:wrap;gap:6px;">' +
++            '<button class="btn btn-secondary" onclick="PayslipForm._close()">' + tt('סגור','ปิด','إغلاق') + '</button>' +
++            '<button class="btn btn-secondary" onclick="PayslipForm._exportCSV()">⤓ CSV</button>' +
++            '<button class="btn btn-primary" onclick="PayslipForm._print()">🖨️ ' + tt('הפק דוח','พิมพ์รายงาน','إصدار التقرير') + '</button>' +
++          '</div>' +
++        '</div>' +
++      '</div>';
++  }
++
++  function renderSheet() {
++    var emps = activeEmployees();
++    if (!emps.length) {
++      return '<div style="text-align:center;color:#999;padding:26px;">' +
++        tt('אין עובדים ברשימה','ไม่มีพนักงาน','لا يوجد موظفون') +
++        '<br><button class="btn btn-primary" style="margin-top:10px;" onclick="PayslipForm._tab(\'roster\')">👥 ' +
++        tt('הוסף עובדים','เพิ่มพนักงาน','إضافة موظفين') + '</button></div>';
++    }
++
++    var head = '<th style="text-align:start;padding:6px 5px;position:sticky;inset-inline-start:0;background:var(--g6,#eef3ee);min-width:110px;">' +
++               tt('שם העובד','ชื่อ','الاسم') + '</th>';
++    COLS.forEach(function(c) {
++      head += '<th style="padding:6px 4px;min-width:62px;font-size:0.72rem;">' + esc(c.he) +
++              '<div style="font-weight:400;font-size:0.62rem;color:#777;">' + esc(c.unit) + '</div></th>';
++    });
++    head += '<th style="padding:6px 4px;min-width:110px;font-size:0.72rem;">' + tt('הערות','หมายเหตุ','ملاحظات') + '</th>';
++    head += '<th style="padding:6px 4px;min-width:74px;font-size:0.72rem;">' + tt('אומדן ₪','ประมาณ ₪','تقدير ₪') + '</th>';
++
++    var body = '';
++    emps.forEach(function(emp) {
++      var r = row(emp.id);
++      body += '<tr>' +
++        '<td style="padding:4px 5px;border-bottom:1px solid #eee;font-weight:600;font-size:0.78rem;position:sticky;inset-inline-start:0;background:#fff;">' +
++          esc(emp.name) +
++          (emp.username ? '' : '<div style="font-size:0.6rem;color:#c77;font-weight:400;">' + tt('ללא שעון','ไม่มีนาฬิกา','بدون ساعة') + '</div>') +
++        '</td>';
++
++      COLS.forEach(function(c) {
++        var manual = !!r.manual[c.k];
++        body += '<td style="padding:2px;border-bottom:1px solid #eee;">' +
++          '<input type="text" inputmode="decimal" value="' + esc(fmt(r[c.k], c.dec)) + '" ' +
++          'onchange="PayslipForm._set(\'' + emp.id + '\',\'' + c.k + '\',this.value)" ' +
++          'style="width:100%;box-sizing:border-box;text-align:center;padding:5px 2px;border:1px solid ' +
++          (manual ? '#ffb74d' : '#e0e0e0') + ';border-radius:6px;font-family:inherit;font-size:0.78rem;' +
++          (manual ? 'background:#fff8e1;' : '') + '"></td>';
++      });
++
++      body += '<td style="padding:2px;border-bottom:1px solid #eee;">' +
++        '<input type="text" value="' + esc(r.note) + '" ' +
++        'onchange="PayslipForm._set(\'' + emp.id + '\',\'note\',this.value)" ' +
++        'style="width:100%;box-sizing:border-box;padding:5px 4px;border:1px solid #e0e0e0;border-radius:6px;font-family:inherit;font-size:0.75rem;"></td>';
++
++      body += '<td id="psG_' + emp.id + '" style="padding:4px;border-bottom:1px solid #eee;text-align:center;font-weight:700;font-size:0.76rem;">' +
++        (rowGross(r) ? '₪' + Math.round(rowGross(r)).toLocaleString() : '—') + '</td>';
++
++      body += '</tr>';
++    });
++
++    var t = totals();
++    var foot = '<td style="padding:6px 5px;font-weight:800;position:sticky;inset-inline-start:0;background:var(--g6,#eef3ee);">' + tt('סה"כ','รวม','المجموع') + '</td>';
++    COLS.forEach(function(c) {
++      foot += '<td id="psT_' + c.k + '" style="padding:6px 3px;text-align:center;font-weight:700;font-size:0.76rem;">' +
++        (c.sum ? (fmt(t[c.k], c.dec) || '0') : '—') + '</td>';
++    });
++    foot += '<td></td><td id="psT__gross" style="padding:6px 3px;text-align:center;font-weight:800;font-size:0.76rem;">₪' +
++            Math.round(t._gross).toLocaleString() + '</td>';
++
++    return '' +
++      '<div style="display:flex;gap:6px;margin-bottom:8px;">' +
++        '<button class="btn btn-secondary" style="flex:1;font-size:0.78rem;" onclick="PayslipForm._autofill()"' +
++          (state.autofilling ? ' disabled' : '') + '>' +
++          (state.autofilling ? '⏳ ' + tt('מושך...','กำลังดึง...','جارٍ السحب...')
++                             : '🔄 ' + tt('מילוי מהשעון','ดึงจากนาฬิกา','تعبئة من الساعة')) + '</button>' +
++        '<button class="btn btn-secondary" style="flex:1;font-size:0.78rem;" onclick="PayslipForm._copyPrev()">📋 ' +
++          tt('העתק מחודש קודם','คัดลอกเดือนก่อน','نسخ الشهر السابق') + '</button>' +
++        '<button class="btn btn-secondary" style="flex:1;font-size:0.78rem;" onclick="PayslipForm._clearMonth()">🧹 ' +
++          tt('נקה חודש','ล้างเดือน','مسح الشهر') + '</button>' +
++      '</div>' +
++
++      '<div style="overflow:auto;max-height:48vh;">' +
++        '<table style="width:100%;border-collapse:collapse;font-size:0.8rem;">' +
++          '<thead><tr style="background:var(--g6,#eef3ee);position:sticky;top:0;z-index:2;">' + head + '</tr></thead>' +
++          '<tbody>' + body + '</tbody>' +
++          '<tfoot><tr style="background:var(--g6,#eef3ee);">' + foot + '</tr></tfoot>' +
++        '</table>' +
++      '</div>' +
++
++      '<div style="font-size:0.66rem;color:var(--text-muted,#888);margin-top:6px;line-height:1.6;">' +
++        '💡 ' + tt('אפשר להקליד 8:30 או 8.5 · תא בכתום = נערך ידנית ולא יידרס במילוי אוטומטי',
++                   'พิมพ์ 8:30 หรือ 8.5 ได้ · ช่องสีส้ม = แก้ด้วยมือ',
++                   'يمكن كتابة 8:30 أو 8.5 · الخلية البرتقالية = تحرير يدوي') + '<br>' +
++        '⚠️ ' + tt('עמודת האומדן היא לבקרה בלבד — אינה תלוש שכר ואינה כוללת מס, פנסיה וביטוח לאומי.',
++                   'คอลัมน์ประมาณการเพื่อการตรวจสอบเท่านั้น',
++                   'عمود التقدير للمراجعة فقط.') +
++      '</div>';
++  }
++
++  function renderRoster() {
++    var users = (typeof window.users !== 'undefined' && window.users) ? window.users : {};
++    var unames = Object.keys(users).filter(function(u) { return users[u] && users[u].role !== 'viewer'; });
++
++    var rows = '';
++    _data().employees.forEach(function(e, i) {
++      var opts = '<option value="">' + tt('— ללא —','— ไม่มี —','— بدون —') + '</option>';
++      unames.forEach(function(u) {
++        opts += '<option value="' + esc(u) + '"' + (e.username === u ? ' selected' : '') + '>' +
++                esc((users[u] && users[u].name) || u) + '</option>';
++      });
++      rows +=
++        '<tr>' +
++          '<td style="padding:3px;border-bottom:1px solid #eee;">' +
++            '<input type="text" id="psrN' + i + '" value="' + esc(e.name) + '" style="width:100%;box-sizing:border-box;padding:6px;border:1px solid #e0e0e0;border-radius:6px;font-family:inherit;font-size:0.8rem;"></td>' +
++          '<td style="padding:3px;border-bottom:1px solid #eee;">' +
++            '<select id="psrU' + i + '" style="width:100%;box-sizing:border-box;padding:6px;border:1px solid #e0e0e0;border-radius:6px;font-family:inherit;font-size:0.75rem;">' + opts + '</select></td>' +
++          '<td style="padding:3px;border-bottom:1px solid #eee;">' +
++            '<input type="number" id="psrR' + i + '" value="' + esc(e.hourlyRate || '') + '" min="0" step="0.5" style="width:100%;box-sizing:border-box;padding:6px;border:1px solid #e0e0e0;border-radius:6px;font-family:inherit;font-size:0.8rem;"></td>' +
++          '<td style="padding:3px;border-bottom:1px solid #eee;">' +
++            '<input type="number" id="psrT' + i + '" value="' + esc(e.travelDefault || '') + '" min="0" step="1" style="width:100%;box-sizing:border-box;padding:6px;border:1px solid #e0e0e0;border-radius:6px;font-family:inherit;font-size:0.8rem;"></td>' +
++          '<td style="padding:3px;border-bottom:1px solid #eee;text-align:center;">' +
++            '<input type="checkbox" id="psrA' + i + '"' + (e.active !== false ? ' checked' : '') + '></td>' +
++          '<td style="padding:3px;border-bottom:1px solid #eee;text-align:center;">' +
++            '<button onclick="PayslipForm._delEmployee(\'' + e.id + '\')" style="border:none;background:#ffebee;color:#c62828;border-radius:6px;padding:5px 9px;cursor:pointer;font-family:inherit;">🗑</button></td>' +
++        '</tr>';
++    });
++
++    return '' +
++      '<div style="overflow:auto;max-height:46vh;">' +
++        '<table style="width:100%;border-collapse:collapse;font-size:0.8rem;">' +
++          '<thead><tr style="background:var(--g6,#eef3ee);">' +
++            '<th style="padding:6px;text-align:start;">' + tt('שם','ชื่อ','الاسم') + '</th>' +
++            '<th style="padding:6px;">' + tt('משתמש באפליקציה','ผู้ใช้แอป','مستخدم') + '</th>' +
++            '<th style="padding:6px;">' + tt('שכר לשעה','ค่าจ้าง/ชม.','أجر/ساعة') + '</th>' +
++            '<th style="padding:6px;">' + tt('נסיעות קבוע','ค่าเดินทาง','مواصلات') + '</th>' +
++            '<th style="padding:6px;">' + tt('פעיל','ใช้งาน','نشط') + '</th>' +
++            '<th style="padding:6px;"></th>' +
++          '</tr></thead>' +
++          '<tbody>' + (rows || '<tr><td colspan="6" style="text-align:center;color:#999;padding:20px;">' +
++            tt('אין עובדים','ไม่มีพนักงาน','لا يوجد') + '</td></tr>') + '</tbody>' +
++        '</table>' +
++      '</div>' +
++      '<div style="display:flex;gap:6px;margin-top:10px;">' +
++        '<button class="btn btn-secondary" style="flex:1;font-size:0.8rem;" onclick="PayslipForm._addEmployee()">➕ ' +
++          tt('הוסף עובד','เพิ่มพนักงาน','إضافة موظف') + '</button>' +
++        '<button class="btn btn-secondary" style="flex:1;font-size:0.8rem;" onclick="PayslipForm._syncUsers()">👥 ' +
++          tt('משוך ממשתמשי האפליקציה','ดึงจากผู้ใช้แอป','سحب من المستخدمين') + '</button>' +
++        '<button class="btn btn-primary" style="flex:1;font-size:0.8rem;" onclick="PayslipForm._saveRoster(' + _data().employees.length + ')">💾 ' +
++          tt('שמור','บันทึก','حفظ') + '</button>' +
++      '</div>' +
++      '<div style="font-size:0.66rem;color:var(--text-muted,#888);margin-top:6px;">' +
++        tt('עובד ללא משתמש באפליקציה ייכנס לטופס אבל לא יתמלא אוטומטית מהשעון.',
++           'พนักงานที่ไม่มีบัญชีจะไม่ถูกเติมอัตโนมัติ',
++           'الموظف بدون حساب لن يُملأ تلقائياً.') + '</div>';
++  }
++
++  function renderSettings() {
++    var s = _data().settings;
++    return '' +
++      '<div style="max-height:46vh;overflow:auto;">' +
++        '<label style="display:block;font-size:0.78rem;font-weight:700;margin-bottom:4px;">' +
++          tt('שם המעסיק (יודפס בראש הטופס)','ชื่อนายจ้าง','اسم صاحب العمل') + '</label>' +
++        '<input type="text" id="psEmployer" value="' + esc(s.employer) + '" style="width:100%;box-sizing:border-box;padding:8px;border:1px solid #e0e0e0;border-radius:7px;font-family:inherit;margin-bottom:14px;">' +
++
++        '<label style="display:block;font-size:0.78rem;font-weight:700;margin-bottom:4px;">' +
++          tt('הערות מודפסות (שורה לכל הערה)','หมายเหตุที่พิมพ์','ملاحظات مطبوعة') + '</label>' +
++        '<textarea id="psNotes" rows="8" style="width:100%;box-sizing:border-box;padding:8px;border:1px solid #e0e0e0;border-radius:7px;font-family:inherit;font-size:0.8rem;line-height:1.7;">' +
++          esc(s.notes.join('\n')) + '</textarea>' +
++      '</div>' +
++      '<button class="btn btn-primary" style="width:100%;margin-top:10px;font-size:0.8rem;" onclick="PayslipForm._saveSettings()">💾 ' +
++        tt('שמור הגדרות','บันทึก','حفظ') + '</button>';
++  }
++
++  // ── controls ──
++  function _close() {
++    var host = document.getElementById('modalContainer');
++    if (host) host.innerHTML = '';
++  }
++
++  function _tab(v) { state.view = v; render(); }
++
++  function _nav(delta) {
++    var m = state.month + delta, y = state.year;
++    if (m < 0) { m = 11; y--; }
++    if (m > 11) { m = 0; y++; }
++    state.month = m; state.year = y;
++    render();
++  }
++
++  // Live cell edit. Updates the model, flags the field as hand-entered, then
++  // repaints ONLY the totals and the row estimate — a full re-render here
++  // would steal focus mid-typing.
++  function _set(empId, field, value) {
++    var r = row(empId);
++    if (field === 'note') {
++      r.note = String(value || '');
++    } else {
++      var n = parseNum(value);
++      r[field] = Math.round(n * 100) / 100;
++      r.manual[field] = true;
++    }
++    month(monthKey()).updatedAt = Date.now();
++    save();
++    _refreshTotals(empId);
++  }
++
++  function _refreshTotals(empId) {
++    var t = totals();
++    COLS.forEach(function(c) {
++      if (!c.sum) return;
++      var el = document.getElementById('psT_' + c.k);
++      if (el) el.textContent = fmt(t[c.k], c.dec) || '0';
++    });
++    var g = document.getElementById('psT__gross');
++    if (g) g.textContent = '₪' + Math.round(t._gross).toLocaleString();
++    if (empId) {
++      var rg = document.getElementById('psG_' + empId);
++      if (rg) {
++        var v = rowGross(row(empId));
++        rg.textContent = v ? '₪' + Math.round(v).toLocaleString() : '—';
++      }
++    }
++  }
++
++  function _copyPrev() {
++    var prev = new Date(state.year, state.month - 1, 1);
++    var pk = prev.getFullYear() + '-' + pad(prev.getMonth() + 1);
++    var src = _data().months[pk];
++    if (!src || !Object.keys(src.rows).length) {
++      toast('⚠️ ' + tt('אין נתונים בחודש הקודם','ไม่มีข้อมูลเดือนก่อน','لا بيانات للشهر السابق'));
++      return;
++    }
++    if (!confirm(tt('להעתיק את כל הנתונים מ' + MONTHS[prev.getMonth()] + '? הנתונים הקיימים יידרסו.',
++                    'คัดลอกข้อมูลเดือนก่อน?','نسخ بيانات الشهر السابق؟'))) return;
++    var dst = month(monthKey());
++    Object.keys(src.rows).forEach(function(rid) {
++      dst.rows[rid] = JSON.parse(JSON.stringify(src.rows[rid]));
++    });
++    dst.updatedAt = Date.now();
++    save();
++    render();
++    toast('📋 ' + tt('הועתק','คัดลอกแล้ว','تم النسخ'));
++  }
++
++  function _clearMonth() {
++    if (!confirm(tt('לנקות את כל הנתונים של ' + monthLabel() + '?','ล้างข้อมูลเดือนนี้?','مسح بيانات هذا الشهر؟'))) return;
++    _data().months[monthKey()] = { rows: {}, updatedAt: Date.now() };
++    save();
++    render();
++  }
++
++  function _addEmployee() {
++    var name = prompt(tt('שם העובד:','ชื่อพนักงาน:','اسم الموظف:'));
++    if (!name || !name.trim()) return;
++    _data().employees.push({
++      id: newId(), name: name.trim(), username: '',
++      hourlyRate: 0, travelDefault: 0, active: true, note: ''
++    });
++    save();
++    render();
++  }
++
++  function _delEmployee(id) {
++    var emp = employeeById(id);
++    if (!emp) return;
++    if (!confirm(tt('להסיר את ' + emp.name + ' מהרשימה? נתוני החודשים שלו יימחקו.',
++                    'ลบพนักงานคนนี้?','حذف هذا الموظف؟'))) return;
++    _data().employees = _data().employees.filter(function(e) { return e.id !== id; });
++    Object.keys(_data().months).forEach(function(mk) { delete _data().months[mk].rows[id]; });
++    save();
++    render();
++  }
++
++  function _saveRoster(count) {
++    var users = (typeof window.users !== 'undefined' && window.users) ? window.users : {};
++    for (var i = 0; i < count; i++) {
++      var e = _data().employees[i];
++      if (!e) continue;
++      var nEl = document.getElementById('psrN' + i);
++      var uEl = document.getElementById('psrU' + i);
++      var rEl = document.getElementById('psrR' + i);
++      var tEl = document.getElementById('psrT' + i);
++      var aEl = document.getElementById('psrA' + i);
++      if (nEl && nEl.value.trim()) e.name = nEl.value.trim();
++      if (uEl) e.username = uEl.value || '';
++      if (rEl) e.hourlyRate = parseFloat(rEl.value) || 0;
++      if (tEl) e.travelDefault = parseFloat(tEl.value) || 0;
++      if (aEl) e.active = !!aEl.checked;
++    }
++    save();
++    render();
++    toast('✅ ' + tt('נשמר','บันทึกแล้ว','تم الحفظ'));
++  }
++
++  function _syncUsers() {
++    var n = seedFromUsers();
++    if (!n) { toast('ℹ️ ' + tt('אין משתמשים חדשים','ไม่มีผู้ใช้ใหม่','لا مستخدمين جدد')); return; }
++    save();
++    render();
++    toast('👥 ' + n + ' ' + tt('נוספו','เพิ่มแล้ว','أُضيفوا'));
++  }
++
++  function _saveSettings() {
++    var eEl = document.getElementById('psEmployer');
++    var nEl = document.getElementById('psNotes');
++    if (eEl) _data().settings.employer = eEl.value.trim();
++    if (nEl) {
++      var lines = nEl.value.split('\n').map(function(l) { return l.trim(); }).filter(Boolean);
++      _data().settings.notes = lines.length ? lines : DEFAULT_NOTES.slice();
++    }
++    save();
++    render();
++    toast('✅ ' + tt('נשמר','บันทึกแล้ว','تم الحفظ'));
++  }
++
++  // ── output: print / PDF ──
++  // Native print-to-PDF, same approach export.js settled on after html2pdf
++  // kept producing blank RTL pages. Real text, real Hebrew, no canvas.
++  function buildPrintHTML() {
++    var s = _data().settings;
++    var emps = activeEmployees();
++    var t = totals();
++
++    var head = '<th class="nm">שם העובד</th>';
++    COLS.forEach(function(c) { head += '<th>' + esc(c.he) + '</th>'; });
++    head += '<th class="nt">הערות</th>';
++
++    var body = '';
++    emps.forEach(function(emp) {
++      var r = row(emp.id);
++      body += '<tr><td class="nm">' + esc(emp.name) + '</td>';
++      COLS.forEach(function(c) { body += '<td>' + esc(fmt(r[c.k], c.dec)) + '</td>'; });
++      body += '<td class="nt">' + esc(r.note) + '</td></tr>';
++    });
++
++    // A few blank rows so the accountant can add a late hire by hand.
++    for (var b = 0; b < 3; b++) {
++      body += '<tr class="blank"><td class="nm">&nbsp;</td>';
++      COLS.forEach(function() { body += '<td>&nbsp;</td>'; });
++      body += '<td class="nt">&nbsp;</td></tr>';
++    }
++
++    var foot = '<td class="nm">סה"כ</td>';
++    COLS.forEach(function(c) { foot += '<td>' + (c.sum ? (fmt(t[c.k], c.dec) || '0') : '—') + '</td>'; });
++    foot += '<td class="nt"></td>';
++
++    var notes = '';
++    s.notes.forEach(function(n, i) { notes += '<li>' + esc(n) + '</li>'; });
++
++    return [
++      '<!DOCTYPE html>',
++      '<html lang="he" dir="rtl"><head><meta charset="UTF-8">',
++      '<title>טופס שעות ' + esc(monthLabel()) + '</title>',
++      '<link rel="preconnect" href="https://fonts.googleapis.com">',
++      '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>',
++      '<link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;600;700;800&display=swap" rel="stylesheet">',
++      '<style>',
++      '@page { size: A4 landscape; margin: 10mm 8mm; }',
++      '* { box-sizing:border-box; }',
++      'html,body { margin:0;padding:0;background:#fff;color:#000;direction:rtl;text-align:right;',
++      '  font-family:"Heebo","Noto Sans Hebrew","Segoe UI",Arial,sans-serif;line-height:1.45;',
++      '  -webkit-print-color-adjust:exact;print-color-adjust:exact; }',
++      '.wrap { padding:4mm; }',
++      '.title { font-size:15pt;font-weight:800;margin-bottom:2mm; }',
++      '.employer { font-size:10pt;font-weight:600;color:#333;margin-bottom:1mm; }',
++      '.notes { font-size:8.5pt;margin:3mm 0 2mm; }',
++      '.notes b { font-size:9pt; }',
++      '.notes ol { margin:1mm 0 0;padding-inline-start:5mm; }',
++      '.notes li { margin-bottom:0.6mm; }',
++      '.sign { font-size:9.5pt;font-weight:600;margin:2mm 0 4mm; }',
++      'table { width:100%;border-collapse:collapse;font-size:8.5pt; }',
++      'th,td { border:1px solid #000;padding:1.6mm 1mm;text-align:center; }',
++      'th { background:#e8e8e8;font-weight:700;font-size:8pt; }',
++      'td.nm, th.nm { text-align:right;font-weight:600;min-width:26mm; }',
++      'td.nt, th.nt { text-align:right;min-width:30mm; }',
++      'tr.blank td { height:7mm;color:#fff; }',
++      'tfoot td { background:#f2f2f2;font-weight:800; }',
++      'thead { display:table-header-group; }',
++      'tr { page-break-inside:avoid; }',
++      '.foot-note { font-size:7.5pt;color:#555;margin-top:2mm; }',
++      '@media print { .no-print { display:none !important; } }',
++      '.print-hint { position:sticky;top:0;padding:10px 14px;background:#2d6a4f;color:#fff;text-align:center;font-weight:600;font-size:13px; }',
++      '.print-hint button { background:#fff;color:#2d6a4f;border:none;padding:6px 14px;border-radius:6px;font-weight:700;cursor:pointer;margin-left:10px;font-family:inherit; }',
++      '</style></head><body>',
++      '<div class="print-hint no-print"><button onclick="window.print()">📄 שמור כ-PDF</button>או Ctrl+P · בחר "שמור כ-PDF" כיעד</div>',
++      '<div class="wrap">',
++        (s.employer ? '<div class="employer">' + esc(s.employer) + '</div>' : ''),
++        '<div class="title">משכורות לחודש: ' + esc(monthLabel()) + '</div>',
++        '<div class="notes"><b>הערות:</b><ol>' + notes + '</ol></div>',
++        '<div class="sign">חתימת המעסיק: ______________________</div>',
++        '<table>',
++          '<thead><tr>' + head + '</tr></thead>',
++          '<tbody>' + body + '</tbody>',
++          '<tfoot><tr>' + foot + '</tr></tfoot>',
++        '</table>',
++        '<div class="foot-note">שעות מדווחות בשעות עשרוניות. חופש / מחלה / הבראה / חג — בימים. נסיעות ומפרעה — בש"ח.',
++        ' הופק ב-' + new Date().toLocaleDateString('he-IL') + '.</div>',
++      '</div></body></html>'
++    ].join('\n');
++  }
++
++  function _print() {
++    if (!activeEmployees().length) {
++      toast('⚠️ ' + tt('אין עובדים להדפסה','ไม่มีข้อมูล','لا يوجد بيانات'));
++      return;
++    }
++    // Open synchronously inside the click handler or the popup blocker eats it.
++    var w = window.open('about:blank', '_blank', 'width=1000,height=720');
++    if (!w || w.closed || typeof w.closed === 'undefined') {
++      toast('❌ ' + tt('חוסם חלונות קופצים פעיל — אפשר חלונות לאתר',
++                      'Popup blocked','مانع النوافذ المنبثقة نشط'));
++      return;
++    }
++    w.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="font-family:sans-serif;padding:40px;text-align:center">📄</body></html>');
++    var html = buildPrintHTML();
++    w.document.open();
++    w.document.write(html);
++    w.document.close();
++
++    toast('📄 ' + tt('בחר "שמור כ-PDF" בחלון ההדפסה','เลือก Save as PDF','اختر حفظ كـ PDF'));
++
++    var trigger = function() {
++      try {
++        w.focus();
++        var fontsReady = (w.document.fonts && w.document.fonts.ready) ? w.document.fonts.ready : Promise.resolve();
++        fontsReady.then(function() {
++          setTimeout(function() {
++            try { w.print(); } catch (e) { console.warn('print() failed:', e); }
++            var closed = false;
++            w.onafterprint = function() {
++              if (!closed) { closed = true; setTimeout(function() { try { w.close(); } catch (e) {} }, 200); }
++            };
++            setTimeout(function() { if (!closed) { try { w.close(); } catch (e) {} } }, 300000);
++          }, 200);
++        });
++      } catch (e) { console.error('[PayslipForm print]', e); }
++    };
++    if (w.document.readyState === 'complete') trigger();
++    else w.onload = trigger;
++  }
++
++  // ── output: CSV (for the accountant's software) ──
++  function _exportCSV() {
++    var lines = [];
++    lines.push(['שם העובד'].concat(COLS.map(function(c) { return c.he; })).concat(['הערות']).join(','));
++    activeEmployees().forEach(function(emp) {
++      var r = row(emp.id);
++      var cells = ['"' + String(emp.name).replace(/"/g, '""') + '"'];
++      COLS.forEach(function(c) { cells.push(fmt(r[c.k], c.dec)); });
++      cells.push('"' + String(r.note || '').replace(/"/g, '""') + '"');
++      lines.push(cells.join(','));
++    });
++    var t = totals();
++    var tot = ['"סה""כ"'];
++    COLS.forEach(function(c) { tot.push(c.sum ? fmt(t[c.k], c.dec) : ''); });
++    tot.push('');
++    lines.push(tot.join(','));
++
++    var blob = new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
++    var a = document.createElement('a');
++    a.href = URL.createObjectURL(blob);
++    a.download = 'salary-hours-' + monthKey() + '.csv';
++    document.body.appendChild(a);
++    a.click();
++    setTimeout(function() { document.body.removeChild(a); URL.revokeObjectURL(a.href); }, 100);
++    toast('⤓ CSV');
++  }
++
++  // Warm the cache so the first open paints with data rather than empty.
++  if (typeof DB !== 'undefined') {
++    setTimeout(function() { load(); }, 1400);
++  }
++
++  return {
++    show: show,
++    load: load,
++    _close: _close,
++    _tab: _tab,
++    _nav: _nav,
++    _set: _set,
++    _autofill: _autofill,
++    _copyPrev: _copyPrev,
++    _clearMonth: _clearMonth,
++    _addEmployee: _addEmployee,
++    _delEmployee: _delEmployee,
++    _saveRoster: _saveRoster,
++    _syncUsers: _syncUsers,
++    _saveSettings: _saveSettings,
++    _print: _print,
++    _exportCSV: _exportCSV
++  };
++})();
+diff --git a/public/js/timeclock.js b/public/js/timeclock.js
+index a7b9ae6..cda34ef 100644
+--- a/public/js/timeclock.js
++++ b/public/js/timeclock.js
+@@ -732,6 +732,13 @@ var TimeClock = (function() {
+       // ── ניהול צוות (Meckano-style manager→workers) ──
+       html += '<button onclick="Team.show();TimeClock.closeMenu()" style="' + menuBtn + 'background:#e8eaf6;">' + tt('👥 הצוות שלי', '👥 ทีมของฉัน', '👥 فريقي') + '</button>';
+ 
++      // טופס שעות לרו"ח — top level, not buried under הגדרות: it is a
++      // monthly deadline (the 5th of every month), not a setting. Admin only,
++      // because the sheet carries wage rates.
++      if (isAdmin) {
++        html += '<button onclick="PayslipForm.show();TimeClock.closeMenu()" style="' + menuBtn + 'background:#fff3e0;">' + tt('🧾 טופס שעות לרו"ח', '🧾 แบบฟอร์มชั่วโมง', '🧾 نموذج ساعات للمحاسب') + '</button>';
++      }
++
+       // ── דוחות סיור (standalone) ──
+       // Opens the season monitoring grid; the older per-observation reports
+       // (which feed the spray traceability chain) hang off a button inside it.
+diff --git a/public/sw.js b/public/sw.js
+index 1bc0440..53c6d6f 100644
+--- a/public/sw.js
++++ b/public/sw.js
+@@ -1,4 +1,4 @@
+-var CACHE_NAME = 'shorashim-v89';
++var CACHE_NAME = 'shorashim-v90';
+ // CDN libs — these never change, safe to cache-first
+ var CDN_URLS = [
+   'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js',
+@@ -26,6 +26,7 @@ var APP_URLS = [
+   '/js/payroll.js',
+   '/js/monthly-report.js',
+   '/js/hours-report.js',
++  '/js/payslip-form.js',
+   '/js/taskboard.js',
+   '/js/fieldreport.js',
+   '/js/pestmonitor.js',
+-- 
+2.43.0
+
