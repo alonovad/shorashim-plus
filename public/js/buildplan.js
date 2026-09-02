@@ -175,6 +175,49 @@ var BuildPlan = (function () {
   var ROLE_KEY = { column: 'colProfile', rafter: 'rafterProfile',
                    purlin: 'purlinProfile', girt: 'girtProfile' };
 
+  // Indicative prices, ex-VAT, for a catalogue that would otherwise start
+  // empty and produce a quote of zero. Cladding and joinery are published
+  // supplier figures; steel derives from a per-kilo rate, which is how it
+  // is actually quoted. These are a STARTING POINT — every one is editable
+  // in the catalogue, and the ₪/kg button reprices all the steel at once.
+  var STEEL_PER_KG = 6.2;
+  var PRICE = {
+    'איסכורית 0.4 מ"מ': 32,  'איסכורית 0.5 מ"מ': 38,
+    'איסכורית 0.6 מ"מ': 45,  'איסכורית 0.7 מ"מ': 52,
+    'פאנל קלקר 5 ס"מ': 64,   'פאנל קלקר 7.5 ס"מ': 72,
+    'פאנל קלקר 10 ס"מ': 80,  'פאנל קלקר 15 ס"מ': 96,
+    'פאנל צמר סלעים 5 ס"מ': 110, 'פאנל צמר סלעים 10 ס"מ': 145,
+    'לוח סקיילייט': 95,
+    'בטון ב-30': 420,           // per m3 delivered
+    'רשת פלדה Q188': 145,       // per 6x2.35 sheet
+    'ברזל זיון 12 מ"מ': 6.6,    // per m
+    'פלטת בסיס': 85,  'בורג עיגון': 12,
+    'מרזב': 45,  'צינור ניקוז': 90,
+    'שער הזזה': 4200,
+    'עמוד גדר': 95,  'רשת גדר': 62,
+    'רשת מרותכת 50/200': 58,
+    'צירי שער כבדים': 140,  'בריח נעילה': 180,
+    'בריח קרקע מרכזי': 120,  'מסילת שער': 165,
+    'גלגלי מסילה': 210,  'עגלות נשיאה': 480,
+    'מוביל עליון': 240,  'מנוע שער חשמלי': 5400,
+    'צבע/גילוון וצביעה': 28,
+    'בלוק בטון 20 ס"מ': 12,  'טיח פנים': 55,
+    'חיפוי קרמיקה': 120,  'פרופיל U לפאנל': 18,
+    'דלת פנים': 750,  'חלון אלומיניום': 475,
+    'אסלה כולל מיכל': 620,  'מקלחון / אגן מקלחת': 780,
+    'כיור רחצה': 390,  'דוד שמש 150 ליטר': 2900,
+    'צנרת מים קרים': 42,  'צנרת ביוב': 58,
+    'נקודת חשמל': 180,  'לוח חשמל': 1450,
+    'מזגן מיני מרכזי': 4800
+  };
+
+  function seedPrice(name, kgPerM, unit) {
+    if (PRICE[name] != null) return PRICE[name];
+    // Anything sold by the metre with a known weight is priced by weight.
+    if (kgPerM > 0 && unit === "מ'") return Math.round(kgPerM * STEEL_PER_KG * 100) / 100;
+    return 0;
+  }
+
   var SEED = [
     { g: 'עמודים / קורות', n: 'HEA 140', kg: 24.7,  u: "מ'" },
     { g: 'עמודים / קורות', n: 'HEA 160', kg: 30.4,  u: "מ'" },
@@ -213,6 +256,35 @@ var BuildPlan = (function () {
     { g: 'אביזרים',       n: 'פלטת בסיס', kg: 0, u: "יח'" },
     { g: 'אביזרים',       n: 'בורג עיגון', kg: 0, u: "יח'" },
     { g: 'אביזרים',       n: 'מרזב', kg: 0, u: "מ'" },
+    // Gate hardware. Named by gates.js but absent from the catalogue, so
+    // every gate priced at zero no matter what was in the price table.
+    { g: 'שערים',        n: 'RHS 60x40x2', kg: 2.93, u: "מ'" },
+    { g: 'שערים',        n: 'רשת מרותכת 50/200', kg: 0, u: 'מ"ר' },
+    { g: 'שערים',        n: 'צירי שער כבדים', kg: 0, u: "יח'" },
+    { g: 'שערים',        n: 'בריח נעילה', kg: 0, u: "יח'" },
+    { g: 'שערים',        n: 'בריח קרקע מרכזי', kg: 0, u: "יח'" },
+    { g: 'שערים',        n: 'מסילת שער', kg: 0, u: "מ'" },
+    { g: 'שערים',        n: 'גלגלי מסילה', kg: 0, u: "יח'" },
+    { g: 'שערים',        n: 'עגלות נשיאה', kg: 0, u: "יח'" },
+    { g: 'שערים',        n: 'מוביל עליון', kg: 0, u: "יח'" },
+    { g: 'שערים',        n: 'מנוע שער חשמלי', kg: 0, u: "יח'" },
+    { g: 'שערים',        n: 'צבע/גילוון וצביעה', kg: 0, u: 'מ"ר' },
+    // Living-unit items, same reason.
+    { g: 'מגורים',       n: 'בלוק בטון 20 ס"מ', kg: 0, u: 'מ"ר' },
+    { g: 'מגורים',       n: 'טיח פנים', kg: 0, u: 'מ"ר' },
+    { g: 'מגורים',       n: 'חיפוי קרמיקה', kg: 0, u: 'מ"ר' },
+    { g: 'מגורים',       n: 'פרופיל U לפאנל', kg: 0, u: "מ'" },
+    { g: 'מגורים',       n: 'דלת פנים', kg: 0, u: "יח'" },
+    { g: 'מגורים',       n: 'חלון אלומיניום', kg: 0, u: "יח'" },
+    { g: 'מגורים',       n: 'אסלה כולל מיכל', kg: 0, u: "יח'" },
+    { g: 'מגורים',       n: 'מקלחון / אגן מקלחת', kg: 0, u: "יח'" },
+    { g: 'מגורים',       n: 'כיור רחצה', kg: 0, u: "יח'" },
+    { g: 'מגורים',       n: 'דוד שמש 150 ליטר', kg: 0, u: "יח'" },
+    { g: 'מגורים',       n: 'צנרת מים קרים', kg: 0, u: "מ'" },
+    { g: 'מגורים',       n: 'צנרת ביוב', kg: 0, u: "מ'" },
+    { g: 'מגורים',       n: 'נקודת חשמל', kg: 0, u: "יח'" },
+    { g: 'מגורים',       n: 'לוח חשמל', kg: 0, u: "יח'" },
+    { g: 'מגורים',       n: 'מזגן מיני מרכזי', kg: 0, u: "יח'" },
     { g: 'אביזרים',       n: 'שער הזזה', kg: 0, u: "יח'" },
     { g: 'אביזרים',       n: 'עמוד גדר', kg: 0, u: "יח'" },
     { g: 'אביזרים',       n: 'רשת גדר', kg: 0, u: "מ'" },
@@ -267,6 +339,8 @@ var BuildPlan = (function () {
     'חיפוי':         ['วัสดุปิดผิว', 'تغطية'],
     'בטון':          ['คอนกรีต', 'خرسانة'],
     'אביזרים':       ['อุปกรณ์', 'ملحقات'],
+    'שערים':         ['ประตู', 'بوابات'],
+    'מגורים':        ['ที่พัก', 'سكن'],
     'איסכורית 0.4 מ"מ': ['เมทัลชีท 0.4 มม.', 'صاج 0.4 مم'],
     'איסכורית 0.5 מ"מ': ['เมทัลชีท 0.5 มม.', 'صاج 0.5 مم'],
     'איסכורית 0.6 מ"מ': ['เมทัลชีท 0.6 มม.', 'صاج 0.6 مم'],
@@ -496,8 +570,11 @@ var BuildPlan = (function () {
       });
     } else {
       out.profiles = SEED.map(function (s2) {
-        return { id: uid() + Math.random(), group: s2.g, name: s2.n, kgPerM: s2.kg, unit: s2.u, price: 0 };
+        return { id: uid() + Math.random(), group: s2.g, name: s2.n, kgPerM: s2.kg,
+                 unit: s2.u, price: seedPrice(s2.n, s2.kg, s2.u) };
       });
+      out.steelPerKg = STEEL_PER_KG;
+      out.pricedAt = Date.now();
     }
     return out;
   }
@@ -3033,6 +3110,28 @@ var BuildPlan = (function () {
     });
   }
 
+  // A print-safe illustration to travel with the quantities: theme
+  // variables resolved to literal colours, because the quote opens in a
+  // window with none of the app's CSS.
+  function illustrationFor(p) {
+    var parts = [];
+    if (p.hasStruct !== false && p.type !== 'slab') parts.push(svg(p));
+    else if (p.type === 'slab') parts.push(svg(p));
+    if (typeof Gates !== 'undefined') {
+      (p.gates || []).forEach(function (g) { parts.push(Gates.svg(g, { print: true })); });
+    }
+    if (typeof LivingUnit !== 'undefined' && p.living && p.living.people) {
+      parts.push(LivingUnit.svg(p.living, { print: true }));
+    }
+    return parts.join('')
+      .replace(/var\(--primary,#2d6a4f\)/g, '#2d6a4f')
+      .replace(/var\(--accent,#ff9f43\)/g, '#e07b00')
+      .replace(/var\(--water,#4fc3f7\)/g, '#1565c0')
+      .replace(/var\(--text-muted,#[0-9a-f]+\)/g, '#777')
+      .replace(/var\(--text,#[0-9a-f]+\)/g, '#222')
+      .replace(/var\(--surface[a-z-]*,#[0-9a-f]+\)/g, '#fff');
+  }
+
   function takeoffLines(p) {
     return takeoff(p).map(function (r) {
       var pr = profByName(r.name);
@@ -3051,7 +3150,8 @@ var BuildPlan = (function () {
       toast('\u26a0\ufe0f ' + tt('מודול התחזוקה לא נטען', 'โมดูลไม่พร้อม', 'الوحدة غير محمّلة'));
       return;
     }
-    Maintenance.importTakeoff(mid, p.id, p.name, takeoffLines(p)).then(function (okd) {
+    Maintenance.importTakeoff(mid, p.id, p.name, takeoffLines(p), illustrationFor(p))
+      .then(function (okd) {
       if (!okd) { toast('\u26a0\ufe0f ' + tt('הפרויקט לא נמצא', 'ไม่พบ', 'غير موجود')); return; }
       p.maintId = mid;
       var opt = sel.options[sel.selectedIndex];
@@ -3065,7 +3165,8 @@ var BuildPlan = (function () {
   function newMaint(id) {
     var p = projById(id);
     if (!p || typeof Maintenance === 'undefined') return;
-    Maintenance.createFromBuild(p.id, p.name, p.client, takeoffLines(p)).then(function (mid) {
+    Maintenance.createFromBuild(p.id, p.name, p.client, takeoffLines(p), illustrationFor(p))
+      .then(function (mid) {
       p.maintId = mid;
       p.maintName = p.name;
       saveP();
@@ -3247,15 +3348,6 @@ var BuildPlan = (function () {
     return '<div class="bp-read"><span>' + k + '</span><b>' + v + '</b></div>';
   }
 
-  // Project-level component switches. Structural, so a full repaint is
-  // right — turning the shed off removes whole panels of controls.
-  function _comp(id, k, v) {
-    var p = projById(id);
-    if (!p) return;
-    p[k] = !!v;
-    saveP();
-    open(id);
-  }
 
   function _dim(id, k, v) {
     var p = projById(id);
@@ -3376,6 +3468,27 @@ var BuildPlan = (function () {
   }
 
   // ── outputs ──
+  // Read-only feeds for maintenance, so the pull direction does not require
+  // maintenance to know anything about how a build project is stored.
+  function listForImport() {
+    return loadAll().then(function () {
+      return (P.projects || []).map(function (p) {
+        var rows = takeoff(p), tot = takeoffTotals(rows);
+        return { id: p.id, name: p.name || typeLabel(p.type),
+                 lines: rows.length, cost: tot.cost };
+      });
+    });
+  }
+
+  function exportForQuote(id) {
+    return loadAll().then(function () {
+      var p = projById(id);
+      if (!p) return null;
+      return { id: p.id, name: p.name || typeLabel(p.type), client: p.client || '',
+               lines: takeoffLines(p), illustration: illustrationFor(p) };
+    });
+  }
+
   function toOrder(id) {
     var p = projById(id);
     if (!p) return;
@@ -3666,6 +3779,8 @@ var BuildPlan = (function () {
     printProject: printProject,
     printQuantities: function (id) { printProject(id, { stages: false }); },
     toOrder: toOrder,
+    listForImport: listForImport,
+    exportForQuote: exportForQuote,
     saveNow: saveNow,
     takeoff: takeoff,
     geom: geom,

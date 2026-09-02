@@ -52,7 +52,7 @@ var Gates = (function () {
       width: Number(g.width) || 4,        // clear opening, m
       height: Number(g.height) || 2,      // leaf height, m
       frame: String(g.frame || 'RHS 60x40x2'),
-      post: String(g.post || 'RHS 100x100x4'),
+      post: String(g.post || 'SHS 100x100x4'),
       mesh: String(g.mesh || 'רשת מרותכת 50/200'),
       postDepth: Number(g.postDepth) || 1.0,   // embedment, m
       postSize: Number(g.postSize) || 0.4,     // concrete cube side, m

@@ -630,7 +630,22 @@ var Maintenance = (function() {
             shipH += '<div style="background:var(--surface-glass, #f5f7f5);border-radius:8px;padding:8px 10px;margin-bottom:6px;font-size:0.82rem;display:flex;justify-content:space-between;align-items:center;"><div><strong>' + s.date + '</strong> — ' + s.materialName + ' (' + s.quantity + ')' + (s.supplier ? ' · ' + s.supplier : '') + (s.notes ? ' · <span style="color:var(--text-muted, #999);">' + s.notes + '</span>' : '') + '</div>' + (canDelete ? '<button onclick="Maintenance._delShip(' + pid + ',' + i + ')" style="border:none;background:none;cursor:pointer;">🗑️</button>' : '') + '</div>';
           });
 
-          bodyH += '<div style="margin-bottom:18px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">' + sectTitle('📦', tt('חומרים','วัสดุ','مواد')) + (canEdit ? addBtn(tt('הוסף','เพิ่ม','إضافة'), '_addMat', pid) : '') + '</div>' +
+          bodyH += '<div style="margin-bottom:18px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">' + sectTitle('📦', tt('חומרים','วัสดุ','مواد')) +
+            (canEdit
+              ? '<span style="display:flex;gap:6px;">' +
+                  // Pull the quantities in from a build plan. Imported rows
+                  // are ordinary material lines from here on — edit the
+                  // price, add, delete, exactly as with anything typed by
+                  // hand. Re-importing replaces only the rows that came from
+                  // that same build project.
+                  '<button onclick="Maintenance.importFromBuild(' + pid + ')" ' +
+                    'style="padding:5px 12px;border:none;border-radius:8px;background:#8d6e63;' +
+                    'color:#fff;font-family:inherit;font-weight:700;font-size:0.78rem;cursor:pointer;">' +
+                    '\ud83c\udfd7 ' + tt('מפרויקט בנייה','จากโครงการ','من مشروع') + '</button>' +
+                  addBtn(tt('הוסף','เพิ่ม','إضافة'), '_addMat', pid) +
+                '</span>'
+              : '') + '</div>' +
+            '<div id="maintImport"></div>' +
           (!(p.materials || []).length ? '<div style="text-align:center;color:var(--text-muted, #999);padding:12px;">' + tt('אין חומרים','ไม่มีวัสดุ','لا مواد') + '</div>' :
             tblWrap('<th style="' + thS + 'text-align:right;">' + tt('חומר','วัสดุ','مادة') + '</th><th style="' + thS + '">' + tt('כמות','จำนวน','كمية') + '</th><th style="' + thS + '">' + tt('מחיר ליח\'','ราคา/หน่วย','سعر الوحدة') + '</th><th style="' + thS + '">' + tt('סה"כ','รวม','المجموع') + '</th><th style="' + thS + 'width:60px;"></th>',
               matH, tt('סה"כ חומרים','รวมวัสดุ','إجمالي المواد'), fmt(tot.materialsTotal), '#2e7d32')) + '</div>';
@@ -877,7 +892,7 @@ var Maintenance = (function() {
   // Replacing rather than appending is deliberate: a takeoff is regenerated
   // every time the drawing changes, and appending would silently double the
   // steel on the second import.
-  function importTakeoff(maintId, buildId, buildName, lines) {
+  function importTakeoff(maintId, buildId, buildName, lines, illustration) {
     return loadProjects().then(function (projects) {
       var p = projects.find(function (x) { return x.id === maintId; });
       if (!p) return false;
@@ -899,6 +914,10 @@ var Maintenance = (function() {
       p.materials = kept.concat(added);
       p.buildProjectId = buildId;
       p.buildProjectName = buildName || '';
+      // The drawing travels with the numbers. A client quote for 216 m of
+      // Z-purlin means nothing on its own; a picture of what it becomes is
+      // the difference between a price list and a proposal.
+      if (illustration) p.illustration = illustration;
       p.updated = Date.now();
       saveProjects(projects);
       _audit('edit', maintId, { after: { imported: added.length, from: buildName },
@@ -910,7 +929,7 @@ var Maintenance = (function() {
   // Create a maintenance project straight from a build project, so the user
   // is not forced to set one up by hand before the quantities have somewhere
   // to land.
-  function createFromBuild(buildId, buildName, client, lines) {
+  function createFromBuild(buildId, buildName, client, lines, illustration) {
     return loadProjects().then(function (projects) {
       var p = { id: Date.now(), name: buildName || tt('פרויקט בנייה','โครงการ','مشروع'),
                 client: client || '', description: '', status: 'draft',
@@ -922,7 +941,68 @@ var Maintenance = (function() {
       saveProjects(projects);
       _audit('create', p.id, { after: { name: p.name, from: buildName },
                                reason: 'created from build project' });
-      return importTakeoff(p.id, buildId, buildName, lines).then(function () { return p.id; });
+      return importTakeoff(p.id, buildId, buildName, lines, illustration)
+        .then(function () { return p.id; });
+    });
+  }
+
+  // Pull, from this side. Everything so far pushed FROM a build project;
+  // the natural move is the other way — you are standing in a maintenance
+  // project about to price it and want the quantities brought in.
+  function importFromBuild(pid) {
+    if (typeof BuildPlan === 'undefined' || typeof BuildPlan.listForImport !== 'function') {
+      showToast(tt('\u26a0\ufe0f מודול פרויקטי הבנייה לא נטען', 'โมดูลไม่พร้อม', 'الوحدة غير محمّلة'));
+      return;
+    }
+    BuildPlan.listForImport().then(function (list) {
+      if (!list.length) {
+        showToast(tt('\u26a0\ufe0f אין פרויקטי בנייה', 'ไม่มีโครงการ', 'لا مشاريع بناء'));
+        return;
+      }
+      var opts = list.map(function (b) {
+        return '<option value="' + b.id + '">' + b.name +
+          ' \u00b7 ' + b.lines + ' ' + tt('שורות','รายการ','بنود') +
+          (b.cost ? ' \u00b7 \u20aa' + Math.round(b.cost).toLocaleString() : '') + '</option>';
+      }).join('');
+      var el = document.getElementById('maintImport');
+      if (!el) return;
+      el.innerHTML =
+        '<div style="background:var(--g6,#eef3ee);border-radius:10px;padding:10px;margin-bottom:10px;">' +
+          '<div style="font-weight:800;font-size:.85rem;margin-bottom:6px;">\ud83c\udfd7 ' +
+            tt('ייבוא כתב כמויות מפרויקט בנייה', 'นำเข้ารายการวัสดุ', 'استيراد الكميات') + '</div>' +
+          '<select id="maintImportSel" style="width:100%;padding:8px;border-radius:8px;' +
+            'border:1px solid var(--border,#ccc);font-family:inherit;margin-bottom:6px;">' +
+            opts + '</select>' +
+          '<div style="display:flex;gap:6px;flex-wrap:wrap;">' +
+            '<button onclick="Maintenance._doImport(' + pid + ')" style="padding:7px 14px;border:none;' +
+              'border-radius:8px;background:var(--primary,#2d6a4f);color:#fff;font-family:inherit;' +
+              'font-weight:700;cursor:pointer;">\u2b07 ' + tt('ייבא','นำเข้า','استيراد') + '</button>' +
+            '<button onclick="document.getElementById(\'maintImport\').innerHTML=\'\'" ' +
+              'style="padding:7px 14px;border:none;border-radius:8px;background:#ddd;' +
+              'font-family:inherit;font-weight:700;cursor:pointer;">' +
+              tt('ביטול','ยกเลิก','إلغاء') + '</button>' +
+          '</div>' +
+          '<div style="font-size:.72rem;color:var(--text-muted,#777);margin-top:6px;line-height:1.5;">' +
+            tt('השורות נכנסות כחומרים רגילים — אפשר לערוך מחיר, להוסיף ולמחוק בחופשיות. ייבוא חוזר מחליף רק את השורות שהגיעו מאותו פרויקט.',
+               'แก้ไขได้อิสระ นำเข้าซ้ำจะแทนที่เฉพาะบรรทัดเดิม',
+               'يمكن التعديل بحرية — الاستيراد المتكرر يستبدل بنود المشروع نفسه') + '</div>' +
+        '</div>';
+    });
+  }
+
+  function _doImport(pid) {
+    var sel = document.getElementById('maintImportSel');
+    if (!sel || typeof BuildPlan === 'undefined') return;
+    var bid = Number(sel.value);
+    BuildPlan.exportForQuote(bid).then(function (pack) {
+      if (!pack) { showToast(tt('\u26a0\ufe0f לא נמצא','ไม่พบ','غير موجود')); return; }
+      importTakeoff(pid, bid, pack.name, pack.lines, pack.illustration).then(function (okd) {
+        if (!okd) { showToast(tt('\u26a0\ufe0f הייבוא נכשל','นำเข้าไม่สำเร็จ','فشل الاستيراد')); return; }
+        showToast('\u2705 ' + pack.lines.length + ' ' + tt('שורות יובאו','รายการ','بنود'));
+        var el = document.getElementById('maintImport');
+        if (el) el.innerHTML = '';
+        showDetail(pid);
+      });
     });
   }
 
@@ -1252,6 +1332,19 @@ var Maintenance = (function() {
   }
 
   // Quote PDF (client-facing)
+  // Rendered into both documents when the project came from a build plan.
+  // Scaled down and given a caption, so it reads as an illustration of the
+  // scope rather than a construction drawing the client should build from.
+  function illustrationBlock(p) {
+    if (!p || !p.illustration) return '';
+    return '<div style="margin:14px 0;padding:10px;border:1px solid #ddd;border-radius:8px;">' +
+      '<div style="font-size:.8rem;color:#555;margin-bottom:6px;">' +
+        tt('איור להמחשה', 'ภาพประกอบ', 'رسم توضيحي') +
+        (p.buildProjectName ? ' \u00b7 ' + p.buildProjectName : '') + '</div>' +
+      p.illustration +
+      '</div>';
+  }
+
   function _quotePDF(pid) {
     loadProjects().then(function(projects) {
       var p = projects.find(function(x) { return x.id === pid; }); if (!p) return;
@@ -1304,6 +1397,7 @@ var Maintenance = (function() {
       var html = '<!DOCTYPE html><html dir="' + dirA + '" lang="' + lang + '"><head><meta charset="utf-8"><title>' + L.title + ' — ' + p.name + '</title><style>' + pdfCss + 'body{--accent:#1c8c7a;--accent-strong:#0d4f4a;--accent-soft:#e6f4f0}</style></head><body>' +
         '<div class="header"><img src="' + window.OGEN_LOGO + '" alt="OGEN" class="brandmark"><h1>🔧 ' + L.title + '</h1><div class="meta">' + p.name + (p.client ? ' · ' + L.forCust + ': ' + p.client : '') + ' · ' + today + '</div></div><div class="content">' +
         (p.description ? '<div style="font-size:.88rem;color:var(--text-muted, #555);margin-bottom:14px;">' + p.description + '</div>' : '') +
+        illustrationBlock(p) +
         ((p.materials||[]).length ? '<div class="section">📦 ' + L.materials + '</div><table><thead><tr><th>#</th><th>' + L.item + '</th><th>' + L.qty + '</th><th>' + L.unitPrice + '</th><th>' + L.total + '</th></tr></thead><tbody>' + matR + '</tbody><tfoot><tr><td colspan="4">' + L.totMat + '</td><td>₪' + fmt(tot.materialsTotal) + '</td></tr></tfoot></table>' : '') +
         ((p.labor||[]).length ? '<div class="section">👷 ' + L.labor + '</div><table><thead><tr><th>#</th><th>' + L.desc + '</th><th>' + L.qty + '</th><th>' + L.rate + '</th><th>' + L.total + '</th></tr></thead><tbody>' + labR + '</tbody><tfoot><tr><td colspan="4">' + L.totLab + '</td><td>₪' + fmt(tot.laborTotal) + '</td></tr></tfoot></table>' : '') +
         '<div class="summary"><div style="font-weight:700;margin-bottom:8px;">💰 ' + L.summary + '</div>' +
@@ -1387,6 +1481,7 @@ var Maintenance = (function() {
       var html = '<!DOCTYPE html><html dir="' + dirA + '" lang="' + lang + '"><head><meta charset="utf-8"><title>' + L.title + ' — ' + p.name + '</title><style>' + pdfCss + 'body{--accent:#37708a;--accent-strong:#12303f;--accent-soft:#eaf1f5}.st{color:' + profitColor + ';border-color:' + profitColor + '}</style></head><body>' +
         '<div class="watermark">' + L.internal + '</div>' +
         '<div class="header"><img src="' + window.OGEN_LOGO + '" alt="OGEN" class="brandmark"><h1>🔒 ' + L.title + '</h1><div class="meta">' + p.name + (p.client ? ' · ' + p.client : '') + ' · ' + today + '</div></div><div class="content">' +
+        illustrationBlock(p) +
         ((p.materials||[]).length ? '<div class="section">📦 ' + L.matsCompare + '</div><table><thead><tr><th>#</th><th>' + L.item + '</th><th>' + L.qty + '</th><th>' + L.priceCust + '</th><th>' + L.realCost + '</th><th>' + L.totCost + '</th></tr></thead><tbody>' + matR + '</tbody><tfoot><tr><td colspan="5">' + L.totMatCost + '</td><td>₪' + fmt(ic.materialsCost) + '</td></tr></tfoot></table>' : '') +
         ((p.labor||[]).length ? '<div class="section">👷 ' + L.labCompare + '</div><table><thead><tr><th>#</th><th>' + L.desc + '</th><th>' + L.hours + '</th><th>' + L.ratePerHCust + '</th><th>' + L.ratePerHReal + '</th><th>' + L.totCost + '</th></tr></thead><tbody>' + labR + '</tbody><tfoot><tr><td colspan="5">' + L.totLabCost + '</td><td>₪' + fmt(ic.laborCost) + '</td></tr></tfoot></table>' : '') +
         '<div class="summary"><div style="font-weight:700;margin-bottom:8px;">📊 ' + L.profitAna + '</div>' +
@@ -1553,6 +1648,7 @@ var Maintenance = (function() {
     importTakeoff: importTakeoff, createFromBuild: createFromBuild,
     projectsLoaded: projectsLoaded, retryLoad: retryLoad,
     projectsForBuild: projectsForBuild,
+    importFromBuild: importFromBuild, _doImport: _doImport,
     showHistory: showHistory,
     _quotePDF: _quotePDF, _shipPDF: _shipPDF, _internalPDF: _internalPDF, _invoicesPDF: _invoicesPDF, _contractPDF: _contractPDF,
   };

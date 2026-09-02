@@ -21,6 +21,27 @@ function ok(msg)   { checks++; console.log('  \x1b[32mok\x1b[0m   ' + msg); }
 function bad(msg)  { checks++; failures++; console.log('  \x1b[31mFAIL\x1b[0m ' + msg); }
 function head(t)   { console.log('\n\x1b[1m' + t + '\x1b[0m'); }
 
+
+// Blank the full argument list of the named calls, brackets matched, so the
+// scan never mistakes an interpolated translated string for a raw literal.
+function blankCalls(src, names) {
+  const out = src.split('');
+  const re = new RegExp('\\b(' + names.join('|') + ')\\s*\\(', 'g');
+  let m;
+  while ((m = re.exec(src))) {
+    let depth = 0, i = m.index + m[0].length - 1;
+    for (; i < src.length; i++) {
+      const c = src[i];
+      if (c === '(') depth++;
+      else if (c === ')') { depth--; if (!depth) break; }
+    }
+    for (let j = m.index; j <= i && j < out.length; j++) {
+      if (out[j] !== '\n') out[j] = ' ';
+    }
+  }
+  return out.join('');
+}
+
 const files = fs.readdirSync(JS_DIR).filter(f => f.endsWith('.js'));
 const src = {};
 files.forEach(f => { src[f] = fs.readFileSync(path.join(JS_DIR, f), 'utf8'); });
@@ -185,18 +206,11 @@ OWN.forEach(f => {
   if (!src[f]) return;
   let m = src[f].replace(/\/\*[\s\S]*?\*\//g, x => x.replace(/[^\n]/g, ' '))
                 .replace(/(^|[^:])\/\/[^\n]*/g, (x, p2) => p2 + x.slice(p2.length).replace(/./g, ' '));
-  m = m.replace(/tt\(\s*('(?:\\.|[^'\\])*')\s*,\s*('(?:\\.|[^'\\])*')\s*,\s*('(?:\\.|[^'\\])*')\s*\)/g,
-                x => x.replace(/./g, ' '));
-  // Arguments to dsp(), dspUnit(), qty() and push() are stable data keys
-  // that get translated at render time, not literals shown as-is.
-  m = m.replace(/(?:dsp|dspUnit|qty)\(\s*(?:'[^']*'|"[^"]*")\s*\)/g, x => x.replace(/./g, ' '));
-  // A local helper that takes (…, he, th, ar) and forwards to tt() is just
-  // as translated as an inline tt() call. Recognise three consecutive
-  // string literals as a language triple.
-  m = m.replace(/'(?:\\.|[^'\\])*'\s*,\s*'(?:\\.|[^'\\])*'\s*,\s*'(?:\\.|[^'\\])*'/g,
-                x => x.replace(/./g, ' '));
-  m = m.replace(/push\(\s*(?:'[^']*'|"[^"]*")/g, x => x.replace(/./g, ' '));
-  m = m.replace(/,\s*(?:'מ"[רק]'|"מ'"|"יח'"|'ליטר'|'טון')\s*,/g, x => x.replace(/./g, ' '));
+  // Blank every tt(...) call by matching brackets rather than by pattern.
+  // A tt() whose first argument is concatenated across several lines is
+  // still translated, and no regex short of a parser gets that right.
+  m = blankCalls(m, ['tt', 'dsp', 'dspUnit', 'qty', 'push', 'b']);
+
   const hits = [];
   m.split('\n').forEach((line, i) => {
     const raw = src[f].split('\n')[i] || '';
@@ -206,6 +220,12 @@ OWN.forEach(f => {
     if (/^push\(/.test(t) || /profSel\(/.test(t)) return;   // catalogue keys
     if (/String\(d\.\w+\s*\|\|/.test(t)) return;              // catalogue defaults
     if (/^var group\s*=/.test(t)) return;                     // catalogue group key
+    if (/^'[^']*':\s*[\d.]+\s*,?\s*($|\/\/)/.test(t)) return;   // price table entry
+    if (/^'[^']*':\s*[\d.]+,\s*'[^']*':\s*[\d.]+/.test(t)) return;
+    if (/x\.group !== /.test(t)) return;                      // catalogue group filter
+    if (/migrateClad\(/.test(t)) return;                      // catalogue defaults
+    if (/x\.group ===/.test(t)) return;                       // catalogue group key
+    if (/^if \(c === '/.test(t)) return;                      // migration mapping
     const re = /'((?:\\.|[^'\\])*)'/g; let g;
     while ((g = re.exec(line))) if (HEB.test(g[1])) hits.push(i + 1);
   });
