@@ -87,6 +87,8 @@ var Maintenance = (function() {
   var _accessCache = null;
   var _syncInitialized = false;
   var _migrationDone = {};
+  // False until Firestore has answered at least once. Guards every write.
+  var _loadOk = false;
 
   // DB.load() calls callback twice: first localStorage (fast), then Firestore (slow).
   // DB.loadAsync wraps it in a Promise that resolves on the FIRST callback,
@@ -94,20 +96,25 @@ var Maintenance = (function() {
   function _loadFromFirestore(key) {
     return new Promise(function(resolve) {
       if (typeof DB === 'undefined') {
-        try { resolve(JSON.parse(localStorage.getItem(key) || '[]')); }
-        catch (e) { resolve([]); }
+        try { resolve({ ok: false, data: JSON.parse(localStorage.getItem(key) || '[]') }); }
+        catch (e) { resolve({ ok: false, data: [] }); }
         return;
       }
+      // Resolves { ok, data }. `ok:false` means we never heard from
+      // Firestore — NOT that the collection is empty. Collapsing those two
+      // into a bare [] is what let a failed read look like "no projects",
+      // and then let the migration below overwrite real data with a stale
+      // local cache.
       var callCount = 0;
       var localData = null;
       var settled = false;
       var timer = setTimeout(function() {
         if (!settled) {
           settled = true;
-          console.warn('[Maintenance] Firestore timeout for ' + key + ', using localStorage');
-          resolve(localData || []);
+          console.warn('[Maintenance] Firestore timeout for ' + key + ' — NOT treating as empty');
+          resolve({ ok: false, data: localData || [] });
         }
-      }, 4000);
+      }, 8000);
       DB.load(key, function(data) {
         callCount++;
         if (callCount === 1) {
@@ -116,7 +123,7 @@ var Maintenance = (function() {
           if (!settled) {
             settled = true;
             clearTimeout(timer);
-            resolve(data || []);
+            resolve({ ok: true, data: data || [] });
           }
         }
       });
@@ -125,21 +132,36 @@ var Maintenance = (function() {
 
   // One-time migration: push localStorage data to Firestore if Firestore is empty
   function _migrateIfNeeded(key) {
-    if (_migrationDone[key]) return Promise.resolve(null);
-    _migrationDone[key] = true;
-    return _loadFromFirestore(key).then(function(firestoreData) {
+    // Shape must match the success path — a bare null here made every
+    // caller crash on res.ok the second time a key was requested.
+    // Only a SUCCESSFUL attempt counts as done. Marking the key done before
+    // knowing the outcome meant a first failure was cached forever and the
+    // retry button could never do anything — it re-served the same failure.
+    if (_migrationDone[key]) return Promise.resolve({ ok: true, data: _projectsCache || [] });
+    return _loadFromFirestore(key).then(function(res) {
+      var firestoreData = res.data;
+      // A read that never completed says nothing about what is stored.
+      // Migrating on that basis meant a stale or empty localStorage could
+      // be written straight over live Firestore data — with a signed-out
+      // or slow session, that is silent, total loss.
+      if (!res.ok) {
+        console.warn('[Maintenance] ' + key + ': read did not complete — migration skipped');
+        return { ok: false, data: firestoreData || [] };
+      }
       if (firestoreData && firestoreData.length > 0) {
-        console.log('[Maintenance] ' + key + ': Firestore has ' + firestoreData.length + ' items, no migration needed');
-        return firestoreData;
+        _migrationDone[key] = true;
+        return { ok: true, data: firestoreData };
       }
       var localData = [];
       try { localData = JSON.parse(localStorage.getItem(key) || '[]'); } catch (e) {}
       if (localData.length > 0 && typeof DB !== 'undefined') {
-        console.log('[Maintenance] Migrating ' + key + ' to Firestore (' + localData.length + ' items from localStorage)');
+        console.log('[Maintenance] Migrating ' + key + ' to Firestore (' + localData.length + ' items)');
         DB.save(key, localData);
-        return localData;
+        _migrationDone[key] = true;
+        return { ok: true, data: localData };
       }
-      return firestoreData || [];
+      _migrationDone[key] = true;
+      return { ok: true, data: firestoreData || [] };
     });
   }
 
@@ -148,10 +170,12 @@ var Maintenance = (function() {
     if (_syncInitialized || typeof DB === 'undefined' || typeof DB.listen !== 'function') return;
     _syncInitialized = true;
 
-    _migrateIfNeeded('shorashim-maintenance').then(function(data) {
-      _projectsCache = data || [];
+    _migrateIfNeeded('shorashim-maintenance').then(function(res) {
+      _loadOk = !!res.ok;
+      _projectsCache = res.data || [];
       DB.listen('shorashim-maintenance', function(freshData) {
         var newData = freshData || [];
+        _loadOk = true;   // the listener answering proves we can reach Firestore
         if (JSON.stringify(newData) !== JSON.stringify(_projectsCache)) {
           console.log('[Maintenance] Realtime update: shorashim-maintenance (' + newData.length + ' projects)');
           _projectsCache = newData;
@@ -162,8 +186,8 @@ var Maintenance = (function() {
       });
     });
 
-    _migrateIfNeeded('shorashim-maintenance-access').then(function(data) {
-      _accessCache = data || {};
+    _migrateIfNeeded('shorashim-maintenance-access').then(function(res) {
+      _accessCache = res.data || {};
       DB.listen('shorashim-maintenance-access', function(freshData) {
         var newData = freshData || {};
         if (JSON.stringify(newData) !== JSON.stringify(_accessCache)) {
@@ -191,18 +215,74 @@ var Maintenance = (function() {
     }
   }
 
+  // The last line of defence. Every write goes through here, and every
+  // write replaces the WHOLE project array — so writing while we hold a
+  // list we never successfully loaded would delete everything that was in
+  // Firestore. Refuse, loudly, rather than destroy.
   function saveProjects(projects) {
+    if (!_loadOk) {
+      console.error('[Maintenance] refusing to save: project list was never loaded from Firestore');
+      if (typeof showToast === 'function') {
+        showToast('\u26d4 ' + tt('הנתונים לא נטענו — השמירה בוטלה כדי לא למחוק פרויקטים',
+          'ข้อมูลยังไม่โหลด ยกเลิกการบันทึก', 'لم تُحمّل البيانات — أُلغي الحفظ'));
+      }
+      return false;
+    }
     _projectsCache = projects;
     if (typeof DB !== 'undefined') DB.save('shorashim-maintenance', projects);
     else localStorage.setItem('shorashim-maintenance', JSON.stringify(projects));
+    return true;
   }
+
   function loadProjects() {
-    if (_projectsCache !== null) return Promise.resolve(_projectsCache);
-    return _migrateIfNeeded('shorashim-maintenance').then(function(data) {
-      _projectsCache = data || [];
+    if (_projectsCache !== null && _loadOk) return Promise.resolve(_projectsCache);
+    return _migrateIfNeeded('shorashim-maintenance').then(function(res) {
+      _loadOk = !!res.ok;
+      _projectsCache = res.data || [];
       return _projectsCache;
     });
   }
+
+  // Did the list we are showing actually come from the server?
+  function projectsLoaded() { return _loadOk; }
+
+  // Throw away every trace of the failed attempt and read again. Without
+  // this the retry button re-rendered the same cached failure.
+  function retryLoad() {
+    _migrationDone = {};
+    _projectsCache = null;
+    _accessCache = null;
+    _loadOk = false;
+    _syncInitialized = false;
+    _initSync();
+    return loadProjects().then(function () {
+      // Only re-render if the panel is actually on screen. The auto-retry
+      // below fires on a timer whether or not anyone has opened maintenance,
+      // and showProjectsList() writes into #modalContainer unconditionally.
+      var modal = document.getElementById('modalContainer');
+      if (modal && modal.querySelector && modal.querySelector('[data-maint-view="list"]')) {
+        showProjectsList();
+      }
+      return _loadOk;
+    });
+  }
+
+  // Reads fired before Firebase Auth resolved are denied, which is the
+  // usual cause of the failure state. When a session appears, retry once
+  // by itself rather than making the user notice and press a button.
+  (function watchAuth() {
+    var tries = 0;
+    var iv = setInterval(function () {
+      tries++;
+      if (tries > 40) { clearInterval(iv); return; }
+      if (_loadOk) { clearInterval(iv); return; }
+      var u = window.currentUser;
+      if (u && u.username) {
+        clearInterval(iv);
+        retryLoad();
+      }
+    }, 1500);
+  })();
   function saveAccess(access) {
     _accessCache = access;
     if (typeof DB !== 'undefined') DB.save('shorashim-maintenance-access', access);
@@ -405,6 +485,25 @@ var Maintenance = (function() {
     projects.sort(function(a, b) { return (b.updated || b.created || 0) - (a.updated || a.created || 0); });
 
     if (!projects.length) {
+      // "Nothing here" and "we could not load" look identical to a user and
+      // mean opposite things. Saying the wrong one is how someone concludes
+      // their projects are gone — or starts recreating them on top of data
+      // that is still there.
+      if (!_loadOk) {
+        el.innerHTML = '<div style="padding:24px;text-align:center;">' +
+          '<div style="font-size:1.6rem;">\u26a0\ufe0f</div>' +
+          '<div style="font-weight:800;margin-top:6px;">' +
+            tt('לא ניתן לטעון את הפרויקטים', 'โหลดโครงการไม่สำเร็จ', 'تعذّر تحميل المشاريع') + '</div>' +
+          '<div style="color:var(--text-muted,#999);font-size:0.85rem;margin-top:6px;line-height:1.6;">' +
+            tt('ייתכן שאינך מחובר או שאין חיבור לרשת. הנתונים שמורים בשרת — אל תיצור פרויקטים מחדש.',
+               'อาจยังไม่ได้เข้าสู่ระบบ ข้อมูลยังอยู่บนเซิร์ฟเวอร์',
+               'قد تكون غير مسجّل الدخول — البيانات ما زالت على الخادم') + '</div>' +
+          '<button onclick="Maintenance.retryLoad()" style="margin-top:12px;padding:8px 16px;' +
+            'border:none;border-radius:9px;background:var(--primary,#2d6a4f);color:#fff;' +
+            'font-family:inherit;font-weight:700;cursor:pointer;">\u21bb ' +
+            tt('נסה שוב', 'ลองใหม่', 'إعادة المحاولة') + '</button></div>';
+        return;
+      }
       el.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-muted, #999);">🔧 ' + (search || filter !== 'all' ? tt('לא נמצאו תוצאות','ไม่พบผลลัพธ์','لا نتائج') : tt('אין פרויקטים — לחץ ➕','ไม่มีโครงการ — กด ➕','لا مشاريع — اضغط ➕')) + '</div>';
       return;
     }
@@ -1452,6 +1551,7 @@ var Maintenance = (function() {
     _updateCostPrice: _updateCostPrice, _updateCostRate: _updateCostRate,
     showAccessControl: showAccessControl, _addAccess: _addAccess, _editAccess: _editAccess, _saveAccess: _saveAccess, _delAccess: _delAccess,
     importTakeoff: importTakeoff, createFromBuild: createFromBuild,
+    projectsLoaded: projectsLoaded, retryLoad: retryLoad,
     projectsForBuild: projectsForBuild,
     showHistory: showHistory,
     _quotePDF: _quotePDF, _shipPDF: _shipPDF, _internalPDF: _internalPDF, _invoicesPDF: _invoicesPDF, _contractPDF: _contractPDF,
