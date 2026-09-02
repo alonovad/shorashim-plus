@@ -34,6 +34,167 @@ var Gates = (function () {
     });
   }
 
+  // ══════════════════════════════════════════════════════════════════
+  //  A FIRST-PASS STRUCTURAL CHECK
+  // ══════════════════════════════════════════════════════════════════
+  // The header of this file used to say a gate gets no structural check
+  // because hinge loads on a 6 m leaf are a fabricator's problem. That was
+  // half right: a full check is, but the three numbers below are the ones
+  // that actually decide whether a gate sags, and leaving them out meant a
+  // 6 m leaf could be quoted on 40x40 tube with nothing to say otherwise.
+  //
+  // What this is: the same first-pass arithmetic the shed uses — allowable
+  // stress, one governing action per member, linear combination. What it
+  // is NOT: a design. Fatigue at the hinges, weld detailing, and the soil
+  // under the foundation are all outside it, and a red badge means stop,
+  // not "add 10%".
+  //
+  // Wy in cm3, A in cm2, i in cm — EN 10219 cold-formed hollow sections.
+  var GSECT = {
+    'SHS 40x40x2':   { wy: 3.37, ar: 2.95, iz: 1.54 },
+    'SHS 40x40x3':   { wy: 4.60, ar: 4.25, iz: 1.49 },
+    'RHS 60x40x2':   { wy: 6.15, ar: 3.75, iz: 1.53 },
+    'RHS 60x40x3':   { wy: 8.44, ar: 5.45, iz: 1.49 },
+    'SHS 60x60x3':   { wy: 11.5, ar: 6.65, iz: 2.29 },
+    'SHS 60x60x4':   { wy: 14.2, ar: 8.55, iz: 2.25 },
+    'RHS 80x40x3':   { wy: 12.4, ar: 6.65, iz: 1.52 },
+    'RHS 80x40x4':   { wy: 15.5, ar: 8.55, iz: 1.48 },
+    'SHS 80x80x3':   { wy: 21.0, ar: 9.05, iz: 3.11 },
+    'SHS 80x80x4':   { wy: 27.2, ar: 11.7, iz: 3.00 },
+    'RHS 100x50x3':  { wy: 20.9, ar: 8.55, iz: 2.00 },
+    'RHS 100x50x4':  { wy: 26.6, ar: 11.1, iz: 1.96 },
+    'SHS 100x100x4': { wy: 44.3, ar: 14.9, iz: 3.90 },
+    'SHS 100x100x5': { wy: 53.8, ar: 18.4, iz: 3.85 },
+    'RHS 120x60x4':  { wy: 39.5, ar: 13.4, iz: 2.40 },
+    'SHS 120x120x5': { wy: 80.3, ar: 22.4, iz: 4.66 },
+    'SHS 150x150x5': { wy: 128, ar: 28.4, iz: 5.89 },
+    'SHS 150x150x6': { wy: 152, ar: 33.6, iz: 5.83 }
+  };
+  // A catalogue name is written a dozen ways on site. Match on the digits.
+  function sect(name) {
+    if (GSECT[name]) return GSECT[name];
+    var key = String(name || '').replace(/[^0-9]/g, '');
+    for (var k in GSECT) {
+      if (GSECT.hasOwnProperty(k) && k.replace(/[^0-9]/g, '') === key) return GSECT[k];
+    }
+    return null;
+  }
+
+  var F_ALLOW  = 160;    // MPa, allowable bending stress
+  var WIND     = 0.5;    // kN/m2
+  var MESH_KG  = 6;      // kg/m2 of welded mesh infill
+  var STEEL_KG = 0.785;  // kg/m per cm2 of section
+
+  // Mesh lets most of the wind through; a sheeted leaf does not. The infill
+  // description is the only thing that says which, so read it.
+  function solidity(g) {
+    return /פח|איסכורית|לוח|אטום/.test(String(g.mesh || '')) ? 1.0 : 0.35;
+  }
+
+  function leafWeight(g) {
+    var s = summary(g);
+    var fs = sect(g.frame);
+    var frameLen = 2 * (s.leafW + s.tail + g.height) + g.infillRows * (s.leafW + s.tail);
+    var steel = frameLen * (fs ? fs.ar * STEEL_KG : 4);
+    var mesh = (s.leafW + s.tail) * g.height * MESH_KG;
+    return (steel + mesh) * 0.00981;    // kN
+  }
+
+  // role: 'post' | 'frame' | 'found'
+  function check(g, role) {
+    g = norm(g);
+    var s = summary(g);
+    var util = 0, why = '', M = 0, sc = null, name = '';
+
+    if (role === 'frame') {
+      // The top rail of a leaf spans the leaf and carries half of what the
+      // leaf weighs, plus wind on its tributary strip. It is the member
+      // that shows a sagging gate first.
+      name = g.frame; sc = sect(name);
+      if (!sc) return { known: false, role: role, name: name };
+      var Lm = s.leafW + s.tail;
+      var w = (leafWeight(g) / 2) / Math.max(Lm, 0.1) +
+              WIND * solidity(g) * (g.height / 2);
+      M = w * Lm * Lm / 8;
+      util = (M * 1e6) / (sc.wy * 1e3 * F_ALLOW);
+      why = tt('כפיפה + רוח', 'ดัด + ลม', 'انحناء + رياح');
+
+    } else if (role === 'post') {
+      // A swing post is a cantilever with the leaf hung off one side. The
+      // eccentric weight, not the wind, is usually what bends it — which is
+      // why a post sized on wind alone leans within a season.
+      name = g.post; sc = sect(name);
+      if (!sc) return { known: false, role: role, name: name };
+      var Wl = leafWeight(g);
+      var ecc = (g.type === 'swing1' || g.type === 'swing2') ? (s.leafW + s.tail) / 2 : 0.15;
+      var Fw = WIND * solidity(g) * (s.leafW + s.tail) * g.height;   // kN on the leaf
+      M = Wl * ecc + Fw * (g.height / 2);
+      if (g.motor) M *= 1.15;   // operator thrust and the shock of hitting a stop
+      util = (M * 1e6) / (sc.wy * 1e3 * F_ALLOW);
+      why = tt('כפיפה מתלייה + רוח', 'ดัดจากการแขวน', 'انحناء من التعليق');
+
+    } else if (role === 'found') {
+      // Overturning of an embedded post. The first version of this resisted
+      // the moment with the concrete block's own weight about its toe and
+      // ignored the soil "to be conservative" — which failed a 4 m gate on
+      // a standard 40x40x100 block at 292%, i.e. it failed every gate ever
+      // built here. A check that is always red is not conservative, it is
+      // noise, and it teaches you to ignore the badge.
+      //
+      // The right first-pass model for a pole foundation is passive earth
+      // pressure over the embedment, which is what actually holds a gate
+      // post up. Kp=3 (phi≈30, granular fill) and gamma=18 kN/m3 are
+      // ordinary Arava backfill; the resultant sits at D/3 above the base.
+      var Kp = 3, gamma = 18;
+      name = tt('יסוד', 'ฐาน', 'أساس') + ' ' +
+             n1(g.postSize) + '\u00d7' + n1(g.postSize) + '\u00d7' + n1(g.postDepth);
+      var D = g.postDepth, b = g.postSize;
+      var Wl2 = leafWeight(g);
+      var ecc2 = (g.type === 'swing1' || g.type === 'swing2') ? (s.leafW + s.tail) / 2 : 0.15;
+      var Fw2 = WIND * solidity(g) * (s.leafW + s.tail) * g.height;
+      var Mo = Wl2 * ecc2 + Fw2 * (g.height / 2);          // about ground level
+      var Pp = 0.5 * Kp * gamma * D * D * b;               // kN, passive resultant
+      var Mr = Pp * (2 * D / 3);                           // kNm about ground level
+      M = Mo;
+      util = Mr > 0 ? (Mo / (Mr / 1.5)) : 99;              // 1.5 against overturning
+      why = tt('התהפכות · לחץ קרקע פסיבי', 'พลิกคว่ำ', 'انقلاب · ضغط تربة سلبي');
+      if (!isFinite(util)) return { known: false, role: role, name: name };
+      return { known: true, role: role, name: name, util: util, ok: util <= 1, M: M, why: why };
+    } else {
+      return { known: false, role: role, name: '' };
+    }
+
+    if (!isFinite(util)) return { known: false, role: role, name: name };
+    return { known: true, role: role, name: name, util: util, ok: util <= 1,
+             M: M, why: why, wy: sc.wy };
+  }
+
+  function checks(g) {
+    return ['post', 'frame', 'found'].map(function (r) { return check(g, r); });
+  }
+
+  // Sections that would work, cheapest first by weight. Same idea as the
+  // shed's swap list: a choice between sections that pass, not a dropdown
+  // of everything in stock.
+  function candidates(g, role) {
+    g = norm(g);
+    var out = [];
+    Object.keys(GSECT).forEach(function (nm) {
+      var trial = norm(JSON.parse(JSON.stringify(g)));
+      if (role === 'post') trial.post = nm; else if (role === 'frame') trial.frame = nm; else return;
+      var r = check(trial, role);
+      if (r.known) out.push({ name: nm, util: r.util, ok: r.ok, kg: GSECT[nm].ar * STEEL_KG });
+    });
+    return out.sort(function (a, b) { return a.kg - b.kg; });
+  }
+
+  function roleLabel(role) {
+    if (role === 'post')  return tt('עמוד', 'เสา', 'عمود');
+    if (role === 'frame') return tt('מסגרת כנף', 'กรอบบาน', 'إطار المصراع');
+    if (role === 'found') return tt('יסוד', 'ฐานราก', 'الأساس');
+    return role;
+  }
+
   function typeLabel(v) {
     if (v === 'swing1') return tt('כנף אחת', 'บานเดี่ยว', 'مصراع واحد');
     if (v === 'swing2') return tt('שתי כנפיים', 'บานคู่', 'مصراعان');
@@ -531,6 +692,9 @@ var Gates = (function () {
 
   return { TYPES: TYPES, typeLabel: typeLabel, norm: norm,
            takeoff: takeoff, summary: summary, svg: svg, stages: stages,
+           // first-pass structural check
+           check: check, checks: checks, candidates: candidates,
+           roleLabel: roleLabel, sections: GSECT,
            // part identification on the drawing
            partLabel: partLabel, partsOf: partsOf, bindPicker: bindPicker };
 })();

@@ -143,6 +143,40 @@
     if (d.wallMode !== 'open' && d.wallClad !== 'none') {
       push(d.wallClad, g.wallArea * w, 'מ"ר', BP.tt('כולל פחת', 'รวมเผื่อ', 'شامل الهدر'));
     }
+    // ── stiffening steel ───────────────────────────────────────────
+    // Haunches and wind bracing were drawn, modelled in 3D and checked by
+    // the engineer, and then billed to nobody: neither produced a takeoff
+    // line. On a 12x30 shed that is roughly 120 m of steel missing from
+    // every quote it ever appeared in.
+    //
+    // Both are cut from a section already in the catalogue rather than a
+    // new one. An unknown profile name resolves to kgPerM 0 and price 0,
+    // so inventing 'מוט 16' here would have produced a takeoff line that
+    // silently costs nothing — a worse failure than the one being fixed.
+    if (d.haunch) {
+      // One haunch at each eaves corner: the run along the rafter and the
+      // drop down the column, as drawn in the section.
+      var hRun = Math.min(d.span * 0.10, 1.2);
+      var hRise = Math.min(d.eaves * 0.26, 1.0);
+      var haunchLen = Math.sqrt(hRun * hRun + hRise * hRise);
+      push(d.rafterProfile, g.frames * 2 * haunchLen * w, "מ'",
+        BP.tt('חיזוקי פינה', 'ฮันช์', 'تقويات الأركان') + ' \u00b7 ' +
+        (g.frames * 2) + ' \u00d7 ' + BP.n1(haunchLen) + ' ' + BP.dsp("מ'"));
+    }
+    if (d.bracing) {
+      // One braced bay at each end, or the single bay if that is all there
+      // is: cross bracing in the roof plane and in both side walls.
+      var bays = Math.min(2, Math.max(1, g.bays));
+      var bay = g.actualBay;
+      var roofBrace = bays * 2 * Math.sqrt(bay * bay + d.span * d.span);
+      var wallBrace = (d.wallMode === 'open') ? 0
+        : bays * 2 * 2 * Math.sqrt(bay * bay + d.eaves * d.eaves);
+      var braceLen = roofBrace + wallBrace;
+      push(d.girtProfile, braceLen * w, "מ'",
+        BP.tt('ייצוב רוח — גג וקירות', 'ค้ำยันลม', 'تثبيت الرياح') + ' \u00b7 ' +
+        bays + ' ' + BP.tt('משבצות מיוצבות', 'ช่วงค้ำยัน', 'حقول مثبتة'));
+    }
+
     push('פלטת בסיס', g.frames * 2, "יח'", '');
     push('בורג עיגון', g.frames * 2 * 4, "יח'", BP.tt('4 לעמוד', '4 ต่อเสา', '4 لكل عمود'));
     if (d.gutter && d.roofClad !== 'none') {

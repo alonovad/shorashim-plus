@@ -436,6 +436,60 @@
   // Gate drawings, like the 3D model, answer "what is that member" on
   // hover and on tap. Rebuilt after every paint because innerHTML replaces
   // the host nodes and the old listeners go with them.
+  // The engineer's verdict, in the same shape the shed uses: one row per
+  // member, the governing action, a utilisation bar, and a section that
+  // would work when the current one does not. Red means the member is
+  // overstressed — not "add a bit", but change it.
+  function gateChecks(g, id, i) {
+    if (typeof Gates === 'undefined' || !Gates.checks) return '';
+    var rows = Gates.checks(g), any = false, h = '';
+    rows.forEach(function (r) {
+      if (!r.known) {
+        h += '<div class="bp-read"><span>' + BP.esc(Gates.roleLabel(r.role)) + '</span>' +
+          '<b style="color:var(--text-muted,#888);font-weight:600;">' +
+          BP.tt('פרופיל לא מוכר — לא נבדק', 'ไม่รู้จักหน้าตัด', 'مقطع غير معروف') + '</b></div>';
+        return;
+      }
+      any = any || !r.ok;
+      var pct = Math.round(r.util * 100);
+      var col = r.ok ? (r.util > 0.85 ? '#e0a020' : '#2d8a5f') : '#c0392b';
+      h += '<div style="margin:6px 0;">' +
+        '<div style="display:flex;justify-content:space-between;gap:8px;font-size:.76rem;">' +
+          '<span><b>' + BP.esc(Gates.roleLabel(r.role)) + '</b> ' +
+            '<span style="opacity:.6;">' + BP.esc(r.name) + '</span></span>' +
+          '<span style="color:' + col + ';font-weight:800;white-space:nowrap;">' +
+            (r.ok ? '\u2713 ' : '\u2715 ') + pct + '%</span>' +
+        '</div>' +
+        '<div style="height:5px;border-radius:3px;background:var(--border,#ddd);overflow:hidden;margin-top:3px;">' +
+          '<div style="height:100%;width:' + Math.min(100, pct) + '%;background:' + col + ';"></div></div>' +
+        '<div style="font-size:.68rem;color:var(--text-muted,#888);margin-top:2px;">' +
+          BP.esc(r.why) + ' \u00b7 M = ' + BP.n1(r.M) + ' kNm</div>' +
+      '</div>';
+      // Only offer alternatives for the members you can actually swap.
+      if (!r.ok && (r.role === 'post' || r.role === 'frame')) {
+        var fix = (Gates.candidates(g, r.role) || []).filter(function (c) { return c.ok; })[0];
+        if (fix) {
+          h += '<button class="bp-btn" style="font-size:.7rem;padding:4px 10px;margin-bottom:6px;" ' +
+            'onclick="BuildPlan.setGate(' + id + ',' + i + ',\'' + r.role +
+              '\',\'' + fix.name + '\')">' +
+            '\u2192 ' + BP.tt('החלף ל-', 'เปลี่ยนเป็น', 'استبدل بـ') + ' ' + BP.esc(fix.name) +
+            ' (' + Math.round(fix.util * 100) + '%)</button>';
+        }
+      }
+    });
+    return '<div class="bp-card">' +
+      '<div style="font-size:.72rem;font-weight:800;letter-spacing:.04em;color:' +
+        (any ? '#c0392b' : 'var(--text-muted,#888)') + ';margin-bottom:4px;">' +
+        (any ? '\u26a0 ' : '\ud83d\udcd0 ') +
+        BP.tt('בדיקה הנדסית ראשונית', 'ตรวจสอบเบื้องต้น', 'فحص هندسي أولي') + '</div>' +
+      h +
+      '<div style="font-size:.66rem;color:var(--text-muted,#888);margin-top:6px;line-height:1.5;">' +
+        BP.tt('בדיקת מאמצים מותרים לפעולה אחת דומיננטית לכל רכיב. לא מחליפה תכנון קונסטרוקטור, ואינה כוללת ריתוכים, צירים או בדיקת קרקע.',
+              'การตรวจสอบเบื้องต้น ไม่ใช่การออกแบบ',
+              'فحص أولي فقط، ولا يغني عن تصميم إنشائي.') + '</div>' +
+    '</div>';
+  }
+
   var _gatePick = [];
   function mountGates(p) {
     _gatePick.forEach(function (h) { try { h.destroy(); } catch (e) {} });
@@ -1391,7 +1445,9 @@
             }).join('') +
             (rows.length > 6 ? '<div style="font-size:.74rem;color:var(--text-muted,#888);">+' +
               (rows.length - 6) + ' ' + BP.tt('שורות נוספות', 'รายการเพิ่ม', 'بنود إضافية') + '</div>' : '') +
-          '</div></div>' +
+          '</div>' +
+          gateChecks(g, id, i) +
+        '</div>' +
         '<div class="bp-pane">' +
           '<div class="bp-card">' +
             '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">' +

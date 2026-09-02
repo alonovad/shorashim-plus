@@ -569,6 +569,35 @@
   // sheet is for whoever is building it; a supplier pricing the steel does
   // not need to be told when to pour, and sending it invites questions
   // about scope that have nothing to do with the price.
+  // The same verdict the design screen shows, on the sheet that goes to the
+  // fabricator. A utilisation is only useful next to the drawing it applies
+  // to, and the person welding the gate is the one who needs to see a red
+  // number before the steel is cut.
+  function gateCheckPrint(g) {
+    if (typeof Gates === 'undefined' || !Gates.checks) return '';
+    var rows = Gates.checks(g).filter(function (r) { return r.known; });
+    if (!rows.length) return '';
+    var body = rows.map(function (r) {
+      return '<tr><td>' + BP.esc(Gates.roleLabel(r.role)) + '</td>' +
+        '<td>' + BP.esc(r.name) + '</td>' +
+        '<td>' + BP.esc(r.why) + '</td>' +
+        '<td style="text-align:center;">' + BP.n1(r.M) + '</td>' +
+        '<td style="text-align:center;font-weight:800;color:' +
+          (r.ok ? '#1b7a4b' : '#b3261e') + ';">' +
+          Math.round(r.util * 100) + '% ' + (r.ok ? '\u2713' : '\u2715') + '</td></tr>';
+    }).join('');
+    return '<table class="bp-tbl" style="margin-top:6px;"><thead><tr>' +
+      '<th>' + BP.tt('רכיב', 'ชิ้นส่วน', 'العنصر') + '</th>' +
+      '<th>' + BP.tt('חתך', 'หน้าตัด', 'المقطع') + '</th>' +
+      '<th>' + BP.tt('פעולה קובעת', 'แรงกระทำ', 'الفعل الحاكم') + '</th>' +
+      '<th>M (kNm)</th>' +
+      '<th>' + BP.tt('ניצול', 'การใช้งาน', 'الاستغلال') + '</th>' +
+      '</tr></thead><tbody>' + body + '</tbody></table>' +
+      '<div style="font-size:.72rem;color:#666;margin-top:4px;">' +
+        BP.tt('בדיקה ראשונית במאמצים מותרים — אינה מחליפה תכנון קונסטרוקטור.',
+              'ตรวจสอบเบื้องต้น', 'فحص أولي لا يغني عن التصميم الإنشائي.') + '</div>';
+  }
+
   function printProject(id, opts) {
     opts = opts || {};
     var p = BP.projById(id);
@@ -591,7 +620,8 @@
       (p.gates || []).forEach(function (g, i) {
         extra += '<h2>\ud83d\udea7 ' + BP.esc(g.name || (BP.tt('שער','ประตู','بوابة') + ' ' + (i+1))) +
           ' \u2014 ' + BP.esc(Gates.typeLabel(g.type)) + '</h2>' +
-          '<div class="bp-draw">' + Gates.svg(g, { print: true }) + '</div>';
+          '<div class="bp-draw">' + Gates.svg(g, { print: true }) + '</div>' +
+          gateCheckPrint(g);
       });
     }
     if (typeof LivingUnit !== 'undefined' && p.living && p.living.people) {
