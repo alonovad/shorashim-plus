@@ -1684,7 +1684,9 @@ var BuildPlan = (function () {
       '<button class="bp-btn" onclick="BuildPlan.openProject(' + p.id + ')">\u270f\ufe0f ' +
         tt('ערוך ותכנן', 'แก้ไข', 'تحرير') + '</button>' +
       '<button class="bp-btn ghost" onclick="BuildPlan.printProject(' + p.id + ')">\ud83d\udda8 ' +
-        tt('הדפסה', 'พิมพ์', 'طباعة') + '</button>' +
+        tt('הדפסה מלאה', 'พิมพ์เต็ม', 'طباعة كاملة') + '</button>' +
+      '<button class="bp-btn ghost" onclick="BuildPlan.printQuantities(' + p.id + ')">\ud83e\uddfe ' +
+        tt('כתב כמויות בלבד', 'เฉพาะรายการวัสดุ', 'الكميات فقط') + '</button>' +
       '<button class="bp-btn ghost" onclick="BuildPlan.toOrder(' + p.id + ')">\ud83d\udce6 ' +
         tt('צור הזמנה', 'ใบสั่งซื้อ', 'إنشاء طلب') + '</button>' +
       '<button class="bp-btn warn" onclick="BuildPlan.delProject(' + p.id + ')">\ud83d\uddd1 ' +
@@ -1803,7 +1805,9 @@ var BuildPlan = (function () {
       '<button class="bp-btn" onclick="BuildPlan.saveNow()">\ud83d\udcbe ' +
         tt('שמור', 'บันทึก', 'حفظ') + '</button>' +
       '<button class="bp-btn ghost" onclick="BuildPlan.printProject(' + id + ')">\ud83d\udda8 ' +
-        tt('הדפסה', 'พิมพ์', 'طباعة') + '</button>' +
+        tt('הדפסה מלאה', 'พิมพ์เต็ม', 'طباعة كاملة') + '</button>' +
+      '<button class="bp-btn ghost" onclick="BuildPlan.printQuantities(' + id + ')">\ud83e\uddfe ' +
+        tt('כתב כמויות בלבד', 'เฉพาะรายการวัสดุ', 'الكميات فقط') + '</button>' +
       '<button class="bp-btn ghost" onclick="BuildPlan.toOrder(' + id + ')">\ud83d\udce6 ' +
         tt('צור הזמנה', 'สร้างใบสั่งซื้อ', 'إنشاء طلب') + '</button>' +
       '<button class="bp-btn warn" onclick="BuildPlan.delProject(' + id + ')">\ud83d\uddd1</button>' +
@@ -3399,7 +3403,10 @@ var BuildPlan = (function () {
     var st = [];
     var d = p.dims;
 
-    if (p.type === 'slab' || (p.footprintArea > 0 && p.type !== 'shed')) {
+    // Parenthesised: `A && B || C` would have let the second branch run
+    // with the slab switched off.
+    if (p.hasSlab !== false &&
+        (p.type === 'slab' || (p.footprintArea > 0 && p.type !== 'shed'))) {
       st.push([tt('עבודות עפר ומצע', 'งานดินและฐาน', 'أعمال الحفر والأساس'),
         tt('חישוף, פילוס, מצע מהודק בשכבות 20 ס"מ. בדיקת ניקוז — משטח שאוסף מים ייסדק.',
            'ปรับพื้นและบดอัด', 'تسوية ودك')]);
@@ -3408,7 +3415,11 @@ var BuildPlan = (function () {
            'אשפרה 7 ימים לפחות.', 'เทพื้นและบ่ม', 'الصب والمعالجة')]);
     }
 
-    if (p.type === 'shed' || p.type === 'house') {
+    // Gate on the COMPONENT, not on p.type. p.type only says what shape a
+    // structure would be if there were one — it stays 'shed' on a project
+    // that contains nothing but a gate, which is why a gate document was
+    // printing "erect 5 frames" and "install the panel roof".
+    if (p.hasStruct !== false && (p.type === 'shed' || p.type === 'house')) {
       var g = geom(d), ft = footing(d);
       st.push([tt('סימון ויסודות', 'ทำเครื่องหมายและฐานราก', 'التخطيط والأساسات'),
         tt('סימון ' + g.frames + ' מסגרות במרווח ' + n1(g.actualBay) + ' מ\'. ' +
@@ -3468,11 +3479,35 @@ var BuildPlan = (function () {
   }
 
   // Print colours hardcoded — the sheet opens in a bare tab with no theme.
-  function printProject(id) {
+  // What this document is about, in the project's own terms. Printing
+  // "סככה / מבנה קל · 10 × 20 m, 5 מסגרות" at the top of a gate document
+  // is the header contradicting every page under it.
+  function contentsLabel(p) {
+    var parts = [];
+    if (p.hasStruct !== false && p.type !== 'slab') parts.push(typeLabel(p.type));
+    if (p.type === 'slab' || (p.hasSlab !== false && p.hasStruct === false)) {
+      parts.push(tt('משטח בטון', 'พื้นคอนกรีต', 'سطح خرساني'));
+    }
+    if ((p.gates || []).length) {
+      parts.push((p.gates.length > 1 ? p.gates.length + ' ' : '') +
+        tt('שערים', 'ประตู', 'بوابات'));
+    }
+    if (p.living && p.living.people) {
+      parts.push(tt('מתחם מגורים', 'ที่พัก', 'مجمع سكني') + ' ' + p.living.people);
+    }
+    return parts.length ? parts.join(' + ') : typeLabel(p.type);
+  }
+
+  // opts.stages === false prints the quantities alone. The work-stages
+  // sheet is for whoever is building it; a supplier pricing the steel does
+  // not need to be told when to pour, and sending it invites questions
+  // about scope that have nothing to do with the price.
+  function printProject(id, opts) {
+    opts = opts || {};
     var p = projById(id);
     if (!p) return;
     var rows = takeoff(p), tot = takeoffTotals(rows);
-    var g = p.type === 'slab' ? null : geom(p.dims);
+    var g = (p.type === 'slab' || p.hasStruct === false) ? null : geom(p.dims);
     var body = '';
     rows.forEach(function (r, i) {
       var pr = profByName(r.name);
@@ -3498,7 +3533,9 @@ var BuildPlan = (function () {
         '<div class="bp-draw">' + LivingUnit.svg(p.living, { print: true }) + '</div>';
     }
 
-    var drawing = svg(p)
+    // Only draw the structure if there is one. A gate-only project was
+    // leading its document with a 20x10 shed elevation and plan.
+    var drawing = (p.hasStruct === false && p.type !== 'slab') ? '' : svg(p)
       .replace(/var\(--primary,#2d6a4f\)/g, '#2d6a4f')
       .replace(/var\(--accent,#ff9f43\)/g, '#e07b00')
       .replace(/var\(--water,#4fc3f7\)/g, '#1565c0')
@@ -3516,7 +3553,7 @@ var BuildPlan = (function () {
       'th{background:#eef3ee;font-weight:800;}tfoot td{font-weight:800;background:#f7f9f7;}' +
       '</style></head><body>' +
       '<h1>' + esc(p.name || typeLabel(p.type)) + '</h1>' +
-      '<div class="meta">' + typeLabel(p.type) +
+      '<div class="meta">' + contentsLabel(p) +
         (p.client ? ' \u00b7 ' + esc(p.client) : '') +
         (g ? '<br>' + n1(p.dims.span) + ' \u00d7 ' + n1(p.dims.length) + ' m, ' +
              tt('גובה', 'สูง', 'ارتفاع') + ' ' + n1(p.dims.eaves) + ' m, ' +
@@ -3536,11 +3573,12 @@ var BuildPlan = (function () {
         tt('משקל פלדה', 'น้ำหนักเหล็ก', 'وزن الحديد') + '</td><td>' + n1(tot.kg) + ' kg</td>' +
         '<td>' + tt('סה"כ', 'รวม', 'مجموع') + '</td><td colspan="2">' + money(tot.cost) +
         '</td></tr></tfoot></table>' +
-      workStages(p) +
+      (opts.stages === false ? '' : workStages(p)) +
       '<p style="margin-top:20px;font-size:.8rem;">\u05e9\u05d5\u05e8\u05e9\u05d9\u05dd \u05e4\u05dc\u05d5\u05e1 \u05d1\u05e2"\u05de / ROOTS PLUS LTD</p>' +
       '</body></html>';
     if (window.Util && typeof window.Util.exportReport === 'function') {
-      window.Util.exportReport(html, (p.name || 'project').replace(/\s+/g, '_') + '.html');
+      window.Util.exportReport(html, (p.name || 'project').replace(/\s+/g, '_') +
+        (opts.stages === false ? '_' + tt('כתב_כמויות', 'รายการวัสดุ', 'الكميات') : '') + '.html');
     }
   }
 
@@ -3626,6 +3664,7 @@ var BuildPlan = (function () {
     zoomTo: zoomTo,
     useFootprint: useFootprint,
     printProject: printProject,
+    printQuantities: function (id) { printProject(id, { stages: false }); },
     toOrder: toOrder,
     saveNow: saveNow,
     takeoff: takeoff,
