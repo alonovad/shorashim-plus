@@ -425,11 +425,49 @@
     BP.paint(BP.shell((p.type === 'slab' ? '\ud83e\uddf1 ' : '\ud83c\udfd7 ') +
       BP.esc(p.name || BP.typeLabel(p.type)), bar, body));
     if (BP._tab === 'site') BP.linkPanel(p);
+    if (BP._tab === 'gates') mountGates(p);
     if (BP._tab === 'sketch') mountSketch(p);
     if (BP._tab === 'design') {
       if (p.type !== 'slab') mount3d(p);
       BP.refreshReadouts(p);
     }
+  };
+
+  // Gate drawings, like the 3D model, answer "what is that member" on
+  // hover and on tap. Rebuilt after every paint because innerHTML replaces
+  // the host nodes and the old listeners go with them.
+  var _gatePick = [];
+  function mountGates(p) {
+    _gatePick.forEach(function (h) { try { h.destroy(); } catch (e) {} });
+    _gatePick = [];
+    if (typeof Gates === 'undefined') return;
+    (p.gates || []).forEach(function (g, i) {
+      var host = document.getElementById('gDraw' + i);
+      var out = document.getElementById('gSel' + i);
+      if (!host) return;
+      var h = Gates.bindPicker(host, g, out);
+      if (h) _gatePick.push(h);
+
+      // A legend for the same reason the shed has one: on a phone,
+      // hunting for a 2 mm diagonal with a fingertip is not discovery.
+      var leg = document.getElementById('gLeg' + i);
+      if (!leg) return;
+      leg.innerHTML = Gates.partsOf(g).map(function (role) {
+        var lab = Gates.partLabel(g, role);
+        if (!lab) return '';
+        return '<button onclick="BuildPlan.pickGatePart(' + i + ',\'' + role + '\')" ' +
+          'style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:9px;' +
+          'border:1px solid var(--border,#ccc);background:var(--surface,#fff);color:var(--text,#222);' +
+          'font-family:inherit;font-size:.68rem;font-weight:700;cursor:pointer;">' +
+          lab.icon + ' ' + BP.esc(lab.name) + '</button>';
+      }).join('');
+    });
+  }
+
+  // Selecting from the legend is the same gesture as tapping the member.
+  BP.pickGatePart = function pickGatePart(i, role) {
+    var h = _gatePick[i];
+    if (h) h.select(role);
   };
 
   BP.applyModel = function applyModel(id, key) {
@@ -1335,7 +1373,17 @@
           BP.esc(Gates.typeLabel(t)) + '</option>';
       }).join('');
       h += '<div class="bp-split" style="margin-bottom:14px;">' +
-        '<div class="bp-stick"><div class="bp-card">' + Gates.svg(g) + '</div>' +
+        '<div class="bp-stick"><div class="bp-card">' +
+          '<div id="gDraw' + i + '">' + Gates.svg(g) + '</div>' +
+          // The answer lands here rather than as a label on the drawing:
+          // a gate is 640x340 of mostly thin lines and a floating tag over
+          // it covers the very member it is describing.
+          '<div style="display:flex;align-items:center;gap:6px;min-height:20px;margin-top:6px;' +
+            'font-size:.76rem;font-weight:700;">' +
+            '<span style="opacity:.55;font-weight:600;">\ud83d\udc46</span>' +
+            '<span id="gSel' + i + '" style="flex:1;"></span></div>' +
+          '<div id="gLeg' + i + '" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;"></div>' +
+        '</div>' +
           '<div class="bp-card">' +
             rows.slice(0, 6).map(function (r) {
               return '<div class="bp-read"><span>' + BP.esc(BP.dsp(r.name)) + '</span><b>' +

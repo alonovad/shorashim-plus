@@ -22,13 +22,119 @@
   // A scaled section + plan, rebuilt on every input change. Colours come
   // from theme variables so it reads on the dark theme; stroke widths are
   // fixed px because they are line weights, not scene dimensions.
+  // ── CAD annotation primitives ─────────────────────────────────────
+  // A structural drawing names its members on the drawing. Everything the
+  // fabricator needs is one glance away instead of one cross-reference to
+  // a table on another page, and the quote stops being a picture of a shed
+  // and becomes a description of the one being priced.
+  //
+  // Anatomy, which is a convention and not a preference: an arrowhead on
+  // the member, a slanted leader to a bend, a horizontal shelf, and the
+  // text sitting on the shelf. Text never touches the geometry it labels.
+  var ANN = {
+    line:  'var(--text,#222)',
+    thin:  'var(--text-muted,#888)',
+    txt:   'var(--text,#222)',
+    size:  11.5
+  };
+
+  function arrowHead(tx, ty, fromX, fromY, col) {
+    var dx = tx - fromX, dy = ty - fromY;
+    var len = Math.sqrt(dx * dx + dy * dy) || 1;
+    var ux = dx / len, uy = dy / len;          // unit vector, shelf -> member
+    var px = -uy, py = ux;                     // perpendicular
+    var L = 9, Wd = 3.1;                       // head length and half-width
+    var bx = tx - ux * L, by = ty - uy * L;
+    return '<path d="M' + tx + ',' + ty +
+      ' L' + (bx + px * Wd) + ',' + (by + py * Wd) +
+      ' L' + (bx - px * Wd) + ',' + (by - py * Wd) + ' Z" fill="' + col + '"/>';
+  }
+
+  // tx,ty  the point on the member being named
+  // bx,by  where the leader bends into its horizontal shelf
+  // dir    'l' or 'r' — which way the shelf runs from the bend
+  // lines  one or more strings, stacked bottom-up above the shelf
+  function leader(tx, ty, bx, by, dir, lines, col) {
+    col = col || ANN.line;
+    lines = [].concat(lines).filter(Boolean);
+    if (!lines.length) return '';
+    // The shelf is as long as the widest line it has to carry. 0.55em per
+    // character is a deliberate over-estimate: a shelf slightly too long
+    // reads as a drawing convention, one too short reads as a mistake.
+    var wide = 0;
+    lines.forEach(function (t) { wide = Math.max(wide, String(t).length); });
+    var shelf = Math.max(38, wide * ANN.size * 0.55);
+    var ex = (dir === 'l') ? bx - shelf : bx + shelf;
+    var anchor = (dir === 'l') ? 'start' : 'end';
+    var out =
+      '<line x1="' + bx + '" y1="' + by + '" x2="' + tx + '" y2="' + ty +
+        '" stroke="' + col + '" stroke-width="1"/>' +
+      '<line x1="' + bx + '" y1="' + by + '" x2="' + ex + '" y2="' + by +
+        '" stroke="' + col + '" stroke-width="1"/>' +
+      arrowHead(tx, ty, bx, by, col);
+    // Stacked upward so the last line always sits directly on the shelf,
+    // which is what the eye follows back to the arrow.
+    for (var i = 0; i < lines.length; i++) {
+      var up = (lines.length - 1 - i) * (ANN.size + 2.5) + 4;
+      out += '<text x="' + ex + '" y="' + (by - up) + '" fill="' + ANN.txt +
+        '" font-size="' + ANN.size + '" font-weight="600" text-anchor="' + anchor +
+        '" font-family="ui-monospace,Menlo,Consolas,monospace">' + BP.esc(lines[i]) + '</text>';
+    }
+    return out;
+  }
+
+  // A dimension chain: one run of ticks with each segment labelled along
+  // it, and the overall figure outboard of them. Vertical only — that is
+  // the one that needs rotated text and therefore the one worth a helper.
+  function dimChainV(x, y0v, stops, labels, overall) {
+    var out = '', col = ANN.thin;
+    out += '<line x1="' + x + '" y1="' + y0v + '" x2="' + x + '" y2="' +
+      stops[stops.length - 1] + '" stroke="' + col + '" stroke-width="1"/>';
+    var all = [y0v].concat(stops);
+    all.forEach(function (yy) {
+      out += '<line x1="' + (x - 4) + '" y1="' + (yy + 4) + '" x2="' + (x + 4) + '" y2="' + (yy - 4) +
+        '" stroke="' + col + '" stroke-width="1"/>';
+    });
+    for (var i = 0; i < labels.length; i++) {
+      var mid = (all[i] + all[i + 1]) / 2;
+      out += '<text x="' + (x - 6) + '" y="' + mid + '" fill="' + ANN.txt +
+        '" font-size="11" font-weight="600" text-anchor="middle"' +
+        ' transform="rotate(-90 ' + (x - 6) + ' ' + mid + ')"' +
+        ' font-family="ui-monospace,Menlo,Consolas,monospace">' + BP.esc(labels[i]) + '</text>';
+    }
+    if (overall) {
+      var ox = x + 30;
+      out += '<line x1="' + ox + '" y1="' + all[0] + '" x2="' + ox + '" y2="' + all[all.length - 1] +
+        '" stroke="' + col + '" stroke-width="1"/>';
+      [all[0], all[all.length - 1]].forEach(function (yy) {
+        out += '<line x1="' + (ox - 4) + '" y1="' + (yy + 4) + '" x2="' + (ox + 4) + '" y2="' + (yy - 4) +
+          '" stroke="' + col + '" stroke-width="1"/>';
+      });
+      var om = (all[0] + all[all.length - 1]) / 2;
+      out += '<text x="' + (ox - 6) + '" y="' + om + '" fill="' + ANN.txt +
+        '" font-size="11" font-weight="700" text-anchor="middle"' +
+        ' transform="rotate(-90 ' + (ox - 6) + ' ' + om + ')"' +
+        ' font-family="ui-monospace,Menlo,Consolas,monospace">' + BP.esc(overall) + '</text>';
+    }
+    return out;
+  }
+
+  // Heights are called out in centimetres, the way they are on every
+  // fabrication drawing here — 360, not 3.6 m.
+  function cm(m) { return String(Math.round((Number(m) || 0) * 100)); }
+
   BP.svg = function svg(p) {
     var d = p.dims;
     if (p.type === 'slab') return slabSvg(p);
     var g = BP.geom(d);
 
-    var W = 620, H = 300, pad = 46;
-    var sx = (W - pad * 2) / d.span;
+    // Callouts live in the margin, so the margin has to exist. The frame
+    // itself is drawn at the same scale either way — the canvas grows
+    // around it rather than the structure shrinking inside it.
+    var CAL = d.callouts !== false;
+    var W = CAL ? 880 : 620, H = CAL ? 340 : 300, pad = 46;
+    var mx = CAL ? 178 : pad;          // side margin for leaders
+    var sx = (W - mx * 2) / d.span;
     var sy = (H - pad * 2 - 26) / Math.max(g.ridgeH, 1);
     var s = Math.min(sx, sy);
     var x0 = (W - d.span * s) / 2;
@@ -58,6 +164,23 @@
       '" stroke="var(--primary,#2d6a4f)" stroke-width="5"/>');
     parts.push('<line x1="' + eR.x + '" y1="' + eR.y + '" x2="' + eR.x + '" y2="' + y0 +
       '" stroke="var(--primary,#2d6a4f)" stroke-width="5"/>');
+    // haunch diagonal at each eaves corner. It was named in the callouts
+    // but never drawn, so the leader pointed at bare air — worse than no
+    // callout, because it says the drawing is wrong rather than terse.
+    var hRun = 0, hRise = 0;
+    if (d.haunch) {
+      hRun = Math.min(d.span * 0.10, 1.2) * s;     // along the rafter
+      hRise = Math.min(d.eaves * 0.26, 1.0) * s;   // down the column
+      var slopeL = { x: (apex.x - eL.x), y: (apex.y - eL.y) };
+      var lenL = Math.sqrt(slopeL.x * slopeL.x + slopeL.y * slopeL.y) || 1;
+      parts.push('<line x1="' + eL.x + '" y1="' + (eL.y + hRise) +
+        '" x2="' + (eL.x + slopeL.x / lenL * hRun) + '" y2="' + (eL.y + slopeL.y / lenL * hRun) +
+        '" stroke="var(--water,#4fc3f7)" stroke-width="2.5"/>');
+      parts.push('<line x1="' + eR.x + '" y1="' + (eR.y + hRise) +
+        '" x2="' + (eR.x - slopeL.x / lenL * hRun) + '" y2="' + (eR.y + slopeL.y / lenL * hRun) +
+        '" stroke="var(--water,#4fc3f7)" stroke-width="2.5"/>');
+    }
+
     // purlin dots along each slope
     for (var i = 1; i < g.purlinRuns - 1; i++) {
       var f = i / (g.purlinRuns - 1);
@@ -85,10 +208,55 @@
         label + '</text>';
     }
     parts.push(dim(x0, y0 + 22, X(d.span), y0 + 22, BP.n1(d.span) + ' m', 14));
-    parts.push(dim(x0 - 22, y0, x0 - 22, Y(d.eaves), BP.n1(d.eaves) + ' m', 0));
+    if (!CAL) parts.push(dim(x0 - 22, y0, x0 - 22, Y(d.eaves), BP.n1(d.eaves) + ' m', 0));
+
+    // ── named members ──────────────────────────────────────────────
+    // Each leader points at the member it names, from the margin, so the
+    // section reads the way a fabrication drawing reads.
+    if (CAL) {
+      // purlins: a run on the left slope, called out with its spacing the
+      // way a purlin schedule is written — section @ centres in cm.
+      var pf = 0.45;
+      var purlX = eL.x + (apex.x - eL.x) * pf, purlY = eL.y + (apex.y - eL.y) * pf;
+      parts.push(leader(purlX, purlY, x0 - 34, Y(g.ridgeH) - 6, 'l',
+        [BP.dsp(d.purlinProfile) + ' @ ' + cm(d.purlinSp)]));
+
+      // rafter: mid-slope on the right
+      var rafX = eR.x + (apex.x - eR.x) * 0.5, rafY = eR.y + (apex.y - eR.y) * 0.5;
+      parts.push(leader(rafX, rafY, X(d.span) + 34, Y(g.ridgeH) - 6, 'r',
+        [BP.tt('קורת גג', 'คาน', 'رافدة'), BP.dsp(d.rafterProfile) +
+          (d.rafterType === 'truss' ? ' \u00b7 ' + BP.tt('סבכה', 'โครงถัก', 'جملون') : '')]));
+
+      // haunch, when there is one — the member most often left unnamed and
+      // most often the reason a corner does not fit on site. The leader
+      // lands on the diagonal drawn above, at its midpoint.
+      if (d.haunch) {
+        parts.push(leader(eR.x - hRun * 0.42, eR.y + hRise * 0.46,
+          X(d.span) + 34, Y(d.eaves * 0.60), 'r',
+          [BP.tt('חיזוק פינה', 'ฮันช์', 'تقوية الركن'), BP.dsp(d.rafterProfile)]));
+      }
+
+      // Column and girts both go left, rafter and haunch right. Five
+      // leaders down one margin overlap each other; split across the two
+      // and each has room for its shelf.
+      parts.push(leader(eL.x, Y(d.eaves * 0.48), x0 - 34, Y(d.eaves * 0.74), 'l',
+        [BP.tt('עמוד', 'เสา', 'عمود'), BP.dsp(d.colProfile)]));
+
+      if (d.wallMode !== 'open' && g.girtRows > 0) {
+        parts.push(leader(eL.x + 10, Y(d.eaves / (g.girtRows + 1)), x0 - 34, Y(d.eaves * 0.20), 'l',
+          [BP.tt('מסילות קיר', 'แปผนัง', 'مرايش الجدار'),
+           BP.dsp(d.girtProfile) + ' @ ' + cm(d.girtSp)]));
+      }
+
+      // height chain: eaves, then the rise to the ridge, then the overall
+      var cx = X(d.span) + 118;
+      parts.push(dimChainV(cx, y0, [Y(d.eaves), Y(g.ridgeH)],
+        [cm(d.eaves), cm(g.ridgeH - d.eaves)], cm(g.ridgeH)));
+    }
     parts.push('<text x="' + apex.x + '" y="' + (apex.y - 12) + '" fill="var(--text,#ddd)" ' +
-      'font-size="12" font-weight="700" text-anchor="middle">' + BP.n1(g.ridgeH) + ' m \u00b7 ' +
-      BP.n1(d.pitch) + '\u00b0</text>');
+      'font-size="12" font-weight="700" text-anchor="middle">' +
+      (CAL ? BP.n1(d.pitch) + '\u00b0' : BP.n1(g.ridgeH) + ' m \u00b7 ' + BP.n1(d.pitch) + '\u00b0') +
+      '</text>');
 
     var section = '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto;">' +
       parts.join('') + '</svg>';

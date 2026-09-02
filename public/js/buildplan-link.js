@@ -701,6 +701,7 @@
     _commit: _commit,
     toggleLayer: BP.toggleLayer,
     pickMember: BP.pickMember,
+    pickGatePart: BP.pickGatePart,
     addGate: BP.addGate, delGate: BP.delGate, setGate: BP.setGate,
     addLiving: BP.addLiving, delLiving: BP.delLiving, setLiving: BP.setLiving,
     skTool: BP.skTool, skOrtho: BP.skOrtho, skUndo: BP.skUndo, skRedo: BP.skRedo,
