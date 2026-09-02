@@ -47,6 +47,10 @@ var BuildPlan = (function () {
   var P = { projects: [] };
   var C = { profiles: [] };
   var _lastP = '', _lastC = '';
+  // Timestamp of our own last write. Any listener callback within the
+  // window below is our echo, whatever the serialisation looks like.
+  var _selfWriteAt = 0;
+  var SELF_WRITE_MS = 2500;
   var _listening = false;
   var _open = null;          // project id being edited
   var _tab = 'design';       // design | materials | site
@@ -76,6 +80,7 @@ var BuildPlan = (function () {
     'RHS 120x60x4':   { wy: 39.5, ar: 13.4, iz: 2.40 },
     'SHS 80x80x4':    { wy: 27.2, ar: 11.7, iz: 3.00 },
     'SHS 100x100x4':  { wy: 44.3, ar: 14.9, iz: 3.90 },
+    'RHS 100x100x4':  { wy: 44.3, ar: 14.9, iz: 3.90 },
     'Z 150x2.0': { wy: 17.6, ar: 5.86, iz: 1.60 },
     'Z 200x2.0': { wy: 29.5, ar: 7.39, iz: 1.70 },
     'C 150x2.0': { wy: 15.4, ar: 5.61, iz: 1.50 },
@@ -593,12 +598,14 @@ var BuildPlan = (function () {
     _listening = true;
     DB.listen(PROJ_KEY, function (d) {
       if (JSON.stringify(d) === _lastP) return;
+      if (Date.now() - _selfWriteAt < SELF_WRITE_MS) return;   // our own echo
       P = { projects: (d && Array.isArray(d.projects)) ? d.projects.map(normProject) : [] };
       drawFootprints();
       if (isOpen()) repaint();
     });
     DB.listen(CAT_KEY, function (d) {
       if (JSON.stringify(d) === _lastC) return;
+      if (Date.now() - _selfWriteAt < SELF_WRITE_MS) return;   // our own echo
       C = normCat(d);
       if (isOpen()) repaint();
     });
@@ -608,6 +615,7 @@ var BuildPlan = (function () {
     if (!isManager()) { toast('\u26d4 ' + tt('אין הרשאה', 'ไม่มีสิทธิ์', 'لا صلاحية')); return; }
     var clean = JSON.parse(JSON.stringify(P));
     _lastP = JSON.stringify(clean);
+    _selfWriteAt = Date.now();
     DB.save(PROJ_KEY, clean);
     drawFootprints();
   }
@@ -615,6 +623,7 @@ var BuildPlan = (function () {
     if (!isManager()) { toast('\u26d4 ' + tt('אין הרשאה', 'ไม่มีสิทธิ์', 'لا صلاحية')); return; }
     var clean = JSON.parse(JSON.stringify(C));
     _lastC = JSON.stringify(clean);
+    _selfWriteAt = Date.now();
     DB.save(CAT_KEY, clean);
   }
 
@@ -1123,8 +1132,13 @@ var BuildPlan = (function () {
       '<div style="position:fixed;top:0;inset-inline:0;z-index:10060;padding:10px 12px;' +
         'background:rgba(8,18,12,.96);color:#fff;display:flex;gap:8px;align-items:center;' +
         'justify-content:center;flex-wrap:wrap;font-weight:700;font-size:.86rem;">' +
-        '<span>\u25ad ' + tt('גרור על המפה ליצירת מלבן', 'ลากเพื่อสร้างสี่เหลี่ยม',
-          'اسحب لإنشاء مستطيل') + '</span>' +
+        // The map is yours to move until you say otherwise.
+        '<button onclick="BuildPlan.geArm()" id="geArmBtn" style="padding:6px 12px;border-radius:8px;' +
+          'border:none;background:rgba(255,255,255,.14);color:#fff;font-family:inherit;font-weight:800;">' +
+          '\u25ad ' + tt('צייר מלבן', 'วาดสี่เหลี่ยม', 'ارسم مستطيلاً') + '</button>' +
+        '<span id="geHint" style="opacity:.85;">' +
+          tt('גרור להזזת המפה \u00b7 לחץ "צייר מלבן" כשתגיע למקום',
+             'ลากเพื่อเลื่อนแผนที่', 'اسحب لتحريك الخريطة') + '</span>' +
         '<span id="geArea" style="background:rgba(255,209,102,.16);border:1px solid rgba(255,209,102,.4);' +
           'padding:3px 9px;border-radius:9px;color:#ffd166;">\u2014</span>' +
         '<span style="display:inline-flex;gap:5px;align-items:center;background:rgba(255,255,255,.08);' +
@@ -1158,7 +1172,24 @@ var BuildPlan = (function () {
     GeoEdit.setDims(isFinite(w) ? w : null, isFinite(h) ? h : null, isFinite(r) ? r : null);
   }
   function geRot(d) { if (typeof GeoEdit !== 'undefined') GeoEdit.nudgeRot(d); }
-  function geRedraw() { if (typeof GeoEdit !== 'undefined') GeoEdit.setMode('draw'); }
+  function geRedraw() { geArm(); }
+
+  // Arm drawing. Until this is pressed the map pans normally, which is the
+  // only way to reach the spot you actually want to draw on.
+  function geArm() {
+    if (typeof GeoEdit === 'undefined') return;
+    var on = !GeoEdit.isArmed();
+    GeoEdit.arm(on);
+    var b = document.getElementById('geArmBtn');
+    var h = document.getElementById('geHint');
+    if (b) b.style.background = on ? '#2d6a4f' : 'rgba(255,255,255,.14)';
+    if (h) {
+      h.textContent = on
+        ? tt('גרור על המפה ליצירת המלבן', 'ลากเพื่อสร้าง', 'اسحب لإنشاء المستطيل')
+        : tt('גרור להזזת המפה \u00b7 לחץ "צייר מלבן" כשתגיע למקום',
+             'ลากเพื่อเลื่อนแผนที่', 'اسحب لتحريك الخريطة');
+    }
+  }
 
   function geCancel() {
     if (typeof GeoEdit !== 'undefined') GeoEdit.stop();
@@ -1204,7 +1235,7 @@ var BuildPlan = (function () {
       return;
     }
     if (window.MapAccess && MapAccess.goToMap) MapAccess.goToMap(); else close();
-    _draw = { id: id, pts: [], markers: [], labels: [], line: null, area: 0, per: 0 };
+    _draw = { id: id, pts: [], markers: [], labels: [], line: null, area: 0, per: 0, armed: false };
     m.on('click', onDrawClick);
     m.on('mousemove', onDrawMove);
     banner(true);
@@ -1272,7 +1303,7 @@ var BuildPlan = (function () {
   }
 
   function onDrawMove(e) {
-    if (!_draw) return;
+    if (!_draw || !_draw.armed) return;
     // Highlight the first vertex when the cursor is near it, so the user can
     // see the polygon is about to close before committing the click.
     var near = nearFirst(e.latlng);
@@ -1368,6 +1399,10 @@ var BuildPlan = (function () {
 
   function onDrawClick(e) {
     if (!_draw) return;
+    // Same rule as the rectangle tool: the map stays navigable until the
+    // user arms point placement. Otherwise the first click anywhere —
+    // including one meant only to bring the area into view — is a corner.
+    if (!_draw.armed) return;
     if (nearFirst(e.latlng)) { finishFootprint(); return; }
     var m = map();
     _draw.pts.push(e.latlng);
@@ -1380,9 +1415,17 @@ var BuildPlan = (function () {
     if (!el || !_draw) return;
     var n = _draw.pts.length, ar = _draw.area || 0, pe = _draw.per || 0;
     el.innerHTML =
-      '<span>' + (_draw.snap
-        ? '\ud83d\udfe2 ' + tt('לחץ לסגירת המצולע', 'แตะเพื่อปิดรูป', 'انقر لإغلاق الشكل')
-        : '\u2b20 ' + tt('לחץ על המפה', 'แตะแผนที่', 'انقر على الخريطة')) + ' (' + n + ')</span>' +
+      '<button onclick="BuildPlan.ptArm()" style="padding:5px 11px;border-radius:8px;border:none;' +
+        'margin-inline-end:8px;font-family:inherit;font-weight:800;color:#fff;background:' +
+        (_draw.armed ? '#2d6a4f' : 'rgba(255,255,255,.16)') + ';">\u2b20 ' +
+        (_draw.armed ? tt('מסמן\u2026', 'กำลังวาด', 'يرسم\u2026')
+                     : tt('התחל סימון', 'เริ่มวาด', 'ابدأ الرسم')) + '</button>' +
+      '<span>' + (!_draw.armed
+        ? tt('גרור להזזת המפה', 'ลากเพื่อเลื่อนแผนที่', 'اسحب لتحريك الخريطة')
+        : (_draw.snap
+          ? '\ud83d\udfe2 ' + tt('לחץ לסגירת המצולע', 'แตะเพื่อปิดรูป', 'انقر لإغلاق الشكل')
+          : '\u2b20 ' + tt('לחץ להוספת נקודה', 'แตะเพื่อเพิ่มจุด', 'انقر لإضافة نقطة'))) +
+        ' (' + n + ')</span>' +
       (ar > 0
         ? '<span style="margin-inline-start:8px;background:rgba(255,209,102,.16);' +
           'border:1px solid rgba(255,209,102,.4);padding:3px 9px;border-radius:9px;color:#ffd166;">' +
@@ -1445,6 +1488,12 @@ var BuildPlan = (function () {
           'background:rgba(255,71,87,.25);color:#fff;font-family:inherit;font-weight:700;">\u2715</button>' +
       '</div>';
     bannerReadout();
+  }
+
+  function ptArm() {
+    if (!_draw) return;
+    _draw.armed = !_draw.armed;
+    banner(true);
   }
 
   function undoPoint() {
@@ -1542,7 +1591,13 @@ var BuildPlan = (function () {
       }
     }
   }
+  // Which view is on screen. Without this, saving a price fired the
+  // Firestore listener, repaint() found no open project, and dropped the
+  // user back to the project list mid-edit — every single keystroke.
+  var _view = 'list';
+
   function repaint() {
+    if (_view === 'catalog') { openCatalog(); return; }
     if (_open && projById(_open)) open(_open); else render();
   }
 
@@ -1618,6 +1673,7 @@ var BuildPlan = (function () {
   }
 
   function render() {
+    _view = 'list';
     _open = null;
     _v3d = null;
     var bar =
@@ -1816,6 +1872,7 @@ var BuildPlan = (function () {
     // another that is a tenth the size would frame empty sky.
     if (_v3d && _v3dFor === id) { try { _v3dState = _v3d.getState(); } catch (e) {} }
     else if (_v3dFor !== id) { _v3dState = null; }
+    _view = 'project';
     _open = id;
     var d = p.dims;
     var rows = takeoff(p), tot = takeoffTotals(rows);
@@ -3255,6 +3312,11 @@ var BuildPlan = (function () {
     if (vEl) vEl.textContent = v;
     if (_v3d) _v3d.nudge(model3d(p));
     refreshReadouts(p);
+    // The legend carries quantities straight off the takeoff, so leaving it
+    // out of the live update let the model and the legend disagree while a
+    // slider was moving — the 3D showing one pitch and the item list the
+    // previous one, in the same view.
+    legendPanel(p);
     // Persist on a trailing timer, independent of the `change` event.
     if (_liveSave) clearTimeout(_liveSave);
     _liveSave = setTimeout(function () { saveP(); }, 700);
@@ -3368,6 +3430,7 @@ var BuildPlan = (function () {
 
   // ── catalogue ──
   function openCatalog() {
+    _view = 'catalog';
     var groups = {};
     (C.profiles || []).forEach(function (p) { (groups[p.group] = groups[p.group] || []).push(p); });
     var body = '';
@@ -3398,6 +3461,9 @@ var BuildPlan = (function () {
     paint(shell('\ud83d\udcd0 ' + tt('קטלוג פרופילים', 'แคตตาล็อกโปรไฟล์', 'كتالوج المقاطع'),
       bar, priceHeader() + body));
   }
+  // Mutate only. Repainting here would replace the input being typed into;
+  // the explicit שמור button writes, and the listener guard below stops our
+  // own write bouncing back as a repaint.
   function _prof(pid, k, v) {
     (C.profiles || []).forEach(function (x) {
       if (x.id === pid) x[k] = (k === 'kgPerM' || k === 'price') ? (Number(v) || 0) : v;
@@ -3767,11 +3833,13 @@ var BuildPlan = (function () {
     geApply: geApply,
     geRot: geRot,
     geRedraw: geRedraw,
+    geArm: geArm,
     geSave: geSave,
     geCancel: geCancel,
     finishFootprint: finishFootprint,
     cancelFootprint: cancelFootprint,
     undoPoint: undoPoint,
+    ptArm: ptArm,
     addSegment: addSegment,
     exactRect: exactRect,
     zoomTo: zoomTo,
