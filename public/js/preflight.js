@@ -96,12 +96,18 @@ files.forEach(f => {
 // An onclick naming a function that is not in the return block is a dead
 // button — no error until a user presses it.
 head('3. Exported handlers cover every reference');
-const NS = { 'orders.js':'Orders', 'agriplan.js':'AgriPlan', 'buildplan.js':'BuildPlan',
+const NS = { 'orders.js':'Orders', 'agriplan.js':'AgriPlan',
+             'buildplan-link.js':'BuildPlan',
              'shed3d.js':'Shed3D', 'stickyactions.js':'StickyActions' };
 const exportsOf = {};
 Object.keys(NS).forEach(f => {
   if (!src[f]) return;
-  const i = src[f].lastIndexOf('return {');
+  // buildplan-link.js publishes its API as `var API = {` rather than a
+  // `return {` block, because the module is now six files sharing one
+  // namespace instead of one IIFE. Accept either shape.
+  let i = src[f].lastIndexOf('var API = {');
+  if (i >= 0) i += 'var API = '.length - 'return '.length;
+  else i = src[f].lastIndexOf('return {');
   let block = '';
   if (i >= 0) {
     let d = 0;
@@ -136,13 +142,16 @@ orphans.length
   : ok('every js file is loaded');
 // dependency order
 const order = (a, b) => tags.indexOf(a) < tags.indexOf(b);
-[['orders.js','agriplan.js'], ['shed3d.js','buildplan.js'], ['orders.js','buildplan.js']]
+[['orders.js','agriplan.js'],
+ ['shed3d.js','buildplan-core.js'], ['orders.js','buildplan-core.js'],
+ // the six buildplan files share one namespace and MUST keep this order
+ ['buildplan-core.js','buildplan-geom.js'], ['buildplan-geom.js','buildplan-draw.js'], ['buildplan-draw.js','buildplan-map.js'], ['buildplan-map.js','buildplan-ui.js'], ['buildplan-ui.js','buildplan-link.js']]
   .forEach(([a, b]) => {
     if (!tags.includes(a) || !tags.includes(b)) return;
     order(a, b) ? ok(`${a} before ${b}`) : bad(`${a} must load before ${b}`);
   });
 if (tags.includes('stickyactions.js')) {
-  const after = ['orders.js','agriplan.js','buildplan.js'].every(m => order(m, 'stickyactions.js'));
+  const after = ['orders.js','agriplan.js','buildplan-link.js'].every(m => order(m, 'stickyactions.js'));
   after ? ok('stickyactions.js loads after the modal modules')
         : bad('stickyactions.js must load after orders/agriplan/buildplan');
 }
@@ -201,7 +210,9 @@ fs.existsSync(path.join(JS_DIR, 'firestore.rules'))
 // takeoff, orders and quotes, and are translated at render instead.
 head('8. Translation coverage');
 const HEB = /[\u0590-\u05FF]/;
-const OWN = ['orders.js','agriplan.js','buildplan.js','shed3d.js','stickyactions.js'];
+const OWN = ['orders.js','agriplan.js',
+             'buildplan-core.js', 'buildplan-geom.js', 'buildplan-draw.js', 'buildplan-map.js', 'buildplan-ui.js', 'buildplan-link.js',
+             'shed3d.js','stickyactions.js'];
 OWN.forEach(f => {
   if (!src[f]) return;
   let m = src[f].replace(/\/\*[\s\S]*?\*\//g, x => x.replace(/[^\n]/g, ' '))
