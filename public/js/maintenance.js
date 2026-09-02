@@ -324,6 +324,15 @@ var Maintenance = (function() {
 
   function fmt(n) { return n.toLocaleString('he-IL', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 
+  // Attribute-safe escaping. Group names, notes and callout text are
+  // free text that lands inside value="..." and inside printed HTML, so
+  // an apostrophe in a Hebrew name must not close the attribute.
+  function esc(x) {
+    return String(x == null ? '' : x)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
   // ── Cost calculations ──
   function round2(n) { return Math.round(n * 100) / 100; }
 
@@ -347,38 +356,215 @@ var Maintenance = (function() {
   // Client-facing price of a single line, uplifted and rounded to agorot.
   function clientLine(rawTotal, factor) { return round2(rawTotal * factor); }
 
-  function calcProject(p) {
+  // ══════════════════════════════════════
+  //  LINE IDENTITY, GROUPING, NON-HOURLY LABOUR
+  // ══════════════════════════════════════
+  // Material and labour rows used to be addressed by array index. That is
+  // fine inside a single render pass and useless the moment a row can
+  // belong to a group that has to survive an insert or a delete above it.
+  // Every row therefore gets a stable id the first time it is touched.
+  // Old projects are migrated in place, lazily, with no separate upgrade.
+  var _idSeq = 0;
+  function newLineId() {
+    return 'l' + Date.now().toString(36) + (_idSeq++).toString(36) +
+           Math.floor(Math.random() * 1296).toString(36);
+  }
+  function ensureLineIds(p) {
+    if (!p) return p;
+    [p.materials, p.labor].forEach(function (arr) {
+      (arr || []).forEach(function (x) { if (!x._id) x._id = newLineId(); });
+    });
+    return p;
+  }
+  function findLine(p, kind, id) {
+    var arr = (kind === 'labor') ? (p.labor || []) : (p.materials || []);
+    for (var i = 0; i < arr.length; i++) if (arr[i]._id === id) return arr[i];
+    return null;
+  }
+
+  // ── the four price primitives ──
+  // raw*  = cost basis, before the margin
+  // cost* = what it actually costs us
+  //
+  // Labour has two shapes. 'hourly' multiplies hours by a rate, as before.
+  // 'fixed' carries a lump sum the estimator typed: the hours may still be
+  // recorded for internal tracking, but they are never printed for the
+  // client, which is the entire point of the mode.
+  function rawMat(m) { return (m.quantity || 0) * (m.unitPrice || 0); }
+  function costMat(m) { return (m.quantity || 0) * (m.costPrice || m.unitPrice || 0); }
+  function isFixedLab(l) { return l && l.priceMode === 'fixed'; }
+  function rawLab(l) {
+    if (isFixedLab(l)) return (l.amount || 0);
+    return (l.hours || 0) * (l.hourlyRate || 0);
+  }
+  function costLab(l) {
+    if (isFixedLab(l)) return (l.costAmount != null ? l.costAmount : (l.amount || 0));
+    return (l.hours || 0) * (l.costRate || l.hourlyRate || 0);
+  }
+
+  // ── groups ──
+  // A group hides its member rows from the client and prints one row in
+  // their place. The members are untouched: quantities, unit prices and
+  // real costs all stay in the project and all still drive the internal
+  // report and the profit maths. Grouping is a presentation decision.
+  function groupsOf(p) { return (p && p.groups) || []; }
+  function groupById(p, gid) {
+    var g = null;
+    groupsOf(p).forEach(function (x) { if (String(x.id) === String(gid)) g = x; });
+    return g;
+  }
+  function groupForLine(p, kind, id) {
+    var found = null;
+    groupsOf(p).forEach(function (g) {
+      (g.members || []).forEach(function (mem) {
+        if (mem.kind === kind && mem.id === id) found = g;
+      });
+    });
+    return found;
+  }
+  // Which section a group prints in. All-materials and all-labour groups
+  // stay in their own section so the section subtotals keep meaning
+  // something; a group that mixes the two gets a section of its own
+  // rather than being arbitrarily charged to one side.
+  function groupKind(g) {
+    var hasM = false, hasL = false;
+    (g.members || []).forEach(function (m) {
+      if (m.kind === 'labor') hasL = true; else hasM = true;
+    });
+    if (hasM && hasL) return 'mixed';
+    return hasL ? 'labor' : 'materials';
+  }
+  // Drop members that no longer exist, and drop groups left with nothing.
+  // Deleting a material must not leave a phantom in a group.
+  function pruneGroups(p) {
+    if (!p || !p.groups) return p;
+    p.groups = p.groups.filter(function (g) {
+      g.members = (g.members || []).filter(function (m) { return !!findLine(p, m.kind, m.id); });
+      return g.members.length > 0;
+    });
+    return p;
+  }
+
+  // ══════════════════════════════════════
+  //  THE CLIENT-FACING MODEL
+  // ══════════════════════════════════════
+  // One pass builds every row the quote can print, so the detail screen,
+  // the quote PDF and the internal report can never disagree about a
+  // number. Rows come out in source order; a group is emitted once, at the
+  // position of its first member, and its other members are skipped.
+  //
+  // A group with an explicit price prints THAT price — no margin is added
+  // on top, because the estimator typed the figure he wants the client to
+  // read. With no explicit price the group simply totals its members,
+  // margin already included in each.
+  function quoteModel(p) {
+    ensureLineIds(p);
     var f = upliftFactor(p);
+    var out = {
+      f: f,
+      materials: [], labor: [], mixed: [],
+      materialsTotal: 0, laborTotal: 0, mixedTotal: 0,
+      materialsRaw: 0, laborRaw: 0,
+      hasGroups: false, hidesHours: false
+    };
+    var done = {};
+
+    function memberClient(mem) {
+      var line = findLine(p, mem.kind, mem.id);
+      if (!line) return 0;
+      return clientLine(mem.kind === 'materials' ? rawMat(line) : rawLab(line), f);
+    }
+    function groupRow(g) {
+      var sum = 0;
+      (g.members || []).forEach(function (mem) { sum += memberClient(mem); });
+      var explicit = (g.price !== null && g.price !== undefined && g.price !== '');
+      return {
+        isGroup: true, id: g.id,
+        label: g.name || tt('פריט מקובץ', 'รายการรวม', 'بند مجمّع'),
+        qtyText: (g.qty != null && g.qty !== '') ? String(g.qty) : '1',
+        unitText: g.unitLabel || tt('קומפלט', 'ชุด', 'مقطوعية'),
+        note: g.note || '',
+        memberSum: round2(sum),
+        overridden: explicit,
+        total: round2(explicit ? (Number(g.price) || 0) : sum),
+        members: (g.members || []).slice()
+      };
+    }
+    function push(row, kind) {
+      if (kind === 'materials') { out.materials.push(row); out.materialsTotal += row.total; }
+      else if (kind === 'labor') { out.labor.push(row); out.laborTotal += row.total; }
+      else { out.mixed.push(row); out.mixedTotal += row.total; }
+    }
+    function walk(arr, kind) {
+      (arr || []).forEach(function (line) {
+        out[kind === 'materials' ? 'materialsRaw' : 'laborRaw'] +=
+          (kind === 'materials' ? rawMat(line) : rawLab(line));
+        var g = groupForLine(p, kind, line._id);
+        if (g) {
+          out.hasGroups = true;
+          if (done[g.id]) return;
+          done[g.id] = true;
+          push(groupRow(g), groupKind(g));
+          return;
+        }
+        if (kind === 'materials') {
+          var lt = clientLine(rawMat(line), f);
+          push({
+            isGroup: false, id: line._id, label: line.name || '',
+            qtyText: String(line.quantity == null ? '' : line.quantity),
+            unitText: line.unit || '',
+            unitPrice: (line.quantity || 0) > 0 ? (lt / line.quantity) : ((line.unitPrice || 0) * f),
+            total: lt
+          }, 'materials');
+        } else {
+          var lt2 = clientLine(rawLab(line), f);
+          if (isFixedLab(line)) out.hidesHours = true;
+          push({
+            isGroup: false, id: line._id, label: line.description || '',
+            fixed: isFixedLab(line),
+            qtyText: isFixedLab(line) ? '' : String(line.hours == null ? '' : line.hours),
+            unitText: isFixedLab(line) ? '' : tt('שעות', 'ชั่วโมง', 'ساعات'),
+            unitPrice: isFixedLab(line) ? null
+                     : ((line.hours || 0) > 0 ? (lt2 / line.hours) : ((line.hourlyRate || 0) * f)),
+            total: lt2
+          }, 'labor');
+        }
+      });
+    }
+    walk(p.materials, 'materials');
+    walk(p.labor, 'labor');
+
+    out.materialsTotal = round2(out.materialsTotal);
+    out.laborTotal = round2(out.laborTotal);
+    out.mixedTotal = round2(out.mixedTotal);
+    out.materialsRaw = round2(out.materialsRaw);
+    out.laborRaw = round2(out.laborRaw);
+    return out;
+  }
+
+  function calcProject(p) {
+    var q = quoteModel(p);
     // Totals are summed from the ROUNDED per-line client prices, not from a
     // rounded grand total, so the quote table foots to exactly the number
     // printed beneath it. A customer who adds up the column must land on it.
-    var mtRaw = 0, mtC = 0;
-    (p.materials || []).forEach(function(m) {
-      var raw = (m.quantity || 0) * (m.unitPrice || 0);
-      mtRaw += raw; mtC += clientLine(raw, f);
-    });
-    var ltRaw = 0, ltC = 0;
-    (p.labor || []).forEach(function(l) {
-      var raw = (l.hours || 0) * (l.hourlyRate || 0);
-      ltRaw += raw; ltC += clientLine(raw, f);
-    });
-    mtC = round2(mtC); ltC = round2(ltC);
-    var sub = round2(mtRaw + ltRaw);      // cost basis, internal only
-    var bv = round2(mtC + ltC);           // what the client is quoted
+    var sub = round2(q.materialsRaw + q.laborRaw);   // cost basis, internal only
+    var bv = round2(q.materialsTotal + q.laborTotal + q.mixedTotal);
     var vat = p.includeVat ? round2(bv * VAT_RATE) : 0;
     return {
-      materialsTotal: mtC, laborTotal: ltC,     // client-facing
-      materialsRaw: mtRaw, laborRaw: ltRaw,     // cost basis
+      materialsTotal: q.materialsTotal, laborTotal: q.laborTotal,  // client-facing
+      groupsTotal: q.mixedTotal,                                   // mixed groups
+      materialsRaw: q.materialsRaw, laborRaw: q.laborRaw,          // cost basis
       subtotal: sub,
       markup: round2(bv - sub),                 // the profit built into the price
-      upliftFactor: f,
-      beforeVat: bv, vat: vat, total: round2(bv + vat)
+      upliftFactor: q.f,
+      beforeVat: bv, vat: vat, total: round2(bv + vat),
+      model: q
     };
   }
 
   function calcInternal(p) {
-    var mt = 0; (p.materials || []).forEach(function(m) { mt += (m.quantity || 0) * (m.costPrice || m.unitPrice || 0); });
-    var lt = 0; (p.labor || []).forEach(function(l) { lt += (l.hours || 0) * (l.costRate || l.hourlyRate || 0); });
+    var mt = 0; (p.materials || []).forEach(function(m) { mt += costMat(m); });
+    var lt = 0; (p.labor || []).forEach(function(l) { lt += costLab(l); });
     var totalReal = mt + lt;
     var client = calcProject(p);
     var profit = client.beforeVat - totalReal;
@@ -418,7 +604,7 @@ var Maintenance = (function() {
   var addBtn = function(label, fn, pid) { return '<button onclick="Maintenance.' + fn + '(' + pid + ')" style="font-size:0.75rem;padding:4px 10px;border-radius:6px;border:1px solid var(--primary, #4caf50);background:transparent;color:var(--primary, #4caf50);font-family:inherit;font-weight:600;cursor:pointer;">➕ ' + label + '</button>'; };
   var thS = 'padding:8px;text-align:center;font-weight:700;font-size:0.78rem;';
   var tblWrap = function(head, body, footLabel, footVal, color) {
-    return '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:0.82rem;"><thead><tr style="background:' + color + '22;">' + head + '</tr></thead><tbody>' + body + '</tbody><tfoot><tr style="border-top:2px solid ' + color + ';"><td colspan="3" style="padding:8px;font-weight:700;text-align:left;">' + footLabel + '</td><td style="padding:8px;text-align:center;font-weight:700;color:' + color + ';">₪' + footVal + '</td><td></td></tr></tfoot></table></div>';
+    return '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:0.82rem;"><thead><tr style="background:' + color + '22;">' + head + '</tr></thead><tbody>' + body + '</tbody><tfoot><tr style="border-top:2px solid ' + color + ';"><td colspan="4" style="padding:8px;font-weight:700;text-align:left;">' + footLabel + '</td><td style="padding:8px;text-align:center;font-weight:700;color:' + color + ';">₪' + footVal + '</td><td></td></tr></tfoot></table></div>';
   };
 
   var _activeTab = 'overview'; // overview | internal | contract | invoices
@@ -542,6 +728,9 @@ var Maintenance = (function() {
         '<div><label style="' + lblS + '">' + tt('שם הפרויקט','ชื่อโครงการ','اسم المشروع') + ' *</label><input id="mpName" value="' + (p.name || '') + '" placeholder="' + tt('למשל: תחזוקת משרד','เช่น: ซ่อมบำรุงสำนักงาน','مثال: صيانة مكتب') + '" style="' + inputS + '"></div>' +
         '<div><label style="' + lblS + '">' + tt('לקוח','ลูกค้า','عميل') + '</label><input id="mpClient" value="' + (p.client || '') + '" style="' + inputS + '"></div>' +
         '<div><label style="' + lblS + '">' + tt('תיאור','รายละเอียด','وصف') + '</label><textarea id="mpDesc" rows="2" style="' + inputS + 'resize:vertical;">' + (p.description || '') + '</textarea></div>' +
+        '<div style="font-size:0.72rem;color:var(--text-muted, #888);margin-top:-6px;">' + tt('לשימוש פנימי.','ใช้ภายใน','للاستخدام الداخلي.') + '</div>' +
+        '<div><label style="' + lblS + '">' + tt('פתיח להצעת המחיר','คำนำใบเสนอราคา','مقدمة عرض السعر') + '</label><textarea id="mpIntro" rows="3" placeholder="' + tt('כמה שורות שמסבירות ללקוח במה מדובר — היקף העבודה, מה כלול, מה לא.','อธิบายสั้นๆ ให้ลูกค้าทราบขอบเขตงาน','أسطر قليلة تشرح للعميل نطاق العمل.') + '" style="' + inputS + 'resize:vertical;">' + (p.quoteIntro || '') + '</textarea></div>' +
+        '<div style="font-size:0.72rem;color:var(--text-muted, #888);margin-top:-6px;">' + tt('מודפס בראש ההצעה, מעל הטבלה.','พิมพ์ที่ด้านบนของใบเสนอราคา','يُطبع أعلى العرض فوق الجدول.') + '</div>' +
         '<div style="display:flex;gap:8px;"><div style="flex:1;"><label style="' + lblS + '">' + tt('סטטוס','สถานะ','الحالة') + '</label><select id="mpStatus" style="' + inputS + '">' + sOpts + '</select></div>' +
         '<div style="flex:1;"><label style="' + lblS + '">' + tt('רווח % (בכיס)','กำไร %','ربح %') + '</label><input id="mpMarkup" type="number" value="' + (p.markup || 0) + '" min="0" max="95" style="' + inputS + '"></div></div>' +
         '<div style="font-size:0.72rem;color:var(--text-muted, #888);margin-top:-4px;">' + tt('אחוז מהמחיר ללקוח שנשאר כרווח. מגולם בתוך מחירי השורות — לא מופיע בהצעה.','เปอร์เซ็นต์กำไรจากราคาลูกค้า รวมอยู่ในราคาแล้ว','نسبة الربح من سعر العميل، مضمّنة في الأسعار.') + '</div>' +
@@ -560,6 +749,7 @@ var Maintenance = (function() {
       if (!p) { p = { id: Date.now(), materials: [], labor: [], shipments: [], invoices: [], contract: null, created: Date.now() }; projects.push(p); }
       p.name = name; p.client = document.getElementById('mpClient').value.trim();
       p.description = document.getElementById('mpDesc').value.trim(); p.status = document.getElementById('mpStatus').value;
+      p.quoteIntro = document.getElementById('mpIntro').value.trim();
       p.markup = parseFloat(document.getElementById('mpMarkup').value) || 0; p.includeVat = document.getElementById('mpVat').checked;
       p.updated = Date.now(); saveProjects(projects); _audit(eid ? 'edit' : 'create', p.id, { after: { name: p.name, client: p.client, status: p.status }, reason: 'project · ' + (p.name || '') });
       if (typeof showToast === 'function') showToast(tt('✅ נשמר','✅ บันทึกแล้ว','✅ تم الحفظ')); showDetail(p.id);
@@ -617,15 +807,61 @@ var Maintenance = (function() {
         //  TAB: OVERVIEW
         // ──────────────────────
         if (_activeTab === 'overview') {
-          // Materials
+          // Materials + labour rows. Each carries a checkbox so several can
+          // be folded into one client-facing line, and a badge when it is
+          // already part of a group — the row itself stays exactly where it
+          // was, because the grouping is a print-time decision and the
+          // original bill of quantities has to survive it intact.
+          ensureLineIds(p);
+          if (_sel.pid !== pid) _selReset(pid);
+          var _cb = function (kind, id) {
+            if (!canEdit) return '';
+            return '<input type="checkbox"' + (_selHas(kind, id) ? ' checked' : '') +
+              ' onclick="Maintenance._toggleSel(' + pid + ",'" + kind + "','" + id + '\')" ' +
+              'style="width:16px;height:16px;accent-color:#1c8c7a;cursor:pointer;">';
+          };
+          var _badge = function (g) {
+            if (!g) return '';
+            return '<span style="display:inline-block;margin-inline-start:6px;padding:1px 7px;border-radius:99px;' +
+              'background:#1c8c7a22;color:#1c8c7a;font-size:0.68rem;font-weight:700;">🧩 ' + esc(g.name || '') + '</span>';
+          };
+
           var matH = ''; (p.materials || []).forEach(function(m, i) {
-            var lt = (m.quantity || 0) * (m.unitPrice || 0);
-            matH += '<tr><td style="padding:6px 8px;font-weight:600;">' + m.name + '</td><td style="padding:6px 8px;text-align:center;">' + m.quantity + ' ' + (m.unit || '') + '</td><td style="padding:6px 8px;text-align:center;">₪' + fmt(m.unitPrice) + '</td><td style="padding:6px 8px;text-align:center;font-weight:700;">₪' + fmt(lt) + '</td><td style="padding:6px 4px;text-align:center;">' + (canEdit ? '<button onclick="Maintenance._editMat(' + pid + ',' + i + ')" style="border:none;background:none;cursor:pointer;">✏️</button>' : '') + (canDelete ? '<button onclick="Maintenance._delMat(' + pid + ',' + i + ')" style="border:none;background:none;cursor:pointer;">🗑️</button>' : '') + '</td></tr>';
+            var lt = rawMat(m);
+            var g = groupForLine(p, 'materials', m._id);
+            matH += '<tr' + (g ? ' style="opacity:.62;"' : '') + '>' +
+              '<td style="padding:6px 4px;text-align:center;width:28px;">' + _cb('materials', m._id) + '</td>' +
+              '<td style="padding:6px 8px;font-weight:600;">' + m.name + _badge(g) + '</td>' +
+              '<td style="padding:6px 8px;text-align:center;">' + m.quantity + ' ' + (m.unit || '') + '</td>' +
+              '<td style="padding:6px 8px;text-align:center;">₪' + fmt(m.unitPrice) + '</td>' +
+              '<td style="padding:6px 8px;text-align:center;font-weight:700;">₪' + fmt(lt) + '</td>' +
+              '<td style="padding:6px 4px;text-align:center;">' + (canEdit ? '<button onclick="Maintenance._editMat(' + pid + ',' + i + ')" style="border:none;background:none;cursor:pointer;">✏️</button>' : '') + (canDelete ? '<button onclick="Maintenance._delMat(' + pid + ',' + i + ')" style="border:none;background:none;cursor:pointer;">🗑️</button>' : '') + '</td></tr>';
           });
           var labH = ''; (p.labor || []).forEach(function(l, i) {
-            var lt = (l.hours || 0) * (l.hourlyRate || 0);
-            labH += '<tr><td style="padding:6px 8px;font-weight:600;">' + l.description + '</td><td style="padding:6px 8px;text-align:center;">' + l.hours + '</td><td style="padding:6px 8px;text-align:center;">₪' + fmt(l.hourlyRate) + '</td><td style="padding:6px 8px;text-align:center;font-weight:700;">₪' + fmt(lt) + '</td><td style="padding:6px 4px;text-align:center;">' + (canEdit ? '<button onclick="Maintenance._editLab(' + pid + ',' + i + ')" style="border:none;background:none;cursor:pointer;">✏️</button>' : '') + (canDelete ? '<button onclick="Maintenance._delLab(' + pid + ',' + i + ')" style="border:none;background:none;cursor:pointer;">🗑️</button>' : '') + '</td></tr>';
+            var lt = rawLab(l);
+            var g = groupForLine(p, 'labor', l._id);
+            var fixed = isFixedLab(l);
+            labH += '<tr' + (g ? ' style="opacity:.62;"' : '') + '>' +
+              '<td style="padding:6px 4px;text-align:center;width:28px;">' + _cb('labor', l._id) + '</td>' +
+              '<td style="padding:6px 8px;font-weight:600;">' + l.description +
+                (fixed ? '<span style="display:inline-block;margin-inline-start:6px;padding:1px 7px;border-radius:99px;background:#ef6c0022;color:#ef6c00;font-size:0.68rem;font-weight:700;">📦 ' + tt('סכום קבוע','เหมา','مقطوع') + '</span>' : '') +
+                _badge(g) + '</td>' +
+              '<td style="padding:6px 8px;text-align:center;">' + (fixed ? (l.hours ? '<span style="opacity:.5;">(' + l.hours + ')</span>' : '—') : l.hours) + '</td>' +
+              '<td style="padding:6px 8px;text-align:center;">' + (fixed ? '—' : '₪' + fmt(l.hourlyRate)) + '</td>' +
+              '<td style="padding:6px 8px;text-align:center;font-weight:700;">₪' + fmt(lt) + '</td>' +
+              '<td style="padding:6px 4px;text-align:center;">' + (canEdit ? '<button onclick="Maintenance._editLab(' + pid + ',' + i + ')" style="border:none;background:none;cursor:pointer;">✏️</button>' : '') + (canDelete ? '<button onclick="Maintenance._delLab(' + pid + ',' + i + ')" style="border:none;background:none;cursor:pointer;">🗑️</button>' : '') + '</td></tr>';
           });
+
+          // Selection bar — only while something is ticked.
+          var _selBar = '';
+          if (canEdit && _selCount() > 0) {
+            _selBar = '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:#1c8c7a18;border:1px solid #1c8c7a55;border-radius:10px;padding:8px 12px;margin-bottom:10px;">' +
+              '<span style="font-size:0.82rem;font-weight:700;color:#1c8c7a;">' + _selCount() + ' ' + tt('שורות סומנו','รายการถูกเลือก','بنود محددة') + '</span>' +
+              '<button onclick="Maintenance._groupModal(' + pid + ',null)" style="padding:6px 14px;border:none;border-radius:8px;background:#1c8c7a;color:#fff;font-family:inherit;font-weight:700;font-size:0.78rem;cursor:pointer;">🧩 ' + tt('קבץ לשורה אחת','รวมเป็นรายการเดียว','دمج في بند واحد') + '</button>' +
+              '<button onclick="Maintenance._clearSel(' + pid + ')" style="padding:6px 12px;border:1px solid var(--border, #ccc);border-radius:8px;background:transparent;color:var(--text, inherit);font-family:inherit;font-size:0.78rem;cursor:pointer;">' + tt('נקה','ล้าง','مسح') + '</button>' +
+            '</div>';
+          }
+
           var shipH = ''; (p.shipments || []).forEach(function(s, i) {
             shipH += '<div style="background:var(--surface-glass, #f5f7f5);border-radius:8px;padding:8px 10px;margin-bottom:6px;font-size:0.82rem;display:flex;justify-content:space-between;align-items:center;"><div><strong>' + s.date + '</strong> — ' + s.materialName + ' (' + s.quantity + ')' + (s.supplier ? ' · ' + s.supplier : '') + (s.notes ? ' · <span style="color:var(--text-muted, #999);">' + s.notes + '</span>' : '') + '</div>' + (canDelete ? '<button onclick="Maintenance._delShip(' + pid + ',' + i + ')" style="border:none;background:none;cursor:pointer;">🗑️</button>' : '') + '</div>';
           });
@@ -646,20 +882,59 @@ var Maintenance = (function() {
                 '</span>'
               : '') + '</div>' +
             '<div id="maintImport"></div>' +
+            _selBar +
           (!(p.materials || []).length ? '<div style="text-align:center;color:var(--text-muted, #999);padding:12px;">' + tt('אין חומרים','ไม่มีวัสดุ','لا مواد') + '</div>' :
-            tblWrap('<th style="' + thS + 'text-align:right;">' + tt('חומר','วัสดุ','مادة') + '</th><th style="' + thS + '">' + tt('כמות','จำนวน','كمية') + '</th><th style="' + thS + '">' + tt('מחיר ליח\'','ราคา/หน่วย','سعر الوحدة') + '</th><th style="' + thS + '">' + tt('סה"כ','รวม','المجموع') + '</th><th style="' + thS + 'width:60px;"></th>',
+            tblWrap('<th style="' + thS + 'width:28px;"></th><th style="' + thS + 'text-align:right;">' + tt('חומר','วัสดุ','مادة') + '</th><th style="' + thS + '">' + tt('כמות','จำนวน','كمية') + '</th><th style="' + thS + '">' + tt('מחיר ליח\'','ราคา/หน่วย','سعر الوحدة') + '</th><th style="' + thS + '">' + tt('סה"כ','รวม','المجموع') + '</th><th style="' + thS + 'width:60px;"></th>',
               matH, tt('סה"כ חומרים','รวมวัสดุ','إجمالي المواد'), fmt(tot.materialsTotal), '#2e7d32')) + '</div>';
 
           bodyH += '<div style="margin-bottom:18px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">' + sectTitle('👷', tt('עבודה','แรงงาน','عمالة')) + (canEdit ? addBtn(tt('הוסף','เพิ่ม','إضافة'), '_addLab', pid) : '') + '</div>' +
           (!(p.labor || []).length ? '<div style="text-align:center;color:var(--text-muted, #999);padding:8px;">' + tt('אין פריטי עבודה','ไม่มีรายการงาน','لا عناصر عمل') + '</div>' :
-            tblWrap('<th style="' + thS + 'text-align:right;">' + tt('תיאור','รายละเอียด','وصف') + '</th><th style="' + thS + '">' + tt('שעות','ชั่วโมง','ساعات') + '</th><th style="' + thS + '">₪/' + tt('שעה','ชม.','ساعة') + '</th><th style="' + thS + '">' + tt('סה"כ','รวม','المجموع') + '</th><th style="' + thS + 'width:60px;"></th>',
+            tblWrap('<th style="' + thS + 'width:28px;"></th><th style="' + thS + 'text-align:right;">' + tt('תיאור','รายละเอียด','وصف') + '</th><th style="' + thS + '">' + tt('שעות','ชั่วโมง','ساعات') + '</th><th style="' + thS + '">₪/' + tt('שעה','ชม.','ساعة') + '</th><th style="' + thS + '">' + tt('סה"כ','รวม','المجموع') + '</th><th style="' + thS + 'width:60px;"></th>',
               labH, tt('סה"כ עבודה','รวมแรงงาน','إجمالي العمالة'), fmt(tot.laborTotal), '#ef6c00')) + '</div>';
+
+          // Grouped lines — what the client will actually read.
+          if (groupsOf(p).length) {
+            var qm = tot.model;
+            var grpH = '';
+            groupsOf(p).forEach(function (g) {
+              var row = null;
+              ['materials', 'labor', 'mixed'].forEach(function (k) {
+                (qm[k] || []).forEach(function (r) { if (r.isGroup && String(r.id) === String(g.id)) row = r; });
+              });
+              if (!row) return;
+              grpH += '<div style="background:var(--surface-glass, #f5f7f5);border-radius:10px;padding:10px 12px;margin-bottom:6px;">' +
+                '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">' +
+                  '<div style="font-weight:700;font-size:0.88rem;">🧩 ' + esc(row.label) + '</div>' +
+                  '<div style="display:flex;align-items:center;gap:6px;">' +
+                    '<span style="font-weight:800;color:#1c8c7a;">₪' + fmt(row.total) + '</span>' +
+                    (canEdit ? '<button onclick="Maintenance._groupModal(' + pid + ",'" + g.id + '\')" style="border:none;background:none;cursor:pointer;">✏️</button>' : '') +
+                  '</div></div>' +
+                '<div style="font-size:0.74rem;color:var(--text-muted, #888);margin-top:2px;">' +
+                  row.members.length + ' ' + tt('שורות','รายการ','بنود') +
+                  ' · ' + tt('סכום מקורי','ยอดเดิม','المجموع الأصلي') + ' ₪' + fmt(row.memberSum) +
+                  (row.overridden ? ' · <strong style="color:#ef6c00;">' + tt('מחיר ידני','ราคากำหนดเอง','سعر يدوي') + '</strong>' : '') +
+                  (row.note ? ' · ' + esc(row.note) : '') +
+                '</div></div>';
+            });
+            bodyH += '<div style="margin-bottom:18px;">' + sectTitle('🧩', tt('שורות מקובצות','รายการที่จัดกลุ่ม','بنود مجمّعة')) +
+              '<div style="margin-top:8px;">' + grpH + '</div></div>';
+          }
+
+          // Illustration + its callouts.
+          if (p.illustration) {
+            bodyH += '<div style="margin-bottom:18px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">' +
+              sectTitle('🖼', tt('איור להמחשה','ภาพประกอบ','رسم توضيحي')) +
+              (canEdit ? '<button onclick="Maintenance._annEditor(' + pid + ')" style="font-size:0.75rem;padding:4px 10px;border-radius:6px;border:1px solid #1c8c7a;background:transparent;color:#1c8c7a;font-family:inherit;font-weight:600;cursor:pointer;">🖍️ ' + tt('הסברים על האיור','คำอธิบายบนภาพ','شروحات') + ' (' + annotationsOf(p).length + ')</button>' : '') +
+              '</div><div style="background:#fff;border:1px solid var(--border, #ddd);border-radius:10px;padding:8px;">' +
+              annotatedIllustration(p) + '</div></div>';
+          }
 
           // Cost summary
           bodyH += '<div style="background:var(--surface-glass, #f5f7f5);border-radius:12px;padding:14px;margin-bottom:18px;">' + sectTitle('💰', tt('סיכום עלויות','สรุปต้นทุน','ملخص التكاليف')) +
           '<div style="display:grid;gap:4px;font-size:0.88rem;margin-top:8px;">' +
             '<div style="display:flex;justify-content:space-between;"><span>' + tt('חומרים','วัสดุ','مواد') + '</span><span>₪' + fmt(tot.materialsTotal) + '</span></div>' +
             '<div style="display:flex;justify-content:space-between;"><span>' + tt('עבודה','แรงงาน','عمالة') + '</span><span>₪' + fmt(tot.laborTotal) + '</span></div>' +
+            (tot.groupsTotal ? '<div style="display:flex;justify-content:space-between;"><span>🧩 ' + tt('שורות מקובצות','รายการที่จัดกลุ่ม','بنود مجمّعة') + '</span><span>₪' + fmt(tot.groupsTotal) + '</span></div>' : '') +
             '<div style="display:flex;justify-content:space-between;border-top:1px solid var(--border, #ddd);padding-top:4px;"><span>' + tt('סכום ביניים','ยอดรวมย่อย','المجموع الفرعي') + '</span><span>₪' + fmt(tot.subtotal) + '</span></div>' +
             (p.markup ? '<div style="display:flex;justify-content:space-between;color:#2e7d32;"><span>🔒 ' + tt('רווח','กำไร','ربح') + ' ' + p.markup + '% <span style="font-size:0.72rem;opacity:0.75;">(' + tt('לא בהצעה','ไม่อยู่ในใบเสนอราคา','ليس في العرض') + ')</span></span><span>₪' + fmt(tot.markup) + '</span></div>' : '') +
             '<div style="display:flex;justify-content:space-between;"><span>' + tt('לפני מע"מ','ก่อน VAT','قبل الضريبة') + '</span><span style="font-weight:600;">₪' + fmt(tot.beforeVat) + '</span></div>' +
@@ -699,11 +974,16 @@ var Maintenance = (function() {
               '<td style="padding:6px 8px;text-align:center;font-weight:700;">₪' + fmt(realLine) + '</td></tr>';
           });
           // Labor with real cost column
+          // internal tab: fixed lines edit the lump sum, hourly lines the rate
           var icLabH = ''; (p.labor || []).forEach(function(l, i) {
-            var realLine = (l.hours || 0) * (l.costRate || l.hourlyRate || 0);
-            icLabH += '<tr><td style="padding:6px 8px;font-weight:600;">' + l.description + '</td><td style="padding:6px 8px;text-align:center;">' + l.hours + '</td>' +
-              '<td style="padding:6px 8px;text-align:center;color:var(--text-muted, #999);">₪' + fmt(l.hourlyRate) + '</td>' +
-              '<td style="padding:6px 8px;text-align:center;"><input type="number" value="' + (l.costRate || l.hourlyRate || 0) + '" min="0" step="1" onchange="Maintenance._updateCostRate(' + pid + ',' + i + ',this.value)" style="width:80px;padding:4px;border-radius:6px;border:1px solid var(--border, #ddd);text-align:center;font-family:inherit;color:var(--text, inherit);background:var(--surface-input, transparent);"></td>' +
+            var fixed = isFixedLab(l);
+            var realLine = costLab(l);
+            var cellIn = '<input type="number" value="' + (fixed ? costLab(l) : (l.costRate || l.hourlyRate || 0)) + '" min="0" step="' + (fixed ? '0.01' : '1') + '" onchange="Maintenance._updateCostRate(' + pid + ',' + i + ',this.value)" style="width:90px;padding:4px;border-radius:6px;border:1px solid var(--border, #ddd);text-align:center;font-family:inherit;color:var(--text, inherit);background:var(--surface-input, transparent);">';
+            icLabH += '<tr><td style="padding:6px 8px;font-weight:600;">' + l.description +
+              (fixed ? ' <span style="font-size:0.68rem;color:#ef6c00;font-weight:700;">📦 ' + tt('סכום קבוע','เหมา','مقطوع') + '</span>' : '') +
+              '</td><td style="padding:6px 8px;text-align:center;">' + (fixed ? (l.hours ? '<span style="opacity:.55;">(' + l.hours + ')</span>' : '—') : l.hours) + '</td>' +
+              '<td style="padding:6px 8px;text-align:center;color:var(--text-muted, #999);">₪' + fmt(fixed ? rawLab(l) : l.hourlyRate) + '</td>' +
+              '<td style="padding:6px 8px;text-align:center;">' + cellIn + '</td>' +
               '<td style="padding:6px 8px;text-align:center;font-weight:700;">₪' + fmt(realLine) + '</td></tr>';
           });
 
@@ -879,7 +1159,7 @@ var Maintenance = (function() {
     });
   }
   function _editMat(pid, i) { _addMat(pid, i); }
-  function _delMat(pid, i) { if (_blockDelete()) return; if (!confirm(tt('למחוק חומר?','ลบวัสดุ?','حذف المادة؟'))) return; loadProjects().then(function(ps) { var p = ps.find(function(x) { return x.id === pid; }); if (!p) return; var before = p.materials[i]; p.materials.splice(i, 1); p.updated = Date.now(); saveProjects(ps); _audit('delete', pid, { before: before, reason: 'material · ' + (p.name || '') }); showDetail(pid); }); }
+  function _delMat(pid, i) { if (_blockDelete()) return; if (!confirm(tt('למחוק חומר?','ลบวัสดุ?','حذف المادة؟'))) return; loadProjects().then(function(ps) { var p = ps.find(function(x) { return x.id === pid; }); if (!p) return; var before = p.materials[i]; p.materials.splice(i, 1); pruneGroups(p); p.updated = Date.now(); saveProjects(ps); _audit('delete', pid, { before: before, reason: 'material · ' + (p.name || '') }); showDetail(pid); }); }
 
   // ══════════════════════════════════════
   //  BUILD PROJECT LINK
@@ -1017,31 +1297,93 @@ var Maintenance = (function() {
   // ══════════════════════════════════════
   //  LABOR CRUD
   // ══════════════════════════════════════
+  // Labour can be priced two ways. Hourly is the old behaviour. Fixed is a
+  // lump sum: the estimator may still record hours for his own tracking,
+  // but the client quote prints a description and a price and nothing
+  // else — the hour count is an internal estimate and handing it to a
+  // customer invites an argument about the rate rather than the job.
+  function _labModeBtn(mode, val, label, icon) {
+    var on = (mode === val);
+    return '<button type="button" onclick="Maintenance._setLabMode(\'' + val + '\')" id="mlMode_' + val + '" ' +
+      'style="flex:1;padding:8px;border-radius:8px;font-family:inherit;font-weight:700;font-size:0.8rem;cursor:pointer;' +
+      'border:1px solid ' + (on ? '#ef6c00' : 'var(--border, #ddd)') + ';' +
+      'background:' + (on ? '#ef6c00' : 'transparent') + ';color:' + (on ? '#fff' : 'var(--text, inherit)') + ';">' +
+      icon + ' ' + label + '</button>';
+  }
+  function _setLabMode(mode) {
+    var h = document.getElementById('mlHourly'), f = document.getElementById('mlFixed');
+    if (!h || !f) return;
+    h.style.display = (mode === 'fixed') ? 'none' : '';
+    f.style.display = (mode === 'fixed') ? '' : 'none';
+    document.getElementById('mlModeVal').value = mode;
+    ['hourly', 'fixed'].forEach(function (v) {
+      var b = document.getElementById('mlMode_' + v); if (!b) return;
+      var on = (v === mode);
+      b.style.background = on ? '#ef6c00' : 'transparent';
+      b.style.color = on ? '#fff' : 'var(--text, inherit)';
+      b.style.borderColor = on ? '#ef6c00' : 'var(--border, #ddd)';
+    });
+  }
+
   function _addLab(pid, idx) {
     ensureLabels();
     loadProjects().then(function(projects) {
       var p = projects.find(function(x) { return x.id === pid; }); if (!p) return;
-      var l = (idx >= 0) ? p.labor[idx] : { description: '', hours: 1, hourlyRate: 50, costRate: 50 };
-      document.getElementById('modalContainer').innerHTML = '<div style="' + modalBg + '"><div style="' + modalCard + '400px;">' +
+      var l = (idx >= 0) ? p.labor[idx] : { description: '', hours: 1, hourlyRate: 50, costRate: 50, priceMode: 'hourly' };
+      var mode = l.priceMode === 'fixed' ? 'fixed' : 'hourly';
+      document.getElementById('modalContainer').innerHTML = '<div style="' + modalBg + '"><div style="' + modalCard + '440px;max-height:88vh;overflow-y:auto;">' +
         '<h3 style="font-weight:700;margin-bottom:12px;">👷 ' + (idx >= 0 ? tt('עריכת עבודה','แก้ไขงาน','تعديل عمل') : tt('הוספת עבודה','เพิ่มงาน','إضافة عمل')) + '</h3><div style="display:grid;gap:10px;">' +
-        '<div><label style="' + lblS + '">' + tt('תיאור','รายละเอียด','وصف') + ' *</label><input id="mlD" value="' + (l.description || '') + '" style="' + inputS + '"></div>' +
-        '<div style="display:flex;gap:8px;"><div style="flex:1;"><label style="' + lblS + '">' + tt('שעות','ชั่วโมง','ساعات') + '</label><input id="mlH" type="number" value="' + (l.hours || 1) + '" min="0" step="0.5" style="' + inputS + '"></div>' +
-        '<div style="flex:1;"><label style="' + lblS + '">₪/' + tt('שעה (ללקוח)','ชม. (ลูกค้า)','ساعة (للعميل)') + '</label><input id="mlR" type="number" value="' + (l.hourlyRate || 50) + '" min="0" style="' + inputS + '"></div></div>' +
-        '<div><label style="' + lblS + '">₪/' + tt('שעה (עלות אמיתית)','ชม. (ต้นทุนจริง)','ساعة (التكلفة الحقيقية)') + '</label><input id="mlCR" type="number" value="' + (l.costRate || l.hourlyRate || 50) + '" min="0" style="' + inputS + '"></div>' +
+        '<div><label style="' + lblS + '">' + tt('תיאור','รายละเอียด','وصف') + ' *</label><input id="mlD" value="' + esc(l.description || '') + '" style="' + inputS + '"></div>' +
+        '<input type="hidden" id="mlModeVal" value="' + mode + '">' +
+        '<div><label style="' + lblS + '">' + tt('שיטת תמחור','วิธีคิดราคา','طريقة التسعير') + '</label>' +
+          '<div style="display:flex;gap:8px;margin-top:4px;">' +
+            _labModeBtn(mode, 'hourly', tt('לפי שעות','รายชั่วโมง','بالساعة'), '⏱') +
+            _labModeBtn(mode, 'fixed', tt('סכום קבוע','ราคาเหมา','مبلغ مقطوع'), '📦') +
+          '</div></div>' +
+
+        '<div id="mlHourly" style="display:' + (mode === 'fixed' ? 'none' : '') + ';display:grid;gap:10px;">' +
+          '<div style="display:flex;gap:8px;"><div style="flex:1;"><label style="' + lblS + '">' + tt('שעות','ชั่วโมง','ساعات') + '</label><input id="mlH" type="number" value="' + (l.hours || 1) + '" min="0" step="0.5" style="' + inputS + '"></div>' +
+          '<div style="flex:1;"><label style="' + lblS + '">₪/' + tt('שעה (ללקוח)','ชม. (ลูกค้า)','ساعة (للعميل)') + '</label><input id="mlR" type="number" value="' + (l.hourlyRate || 50) + '" min="0" style="' + inputS + '"></div></div>' +
+          '<div><label style="' + lblS + '">₪/' + tt('שעה (עלות אמיתית)','ชม. (ต้นทุนจริง)','ساعة (التكلفة الحقيقية)') + '</label><input id="mlCR" type="number" value="' + (l.costRate || l.hourlyRate || 50) + '" min="0" style="' + inputS + '"></div>' +
+        '</div>' +
+
+        '<div id="mlFixed" style="display:' + (mode === 'fixed' ? '' : 'none') + ';display:' + (mode === 'fixed' ? 'grid' : 'none') + ';gap:10px;">' +
+          '<div style="display:flex;gap:8px;">' +
+            '<div style="flex:1;"><label style="' + lblS + '">₪ ' + tt('סכום (בסיס ללקוח)','ยอดรวม (ฐานลูกค้า)','المبلغ (أساس العميل)') + '</label><input id="mlA" type="number" step="0.01" value="' + (l.amount != null ? l.amount : '') + '" min="0" style="' + inputS + '"></div>' +
+            '<div style="flex:1;"><label style="' + lblS + '">₪ ' + tt('עלות אמיתית','ต้นทุนจริง','التكلفة الفعلية') + '</label><input id="mlAC" type="number" step="0.01" value="' + (l.costAmount != null ? l.costAmount : '') + '" min="0" style="' + inputS + '"></div>' +
+          '</div>' +
+          '<div><label style="' + lblS + '">' + tt('שעות משוערות (פנימי בלבד)','ชั่วโมงประมาณ (ภายใน)','ساعات تقديرية (داخلي)') + '</label><input id="mlHF" type="number" value="' + (l.hours || '') + '" min="0" step="0.5" style="' + inputS + '"></div>' +
+          '<div style="font-size:0.72rem;color:var(--text-muted, #888);">' + tt('הלקוח יראה תיאור ומחיר בלבד — בלי שעות ובלי תעריף.','ลูกค้าเห็นเฉพาะรายละเอียดและราคา','يرى العميل الوصف والسعر فقط.') + '</div>' +
+        '</div>' +
+
         '<div style="display:flex;gap:8px;"><button onclick="Maintenance._saveLab(' + pid + ',' + (idx >= 0 ? idx : -1) + ')" style="' + btnSave + '">💾 ' + tt('שמור','บันทึก','حفظ') + '</button>' +
         '<button onclick="Maintenance.showDetail(' + pid + ')" style="' + btnCancel + '">' + tt('ביטול','ยกเลิก','إلغاء') + '</button></div></div></div></div>';
     });
   }
   function _saveLab(pid, idx) {
     var d = document.getElementById('mlD').value.trim(); if (!d) { showToast(tt('❌ חובה למלא תיאור','❌ ต้องกรอกรายละเอียด','❌ يجب إدخال الوصف')); return; }
+    var mode = document.getElementById('mlModeVal').value === 'fixed' ? 'fixed' : 'hourly';
+    var num = function (id) { var e = document.getElementById(id); return e ? (parseFloat(e.value) || 0) : 0; };
     loadProjects().then(function(ps) { var p = ps.find(function(x) { return x.id === pid; }); if (!p) return;
-      var l = { description: d, hours: parseFloat(document.getElementById('mlH').value) || 0, hourlyRate: parseFloat(document.getElementById('mlR').value) || 0, costRate: parseFloat(document.getElementById('mlCR').value) || 0 };
-      if (idx >= 0) p.labor[idx] = l; else { if (!p.labor) p.labor = []; p.labor.push(l); }
+      ensureLineIds(p);
+      var l;
+      if (mode === 'fixed') {
+        l = { description: d, priceMode: 'fixed',
+              amount: num('mlA'), costAmount: num('mlAC'),
+              hours: num('mlHF'), hourlyRate: 0, costRate: 0 };
+      } else {
+        l = { description: d, priceMode: 'hourly',
+              hours: num('mlH'), hourlyRate: num('mlR'), costRate: num('mlCR') };
+      }
+      // Keep the row's identity so an edit does not silently drop it out
+      // of whatever group it belongs to.
+      if (idx >= 0) { l._id = p.labor[idx]._id || newLineId(); p.labor[idx] = l; }
+      else { l._id = newLineId(); if (!p.labor) p.labor = []; p.labor.push(l); }
       p.updated = Date.now(); saveProjects(ps); _audit(idx >= 0 ? 'edit' : 'create', pid, { after: l, reason: 'labor · ' + (p.name || '') }); showDetail(pid);
     });
   }
   function _editLab(pid, i) { _addLab(pid, i); }
-  function _delLab(pid, i) { if (_blockDelete()) return; if (!confirm(tt('למחוק?','ลบ?','حذف؟'))) return; loadProjects().then(function(ps) { var p = ps.find(function(x) { return x.id === pid; }); if (!p) return; var before = p.labor[i]; p.labor.splice(i, 1); p.updated = Date.now(); saveProjects(ps); _audit('delete', pid, { before: before, reason: 'labor · ' + (p.name || '') }); showDetail(pid); }); }
+  function _delLab(pid, i) { if (_blockDelete()) return; if (!confirm(tt('למחוק?','ลบ?','حذف؟'))) return; loadProjects().then(function(ps) { var p = ps.find(function(x) { return x.id === pid; }); if (!p) return; var before = p.labor[i]; p.labor.splice(i, 1); pruneGroups(p); p.updated = Date.now(); saveProjects(ps); _audit('delete', pid, { before: before, reason: 'labor · ' + (p.name || '') }); showDetail(pid); }); }
 
   // ══════════════════════════════════════
   //  SHIPMENT CRUD
@@ -1154,7 +1496,10 @@ var Maintenance = (function() {
   }
   function _updateCostRate(pid, idx, val) {
     loadProjects().then(function(ps) { var p = ps.find(function(x) { return x.id === pid; }); if (!p || !p.labor[idx]) return;
-      p.labor[idx].costRate = parseFloat(val) || 0; p.updated = Date.now(); saveProjects(ps);
+      var l = p.labor[idx];
+      if (isFixedLab(l)) l.costAmount = parseFloat(val) || 0;
+      else l.costRate = parseFloat(val) || 0;
+      p.updated = Date.now(); saveProjects(ps);
     });
   }
 
@@ -1304,6 +1649,260 @@ var Maintenance = (function() {
   }
 
   // ══════════════════════════════════════
+  //  GROUPING UI
+  // ══════════════════════════════════════
+  // Selection lives in module state, not in the document, because the
+  // detail screen re-renders on every Firestore echo and a checkbox that
+  // forgets itself mid-edit is worse than no checkbox at all.
+  var _sel = { pid: null, materials: [], labor: [] };
+  function _selReset(pid) { _sel = { pid: pid, materials: [], labor: [] }; }
+  function _selHas(kind, id) { return _sel[kind].indexOf(id) >= 0; }
+  function _selCount() { return _sel.materials.length + _sel.labor.length; }
+  function _toggleSel(pid, kind, id) {
+    if (_sel.pid !== pid) _selReset(pid);
+    var a = _sel[kind], i = a.indexOf(id);
+    if (i >= 0) a.splice(i, 1); else a.push(id);
+    showDetail(pid);
+  }
+  function _clearSel(pid) { _selReset(pid); showDetail(pid); }
+
+  // Open the composer for a new group (from the current selection) or for
+  // an existing one (gid given).
+  function _groupModal(pid, gid) {
+    ensureLabels();
+    loadProjects().then(function (projects) {
+      var p = projects.find(function (x) { return x.id === pid; }); if (!p) return;
+      ensureLineIds(p);
+      var g = gid ? groupById(p, gid) : null;
+      var members = g ? (g.members || []).slice()
+                      : _sel.materials.map(function (id) { return { kind: 'materials', id: id }; })
+                          .concat(_sel.labor.map(function (id) { return { kind: 'labor', id: id }; }));
+      if (members.length < 2 && !g) {
+        showToast(tt('סמן לפחות שתי שורות', 'เลือกอย่างน้อยสองรายการ', 'حدد سطرين على الأقل'));
+        return;
+      }
+      var f = upliftFactor(p);
+      var sum = 0, rows = '';
+      members.forEach(function (mem) {
+        var line = findLine(p, mem.kind, mem.id);
+        if (!line) return;
+        var raw = mem.kind === 'materials' ? rawMat(line) : rawLab(line);
+        var cl = clientLine(raw, f);
+        sum += cl;
+        rows += '<div style="display:flex;justify-content:space-between;gap:8px;padding:4px 0;border-bottom:1px solid var(--border, #eee);font-size:0.8rem;">' +
+          '<span>' + (mem.kind === 'materials' ? '📦 ' : '👷 ') + (line.name || line.description || '') + '</span>' +
+          '<span style="white-space:nowrap;">₪' + fmt(cl) + '</span></div>';
+      });
+      sum = round2(sum);
+      var priceVal = (g && g.price !== null && g.price !== undefined && g.price !== '') ? g.price : '';
+      document.getElementById('modalContainer').innerHTML =
+        '<div style="' + modalBg + '"><div style="' + modalCard + '460px;max-height:88vh;overflow-y:auto;">' +
+        '<h3 style="font-weight:700;margin-bottom:4px;">🧩 ' + (g ? tt('עריכת קיבוץ', 'แก้ไขกลุ่ม', 'تعديل التجميع') : tt('קיבוץ שורות', 'จัดกลุ่มรายการ', 'تجميع البنود')) + '</h3>' +
+        '<div style="font-size:0.75rem;color:var(--text-muted, #888);margin-bottom:12px;">' +
+          tt('הלקוח יראה שורה אחת. הפירוט המקורי נשמר ומופיע בדוח הפנימי בלבד.',
+             'ลูกค้าจะเห็นบรรทัดเดียว รายละเอียดเดิมยังคงอยู่ในรายงานภายใน',
+             'سيرى العميل سطراً واحداً. يبقى التفصيل الأصلي في التقرير الداخلي فقط.') + '</div>' +
+        '<div style="display:grid;gap:10px;">' +
+        '<div><label style="' + lblS + '">' + tt('שם השורה המסכמת', 'ชื่อรายการรวม', 'اسم البند المجمّع') + ' *</label>' +
+          '<input id="mgName" value="' + esc(g ? (g.name || '') : '') + '" placeholder="' +
+          tt('למשל: מבנה פלדה — אספקה והרכבה', 'เช่น: โครงเหล็ก', 'مثال: هيكل فولاذي') + '" style="' + inputS + '"></div>' +
+        '<div style="display:flex;gap:8px;">' +
+          '<div style="flex:1;"><label style="' + lblS + '">' + tt('כמות', 'จำนวน', 'الكمية') + '</label>' +
+            '<input id="mgQty" value="' + esc(g && g.qty != null ? String(g.qty) : '1') + '" style="' + inputS + '"></div>' +
+          '<div style="flex:1;"><label style="' + lblS + '">' + tt('יחידה', 'หน่วย', 'الوحدة') + '</label>' +
+            '<input id="mgUnit" value="' + esc(g ? (g.unitLabel || '') : '') + '" placeholder="' + tt('קומפלט', 'ชุด', 'مقطوعية') + '" style="' + inputS + '"></div>' +
+        '</div>' +
+        '<div><label style="' + lblS + '">' + tt('מחיר ללקוח (לפני מע"מ)', 'ราคาลูกค้า (ก่อน VAT)', 'سعر العميل (قبل الضريبة)') + '</label>' +
+          '<input id="mgPrice" type="number" step="0.01" min="0" value="' + priceVal + '" placeholder="' + fmt(sum) + '" style="' + inputS + '"></div>' +
+        '<div style="font-size:0.72rem;color:var(--text-muted, #888);margin-top:-4px;">' +
+          tt('ריק = סכום השורות המקוריות (₪', 'ว่าง = ผลรวมรายการเดิม (₪', 'فارغ = مجموع البنود الأصلية (₪') + fmt(sum) + ')' + ' · ' +
+          tt('מחיר שתקליד כאן הוא המחיר הסופי — הרווח כבר בתוכו.',
+             'ราคาที่กรอกคือราคาสุดท้าย รวมกำไรแล้ว',
+             'السعر المُدخل هو السعر النهائي، شامل الربح.') + '</div>' +
+        '<div><label style="' + lblS + '">' + tt('הערה (מודפסת מתחת לשורה)', 'หมายเหตุ', 'ملاحظة') + '</label>' +
+          '<input id="mgNote" value="' + esc(g ? (g.note || '') : '') + '" style="' + inputS + '"></div>' +
+        '<div><div style="' + lblS + 'margin-bottom:4px;">' + tt('שורות מקובצות', 'รายการในกลุ่ม', 'البنود المجمّعة') + ' (' + members.length + ')</div>' +
+          '<div style="max-height:150px;overflow-y:auto;background:var(--surface-glass, #f5f7f5);border-radius:8px;padding:8px;">' + rows + '</div></div>' +
+        '<div style="display:flex;gap:8px;">' +
+          '<button onclick="Maintenance._saveGroup(' + pid + ',' + (g ? "'" + g.id + "'" : 'null') + ')" style="' + btnSave + '">💾 ' + tt('שמור', 'บันทึก', 'حفظ') + '</button>' +
+          (g ? '<button onclick="Maintenance._ungroup(' + pid + ",'" + g.id + '\')" style="flex:1;padding:10px;border-radius:10px;border:1px solid #f44336;background:transparent;color:#f44336;font-family:inherit;font-weight:700;cursor:pointer;">🔓 ' + tt('פרק', 'แยก', 'فك') + '</button>' : '') +
+          '<button onclick="Maintenance.showDetail(' + pid + ')" style="' + btnCancel + '">' + tt('ביטול', 'ยกเลิก', 'إلغاء') + '</button>' +
+        '</div></div></div></div>';
+      window._mgMembers = members;
+    });
+  }
+
+  function _saveGroup(pid, gid) {
+    var name = document.getElementById('mgName').value.trim();
+    if (!name) { showToast(tt('❌ חובה לתת שם', '❌ ต้องระบุชื่อ', '❌ يجب إدخال اسم')); return; }
+    var members = window._mgMembers || [];
+    var rawPrice = document.getElementById('mgPrice').value;
+    loadProjects().then(function (ps) {
+      var p = ps.find(function (x) { return x.id === pid; }); if (!p) return;
+      ensureLineIds(p);
+      if (!p.groups) p.groups = [];
+      var g = gid ? groupById(p, gid) : null;
+      if (!g) { g = { id: 'g' + Date.now().toString(36) }; p.groups.push(g); }
+      g.name = name;
+      g.qty = document.getElementById('mgQty').value.trim();
+      g.unitLabel = document.getElementById('mgUnit').value.trim();
+      g.note = document.getElementById('mgNote').value.trim();
+      g.price = (rawPrice === '' ? null : (parseFloat(rawPrice) || 0));
+      g.members = members;
+      // A row may only belong to one group; joining a new one leaves the old.
+      p.groups.forEach(function (o) {
+        if (o === g) return;
+        o.members = (o.members || []).filter(function (m) {
+          return !members.some(function (n) { return n.kind === m.kind && n.id === m.id; });
+        });
+      });
+      pruneGroups(p);
+      p.updated = Date.now(); saveProjects(ps);
+      _audit(gid ? 'edit' : 'create', pid, { after: { group: g.name, lines: members.length, price: g.price }, reason: 'group · ' + (p.name || '') });
+      _selReset(pid);
+      showToast(tt('✅ קובץ', '✅ จัดกลุ่มแล้ว', '✅ تم التجميع'));
+      showDetail(pid);
+    });
+  }
+
+  function _ungroup(pid, gid) {
+    loadProjects().then(function (ps) {
+      var p = ps.find(function (x) { return x.id === pid; }); if (!p) return;
+      var g = groupById(p, gid);
+      p.groups = (p.groups || []).filter(function (x) { return String(x.id) !== String(gid); });
+      p.updated = Date.now(); saveProjects(ps);
+      _audit('delete', pid, { before: { group: g && g.name }, reason: 'group · ' + (p.name || '') });
+      showToast(tt('🔓 פורק', '🔓 แยกแล้ว', '🔓 تم الفك'));
+      showDetail(pid);
+    });
+  }
+
+  // ══════════════════════════════════════
+  //  ILLUSTRATION ANNOTATIONS
+  // ══════════════════════════════════════
+  // Callouts are stored as percentages of the illustration box, never as
+  // SVG user units: the drawing arrives from buildplan with whatever
+  // viewBox it happens to have, and it is scaled differently on screen and
+  // on paper. Percentages survive both.
+  function annotationsOf(p) { return (p && p.illustrationNotes) || []; }
+
+  // Markers + numbered legend, shared by the editor, the quote and the
+  // internal report. `scale` shrinks the marker for print.
+  function annotatedIllustration(p, opts) {
+    opts = opts || {};
+    if (!p || !p.illustration) return '';
+    var notes = annotationsOf(p);
+    var dots = '';
+    notes.forEach(function (a, i) {
+      dots += '<div style="position:absolute;left:' + a.x + '%;top:' + a.y + '%;' +
+        'transform:translate(-50%,-50%);width:22px;height:22px;border-radius:50%;' +
+        'background:#1c8c7a;color:#fff;font-weight:800;font-size:0.72rem;' +
+        'display:flex;align-items:center;justify-content:center;' +
+        'border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.35);' +
+        (opts.click ? 'cursor:move;' : 'pointer-events:none;') + '">' + (i + 1) + '</div>';
+    });
+    var legend = '';
+    if (notes.length) {
+      legend = '<ol style="margin:10px 0 0;padding-inline-start:20px;font-size:.8rem;color:#33505c;line-height:1.55;">';
+      notes.forEach(function (a) {
+        legend += '<li><strong>' + esc(a.title || '') + '</strong>' +
+                  (a.text ? ' — ' + esc(a.text) : '') + '</li>';
+      });
+      legend += '</ol>';
+    }
+    return '<div style="position:relative;display:block;"' +
+             (opts.click ? ' id="annCanvas" onclick="Maintenance._annClick(event,' + p.id + ')"' : '') + '>' +
+             p.illustration + dots +
+           '</div>' + legend;
+  }
+
+  function illustrationBlock(p) {
+    if (!p || !p.illustration) return '';
+    return '<div style="margin:14px 0;padding:10px;border:1px solid #ddd;border-radius:8px;break-inside:avoid;">' +
+      '<div style="font-size:.8rem;color:#555;margin-bottom:6px;">' +
+        tt('איור להמחשה', 'ภาพประกอบ', 'رسم توضيحي') +
+        (p.buildProjectName ? ' \u00b7 ' + p.buildProjectName : '') + '</div>' +
+      annotatedIllustration(p) +
+      '</div>';
+  }
+
+  function _annEditor(pid) {
+    ensureLabels();
+    loadProjects().then(function (projects) {
+      var p = projects.find(function (x) { return x.id === pid; }); if (!p) return;
+      if (!p.illustration) { showToast(tt('אין איור לפרויקט', 'ไม่มีภาพประกอบ', 'لا يوجد رسم')); return; }
+      var notes = annotationsOf(p);
+      var list = '';
+      notes.forEach(function (a, i) {
+        list += '<div style="display:flex;gap:6px;align-items:flex-start;padding:6px 0;border-bottom:1px solid var(--border, #eee);">' +
+          '<span style="flex:0 0 22px;height:22px;border-radius:50%;background:#1c8c7a;color:#fff;font-weight:800;font-size:0.72rem;display:flex;align-items:center;justify-content:center;">' + (i + 1) + '</span>' +
+          '<div style="flex:1;display:grid;gap:4px;">' +
+            '<input id="an_t_' + i + '" value="' + esc(a.title || '') + '" placeholder="' + tt('כותרת', 'หัวข้อ', 'عنوان') + '" style="' + inputS + 'padding:5px 8px;font-size:0.82rem;">' +
+            '<input id="an_x_' + i + '" value="' + esc(a.text || '') + '" placeholder="' + tt('הסבר קצר ללקוח', 'คำอธิบายสั้น', 'شرح قصير') + '" style="' + inputS + 'padding:5px 8px;font-size:0.82rem;">' +
+          '</div>' +
+          '<button onclick="Maintenance._annDel(' + pid + ',' + i + ')" style="border:none;background:none;cursor:pointer;font-size:1rem;">🗑️</button>' +
+        '</div>';
+      });
+      document.getElementById('modalContainer').innerHTML =
+        '<div style="' + modalBg + '"><div style="' + modalCard + '620px;max-height:90vh;overflow-y:auto;">' +
+        '<h3 style="font-weight:700;margin-bottom:4px;">🖍️ ' + tt('הסברים על האיור', 'คำอธิบายบนภาพ', 'شروحات على الرسم') + '</h3>' +
+        '<div style="font-size:0.75rem;color:var(--text-muted, #888);margin-bottom:10px;">' +
+          tt('לחץ על האיור כדי להוסיף סימון ממוספר, ואז כתוב לו כותרת והסבר. הסימונים יופיעו בהצעת המחיר ובדוח הפנימי.',
+             'คลิกบนภาพเพื่อเพิ่มหมายเลข แล้วใส่หัวข้อและคำอธิบาย',
+             'انقر على الرسم لإضافة علامة مرقّمة ثم اكتب لها عنواناً وشرحاً.') + '</div>' +
+        '<div style="background:#fff;border:1px solid var(--border, #ddd);border-radius:10px;padding:8px;">' +
+          annotatedIllustration(p, { click: true }) +
+        '</div>' +
+        (notes.length ? '<div style="margin-top:12px;">' + list + '</div>'
+                      : '<div style="text-align:center;color:var(--text-muted, #999);padding:12px;font-size:0.85rem;">' + tt('אין עדיין הסברים', 'ยังไม่มีคำอธิบาย', 'لا شروحات بعد') + '</div>') +
+        '<div style="display:flex;gap:8px;margin-top:12px;">' +
+          '<button onclick="Maintenance._annSave(' + pid + ')" style="' + btnSave + '">💾 ' + tt('שמור', 'บันทึก', 'حفظ') + '</button>' +
+          '<button onclick="Maintenance.showDetail(' + pid + ')" style="' + btnCancel + '">' + tt('סגור', 'ปิด', 'إغلاق') + '</button>' +
+        '</div></div></div>';
+    });
+  }
+
+  // Reads the inputs before mutating, so a click-to-add never discards text
+  // the user has already typed into the rows above it.
+  function _annCollect() {
+    var out = [], i = 0;
+    while (document.getElementById('an_t_' + i)) {
+      out.push({ title: document.getElementById('an_t_' + i).value,
+                 text: document.getElementById('an_x_' + i).value });
+      i++;
+    }
+    return out;
+  }
+  function _annApply(pid, mutate, thenEdit) {
+    var typed = _annCollect();
+    loadProjects().then(function (ps) {
+      var p = ps.find(function (x) { return x.id === pid; }); if (!p) return;
+      var notes = annotationsOf(p).slice();
+      typed.forEach(function (t, i) { if (notes[i]) { notes[i].title = t.title; notes[i].text = t.text; } });
+      notes = mutate(notes) || notes;
+      p.illustrationNotes = notes;
+      p.updated = Date.now(); saveProjects(ps);
+      if (thenEdit) _annEditor(pid); else showDetail(pid);
+    });
+  }
+  function _annClick(ev, pid) {
+    var box = document.getElementById('annCanvas'); if (!box) return;
+    var r = box.getBoundingClientRect();
+    if (!r.width || !r.height) return;
+    var x = round2(((ev.clientX - r.left) / r.width) * 100);
+    var y = round2(((ev.clientY - r.top) / r.height) * 100);
+    if (x < 0 || x > 100 || y < 0 || y > 100) return;
+    _annApply(pid, function (notes) { notes.push({ x: x, y: y, title: '', text: '' }); return notes; }, true);
+  }
+  function _annDel(pid, i) {
+    _annApply(pid, function (notes) { notes.splice(i, 1); return notes; }, true);
+  }
+  function _annSave(pid) {
+    _annApply(pid, function (notes) { return notes; }, false);
+    showToast(tt('✅ נשמר', '✅ บันทึกแล้ว', '✅ تم الحفظ'));
+  }
+
+  // ══════════════════════════════════════
   //  PDF EXPORTS
   // ══════════════════════════════════════
   var pdfCss = '@page{margin:14mm}*{-webkit-print-color-adjust:exact;print-color-adjust:exact}body{font-family:-apple-system,"Segoe UI",Arial,sans-serif;color:#10303f;direction:rtl;line-height:1.6;margin:0;--accent:#1c6e8c;--accent-strong:#0d3b53;--accent-soft:#eaf3f7;--line:#d8e8ee}.header{position:relative;padding:30px 32px 28px;margin-bottom:22px;overflow:hidden;background:linear-gradient(180deg,#f4fafc,#ffffff 80%);border-bottom:1px solid var(--line)}.header h1{font-size:1.45rem;margin:0 0 4px;color:var(--accent-strong);font-weight:800;letter-spacing:-.01em}.header .meta{font-size:.85rem;color:#5b7886}.header::after{content:"";position:absolute;left:0;right:0;bottom:0;height:10px;background:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27120%27%20height%3D%2712%27%20viewBox%3D%270%200%20120%2012%27%3E%3Cpath%20d%3D%27M0%207%20Q15%201%2030%207%20T60%207%20T90%207%20T120%207%27%20fill%3D%27none%27%20stroke%3D%27%237fb8cf%27%20stroke-width%3D%272%27%2F%3E%3C%2Fsvg%3E") repeat-x bottom;background-size:auto 10px;opacity:.55}.brandmark{position:absolute;top:22px;left:30px;height:56px;width:auto;opacity:.24}.content{padding:0 26px}.section{font-size:.8rem;font-weight:800;letter-spacing:.03em;margin:22px 0 8px;padding:7px 12px;border-radius:8px;color:var(--accent-strong);background:var(--accent-soft);border-right:4px solid var(--accent)}table{width:100%;border-collapse:collapse;font-size:.85rem;margin-bottom:14px}th{padding:9px 10px;text-align:right;font-weight:700;font-size:.76rem;color:var(--accent-strong);background:var(--accent-soft);border-bottom:2px solid var(--line)}td{padding:8px 10px;border-bottom:1px solid var(--line)}tr:nth-child(even) td{background:#f7fbfd}tfoot td{font-weight:800;border-top:2px solid var(--accent);background:#fff}.summary{background:linear-gradient(180deg,var(--accent-soft),#ffffff);border:1px solid var(--line);border-radius:14px;padding:18px;margin:20px 0}.sr{display:flex;justify-content:space-between;padding:5px 0;font-size:.92rem;color:#284b59}.st{font-size:1.25rem;font-weight:800;border-top:2px solid var(--accent);padding-top:9px;margin-top:8px;color:var(--accent-strong)}.footer{text-align:center;padding:18px;margin-top:22px;font-size:.78rem;color:#6c8a97;border-top:1px solid var(--line)}.field{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line);font-size:.9rem}.field-label{color:#5b7886}.field-value{font-weight:600;color:var(--accent-strong)}.watermark{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-28deg);font-size:5rem;opacity:.05;font-weight:900;color:var(--accent-strong);pointer-events:none;z-index:0}';
@@ -1329,20 +1928,6 @@ var Maintenance = (function() {
       document.body.removeChild(a);
       URL.revokeObjectURL(a.href);
     }, 100);
-  }
-
-  // Quote PDF (client-facing)
-  // Rendered into both documents when the project came from a build plan.
-  // Scaled down and given a caption, so it reads as an illustration of the
-  // scope rather than a construction drawing the client should build from.
-  function illustrationBlock(p) {
-    if (!p || !p.illustration) return '';
-    return '<div style="margin:14px 0;padding:10px;border:1px solid #ddd;border-radius:8px;">' +
-      '<div style="font-size:.8rem;color:#555;margin-bottom:6px;">' +
-        tt('איור להמחשה', 'ภาพประกอบ', 'رسم توضيحي') +
-        (p.buildProjectName ? ' \u00b7 ' + p.buildProjectName : '') + '</div>' +
-      p.illustration +
-      '</div>';
   }
 
   function _quotePDF(pid) {
@@ -1376,33 +1961,57 @@ var Maintenance = (function() {
         validity:   tt('הצעה תקפה ל-30 יום. מחירים אינם כוללים שינויים שלא סוכמו מראש.',
                        'ใบเสนอราคามีอายุ 30 วัน ราคานี้ไม่รวมการเปลี่ยนแปลงที่ไม่ได้ตกลงล่วงหน้า',
                        'العرض ساري لمدة 30 يوماً. الأسعار لا تشمل تغييرات لم يُتفق عليها مسبقاً.'),
+        grouped:    tt('עבודות ופריטים','งานและรายการ','أعمال وبنود'),
+        totGrouped: tt('סה"כ','รวม','المجموع'),
         brand:      tt('שורשים פלוס','ชอราชิม พลัส','شوراشيم بلس')
       };
       // The client sees ONE price per line — cost with the margin already
       // inside it. The margin is a business decision, not a line item, and
       // printing it invites the customer to negotiate it away.
-      var f = tot.upliftFactor;
-      var matR = ''; (p.materials || []).forEach(function(m, i) {
-        var raw = (m.quantity||0)*(m.unitPrice||0);
-        var lineTot = clientLine(raw, f);
-        var unitC = (m.quantity||0) > 0 ? (lineTot / m.quantity) : ((m.unitPrice||0) * f);
-        matR += '<tr><td>' + (i+1) + '</td><td>' + m.name + '</td><td>' + m.quantity + ' ' + (m.unit||'') + '</td><td>₪' + fmt(unitC) + '</td><td style="font-weight:700;">₪' + fmt(lineTot) + '</td></tr>';
-      });
-      var labR = ''; (p.labor || []).forEach(function(l, i) {
-        var raw = (l.hours||0)*(l.hourlyRate||0);
-        var lineTot = clientLine(raw, f);
-        var rateC = (l.hours||0) > 0 ? (lineTot / l.hours) : ((l.hourlyRate||0) * f);
-        labR += '<tr><td>' + (i+1) + '</td><td>' + l.description + '</td><td>' + l.hours + ' ' + L.hours + '</td><td>₪' + fmt(rateC) + '</td><td style="font-weight:700;">₪' + fmt(lineTot) + '</td></tr>';
-      });
+      //
+      // Rows come from quoteModel, so grouped lines have already collapsed
+      // into their summary row and fixed-price labour has already dropped
+      // its hour count. Nothing here decides what to hide; it only prints
+      // what the model says is client-facing.
+      var qm = tot.model;
+      function rowHtml(r, n, showRate) {
+        var qty = r.qtyText ? (r.qtyText + (r.unitText ? ' ' + r.unitText : '')) : '—';
+        return '<tr><td>' + n + '</td><td>' + esc(r.label) +
+          (r.note ? '<div style="font-size:.74rem;color:#6c8a97;margin-top:2px;">' + esc(r.note) + '</div>' : '') +
+          '</td><td>' + qty + '</td>' +
+          (showRate ? '<td>' + (r.unitPrice != null ? '₪' + fmt(r.unitPrice) : '—') + '</td>' : '') +
+          '<td style="font-weight:700;">₪' + fmt(r.total) + '</td></tr>';
+      }
+      // A rate column is only honest when every row in the section has one.
+      // With a lump sum or a grouped line in the mix the column would be
+      // half dashes, so it is dropped and the section prints description
+      // and price — which is the whole point of the two features.
+      var matRate = (qm.materials || []).every(function (r) { return !r.isGroup; });
+      var labRate = (qm.labor || []).every(function (r) { return !r.isGroup && !r.fixed; });
+      var matR = ''; (qm.materials || []).forEach(function (r, i) { matR += rowHtml(r, i + 1, matRate); });
+      var labR = ''; (qm.labor || []).forEach(function (r, i) { labR += rowHtml(r, i + 1, labRate); });
+      var mixR = ''; (qm.mixed || []).forEach(function (r, i) { mixR += rowHtml(r, i + 1, false); });
+
+      function sectionTable(title, icon, rows, showRate, firstCol, footLabel, footVal) {
+        if (!rows) return '';
+        var cols = showRate ? 5 : 4;
+        return '<div class="section">' + icon + ' ' + title + '</div><table><thead><tr>' +
+          '<th>#</th><th>' + firstCol + '</th><th>' + L.qty + '</th>' +
+          (showRate ? '<th>' + L.rate + '</th>' : '') +
+          '<th>' + L.total + '</th></tr></thead><tbody>' + rows +
+          '</tbody><tfoot><tr><td colspan="' + (cols - 1) + '">' + footLabel + '</td><td>₪' + fmt(footVal) + '</td></tr></tfoot></table>';
+      }
       var html = '<!DOCTYPE html><html dir="' + dirA + '" lang="' + lang + '"><head><meta charset="utf-8"><title>' + L.title + ' — ' + p.name + '</title><style>' + pdfCss + 'body{--accent:#1c8c7a;--accent-strong:#0d4f4a;--accent-soft:#e6f4f0}</style></head><body>' +
         '<div class="header"><img src="' + window.OGEN_LOGO + '" alt="OGEN" class="brandmark"><h1>🔧 ' + L.title + '</h1><div class="meta">' + p.name + (p.client ? ' · ' + L.forCust + ': ' + p.client : '') + ' · ' + today + '</div></div><div class="content">' +
-        (p.description ? '<div style="font-size:.88rem;color:var(--text-muted, #555);margin-bottom:14px;">' + p.description + '</div>' : '') +
+        ((p.quoteIntro || p.description) ? '<div style="background:var(--accent-soft);border-inline-start:4px solid var(--accent);border-radius:10px;padding:12px 14px;margin-bottom:16px;font-size:.9rem;line-height:1.65;white-space:pre-line;color:#28444f;">' + esc(p.quoteIntro || p.description) + '</div>' : '') +
         illustrationBlock(p) +
-        ((p.materials||[]).length ? '<div class="section">📦 ' + L.materials + '</div><table><thead><tr><th>#</th><th>' + L.item + '</th><th>' + L.qty + '</th><th>' + L.unitPrice + '</th><th>' + L.total + '</th></tr></thead><tbody>' + matR + '</tbody><tfoot><tr><td colspan="4">' + L.totMat + '</td><td>₪' + fmt(tot.materialsTotal) + '</td></tr></tfoot></table>' : '') +
-        ((p.labor||[]).length ? '<div class="section">👷 ' + L.labor + '</div><table><thead><tr><th>#</th><th>' + L.desc + '</th><th>' + L.qty + '</th><th>' + L.rate + '</th><th>' + L.total + '</th></tr></thead><tbody>' + labR + '</tbody><tfoot><tr><td colspan="4">' + L.totLab + '</td><td>₪' + fmt(tot.laborTotal) + '</td></tr></tfoot></table>' : '') +
+        sectionTable(L.materials, '📦', matR, matRate, L.item, L.totMat, tot.materialsTotal) +
+        sectionTable(L.labor, '👷', labR, labRate, L.desc, L.totLab, tot.laborTotal) +
+        sectionTable(L.grouped, '🧩', mixR, false, L.desc, L.totGrouped, tot.groupsTotal) +
         '<div class="summary"><div style="font-weight:700;margin-bottom:8px;">💰 ' + L.summary + '</div>' +
-          '<div class="sr"><span>' + L.materials + '</span><span>₪' + fmt(tot.materialsTotal) + '</span></div>' +
-          '<div class="sr"><span>' + L.labor + '</span><span>₪' + fmt(tot.laborTotal) + '</span></div>' +
+          (matR ? '<div class="sr"><span>' + L.materials + '</span><span>₪' + fmt(tot.materialsTotal) + '</span></div>' : '') +
+          (labR ? '<div class="sr"><span>' + L.labor + '</span><span>₪' + fmt(tot.laborTotal) + '</span></div>' : '') +
+          (tot.groupsTotal ? '<div class="sr"><span>' + L.grouped + '</span><span>₪' + fmt(tot.groupsTotal) + '</span></div>' : '') +
           '<div class="sr"><span>' + L.beforeVat + '</span><span>₪' + fmt(tot.beforeVat) + '</span></div>' +
           (p.includeVat ? '<div class="sr"><span>' + L.vat + '</span><span>₪' + fmt(tot.vat) + '</span></div>' : '') +
           '<div class="sr st"><span>' + L.grandTot + '</span><span>₪' + fmt(tot.total) + '</span></div></div>' +
@@ -1469,14 +2078,61 @@ var Maintenance = (function() {
         totRealCost: tt('סה"כ עלות אמיתית','รวมต้นทุนจริง','إجمالي التكلفة الفعلية'),
         offerBVat:   tt('הצעה ללקוח (לפני מע"מ)','ใบเสนอราคา (ก่อน VAT)','عرض السعر (قبل الضريبة)'),
         profit:      tt('רווח','กำไร','ربح'),
+        grpTitle:    tt('🧩 מה הלקוח רואה מול מה שמאחורי הקלעים','🧩 สิ่งที่ลูกค้าเห็น','🧩 ما يراه العميل مقابل التفصيل'),
+        grpSum:      tt('סכום השורות המקוריות','ผลรวมรายการเดิม','مجموع البنود الأصلية'),
+        grpQuoted:   tt('מחיר שמוצג ללקוח','ราคาที่แสดงต่อลูกค้า','السعر المعروض للعميل'),
         brand:       tt('שורשים פלוס — פנימי בלבד','ชอราชิม พลัส — ภายในเท่านั้น','شوراشيم بلس — داخلي فقط')
       };
       var matR = ''; (p.materials || []).forEach(function(m, i) {
         matR += '<tr><td>' + (i+1) + '</td><td>' + m.name + '</td><td>' + m.quantity + ' ' + (m.unit||'') + '</td><td>₪' + fmt(m.unitPrice) + '</td><td>₪' + fmt(m.costPrice || m.unitPrice) + '</td><td style="font-weight:700;">₪' + fmt((m.quantity||0) * (m.costPrice || m.unitPrice || 0)) + '</td></tr>';
       });
+      // The internal report is the one place where a fixed-price line is
+      // opened up: the lump sum, its real cost, and the hours behind it if
+      // any were recorded. That is the estimate the client never sees.
       var labR = ''; (p.labor || []).forEach(function(l, i) {
-        labR += '<tr><td>' + (i+1) + '</td><td>' + l.description + '</td><td>' + l.hours + ' ' + L.hours + '</td><td>₪' + fmt(l.hourlyRate) + '</td><td>₪' + fmt(l.costRate || l.hourlyRate) + '</td><td style="font-weight:700;">₪' + fmt((l.hours||0) * (l.costRate || l.hourlyRate || 0)) + '</td></tr>';
+        var fixed = isFixedLab(l);
+        labR += '<tr><td>' + (i+1) + '</td><td>' + esc(l.description) +
+          (fixed ? ' <span style="font-size:.72rem;color:#b06a00;">(' + tt('סכום קבוע','เหมา','مقطوع') + ')</span>' : '') +
+          '</td><td>' + (fixed ? (l.hours ? l.hours + ' ' + L.hours : '—') : l.hours + ' ' + L.hours) + '</td>' +
+          '<td>' + (fixed ? '₪' + fmt(rawLab(l)) : '₪' + fmt(l.hourlyRate)) + '</td>' +
+          '<td>' + (fixed ? '₪' + fmt(costLab(l)) : '₪' + fmt(l.costRate || l.hourlyRate)) + '</td>' +
+          '<td style="font-weight:700;">₪' + fmt(costLab(l)) + '</td></tr>';
       });
+
+      // What the client will read, next to what it is actually made of.
+      // Groups only change presentation, so the original bill of quantities
+      // stays whole above and the mapping is spelled out here.
+      function groupBreakdown() {
+        if (!groupsOf(p).length) return '';
+        var qm = calcProject(p).model, out = '';
+        groupsOf(p).forEach(function (g) {
+          var row = null;
+          ['materials', 'labor', 'mixed'].forEach(function (k) {
+            (qm[k] || []).forEach(function (r) { if (r.isGroup && String(r.id) === String(g.id)) row = r; });
+          });
+          if (!row) return;
+          var memRows = '', cost = 0;
+          (row.members || []).forEach(function (mem) {
+            var line = findLine(p, mem.kind, mem.id); if (!line) return;
+            var c = mem.kind === 'materials' ? costMat(line) : costLab(line);
+            cost += c;
+            memRows += '<tr><td>' + (mem.kind === 'materials' ? '📦' : '👷') + '</td><td>' +
+              esc(line.name || line.description || '') + '</td><td>' +
+              (mem.kind === 'materials' ? (line.quantity + ' ' + (line.unit || '')) : (isFixedLab(line) ? '—' : line.hours + ' ' + L.hours)) +
+              '</td><td>₪' + fmt(clientLine(mem.kind === 'materials' ? rawMat(line) : rawLab(line), qm.f)) +
+              '</td><td>₪' + fmt(c) + '</td></tr>';
+          });
+          out += '<div class="section">🧩 ' + esc(row.label) + '</div>' +
+            '<table><thead><tr><th></th><th>' + L.desc + '</th><th>' + L.qty + '</th><th>' + L.priceCust + '</th><th>' + L.realCost + '</th></tr></thead><tbody>' +
+            memRows + '</tbody><tfoot>' +
+            '<tr><td colspan="3">' + L.grpSum + '</td><td>₪' + fmt(row.memberSum) + '</td><td>₪' + fmt(cost) + '</td></tr>' +
+            (row.overridden ? '<tr><td colspan="3">' + L.grpQuoted + '</td><td colspan="2">₪' + fmt(row.total) +
+               ' <span style="font-weight:400;color:#6c8a97;">(' + (row.total - row.memberSum >= 0 ? '+' : '') + fmt(row.total - row.memberSum) + ')</span></td></tr>' : '') +
+            '</tfoot></table>' +
+            (row.note ? '<div style="font-size:.8rem;color:#6c8a97;margin:-8px 0 12px;">' + esc(row.note) + '</div>' : '');
+        });
+        return '<div class="section" style="background:#fff3e0;border-color:#ef6c00;">' + L.grpTitle + '</div>' + out;
+      }
       var profitColor = ic.profit >= 0 ? '#1b7a6b' : '#b85c52';
       var html = '<!DOCTYPE html><html dir="' + dirA + '" lang="' + lang + '"><head><meta charset="utf-8"><title>' + L.title + ' — ' + p.name + '</title><style>' + pdfCss + 'body{--accent:#37708a;--accent-strong:#12303f;--accent-soft:#eaf1f5}.st{color:' + profitColor + ';border-color:' + profitColor + '}</style></head><body>' +
         '<div class="watermark">' + L.internal + '</div>' +
@@ -1484,6 +2140,7 @@ var Maintenance = (function() {
         illustrationBlock(p) +
         ((p.materials||[]).length ? '<div class="section">📦 ' + L.matsCompare + '</div><table><thead><tr><th>#</th><th>' + L.item + '</th><th>' + L.qty + '</th><th>' + L.priceCust + '</th><th>' + L.realCost + '</th><th>' + L.totCost + '</th></tr></thead><tbody>' + matR + '</tbody><tfoot><tr><td colspan="5">' + L.totMatCost + '</td><td>₪' + fmt(ic.materialsCost) + '</td></tr></tfoot></table>' : '') +
         ((p.labor||[]).length ? '<div class="section">👷 ' + L.labCompare + '</div><table><thead><tr><th>#</th><th>' + L.desc + '</th><th>' + L.hours + '</th><th>' + L.ratePerHCust + '</th><th>' + L.ratePerHReal + '</th><th>' + L.totCost + '</th></tr></thead><tbody>' + labR + '</tbody><tfoot><tr><td colspan="5">' + L.totLabCost + '</td><td>₪' + fmt(ic.laborCost) + '</td></tr></tfoot></table>' : '') +
+        groupBreakdown() +
         '<div class="summary"><div style="font-weight:700;margin-bottom:8px;">📊 ' + L.profitAna + '</div>' +
           '<div class="sr"><span>' + L.totRealCost + '</span><span>₪' + fmt(ic.totalCost) + '</span></div>' +
           '<div class="sr"><span>' + L.offerBVat + '</span><span>₪' + fmt(ic.clientBeforeVat) + '</span></div>' +
@@ -1651,5 +2308,10 @@ var Maintenance = (function() {
     importFromBuild: importFromBuild, _doImport: _doImport,
     showHistory: showHistory,
     _quotePDF: _quotePDF, _shipPDF: _shipPDF, _internalPDF: _internalPDF, _invoicesPDF: _invoicesPDF, _contractPDF: _contractPDF,
+    // grouping, non-hourly labour and illustration callouts
+    _toggleSel: _toggleSel, _clearSel: _clearSel,
+    _groupModal: _groupModal, _saveGroup: _saveGroup, _ungroup: _ungroup,
+    _setLabMode: _setLabMode,
+    _annEditor: _annEditor, _annClick: _annClick, _annDel: _annDel, _annSave: _annSave,
   };
 })();

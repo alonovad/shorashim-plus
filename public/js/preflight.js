@@ -13,7 +13,24 @@
 const fs = require('fs');
 const path = require('path');
 
-const ROOT = __dirname;
+function findRepoRoot(start) {
+  let d = start;
+  for (let i = 0; i < 6; i++) {
+    if (fs.existsSync(path.join(d, 'firebase.json')) &&
+        fs.existsSync(path.join(d, 'public', 'js'))) return d;
+    const up = path.dirname(d);
+    if (up === d) break;
+    d = up;
+  }
+  console.error('preflight: could not find the repo root (no firebase.json above ' + start + ')');
+  process.exit(2);
+}
+// This file ships inside public/js but describes the whole repo, so it must
+// locate the root rather than assume it is the root. __dirname alone sent
+// JS_DIR to public/js/public/js and the script died on its own first
+// readdir, which is a poor look for the thing that checks everything else.
+const REPO_ROOT = findRepoRoot(__dirname);
+const ROOT = REPO_ROOT;
 const JS_DIR = path.join(ROOT, 'public/js');
 let failures = 0, checks = 0;
 
@@ -172,7 +189,10 @@ const rules = fs.readFileSync(path.join(ROOT, 'firestore.rules'), 'utf8');
 // Only keys that reach Firestore. Scanning every 'shorashim-*' string also
 // catches localStorage keys, which rules have nothing to do with.
 const keys = new Set();
-files.forEach(f => {
+// Only files reached by an index.html script tag. `tags` comes from check 4.
+const shipped = files.filter(f => tags.includes(f));
+const unwired = files.filter(f => !tags.includes(f));
+shipped.forEach(f => {
   const c = src[f];
   [...c.matchAll(/DB\.save\(\s*'(shorashim-[a-z-]+)'/g)].forEach(m => keys.add(m[1]));
   // keys held in a constant and saved via that constant
@@ -197,6 +217,26 @@ files.forEach(f => {
                  rules.includes(base.replace(/-$/, '') + '-[0-9]{4}');
   listed ? ok(`${k} whitelisted`) : bad(`${k} NOT in firestore.rules — writes will be denied`);
 });
+// Keys belonging to modules that are not loaded. Not a failure — nothing
+// writes them — but they are what has to be whitelisted on the day the
+// module is wired up, so say so rather than let it be a launch-day surprise.
+function pendingKeys(c) {
+  const found = new Set();
+  [...c.matchAll(/DB\.save\(\s*'(shorashim-[a-z-]+)'/g)].forEach(m => found.add(m[1]));
+  [...c.matchAll(/DB\.save\(\s*([A-Z_]+)\s*[,)]/g)].forEach(m => {
+    const def = c.match(new RegExp(`${m[1]}\\s*=\\s*'(shorashim-[a-z-]+)'`));
+    if (def) found.add(def[1]);
+  });
+  return found;
+}
+const pending = new Set();
+unwired.forEach(f => {
+  pendingKeys(src[f]).forEach(k => {
+    if (!keys.has(k) && !rules.includes(`'${k}'`)) pending.add(`${k} (${f})`);
+  });
+});
+[...pending].sort().forEach(k =>
+  console.log('  \x1b[33mwarn\x1b[0m ' + `${k} — module not loaded; whitelist it before wiring it up`));
 
 // ── 7. stale public copy of the rules ──────────────────────────────────
 head('7. No publicly-served rules copy');
