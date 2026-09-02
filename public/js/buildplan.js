@@ -373,14 +373,20 @@ var BuildPlan = (function () {
       purlinProfile: String(d.purlinProfile || 'Z 200x2.0'),
       girtProfile:   String(d.girtProfile   || 'C 150x2.0'),
       walls:  d.walls === false ? false : true,
-      gutter: d.gutter === false ? false : true,
+      // Gutters, like cladding, are a choice. They were defaulting on and
+      // adding downspouts to sheds that have neither a roof nor a gutter.
+      gutter: d.gutter === true,
       // 3D / buildability
       roofType: (d.roofType === 'mono') ? 'mono' : 'gable',
       wallMode: (d.wallMode === 'open' || d.wallMode === 'half') ? d.wallMode : 'full',
       // The catalogue product itself, or 'none'. Migrated from the old
       // type-enum so existing projects keep a sensible material.
-      roofClad: migrateClad(d.roofClad, d.roofPanel, 'פאנל קלקר 5 ס"מ'),
-      wallClad: migrateClad(d.wallClad, d.wallPanel, 'איסכורית 0.5 מ"מ'),
+      // 'none', not a product. A takeoff must never contain something the
+      // user did not ask for — being billed a panel roof you never chose is
+      // worse than having to pick one. Existing projects still migrate to
+      // whatever they had; only a brand-new project starts empty.
+      roofClad: migrateClad(d.roofClad, d.roofPanel, 'none'),
+      wallClad: migrateClad(d.wallClad, d.wallPanel, 'none'),
       footings: d.footings === false ? false : true,
       footW: Number(d.footW) || 1.0,               // pad side, m
       footD: Number(d.footD) || 0.8,               // pad depth, m
@@ -428,6 +434,15 @@ var BuildPlan = (function () {
       id: x.id || uid(),
       name: String(x.name || ''),
       type: (x.type === 'slab' || x.type === 'house') ? x.type : 'shed',
+      // Which components this project actually contains. `type` decides the
+      // SHAPE of the structure; these decide whether there is a structure at
+      // all. Without them a project consisting of nothing but a gate was
+      // still billed a full portal frame — 4.5 t of steel and 38 m3 of
+      // concrete nobody asked for.
+      // Default true so every existing project is unchanged; a new project
+      // created from the gate or living tab turns it off.
+      hasStruct: x.hasStruct === false ? false : true,
+      hasSlab: x.hasSlab === false ? false : true,
       client: String(x.client || ''),
       status: String(x.status || 'planning'),
       notes: String(x.notes || ''),
@@ -609,6 +624,8 @@ var BuildPlan = (function () {
   function takeoff(p) {
     var d = p.dims, out = [];
     var w = 1 + (d.waste / 100);
+    var wantStruct = p.hasStruct !== false;
+    var wantSlab = p.hasSlab !== false;
 
     function push(name, qty, unit, note) {
       if (!(qty > 0)) return;
@@ -630,13 +647,26 @@ var BuildPlan = (function () {
     }
 
     var g = geom(d);
+    // No structure requested — a gate-only or slab-only project skips the
+    // entire frame. This is the fix for a project named "שער" that was
+    // billed 4.5 tonnes of steel and a 200 m2 roof nobody asked for.
+    if (!wantStruct) {
+      if (wantSlab) {
+        var sa = slabArea(p);
+        push('בטון ב-30', sa * d.slabTh * w, 'מ"ק', tt('רצפה', 'พื้น', 'أرضية'));
+        push('רשת פלדה Q188', Math.ceil(sa / (6 * 2.35) * 1.1), "יח'", tt('רצפה', 'พื้น', 'أرضية'));
+      }
+      (p.extras || []).forEach(function (e) { push(e.name, e.qty, e.unit, ''); });
+      componentLines(p).forEach(function (l) { push(l.name, l.qty, l.unit, l.note); });
+      return out;
+    }
     push(d.colProfile,    g.frames * 2 * d.eaves * w, "מ'",
       g.frames * 2 + ' ' + tt('עמודים', 'เสา', 'أعمدة') + ' \u00d7 ' + n1(d.eaves) + ' ' + dsp("מ'"));
     push(d.rafterProfile, g.frames * 2 * g.rafterLen * w, "מ'",
       g.frames * 2 + ' ' + tt('קורות', 'คาน', 'روافد') + ' \u00d7 ' + n1(g.rafterLen) + ' ' + dsp("מ'"));
     push(d.purlinProfile, g.purlinRuns * 2 * d.length * w, "מ'",
       (g.purlinRuns * 2) + ' ' + tt('שורות מרישים', 'แถวแป', 'صفوف') + ' \u00d7 ' + n1(d.length) + ' ' + dsp("מ'"));
-    if (d.wallMode !== 'open') {
+    if (d.wallMode !== 'open' && d.wallClad !== 'none') {
       push(d.girtProfile, g.girtRows * g.perimeter * w, "מ'",
         g.girtRows + ' ' + tt('שורות', 'แถว', 'صفوف'));
     }
@@ -657,7 +687,7 @@ var BuildPlan = (function () {
     }
     // Foundation under the frame, always poured with a shed.
     var fa = slabArea(p);
-    push('בטון ב-30', fa * d.slabTh * w, 'מ"ק', tt('רצפה', 'พื้น', 'أرضية'));
+    if (wantSlab) push('בטון ב-30', fa * d.slabTh * w, 'מ"ק', tt('רצפה', 'พื้น', 'أرضية'));
     if (d.footings) {
       var ft = footing(d);
       push('בטון ב-30', ft.volAll * w, 'מ"ק',
@@ -689,7 +719,7 @@ var BuildPlan = (function () {
       push('עמוד גדר', Math.ceil(per / 2.5), "יח'", n1(d.fenceH) + ' ' + dsp("מ'"));
       push('רשת גדר', per, "מ'", n1(d.fenceH) + ' ' + dsp("מ'") + ' ' + tt('גובה', 'สูง', 'ارتفاع'));
     }
-    push('רשת פלדה Q188', Math.ceil(fa / (6 * 2.35) * 1.1), "יח'", tt('רצפה', 'พื้น', 'أرضية'));
+    if (wantSlab) push('רשת פלדה Q188', Math.ceil(fa / (6 * 2.35) * 1.1), "יח'", tt('רצפה', 'พื้น', 'أرضية'));
     (p.extras || []).forEach(function (e) { push(e.name, e.qty, e.unit, ''); });
     componentLines(p).forEach(function (l) { push(l.name, l.qty, l.unit, l.note); });
     return out;
@@ -1724,7 +1754,35 @@ var BuildPlan = (function () {
         '" onclick="BuildPlan.setTab(\'' + t + '\')">' + lbl + '</button>';
     }).join('');
 
-    var body = '<div class="bp-card">' +
+    // What is in this project. Shown before anything else, because it
+    // decides which of the tabs below actually mean anything.
+    var comps = '<div class="bp-card">' +
+      '<div class="bp-lbl" style="margin-bottom:6px;">' +
+        tt('מה כולל הפרויקט', 'โครงการนี้ประกอบด้วย', 'مكوّنات المشروع') + '</div>' +
+      '<div style="display:flex;gap:14px;flex-wrap:wrap;font-size:.84rem;">' +
+        '<label style="display:inline-flex;gap:6px;align-items:center;">' +
+          '<input type="checkbox"' + (p.hasStruct !== false ? ' checked' : '') +
+          ' onchange="BuildPlan._comp(' + id + ',\'hasStruct\',this.checked)"> \ud83c\udfd7 ' +
+          tt('סככה / שלד', 'โครงสร้าง', 'هيكل') + '</label>' +
+        '<label style="display:inline-flex;gap:6px;align-items:center;">' +
+          '<input type="checkbox"' + (p.hasSlab !== false ? ' checked' : '') +
+          ' onchange="BuildPlan._comp(' + id + ',\'hasSlab\',this.checked)"> \ud83e\uddf1 ' +
+          tt('משטח בטון', 'พื้นคอนกรีต', 'سطح خرساني') + '</label>' +
+        '<span style="display:inline-flex;gap:6px;align-items:center;opacity:.75;">\ud83d\udea7 ' +
+          tt('שערים', 'ประตู', 'بوابات') + ': ' + ((p.gates || []).length) + '</span>' +
+        '<span style="display:inline-flex;gap:6px;align-items:center;opacity:.75;">\ud83c\udfe0 ' +
+          tt('מגורים', 'ที่พัก', 'سكن') + ': ' +
+          ((p.living && p.living.people) ? p.living.people + ' ' + tt('אנשים','คน','أشخاص')
+                                          : tt('ללא','ไม่มี','بدون')) + '</span>' +
+      '</div>' +
+      (p.hasStruct === false
+        ? '<div style="font-size:.75rem;color:var(--accent,#ff9f43);margin-top:8px;">\u26a0\ufe0f ' +
+          tt('ללא שלד — כתב הכמויות לא כולל פלדה, חיפוי או יסודות.',
+             'ไม่มีโครงสร้าง', 'بدون هيكل') + '</div>'
+        : '') +
+    '</div>';
+
+    var body = comps + '<div class="bp-card">' +
       '<div class="bp-grid">' +
         '<div><div class="bp-lbl">' + tt('שם', 'ชื่อ', 'الاسم') + '</div>' +
           '<input class="bp-in" value="' + esc(p.name) + '" ' +
@@ -2284,6 +2342,24 @@ var BuildPlan = (function () {
       '</div>' +
 
       '<div class="bp-pane">' +
+        // What this project contains at all. A gate on its own is a project;
+        // so is a slab. Forcing every project to be a shed is what put
+        // 4.5 tonnes of steel on a gate.
+        '<details class="bp-acc" open><summary>' +
+          tt('רכיבי הפרויקט', 'ส่วนประกอบ', 'مكونات المشروع') + '</summary><div>' +
+          '<div style="display:flex;gap:14px;flex-wrap:wrap;font-size:.82rem;">' +
+            '<label><input type="checkbox"' + (p.hasStruct !== false ? ' checked' : '') +
+              ' onchange="BuildPlan._comp(' + id + ',\'hasStruct\',this.checked)"> ' +
+              tt('שלד / סככה', 'โครงสร้าง', 'هيكل') + '</label>' +
+            '<label><input type="checkbox"' + (p.hasSlab !== false ? ' checked' : '') +
+              ' onchange="BuildPlan._comp(' + id + ',\'hasSlab\',this.checked)"> ' +
+              tt('משטח בטון', 'พื้นคอนกรีต', 'سطح خرساني') + '</label>' +
+          '</div>' +
+          '<div style="font-size:.74rem;color:var(--text-muted,#888);margin-top:6px;">' +
+            tt('שערים ומבני מגורים נוספים בלשוניות שלהם', 'ประตูและที่พักในแท็บแยก',
+               'البوابات والسكن في تبويباتها') + '</div>' +
+        '</div></details>' +
+
         '<details class="bp-acc" open><summary>' +
           tt('דגם התחלתי', 'แบบเริ่มต้น', 'نموذج أولي') + '</summary><div>' +
 
@@ -3039,6 +3115,16 @@ var BuildPlan = (function () {
   }
 
   function _set(id, k, v) { var p = projById(id); if (p) p[k] = v; }
+
+  // Component inclusion changes what the whole takeoff means, so it saves
+  // and repaints rather than being nudged in place.
+  function _comp(id, k, v) {
+    var p = projById(id);
+    if (!p) return;
+    p[k] = !!v;
+    saveP();
+    open(id);
+  }
   var BOOL = { walls: 1, gutter: 1, footings: 1, fence: 1,
                haunch: 1, taper: 1, bracing: 1, door: 1,
                mapGround: 1, callouts: 1, shadows: 1, dims: 1 };
@@ -3155,6 +3241,16 @@ var BuildPlan = (function () {
   }
   function row(k, v) {
     return '<div class="bp-read"><span>' + k + '</span><b>' + v + '</b></div>';
+  }
+
+  // Project-level component switches. Structural, so a full repaint is
+  // right — turning the shed off removes whole panels of controls.
+  function _comp(id, k, v) {
+    var p = projById(id);
+    if (!p) return;
+    p[k] = !!v;
+    saveP();
+    open(id);
   }
 
   function _dim(id, k, v) {
@@ -3493,6 +3589,7 @@ var BuildPlan = (function () {
     newProject: newProject,
     delProject: delProject,
     setTab: setTab,
+    _comp: _comp,
     _live: _live,
     _commit: _commit,
     toggleLayer: toggleLayer,
@@ -3534,6 +3631,7 @@ var BuildPlan = (function () {
     takeoff: takeoff,
     geom: geom,
     _set: _set,
+    _comp: _comp,
     _dim: _dim,
     _prof: _prof,
     _addProf: _addProf,
