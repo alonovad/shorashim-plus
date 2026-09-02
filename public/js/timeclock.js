@@ -732,13 +732,6 @@ var TimeClock = (function() {
       // ── ניהול צוות (Meckano-style manager→workers) ──
       html += '<button onclick="Team.show();TimeClock.closeMenu()" style="' + menuBtn + 'background:#e8eaf6;">' + tt('👥 הצוות שלי', '👥 ทีมของฉัน', '👥 فريقي') + '</button>';
 
-      // טופס שעות לרו"ח — top level, not buried under הגדרות: it is a
-      // monthly deadline (the 5th of every month), not a setting. Admin only,
-      // because the sheet carries wage rates.
-      if (isAdmin) {
-        html += '<button onclick="PayslipForm.show();TimeClock.closeMenu()" style="' + menuBtn + 'background:#fff3e0;">' + tt('🧾 טופס שעות לרו"ח', '🧾 แบบฟอร์มชั่วโมง', '🧾 نموذج ساعات للمحاسب') + '</button>';
-      }
-
       // ── דוחות סיור (standalone) ──
       // Opens the season monitoring grid; the older per-observation reports
       // (which feed the spray traceability chain) hang off a button inside it.

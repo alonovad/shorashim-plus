@@ -67,8 +67,7 @@ service cloud.firestore {
         'shorashim-crop-types',
         'shorashim-maintenance',
         'shorashim-maintenance-access',
-        'shorashim-payroll',
-        'shorashim-payslip-form'
+        'shorashim-payroll'
       ];
 
       // Operator+: operational data

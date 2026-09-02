@@ -386,7 +386,9 @@ var Shed3D = (function () {
     }
 
     // ── roof cladding + skylights ──
-    var ribs = m.roofClad === 'iskurit' ? Math.max(8, Math.round(len/0.9)) : 0;
+    // Corrugation is drawn when the chosen product IS corrugated sheet,
+    // which is now a name rather than a type flag.
+    var ribs = /איסכורית/.test(String(m.roofClad || '')) ? Math.max(8, Math.round(len/0.9)) : 0;
     function roofPanel(ya, yb) {
       var za = zAt(ya), zb = zAt(yb);
       if (m.skylights > 0) {
@@ -436,7 +438,7 @@ var Shed3D = (function () {
         F = F.concat(barSeg(x0, y0-0.07, gz, x1, y0+0.07, gz+0.14, PALETTE.girt, 'girt'));
         F = F.concat(barSeg(x0, y1-0.07, gz, x1, y1+0.07, gz+0.14, PALETTE.girt, 'girt'));
       }
-      var wr = m.wallClad === 'iskurit' ? Math.max(8, Math.round(len/0.9)) : 0;
+      var wr = /איסכורית/.test(String(m.wallClad || '')) ? Math.max(8, Math.round(len/0.9)) : 0;
       F = F.concat(quadSeg2([x0,y0,0],[x1,y0,0],[x1,y0,wallH],[x0,y0,wallH], PALETTE.wall,'wall',wr,0.97));
       F = F.concat(quadSeg2([x0,y1,0],[x1,y1,0],[x1,y1,wallH],[x0,y1,wallH], PALETTE.wall,'wall',wr,0.97));
       if (m.wallMode === 'full') {

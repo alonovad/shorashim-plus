@@ -343,6 +343,18 @@ var BuildPlan = (function () {
   }
 
   // ── persistence ──
+  // Old projects stored a type ('iskurit' | 'panel' | 'none') in *Clad and a
+  // product name in *Panel. Fold them into one field, preferring whatever
+  // the type said, because that is what the drawing was showing.
+  function migrateClad(clad, panel, fallback) {
+    var c = String(clad || '');
+    if (c === 'none') return 'none';
+    if (c === 'iskurit') return /איסכורית/.test(String(panel || '')) ? panel : 'איסכורית 0.5 מ"מ';
+    if (c === 'panel')   return /פאנל/.test(String(panel || '')) ? panel : 'פאנל קלקר 5 ס"מ';
+    if (c) return c;                       // already a product name
+    return String(panel || fallback);
+  }
+
   function normDim(d) {
     d = d || {};
     return {
@@ -360,15 +372,15 @@ var BuildPlan = (function () {
       rafterProfile: String(d.rafterProfile || 'IPE 200'),
       purlinProfile: String(d.purlinProfile || 'Z 200x2.0'),
       girtProfile:   String(d.girtProfile   || 'C 150x2.0'),
-      roofPanel:     String(d.roofPanel     || 'פאנל קלקר 5 ס"מ'),
-      wallPanel:     String(d.wallPanel     || 'איסכורית 0.5 מ"מ'),
       walls:  d.walls === false ? false : true,
       gutter: d.gutter === false ? false : true,
       // 3D / buildability
       roofType: (d.roofType === 'mono') ? 'mono' : 'gable',
       wallMode: (d.wallMode === 'open' || d.wallMode === 'half') ? d.wallMode : 'full',
-      roofClad: String(d.roofClad || 'iskurit'),   // iskurit | panel | none
-      wallClad: String(d.wallClad || 'iskurit'),
+      // The catalogue product itself, or 'none'. Migrated from the old
+      // type-enum so existing projects keep a sensible material.
+      roofClad: migrateClad(d.roofClad, d.roofPanel, 'פאנל קלקר 5 ס"מ'),
+      wallClad: migrateClad(d.wallClad, d.wallPanel, 'איסכורית 0.5 מ"מ'),
       footings: d.footings === false ? false : true,
       footW: Number(d.footW) || 1.0,               // pad side, m
       footD: Number(d.footD) || 0.8,               // pad depth, m
@@ -420,6 +432,15 @@ var BuildPlan = (function () {
       status: String(x.status || 'planning'),
       notes: String(x.notes || ''),
       sketch: (x.sketch && Array.isArray(x.sketch.shapes)) ? x.sketch : { shapes: [] },
+      // Components, not project types. A yard job is routinely a shed plus a
+      // slab plus a gate plus a room for the crew, and quoting it as four
+      // projects loses the fact that it is one price to one client.
+      gates: Array.isArray(x.gates)
+        ? x.gates.map(function (g) { return (typeof Gates !== 'undefined') ? Gates.norm(g) : g; })
+        : [],
+      living: (x.living && x.living.people)
+        ? ((typeof LivingUnit !== 'undefined') ? LivingUnit.norm(x.living) : x.living)
+        : null,
       maintId: (x.maintId === undefined || x.maintId === null) ? null : Number(x.maintId),
       maintName: String(x.maintName || ''),
       createdAt: Number(x.createdAt) || Date.now(),
@@ -604,6 +625,7 @@ var BuildPlan = (function () {
       push('רשת פלדה Q188', Math.ceil(a / (6 * 2.35) * 1.1), "יח'", tt('כולל חפיפה', 'รวมทาบ', 'شامل التداخل'));
       push('ברזל זיון 12 מ"מ', Math.sqrt(a) * 4 * 2 * w, "מ'", tt('היקף וחיזוקים', 'ขอบและเสริม', 'محيط وتقوية'));
       (p.extras || []).forEach(function (e) { push(e.name, e.qty, e.unit, ''); });
+      componentLines(p).forEach(function (l) { push(l.name, l.qty, l.unit, l.note); });
       return out;
     }
 
@@ -622,10 +644,10 @@ var BuildPlan = (function () {
     // honoured 'ללא' and 'פתוח'; the takeoff did not, so switching the roof
     // off changed the drawing and left the price alone.
     if (d.roofClad !== 'none') {
-      push(d.roofPanel, g.roofArea * w, 'מ"ר', tt('כולל פחת', 'รวมเผื่อ', 'شامل الهدر'));
+      push(d.roofClad, g.roofArea * w, 'מ"ר', tt('כולל פחת', 'รวมเผื่อ', 'شامل الهدر'));
     }
     if (d.wallMode !== 'open' && d.wallClad !== 'none') {
-      push(d.wallPanel, g.wallArea * w, 'מ"ר', tt('כולל פחת', 'รวมเผื่อ', 'شامل الهدر'));
+      push(d.wallClad, g.wallArea * w, 'מ"ר', tt('כולל פחת', 'รวมเผื่อ', 'شامل الهدر'));
     }
     push('פלטת בסיס', g.frames * 2, "יח'", '');
     push('בורג עיגון', g.frames * 2 * 4, "יח'", tt('4 לעמוד', '4 ต่อเสา', '4 لكل عمود'));
@@ -653,7 +675,7 @@ var BuildPlan = (function () {
       push(d.rafterProfile, g.frames * lRaf * w, "מ'", tt('סככת צד', 'เพิงข้าง', 'جناح جانبي'));
       push(d.colProfile, g.frames * d.eaves * 0.85 * w, "מ'", tt('עמודי סככת צד', 'เสาเพิง', 'أعمدة الجناح'));
       if (d.roofClad !== 'none') {
-        push(d.roofPanel, d.length * lRaf * w, 'מ"ר', tt('גג סככת צד', 'หลังคาเพิง', 'سقف الجناح'));
+        push(d.roofClad, d.length * lRaf * w, 'מ"ר', tt('גג סככת צד', 'หลังคาเพิง', 'سقف الجناح'));
       }
     }
     if (d.mezz > 0) {
@@ -669,6 +691,30 @@ var BuildPlan = (function () {
     }
     push('רשת פלדה Q188', Math.ceil(fa / (6 * 2.35) * 1.1), "יח'", tt('רצפה', 'พื้น', 'أرضية'));
     (p.extras || []).forEach(function (e) { push(e.name, e.qty, e.unit, ''); });
+    componentLines(p).forEach(function (l) { push(l.name, l.qty, l.unit, l.note); });
+    return out;
+  }
+
+  // Gates and accommodation contribute to the same bill of quantities as the
+  // structure. Keeping them in separate documents is how a client ends up
+  // with three quotes for one job and no total.
+  function componentLines(p) {
+    var out = [];
+    if (typeof Gates !== 'undefined') {
+      (p.gates || []).forEach(function (g, i) {
+        Gates.takeoff(g).forEach(function (l) {
+          out.push({ name: l.name, qty: l.qty, unit: l.unit,
+                     note: (g.name || (tt('שער','ประตู','بوابة') + ' ' + (i+1))) +
+                           (l.note ? ' \u00b7 ' + l.note : '') });
+        });
+      });
+    }
+    if (typeof LivingUnit !== 'undefined' && p.living && p.living.people) {
+      LivingUnit.takeoff(p.living).forEach(function (l) {
+        out.push({ name: l.name, qty: l.qty, unit: l.unit,
+                   note: tt('מגורים','ที่พัก','سكن') + (l.note ? ' \u00b7 ' + l.note : '') });
+      });
+    }
     return out;
   }
 
@@ -1665,8 +1711,12 @@ var BuildPlan = (function () {
     var d = p.dims;
     var rows = takeoff(p), tot = takeoffTotals(rows);
 
-    var tabs = ['design', 'sketch', 'materials', 'site'].map(function (t) {
+    var tabs = ['design', 'gates', 'living', 'sketch', 'materials', 'site'].map(function (t) {
       var lbl = t === 'design' ? '\ud83c\udfd7 ' + tt('מודל', 'โมเดล', 'نموذج')
+              : t === 'gates' ? '\ud83d\udea7 ' + tt('שערים', 'ประตู', 'بوابات') +
+                  ((p.gates || []).length ? ' (' + p.gates.length + ')' : '')
+              : t === 'living' ? '\ud83c\udfe0 ' + tt('מגורים', 'ที่พัก', 'سكن') +
+                  ((p.living && p.living.people) ? ' (' + p.living.people + ')' : '')
               : t === 'sketch' ? '\u270f\ufe0f ' + tt('שרטוט חופשי', 'วาดอิสระ', 'رسم حر')
               : t === 'materials' ? '\ud83e\uddfe ' + tt('כתב כמויות', 'รายการวัสดุ', 'الكميات')
               : '\ud83d\uddfa ' + tt('מיקום במפה', 'ตำแหน่ง', 'الموقع');
@@ -1685,6 +1735,8 @@ var BuildPlan = (function () {
       '</div></div>' + '<div class="bp-bar">' + tabs + '</div>';
 
     if (_tab === 'design')      body += designTab(p);
+    else if (_tab === 'gates')  body += gatesTab(p);
+    else if (_tab === 'living') body += livingTab(p);
     else if (_tab === 'sketch') body += sketchTab(p);
     else if (_tab === 'materials') body += matTab(p, rows, tot);
     else                        body += siteTab(p);
@@ -1762,6 +1814,26 @@ var BuildPlan = (function () {
         'style="margin-top:3px;" ' +
         'oninput="BuildPlan._live(' + id + ',\'' + key + '\',this.value)" ' +
         'onchange="BuildPlan._commit(' + id + ',\'' + key + '\',this.value)"></div>';
+  }
+
+  // One list of real products plus "ללא". What is shown is what is billed.
+  function cladSelect(id, key, cur) {
+    var o = '<option value="none"' + (cur === 'none' ? ' selected' : '') + '>' +
+      tt('ללא', 'ไม่มี', 'بدون') + '</option>';
+    var seen = false;
+    (C.profiles || []).forEach(function (x) {
+      if (x.group !== 'חיפוי') return;
+      if (x.name === cur) seen = true;
+      o += '<option value="' + esc(x.name) + '"' + (x.name === cur ? ' selected' : '') + '>' +
+        esc(dsp(x.name)) + (x.price ? ' \u00b7 ' + money(x.price) : '') + '</option>';
+    });
+    // A product that has been removed from the catalogue still has to show,
+    // or the box would silently claim the project uses something else.
+    if (cur && cur !== 'none' && !seen) {
+      o += '<option value="' + esc(cur) + '" selected>' + esc(dsp(cur)) + ' \u26a0\ufe0f</option>';
+    }
+    return '<select class="bp-in" onchange="BuildPlan._dim(' + id + ',\'' + key + '\',this.value)">' +
+      o + '</select>';
   }
 
   function profSel(id, key, group, cur) {
@@ -1933,10 +2005,10 @@ var BuildPlan = (function () {
     out.purlin = { title: memberLabel('purlin'), sub: d.purlinProfile + '  ' + qty(d.purlinProfile) };
     if (d.wallMode !== 'open') {
       out.girt = { title: memberLabel('girt'), sub: d.girtProfile + '  ' + qty(d.girtProfile) };
-      out.wall = { title: memberLabel('wall'), sub: d.wallClad + '  ' + qty(d.wallPanel) };
+      out.wall = { title: memberLabel('wall'), sub: dsp(d.wallClad) + '  ' + qty(d.wallClad) };
     }
     if (d.roofClad !== 'none') {
-      out.roof = { title: memberLabel('roof'), sub: d.roofClad + '  ' + qty(d.roofPanel) };
+      out.roof = { title: memberLabel('roof'), sub: dsp(d.roofClad) + '  ' + qty(d.roofClad) };
     }
     if (d.skylights > 0) out.skylight = { title: memberLabel('skylight'), sub: qty('לוח סקיילייט') };
     if (d.gutter) out.gutter = { title: memberLabel('gutter'), sub: qty('מרזב') };
@@ -2249,14 +2321,14 @@ var BuildPlan = (function () {
               tt('אגוזי (שני שיפועים)', 'จั่ว', 'جملوني') + '</option>' +
             '<option value="mono"' + (d.roofType === 'mono' ? ' selected' : '') + '>' +
               tt('חד-שיפועי', 'เพิงหมาแหงน', 'ميل واحد') + '</option></select></div>' +
+        // Built from the catalogue, because the model stores the PRODUCT.
+        // These used to offer a three-value enum while the model held a
+        // product name, so nothing ever matched: the box showed the first
+        // option and the takeoff billed whatever was really stored. That is
+        // the "פאנל 5 I never chose" — it was the default, displayed as
+        // something else.
         '<div><div class="bp-lbl">' + tt('חיפוי גג', 'วัสดุหลังคา', 'مادة السقف') + '</div>' +
-          '<select class="bp-in" onchange="BuildPlan._dim(' + id + ',\'roofClad\',this.value)">' +
-            '<option value="iskurit"' + (d.roofClad === 'iskurit' ? ' selected' : '') + '>' +
-              tt('איסכורית', 'เมทัลชีท', 'صاج مموج') + '</option>' +
-            '<option value="panel"' + (d.roofClad === 'panel' ? ' selected' : '') + '>' +
-              tt('פאנל מבודד', 'แผ่นฉนวน', 'بانل معزول') + '</option>' +
-            '<option value="none"' + (d.roofClad === 'none' ? ' selected' : '') + '>' +
-              tt('ללא', 'ไม่มี', 'بدون') + '</option></select></div>' +
+          cladSelect(id, 'roofClad', d.roofClad) + '</div>' +
         '<div><div class="bp-lbl">' + tt('קירות', 'ผนัง', 'الجدران') + '</div>' +
           '<select class="bp-in" onchange="BuildPlan._dim(' + id + ',\'wallMode\',this.value)">' +
             '<option value="full"' + (d.wallMode === 'full' ? ' selected' : '') + '>' +
@@ -2266,13 +2338,7 @@ var BuildPlan = (function () {
             '<option value="open"' + (d.wallMode === 'open' ? ' selected' : '') + '>' +
               tt('פתוח', 'เปิด', 'مفتوح') + '</option></select></div>' +
         '<div><div class="bp-lbl">' + tt('חיפוי קיר', 'วัสดุผนัง', 'مادة الجدار') + '</div>' +
-          '<select class="bp-in" onchange="BuildPlan._dim(' + id + ',\'wallClad\',this.value)">' +
-            '<option value="iskurit"' + (d.wallClad === 'iskurit' ? ' selected' : '') + '>' +
-              tt('איסכורית', 'เมทัลชีท', 'صاج مموج') + '</option>' +
-            '<option value="panel"' + (d.wallClad === 'panel' ? ' selected' : '') + '>' +
-              tt('פאנל מבודד', 'แผ่นฉนวน', 'بانل معزول') + '</option>' +
-            '<option value="none"' + (d.wallClad === 'none' ? ' selected' : '') + '>' +
-              tt('ללא', 'ไม่มี', 'بدون') + '</option></select></div>' +
+          cladSelect(id, 'wallClad', d.wallClad) + '</div>' +
       '</div>' +
       '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;font-size:.8rem;">' +
         '<label><input type="checkbox"' + (d.fence ? ' checked' : '') +
@@ -2340,10 +2406,6 @@ var BuildPlan = (function () {
         profSel(id, 'purlinProfile', 'מרישים', d.purlinProfile) + '</div>' +
       '<div><div class="bp-lbl">' + tt('מסילות קיר', 'แปผนัง', 'مرايش الجدار') + '</div>' +
         profSel(id, 'girtProfile', 'מרישים', d.girtProfile) + '</div>' +
-      '<div><div class="bp-lbl">' + tt('חיפוי גג', 'หลังคา', 'تغطية السقف') + '</div>' +
-        profSel(id, 'roofPanel', 'חיפוי', d.roofPanel) + '</div>' +
-      '<div><div class="bp-lbl">' + tt('חיפוי קיר', 'ผนัง', 'تغطية الجدار') + '</div>' +
-        profSel(id, 'wallPanel', 'חיפוי', d.wallPanel) + '</div>' +
     '</div></div>' +
         '</details>' +
 
@@ -2565,6 +2627,231 @@ var BuildPlan = (function () {
   }
   function skRadius(r) { if (typeof Sketch !== 'undefined') { Sketch.setCircle(Number(r)); skEdit(); } }
 
+  // ── gates ────────────────────────────────────────────────────────────
+  function gatesTab(p) {
+    var id = p.id;
+    if (typeof Gates === 'undefined') return '<div class="bp-empty">Gates module not loaded</div>';
+    if (!(p.gates || []).length) {
+      return '<div class="bp-card"><div class="bp-empty">' +
+        tt('אין שערים בפרויקט. שער נכנס לאותו כתב כמויות כמו שאר העבודה.',
+           'ยังไม่มีประตู', 'لا توجد بوابات') + '</div>' +
+        '<button class="bp-btn" onclick="BuildPlan.addGate(' + id + ')">\u2795 ' +
+          tt('הוסף שער', 'เพิ่มประตู', 'إضافة بوابة') + '</button></div>';
+    }
+    var h = '';
+    p.gates.forEach(function (g, i) {
+      var sum = Gates.summary(g);
+      var rows = Gates.takeoff(g);
+      var tSel = Gates.TYPES.map(function (t) {
+        return '<option value="' + t + '"' + (g.type === t ? ' selected' : '') + '>' +
+          esc(Gates.typeLabel(t)) + '</option>';
+      }).join('');
+      h += '<div class="bp-split" style="margin-bottom:14px;">' +
+        '<div class="bp-stick"><div class="bp-card">' + Gates.svg(g) + '</div>' +
+          '<div class="bp-card">' +
+            rows.slice(0, 6).map(function (r) {
+              return '<div class="bp-read"><span>' + esc(dsp(r.name)) + '</span><b>' +
+                n1(r.qty) + ' ' + esc(dsp(r.unit)) + '</b></div>';
+            }).join('') +
+            (rows.length > 6 ? '<div style="font-size:.74rem;color:var(--text-muted,#888);">+' +
+              (rows.length - 6) + ' ' + tt('שורות נוספות', 'รายการเพิ่ม', 'بنود إضافية') + '</div>' : '') +
+          '</div></div>' +
+        '<div class="bp-pane">' +
+          '<div class="bp-card">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">' +
+              '<input class="bp-in" style="flex:1;" value="' + esc(g.name) + '" placeholder="' +
+                tt('שם השער', 'ชื่อประตู', 'اسم البوابة') + '" ' +
+                'onchange="BuildPlan.setGate(' + id + ',' + i + ',\'name\',this.value)">' +
+              '<button class="bp-btn warn" style="padding:5px 10px;" ' +
+                'onclick="BuildPlan.delGate(' + id + ',' + i + ')">\ud83d\uddd1</button></div>' +
+            '<div class="bp-lbl" style="margin-top:8px;">' + tt('סוג', 'ชนิด', 'النوع') + '</div>' +
+            '<select class="bp-in" onchange="BuildPlan.setGate(' + id + ',' + i + ',\'type\',this.value)">' +
+              tSel + '</select>' +
+            '<div class="bp-grid" style="margin-top:8px;">' +
+              gctl(id, i, 'width',  tt('רוחב אור (מ\')', 'ความกว้าง', 'العرض'), g.width, 1, 12, 0.1) +
+              gctl(id, i, 'height', tt('גובה (מ\')', 'ความสูง', 'الارتفاع'), g.height, 1, 4, 0.1) +
+              gctl(id, i, 'postDepth', tt('עומק יסוד (מ\')', 'ลึกฐาน', 'عمق الأساس'), g.postDepth, 0.4, 2, 0.1) +
+              gctl(id, i, 'postSize', tt('צלע יסוד (מ\')', 'ด้านฐาน', 'ضلع الأساس'), g.postSize, 0.2, 1, 0.05) +
+              gctl(id, i, 'infillRows', tt('קורות ביניים', 'คานกลาง', 'عوارض وسطية'), g.infillRows, 0, 4, 1) +
+            '</div>' +
+            '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;font-size:.8rem;">' +
+              '<label><input type="checkbox"' + (g.bracing ? ' checked' : '') +
+                ' onchange="BuildPlan.setGate(' + id + ',' + i + ',\'bracing\',this.checked)"> ' +
+                tt('אלכסון ייצוב', 'ค้ำยัน', 'دعامة') + '</label>' +
+              '<label><input type="checkbox"' + (g.motor ? ' checked' : '') +
+                ' onchange="BuildPlan.setGate(' + id + ',' + i + ',\'motor\',this.checked)"> ' +
+                tt('מנוע חשמלי', 'มอเตอร์', 'محرك') + '</label>' +
+            '</div>' +
+            '<div class="bp-grid" style="margin-top:8px;">' +
+              '<div><div class="bp-lbl">' + tt('פרופיל מסגרת', 'โปรไฟล์กรอบ', 'مقطع الإطار') + '</div>' +
+                gprof(id, i, 'frame', g.frame) + '</div>' +
+              '<div><div class="bp-lbl">' + tt('פרופיל עמוד', 'โปรไฟล์เสา', 'مقطع العمود') + '</div>' +
+                gprof(id, i, 'post', g.post) + '</div>' +
+            '</div>' +
+            '<div class="bp-read" style="margin-top:8px;"><span>' +
+              tt('שטח כנף', 'พื้นที่บาน', 'مساحة المصراع') + '</span><b>' + n1(sum.area) + ' \u05de"\u05e8</b></div>' +
+            (sum.swingRadius ? '<div class="bp-read"><span>' +
+              tt('רדיוס פתיחה נדרש', 'รัศมีเปิด', 'نصف قطر الفتح') + '</span><b>' +
+              n1(sum.swingRadius) + ' m</b></div>' : '') +
+            (sum.tail ? '<div class="bp-read"><span>' +
+              tt('זנב משקל נגדי', 'หางถ่วง', 'ذيل الموازنة') + '</span><b>' + n1(sum.tail) + ' m</b></div>' : '') +
+          '</div>' +
+        '</div></div>';
+    });
+    h += '<button class="bp-btn" onclick="BuildPlan.addGate(' + id + ')">\u2795 ' +
+      tt('הוסף שער', 'เพิ่มประตู', 'إضافة بوابة') + '</button>';
+    return h;
+  }
+
+  function gctl(id, i, key, label, val, min, max, step) {
+    return '<div><div class="bp-lbl">' + label + ' <b style="color:var(--accent,#ff9f43);">' +
+        val + '</b></div>' +
+      '<input class="bp-rng" type="range" min="' + min + '" max="' + max + '" step="' + step +
+        '" value="' + val + '" onchange="BuildPlan.setGate(' + id + ',' + i + ',\'' + key + '\',this.value)">' +
+      '<input class="bp-in" type="number" step="' + step + '" value="' + val + '" ' +
+        'onchange="BuildPlan.setGate(' + id + ',' + i + ',\'' + key + '\',this.value)"></div>';
+  }
+  function gprof(id, i, key, cur) {
+    var o = '';
+    (C.profiles || []).filter(function (x) {
+      return x.group === 'פרופיל מלבני' || x.group === 'פרופיל מרובע' || x.group === 'עמודים / קורות';
+    }).forEach(function (x) {
+      o += '<option value="' + esc(x.name) + '"' + (x.name === cur ? ' selected' : '') + '>' +
+        esc(x.name) + '</option>';
+    });
+    if (!o) o = '<option>' + esc(cur) + '</option>';
+    return '<select class="bp-in" onchange="BuildPlan.setGate(' + id + ',' + i + ',\'' + key +
+      '\',this.value)">' + o + '</select>';
+  }
+
+  function addGate(id) {
+    var p = projById(id);
+    if (!p || typeof Gates === 'undefined') return;
+    p.gates.push(Gates.norm({ name: tt('שער', 'ประตู', 'بوابة') + ' ' + (p.gates.length + 1) }));
+    saveP(); open(id);
+  }
+  function delGate(id, i) {
+    var p = projById(id);
+    if (!p) return;
+    p.gates.splice(i, 1);
+    saveP(); open(id);
+  }
+  var BOOLG = { bracing: 1, motor: 1 };
+  var TEXTG = { name: 1, type: 1, frame: 1, post: 1, mesh: 1, notes: 1 };
+  function setGate(id, i, k, v) {
+    var p = projById(id);
+    if (!p || !p.gates[i]) return;
+    p.gates[i][k] = BOOLG[k] ? !!v : TEXTG[k] ? String(v) : (Number(v) || 0);
+    saveP(); open(id);
+  }
+
+  // ── accommodation ────────────────────────────────────────────────────
+  function livingTab(p) {
+    var id = p.id;
+    if (typeof LivingUnit === 'undefined') return '<div class="bp-empty">LivingUnit not loaded</div>';
+    if (!p.living || !p.living.people) {
+      return '<div class="bp-card"><div class="bp-empty">' +
+        tt('אין מתחם מגורים בפרויקט. הזן מספר אנשים והתוכנית תיגזר מזה.',
+           'ยังไม่มีที่พัก', 'لا يوجد سكن') + '</div>' +
+        '<button class="bp-btn" onclick="BuildPlan.addLiving(' + id + ')">\u2795 ' +
+          tt('הוסף מתחם מגורים', 'เพิ่มที่พัก', 'إضافة سكن') + '</button></div>';
+    }
+    var u = p.living, pr = LivingUnit.program(u);
+    var lc = function (key, label, val, min, max, step) {
+      return '<div><div class="bp-lbl">' + label + ' <b style="color:var(--accent,#ff9f43);">' +
+          val + '</b></div>' +
+        '<input class="bp-rng" type="range" min="' + min + '" max="' + max + '" step="' + step +
+          '" value="' + val + '" onchange="BuildPlan.setLiving(' + id + ',\'' + key + '\',this.value)">' +
+        '<input class="bp-in" type="number" step="' + step + '" value="' + val + '" ' +
+          'onchange="BuildPlan.setLiving(' + id + ',\'' + key + '\',this.value)"></div>';
+    };
+    return '<div class="bp-split">' +
+      '<div class="bp-stick"><div class="bp-card">' + LivingUnit.svg(u) + '</div>' +
+        '<div class="bp-card"><div class="bp-lbl">' + tt('תוכנית שטחים', 'โปรแกรมพื้นที่', 'برنامج المساحات') +
+          '</div>' +
+          '<div class="bp-read"><span>' + tt('חדרי שינה', 'ห้องนอน', 'غرف النوم') + '</span><b>' +
+            pr.rooms + ' \u00d7 ' + u.perRoom + '</b></div>' +
+          '<div class="bp-read"><span>' + tt('שירותים / מקלחות / כיורים', 'สุขา/ฝักบัว/อ่าง', 'حمامات') +
+            '</span><b>' + pr.wc + ' / ' + pr.showers + ' / ' + pr.basins + '</b></div>' +
+          '<div class="bp-read"><span>' + tt('משטח מטבח', 'เคาน์เตอร์', 'سطح المطبخ') + '</span><b>' +
+            n1(pr.counter) + ' m</b></div>' +
+          '<div class="bp-read"><span>' + tt('חלל אוכל', 'ส่วนกลาง', 'صالة') + '</span><b>' +
+            n1(pr.dining) + ' \u05de"\u05e8</b></div>' +
+          '<div class="bp-read"><span>' + tt('שטח כולל', 'พื้นที่รวม', 'المساحة الكلية') + '</span><b>' +
+            n1(pr.total) + ' \u05de"\u05e8</b></div>' +
+        '</div></div>' +
+      '<div class="bp-pane">' +
+        '<details class="bp-acc" open><summary>' + tt('בסיס התכנון', 'พื้นฐานการออกแบบ', 'أساس التصميم') +
+          '</summary><div>' +
+          '<div class="bp-lbl">' + tt('אופן הביצוע', 'รูปแบบงาน', 'نوع العمل') + '</div>' +
+          '<select class="bp-in" onchange="BuildPlan.setLiving(' + id + ',\'mode\',this.value)">' +
+            '<option value="fitout"' + (u.mode === 'fitout' ? ' selected' : '') + '>' +
+              tt('התאמת מבנה קיים — מחיצות ופנים בלבד', 'ปรับปรุงอาคารเดิม', 'تجهيز مبنى قائم') + '</option>' +
+            '<option value="full"' + (u.mode === 'full' ? ' selected' : '') + '>' +
+              tt('הקמה מלאה כולל מעטפת', 'สร้างใหม่ทั้งหมด', 'إنشاء كامل') + '</option></select>' +
+          '<div class="bp-grid" style="margin-top:8px;">' +
+            lc('people', tt('מספר אנשים', 'จำนวนคน', 'عدد الأشخاص'), u.people, 2, 60, 1) +
+            lc('perRoom', tt('אנשים לחדר', 'คนต่อห้อง', 'أشخاص لكل غرفة'), u.perRoom, 1, 8, 1) +
+            lc('height', tt('גובה פנים (מ\')', 'ความสูง', 'الارتفاع'), u.height, 2.2, 4, 0.05) +
+          '</div>' +
+          '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;font-size:.8rem;">' +
+            '<label><input type="checkbox"' + (u.blockWet ? ' checked' : '') +
+              ' onchange="BuildPlan.setLiving(' + id + ',\'blockWet\',this.checked)"> ' +
+              tt('קירות בלוק בחדרים רטובים', 'ผนังบล็อกห้องน้ำ', 'جدران بلوك للحمامات') + '</label>' +
+            '<label><input type="checkbox"' + (u.ac ? ' checked' : '') +
+              ' onchange="BuildPlan.setLiving(' + id + ',\'ac\',this.checked)"> ' +
+              tt('מיזוג', 'แอร์', 'تكييف') + '</label>' +
+          '</div>' +
+          '<div class="bp-grid" style="margin-top:8px;">' +
+            '<div><div class="bp-lbl">' + tt('חומר מחיצות', 'วัสดุผนัง', 'مادة القواطع') + '</div>' +
+              '<select class="bp-in" onchange="BuildPlan.setLiving(' + id + ',\'partition\',this.value)">' +
+              cladOptions(u.partition) + '</select></div>' +
+            (u.mode === 'full'
+              ? '<div><div class="bp-lbl">' + tt('מעטפת', 'เปลือก', 'الغلاف') + '</div>' +
+                '<select class="bp-in" onchange="BuildPlan.setLiving(' + id + ',\'envelope\',this.value)">' +
+                cladOptions(u.envelope) + '</select></div>'
+              : '') +
+          '</div>' +
+          '<button class="bp-btn warn" style="margin-top:10px;" onclick="BuildPlan.delLiving(' + id + ')">' +
+            '\ud83d\uddd1 ' + tt('הסר מגורים', 'ลบที่พัก', 'إزالة السكن') + '</button>' +
+        '</div></details>' +
+        '<details class="bp-acc"><summary>' + tt('תקני תכנון', 'เกณฑ์', 'معايير') + '</summary><div>' +
+          '<div style="font-size:.74rem;color:var(--text-muted,#888);margin-bottom:8px;">' +
+            tt('אלה מוסכמות מקצועיות ולא תקן מחייב. דרישות משרד העבודה לאתר מסוים עשויות להיות מחמירות יותר.',
+               'เป็นแนวปฏิบัติ ไม่ใช่มาตรฐานบังคับ',
+               'هذه أعراف مهنية وليست معياراً ملزماً') + '</div>' +
+          '<div class="bp-grid">' +
+            lc('perPerson', tt('מ"ר שינה לאדם', 'ตร.ม./คน', 'م² لكل شخص'), u.perPerson, 2, 8, 0.5) +
+            lc('wcPer', tt('אנשים לאסלה', 'คน/สุขา', 'أشخاص/مرحاض'), u.wcPer, 4, 15, 1) +
+            lc('showerPer', tt('אנשים למקלחת', 'คน/ฝักบัว', 'أشخاص/دُش'), u.showerPer, 4, 15, 1) +
+            lc('basinPer', tt('אנשים לכיור', 'คน/อ่าง', 'أشخاص/حوض'), u.basinPer, 3, 12, 1) +
+            lc('counterPer', tt('מ\' משטח לאדם', 'ม.เคาน์เตอร์/คน', 'م سطح/شخص'), u.counterPer, 0.2, 1, 0.05) +
+            lc('diningPer', tt('מ"ר אוכל לאדם', 'ตร.ม.ส่วนกลาง/คน', 'م² صالة/شخص'), u.diningPer, 0.6, 3, 0.1) +
+          '</div></div></details>' +
+      '</div></div>';
+  }
+
+  function addLiving(id) {
+    var p = projById(id);
+    if (!p || typeof LivingUnit === 'undefined') return;
+    p.living = LivingUnit.norm({ people: 20 });
+    saveP(); open(id);
+  }
+  function delLiving(id) {
+    var p = projById(id);
+    if (!p) return;
+    p.living = null;
+    saveP(); open(id);
+  }
+  var BOOLL = { blockWet: 1, ac: 1 };
+  var TEXTL = { mode: 1, partition: 1, envelope: 1, notes: 1 };
+  function setLiving(id, k, v) {
+    var p = projById(id);
+    if (!p || !p.living) return;
+    p.living[k] = BOOLL[k] ? !!v : TEXTL[k] ? String(v) : (Number(v) || 0);
+    saveP(); open(id);
+  }
+
   function matTab(p, rows, tot) {
     var h = '<div class="bp-card">';
     rows.forEach(function (r) {
@@ -2757,7 +3044,7 @@ var BuildPlan = (function () {
                mapGround: 1, callouts: 1, shadows: 1, dims: 1 };
   var TEXT = { roofType: 1, wallMode: 1, roofClad: 1, wallClad: 1, rafterType: 1, scaleRef: 1,
                colProfile: 1, rafterProfile: 1, purlinProfile: 1, girtProfile: 1,
-               roofPanel: 1, wallPanel: 1 };
+               roofClad: 1, wallClad: 1 };
   // Numbers only nudge the model, so the viewer is updated in place and the
   // sheet is left alone — a full repaint on every slider tick would rebuild
   // the canvas 60 times a second and lose the camera angle mid-drag.
@@ -3007,6 +3294,83 @@ var BuildPlan = (function () {
     });
   }
 
+  // ── work stages ──────────────────────────────────────────────────────
+  // The sheet that goes to whoever is actually building it. Ordered by
+  // dependency, not by trade — the mistakes that cost money on these jobs
+  // are sequencing mistakes: pouring before the sleeves are in, tiling
+  // before the waterproofing, hanging a leaf before the posts have cured.
+  function workStages(p) {
+    var st = [];
+    var d = p.dims;
+
+    if (p.type === 'slab' || (p.footprintArea > 0 && p.type !== 'shed')) {
+      st.push([tt('עבודות עפר ומצע', 'งานดินและฐาน', 'أعمال الحفر والأساس'),
+        tt('חישוף, פילוס, מצע מהודק בשכבות 20 ס"מ. בדיקת ניקוז — משטח שאוסף מים ייסדק.',
+           'ปรับพื้นและบดอัด', 'تسوية ودك')]);
+      st.push([tt('יציקת משטח', 'เทพื้น', 'صب السطح'),
+        tt('רשת מרותכת על ספסרים, עובי ' + n1(d.slabTh) + ' מ\'. תפרי התפשטות כל 5-6 מ\'. ' +
+           'אשפרה 7 ימים לפחות.', 'เทพื้นและบ่ม', 'الصب والمعالجة')]);
+    }
+
+    if (p.type === 'shed' || p.type === 'house') {
+      var g = geom(d), ft = footing(d);
+      st.push([tt('סימון ויסודות', 'ทำเครื่องหมายและฐานราก', 'التخطيط والأساسات'),
+        tt('סימון ' + g.frames + ' מסגרות במרווח ' + n1(g.actualBay) + ' מ\'. ' +
+           (d.footings ? 'חפירת ' + (g.frames*2) + ' בסיסים ' + n1(d.footW) + '\u00d7' +
+             n1(d.footW) + '\u00d7' + n1(d.footD) + ' מ\'. ' : '') +
+           'לוודא אלכסונים שווים לפני היציקה — מסגרת לא מרובעת לא תתאסף.',
+           'ตรวจสอบมุมฉาก', 'التأكد من التعامد')]);
+      st.push([tt('עוגנים ויציקה', 'สมอและเท', 'المراسي والصب'),
+        tt('בורגי עיגון בתבנית לפי פלטת הבסיס, לא לאחר היציקה. אשפרה 7 ימים לפני העמסת שלד.',
+           'สมอก่อนเท', 'المراسي قبل الصب')]);
+      st.push([tt('הקמת שלד', 'ประกอบโครง', 'تركيب الهيكل'),
+        tt('הרכבת מסגרות, ' + (d.bracing ? 'אלכסוני ייצוב בשתי מפתחות הקצה, ' : '') +
+           'מרישים ומסילות. יישור וחיזוק סופי לפני החיפוי.',
+           'ประกอบและปรับ', 'التركيب والضبط')]);
+      if (d.roofClad !== 'none') {
+        st.push([tt('חיפוי גג', 'มุงหลังคา', 'تغطية السقف'),
+          tt('התקנת ' + dsp(d.roofClad) + ' מהצד המוגן מהרוח כלפי הרוח, חפיפה לפי היצרן. ' +
+             (d.gutter ? 'מרזבים וניקוז לפני הקירות.' : ''),
+             'มุงตามทิศลม', 'التغطية حسب اتجاه الريح')]);
+      }
+      if (d.wallMode !== 'open' && d.wallClad !== 'none') {
+        st.push([tt('חיפוי קירות', 'ติดผนัง', 'تغطية الجدران'),
+          tt('התקנת ' + dsp(d.wallClad) + ', פתחים לחלונות ולשער לפי התוכנית.',
+             'ติดตั้งผนัง', 'تركيب الجدران')]);
+      }
+    }
+
+    if (typeof Gates !== 'undefined') {
+      (p.gates || []).forEach(function (gt, i) {
+        Gates.stages(gt).forEach(function (row) {
+          st.push([(gt.name || (tt('שער','ประตู','بوابة') + ' ' + (i+1))) + ' \u00b7 ' + row[0], row[1]]);
+        });
+      });
+    }
+    if (typeof LivingUnit !== 'undefined' && p.living && p.living.people) {
+      LivingUnit.stages(p.living).forEach(function (row) {
+        st.push([tt('מגורים','ที่พัก','سكن') + ' \u00b7 ' + row[0], row[1]]);
+      });
+    }
+
+    if (!st.length) return '';
+    var rows = st.map(function (r, i) {
+      return '<tr><td style="width:26px;text-align:center;font-weight:800;">' + (i+1) + '</td>' +
+        '<td style="width:210px;font-weight:700;">' + esc(r[0]) + '</td>' +
+        '<td>' + esc(r[1]) + '</td>' +
+        '<td style="width:70px;"></td></tr>';
+    }).join('');
+
+    return '<div style="page-break-before:always;"></div>' +
+      '<h2>\ud83d\udccb ' + tt('שלבי עבודה והכנות', 'ขั้นตอนงาน', 'مراحل العمل') + '</h2>' +
+      '<p style="font-size:.8rem;color:#555;">' +
+        tt('הסדר הוא סדר תלות, לא סדר מקצועות. רוב התקלות היקרות בעבודות האלה הן תקלות רצף.',
+           'ลำดับตามการพึ่งพา', 'الترتيب حسب التبعية') + '</p>' +
+      '<table><thead><tr><th>#</th><th>' + tt('שלב', 'ขั้นตอน', 'المرحلة') + '</th><th>' +
+        tt('הכנות ודגשים', 'การเตรียมและข้อควรระวัง', 'التحضير والملاحظات') + '</th><th>' +
+        tt('בוצע', 'เสร็จ', 'تم') + '</th></tr></thead><tbody>' + rows + '</tbody></table>';
+  }
+
   // Print colours hardcoded — the sheet opens in a bare tab with no theme.
   function printProject(id) {
     var p = projById(id);
@@ -3022,6 +3386,22 @@ var BuildPlan = (function () {
         '<td>' + (pr && pr.price ? money(r.qty * pr.price) : '\u2014') + '</td>' +
         '<td>' + esc(r.note) + '</td></tr>';
     });
+    // Component drawings, printed at the size they are read at. A bill of
+    // quantities without a drawing is a list of numbers nobody can check.
+    var extra = '';
+    if (typeof Gates !== 'undefined') {
+      (p.gates || []).forEach(function (g, i) {
+        extra += '<h2>\ud83d\udea7 ' + esc(g.name || (tt('שער','ประตู','بوابة') + ' ' + (i+1))) +
+          ' \u2014 ' + esc(Gates.typeLabel(g.type)) + '</h2>' +
+          '<div class="bp-draw">' + Gates.svg(g, { print: true }) + '</div>';
+      });
+    }
+    if (typeof LivingUnit !== 'undefined' && p.living && p.living.people) {
+      extra += '<h2>\ud83c\udfe0 ' + tt('מתחם מגורים', 'ที่พัก', 'مجمع سكني') + ' \u2014 ' +
+        p.living.people + ' ' + tt('אנשים', 'คน', 'أشخاص') + '</h2>' +
+        '<div class="bp-draw">' + LivingUnit.svg(p.living, { print: true }) + '</div>';
+    }
+
     var drawing = svg(p)
       .replace(/var\(--primary,#2d6a4f\)/g, '#2d6a4f')
       .replace(/var\(--accent,#ff9f43\)/g, '#e07b00')
@@ -3050,6 +3430,7 @@ var BuildPlan = (function () {
         (p.footprintArea > 0 ? '<br>' + tt('שטח מסומן במפה', 'พื้นที่จากแผนที่', 'المساحة المرسومة') +
           ': ' + n1(p.footprintArea) + ' \u05de"\u05e8' : '') +
       '</div>' + drawing +
+      extra +
       '<h2>' + tt('כתב כמויות', 'รายการวัสดุ', 'جدول الكميات') + '</h2>' +
       '<table><thead><tr><th>#</th><th>' + tt('פריט', 'รายการ', 'صنف') + '</th><th>' +
         tt('כמות', 'จำนวน', 'كمية') + '</th><th>' + tt('יחידה', 'หน่วย', 'وحدة') + '</th><th>' +
@@ -3059,6 +3440,7 @@ var BuildPlan = (function () {
         tt('משקל פלדה', 'น้ำหนักเหล็ก', 'وزن الحديد') + '</td><td>' + n1(tot.kg) + ' kg</td>' +
         '<td>' + tt('סה"כ', 'รวม', 'مجموع') + '</td><td colspan="2">' + money(tot.cost) +
         '</td></tr></tfoot></table>' +
+      workStages(p) +
       '<p style="margin-top:20px;font-size:.8rem;">\u05e9\u05d5\u05e8\u05e9\u05d9\u05dd \u05e4\u05dc\u05d5\u05e1 \u05d1\u05e2"\u05de / ROOTS PLUS LTD</p>' +
       '</body></html>';
     if (window.Util && typeof window.Util.exportReport === 'function') {
@@ -3115,6 +3497,8 @@ var BuildPlan = (function () {
     _commit: _commit,
     toggleLayer: toggleLayer,
     pickMember: pickMember,
+    addGate: addGate, delGate: delGate, setGate: setGate,
+    addLiving: addLiving, delLiving: delLiving, setLiving: setLiving,
     skTool: skTool, skOrtho: skOrtho, skUndo: skUndo, skRedo: skRedo,
     skFit: skFit, skDel: skDel, skScale: skScale, skRotate: skRotate,
     skSeg: skSeg, skRadius: skRadius,
