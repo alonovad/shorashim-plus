@@ -63,7 +63,15 @@
     if (p.hasStruct !== false && p.type !== 'slab') parts.push(BP.svg(p));
     else if (p.type === 'slab') parts.push(BP.svg(p));
     if (typeof Gates !== 'undefined') {
-      (p.gates || []).forEach(function (g) { parts.push(Gates.svg(g, { print: true })); });
+      (p.gates || []).forEach(function (g) {
+        parts.push(Gates.svg(g, { print: true }));
+        // The section goes on the quote only when it says something the
+        // elevation cannot: which way a horn points, or what is in the
+        // foundation. Otherwise it is a second picture of the same gate.
+        if (g.horns || (g.rebar && g.rebar.show)) {
+          parts.push(Gates.detailSvg(g, { print: true }));
+        }
+      });
     }
     if (typeof LivingUnit !== 'undefined' && p.living && p.living.people) {
       parts.push(LivingUnit.svg(p.living, { print: true }));
@@ -621,8 +629,20 @@
         extra += '<h2>\ud83d\udea7 ' + BP.esc(g.name || (BP.tt('שער','ประตู','بوابة') + ' ' + (i+1))) +
           ' \u2014 ' + BP.esc(Gates.typeLabel(g.type)) + '</h2>' +
           '<div class="bp-draw">' + Gates.svg(g, { print: true }) + '</div>' +
+          ((g.horns || (g.rebar && g.rebar.show))
+            ? '<div class="bp-draw">' + Gates.detailSvg(g, { print: true }) + '</div>' : '') +
           gateCheckPrint(g);
       });
+    }
+    // The foundation detail for the structure's own pad footings. Printed
+    // once, after the components, because it applies to all of them.
+    if (BP.rebarSvg && p.dims && p.dims.footings && p.hasStruct !== false && p.type !== 'slab') {
+      var rbs = BP.rebarSvg(p, { print: true });
+      if (rbs) {
+        extra += '<h2>\ud83e\uddf1 ' +
+          BP.tt('פרט זיון יסודות', 'รายละเอียดเหล็กเสริมฐานราก', 'تفصيل تسليح الأساسات') + '</h2>' +
+          '<div class="bp-draw">' + rbs + '</div>';
+      }
     }
     if (typeof LivingUnit !== 'undefined' && p.living && p.living.people) {
       extra += '<h2>\ud83c\udfe0 ' + BP.tt('מתחם מגורים', 'ที่พัก', 'مجمع سكني') + ' \u2014 ' +
@@ -733,6 +753,9 @@
     pickMember: BP.pickMember,
     pickGatePart: BP.pickGatePart,
     addGate: BP.addGate, delGate: BP.delGate, setGate: BP.setGate,
+    addComp: BP.addComp,
+    gateView: BP.gateView, gate3dView: BP.gate3dView, gate3dReset: BP.gate3dReset,
+    _rebar: BP._rebar, _rebarBind: BP._rebarBind, _gateRebarBind: BP._gateRebarBind,
     addLiving: BP.addLiving, delLiving: BP.delLiving, setLiving: BP.setLiving,
     skTool: BP.skTool, skOrtho: BP.skOrtho, skUndo: BP.skUndo, skRedo: BP.skRedo,
     skFit: BP.skFit, skDel: BP.skDel, skScale: BP.skScale, skRotate: BP.skRotate,

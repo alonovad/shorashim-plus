@@ -10,6 +10,12 @@
  *   cantil  קונזולי       — one leaf plus a counterweight tail, no ground
  *                           track, so it works on an unpaved approach
  *
+ * KRANIYIM (קרניים) — the angled arms above the posts, leaning toward
+ * whoever is arriving, with the mesh carried up onto them. On the
+ * engineer's sheet this is "שער עם קרן": it is what stops the gate being
+ * climbed, and it is a cantilever on top of a cantilever, so it is added
+ * to the post moment rather than drawn and forgotten.
+ *
  * The counterweight tail is the thing people forget when pricing a
  * cantilever gate: the leaf continues past the opening by roughly half the
  * clear width again, and that steel is real. It is computed, not ignored.
@@ -129,6 +135,16 @@ var Gates = (function () {
       var ecc = (g.type === 'swing1' || g.type === 'swing2') ? (s.leafW + s.tail) / 2 : 0.15;
       var Fw = WIND * solidity(g) * (s.leafW + s.tail) * g.height;   // kN on the leaf
       M = Wl * ecc + Fw * (g.height / 2);
+      // A horn is a cantilever bolted to the top of a cantilever. Its own
+      // weight acts on its horizontal reach, and the mesh on it catches
+      // wind at the highest point on the gate, where the lever arm is
+      // longest — which is exactly why an unchecked horn bends posts.
+      if (g.horns) {
+        var hSelf = g.hornLen * (sc.ar * STEEL_KG) * 0.00981;              // kN
+        var hWind = WIND * solidity(g) * (s.hornArea / Math.max(1, (g.type === 'slide') ? 4 :
+                      (g.type === 'cantil') ? 3 : 2));
+        M += hSelf * s.hornProj + hWind * (g.height + s.hornRise / 2);
+      }
       if (g.motor) M *= 1.15;   // operator thrust and the shock of hitting a stop
       util = (M * 1e6) / (sc.wy * 1e3 * F_ALLOW);
       why = tt('כפיפה מתלייה + רוח', 'ดัดจากการแขวน', 'انحناء من التعليق');
@@ -226,6 +242,10 @@ var Gates = (function () {
              name: function () { return tt('זנב משקל נגדי', 'หางถ่วง', 'ذيل الموازنة'); } },
     mesh:  { icon: '\u2591', prof: function (g) { return g.mesh; },
              name: function () { return tt('מילוי רשת', 'ตะแกรง', 'حشوة شبكية'); } },
+    horn:  { icon: '\u2197', prof: function (g) {
+               return String(g.post || '') + ' \u00b7 ' + n1(g.hornLen) + ' m @ ' +
+                      n1(g.hornAngle) + '\u00b0'; },
+             name: function () { return tt('קרן', 'แขนเอียง', 'ذراع مائل'); } },
     found: { icon: '\u2b1c', prof: function (g) {
                return tt('בטון', 'คอนกรีต', 'خرسانة') + ' ' +
                       n1(g.postSize) + '\u00d7' + n1(g.postSize) + '\u00d7' + n1(g.postDepth) + ' m'; },
@@ -264,6 +284,23 @@ var Gates = (function () {
       // Absent still means 1; an explicit 0 now means 0.
       infillRows: (g.infillRows === null || g.infillRows === undefined || g.infillRows === '')
                     ? 1 : Math.max(0, Number(g.infillRows) || 0),
+      // ── קרניים ──
+      // Off by default: every gate already built here has none, and
+      // turning them on for existing records would silently add steel to
+      // saved quotes.
+      horns:     !!g.horns,
+      hornLen:   Math.max(0.2, Math.min(1.5, Number(g.hornLen) || 0.5)),   // m along the arm
+      hornAngle: Math.max(10, Math.min(75, Number(g.hornAngle) || 30)),    // deg from vertical
+      // Which way the arm leans. 'out' is toward the approach — the side
+      // somebody would climb from — and is the only one that does the job
+      // the detail exists for; 'in' is offered because a gate on a
+      // property line sometimes cannot overhang the road.
+      hornDir:   (g.hornDir === 'in') ? 'in' : 'out',
+      hornMesh:  g.hornMesh === false ? false : true,
+      // Reinforcement inside the post foundations. Normalised by rebar.js
+      // when it is loaded, kept as-is when it is not, so a gate saved with
+      // a cage never loses it because of load order.
+      rebar: (typeof Rebar !== 'undefined') ? Rebar.norm(g.rebar) : (g.rebar || null),
       notes: String(g.notes || '')
     };
   }
@@ -273,6 +310,7 @@ var Gates = (function () {
   // count of fittings, in the shape buildplan's takeoff expects.
   function takeoff(g) {
     g = norm(g);
+    var s = summary(g);
     var out = [];
     function push(name, qty, unit, note) {
       if (!(qty > 0)) return;
@@ -305,6 +343,35 @@ var Gates = (function () {
     push('בטון ב-30', posts * g.postSize * g.postSize * g.postDepth, 'מ"ק',
       tt('יסודות עמודים', 'ฐานเสา', 'أساسات الأعمدة') + ' ' +
       n1(g.postSize) + '\u00d7' + n1(g.postSize) + '\u00d7' + n1(g.postDepth));
+
+    // Reinforcement, itemised per bar diameter instead of billed as one
+    // guessed length of Ø12. The cage is the same object the detail
+    // drawing shows, so the drawing and the price cannot disagree.
+    if (typeof Rebar !== 'undefined') {
+      Rebar.padTakeoff(g.rebar, { n: posts, w: g.postSize, d: g.postDepth, waste: 1.05 })
+        .forEach(function (r) { push(r.name, r.qty, r.unit, r.note); });
+    }
+
+    // ── קרניים ──
+    // The arm itself is cut from the post stick — it is a continuation of
+    // the post, welded on at an angle, not a lighter member. The rail
+    // across the tips and the mesh on the sloping face are what make it a
+    // barrier rather than two spikes.
+    if (g.horns) {
+      push(g.post, posts * g.hornLen, "מ'",
+        posts + ' ' + tt('קרניים', 'แขนเอียง', 'أذرع مائلة') + ' ' +
+        n1(g.hornLen) + ' m @ ' + n1(g.hornAngle) + '\u00b0 ' +
+        (g.hornDir === 'in' ? tt('פנימה', 'เข้า', 'للداخل')
+                            : tt('כלפי הכניסה', 'ออกด้านนอก', 'نحو المدخل')));
+      push(g.frame, g.width, "מ'",
+        tt('קורת ראש בין הקרניים', 'คานหัวเสา', 'عارضة علوية بين الأذرع'));
+      if (g.hornMesh) {
+        push(g.mesh, s.hornArea * 1.05, 'מ"ר',
+          tt('רשת על הקרניים', 'ตะแกรงบนแขน', 'شبك على الأذرع'));
+        push('צבע/גילוון וצביעה', s.hornArea * 2, 'מ"ר',
+          tt('קרניים · שתי פנים', 'แขน สองด้าน', 'الأذرع · وجهان'));
+      }
+    }
 
     if (g.type === 'swing1' || g.type === 'swing2') {
       push('צירי שער כבדים', leaves * 2, "יח'", '');
@@ -339,11 +406,22 @@ var Gates = (function () {
     var leaves = (g.type === 'swing2') ? 2 : 1;
     var leafW = (g.type === 'swing2') ? g.width / 2 : g.width;
     var tail = (g.type === 'cantil') ? g.width * 0.5 : 0;
+    // The arm resolved into the two numbers everything else needs: how far
+    // it reaches out over the approach, and how much higher it puts the top
+    // of the gate. Both are zero when there are no horns, so every caller
+    // can add them unconditionally.
+    var a = g.hornAngle * Math.PI / 180;
+    var hornProj = g.horns ? g.hornLen * Math.sin(a) : 0;
+    var hornRise = g.horns ? g.hornLen * Math.cos(a) : 0;
     return {
       leaves: leaves, leafW: leafW, tail: tail,
       area: (leafW + tail) * g.height * leaves,
       swingRadius: (g.type === 'swing1' || g.type === 'swing2') ? leafW : 0,
-      railRun: (g.type === 'slide') ? g.width * 2 : 0
+      railRun: (g.type === 'slide') ? g.width * 2 : 0,
+      hornLen: g.horns ? g.hornLen : 0,
+      hornProj: hornProj, hornRise: hornRise,
+      hornArea: (g.horns && g.hornMesh) ? g.width * g.hornLen : 0,
+      topZ: g.height + hornRise
     };
   }
 
@@ -399,8 +477,11 @@ var Gates = (function () {
     var CAL = opt.callouts !== false;
     var W = CAL ? 880 : 640, H = 340, pad = 54;
     var mx = CAL ? 170 : pad;
-    var totalW = g.width + (s.tail || 0) + 1.2;
-    var totalH = g.height + g.postDepth + 0.6;
+    // The horn reaches out past the posts and up past the frame, so the
+    // extents it occupies have to be in the scale calculation or the arm
+    // is drawn off the top of the canvas.
+    var totalW = g.width + (s.tail || 0) + (s.hornProj || 0) + 1.2;
+    var totalH = g.height + (s.hornRise || 0) + g.postDepth + 0.6;
     var sc = Math.min((W - mx*2) / totalW, (H - pad*2) / totalH);
     var x0 = (W - g.width*sc) / 2, gy = H - pad - g.postDepth*sc;   // ground line
 
@@ -454,9 +535,17 @@ var Gates = (function () {
       : [0, g.width, g.width + 0.6];
     postXs.forEach(function (px) {
       var fw = g.postSize * sc;
+      // Concrete first, then the cage inside it. A foundation drawn as a
+      // plain grey block is why "בטון לביסוס עמודים וברזל זיוון" had to be
+      // typed into the quote by hand — the drawing never showed the steel.
+      var cage = (typeof Rebar !== 'undefined')
+        ? Rebar.overlay(g.rebar, { x: X(px) - fw/2, y: gy, w: fw, h: g.postDepth*sc },
+                        { color: print ? '#c0392b' : '#e2624b', scale: sc })
+        : '';
       o.push(part('found',
         '<rect x="' + (X(px) - fw/2) + '" y="' + gy + '" width="' + fw +
-          '" height="' + (g.postDepth*sc) + '" fill="' + col.conc + '" opacity=".55" class="gp-f"/>',
+          '" height="' + (g.postDepth*sc) + '" fill="' + col.conc + '" opacity=".55" class="gp-f"/>' +
+          cage,
         hitRect(X(px) - fw/2, gy, fw, g.postDepth*sc)));
       o.push(part('post',
         '<rect x="' + (X(px) - 5) + '" y="' + Y(g.height + 0.25) + '" width="10" height="' +
@@ -509,6 +598,55 @@ var Gates = (function () {
       }
     }
 
+    // ── קרניים ────────────────────────────────────────────────────────
+    // In a true straight-on elevation an arm leaning toward the viewer is
+    // foreshortened to nothing, which would show the reader a gate with no
+    // horns on it. Drawn instead the way a fence elevation draws them: both
+    // arms leaning the same way at their real angle, in true length, with
+    // the head rail joining the tips. Gates.detailSvg() carries the section
+    // that says which way they actually point.
+    function horns() {
+      if (!g.horns) return;
+      var topZ = g.height + 0.25;
+      var lean = -(s.hornProj);                    // drawn toward the left margin
+      var tipZ = topZ + s.hornRise;
+      var ends = postXs.map(function (px) { return { x: px, tx: px + lean }; });
+
+      if (g.hornMesh) {
+        var wires = [];
+        var span = g.width, cells = Math.max(3, Math.round(span / 0.35));
+        for (var i = 0; i <= cells; i++) {
+          var bx = g.width * i / cells;
+          wires.push('<line x1="' + X(bx) + '" y1="' + Y(topZ) + '" x2="' + X(bx + lean) +
+            '" y2="' + Y(tipZ) + '" stroke="' + col.mesh + '" stroke-width="0.7" class="gp-v"/>');
+        }
+        var bands = 3;
+        for (var j = 1; j < bands; j++) {
+          var t = j / bands;
+          wires.push('<line x1="' + X(lean*t) + '" y1="' + Y(topZ + s.hornRise*t) +
+            '" x2="' + X(g.width + lean*t) + '" y2="' + Y(topZ + s.hornRise*t) +
+            '" stroke="' + col.mesh + '" stroke-width="0.7" class="gp-v"/>');
+        }
+        o.push(part('mesh', wires.join(''), ''));
+      }
+
+      ends.forEach(function (e) {
+        o.push(part('horn',
+          '<line x1="' + X(e.x) + '" y1="' + Y(topZ) + '" x2="' + X(e.tx) + '" y2="' + Y(tipZ) +
+            '" stroke="' + col.steel + '" stroke-width="4" stroke-linecap="round" class="gp-v"/>',
+          hitLine(X(e.x), Y(topZ), X(e.tx), Y(tipZ))));
+      });
+      // head rail across the tips
+      o.push(part('horn',
+        '<line x1="' + X(lean) + '" y1="' + Y(tipZ) + '" x2="' + X(g.width + lean) + '" y2="' + Y(tipZ) +
+          '" stroke="' + col.steel + '" stroke-width="2.5" class="gp-v"/>',
+        hitLine(X(lean), Y(tipZ), X(g.width + lean), Y(tipZ))));
+      // the angle, called out on the drawing where it is read
+      o.push('<text x="' + X(g.width + lean*0.5) + '" y="' + (Y(topZ + s.hornRise*0.5) - 6) +
+        '" fill="' + col.dim + '" font-size="11" font-weight="700" text-anchor="middle">' +
+        n1(g.hornAngle) + '\u00b0</text>');
+    }
+
     if (g.type === 'swing2') { leaf(0, g.width/2); leaf(g.width/2, g.width/2); }
     else if (g.type === 'cantil') { leaf(0, g.width); 
       // counterweight tail, drawn lighter — it is structure, not opening
@@ -523,6 +661,8 @@ var Gates = (function () {
     }
     else leaf(0, g.width);
 
+    horns();
+
     // dimensions
     function dim(xa, xb, y, label) {
       return '<line x1="' + xa + '" y1="' + y + '" x2="' + xb + '" y2="' + y +
@@ -530,7 +670,7 @@ var Gates = (function () {
         '<text x="' + ((xa+xb)/2) + '" y="' + (y-5) + '" fill="' + col.dim +
         '" font-size="12" font-weight="800" text-anchor="middle">' + label + '</text>';
     }
-    o.push(dim(X(0), X(g.width), gy + 28, n1(g.width) + ' m ' + tt('אור', 'ช่องเปิด', 'فتحة')));
+    o.push(dim(X(0), X(g.width), gy + 28, n1(g.width) + ' m'));
     o.push('<line x1="' + (X(0)-26) + '" y1="' + Y(g.height) + '" x2="' + (X(0)-26) + '" y2="' + gy +
       '" stroke="' + col.dim + '" stroke-width="1"/>');
     o.push('<text x="' + (X(0)-30) + '" y="' + Y(g.height/2) + '" fill="' + col.dim +
@@ -538,7 +678,9 @@ var Gates = (function () {
     o.push('<text x="' + X(g.width/2) + '" y="' + (gy + g.postDepth*sc + 16) + '" fill="' + col.conc +
       '" font-size="11" font-weight="700" text-anchor="middle">' +
       tt('יסוד', 'ฐาน', 'أساس') + ' ' + n1(g.postSize) + '\u00d7' + n1(g.postSize) +
-      '\u00d7' + n1(g.postDepth) + ' m</text>');
+      '\u00d7' + n1(g.postDepth) + ' m' +
+      ((typeof Rebar !== 'undefined' && g.rebar && g.rebar.show)
+        ? ' \u00b7 ' + esc(Rebar.cageLabel(g.rebar)) : '') + '</text>');
 
     // ── named members ──────────────────────────────────────────────
     // Same information the picker gives on tap, printed for the copy that
@@ -572,6 +714,10 @@ var Gates = (function () {
       if (g.type === 'cantil') {
         o.push(gLeader(X(g.width + s.tail * 0.5), Y(g.height), rx, Y(g.height) + 26, 'r',
           lab('tail'), lc));
+      }
+      if (g.horns) {
+        o.push(gLeader(X(ml * 0.5 - s.hornProj * 0.5), Y(g.height + 0.25 + s.hornRise * 0.5),
+          lx2, Y(g.height) - 34, 'l', lab('horn'), lc));
       }
       // The foundation already names itself in the note under the gate;
       // a leader saying the same thing twice is noise, not annotation.
@@ -646,6 +792,7 @@ var Gates = (function () {
     var out = ['post', 'found', 'frame', 'mesh'];
     if (g.infillRows > 0) out.push('rail');
     if (g.bracing) out.push('brace');
+    if (g.horns) out.push('horn');
     if (g.type === 'cantil') out.push('tail');
     return out;
   }
@@ -679,6 +826,14 @@ var Gates = (function () {
         tt('שתי עגלות על יסוד רציף. אורך הזנב ' + n1(g.width*0.5) + ' מ\' חייב מרווח פנוי מאחורי הפתח.',
            'ต้องมีพื้นที่ว่างด้านหลัง', 'يلزم فراغ خلف الفتحة')]);
     }
+    if (g.horns) {
+      st.push([tt('ייצור והרכבת קרניים', 'ทำและติดตั้งแขนเอียง', 'تصنيع وتركيب الأذرع'),
+        tt('קרן ' + n1(g.hornLen) + ' מ\' בזווית ' + n1(g.hornAngle) + '\u00b0 ' +
+           (g.hornDir === 'in' ? 'פנימה' : 'כלפי הכניסה') +
+           '. לרתך את הקרן לראש העמוד לפני התלייה, ולוודא זווית זהה בכל העמודים — ' +
+           'קרן שסוטה במעלה אחת נראית עקומה מהכביש.',
+           'เชื่อมแขนก่อนแขวนบาน', 'لحام الأذرع قبل التعليق')]);
+    }
     st.push([tt('תלייה וכיוון', 'แขวนและปรับ', 'التعليق والضبط'),
       tt('התלייה, כיוון מפלס, בדיקת פתיחה מלאה ללא חיכוך, התקנת בריח.',
          'ปรับระดับ', 'ضبط المستوى')]);
@@ -690,8 +845,280 @@ var Gates = (function () {
     return st;
   }
 
+  // ══════════════════════════════════════════════════════════════════
+  //  SECTION DETAIL — the true shape of the horn, and the cage
+  // ══════════════════════════════════════════════════════════════════
+  // The elevation is a compromise (see horns() above). This is not: a cut
+  // through one post, looking along the gate, so the arm points where it
+  // really points and the foundation shows what is really in it. It is the
+  // drawing the engineer's sheet calls חתך ב-ב, and the one a welder needs.
+  function detailSvg(g, opt) {
+    g = norm(g);
+    opt = opt || {};
+    var print = !!opt.print;
+    var s = summary(g);
+    var col = {
+      steel: print ? '#37474f' : 'var(--text,#cfd8dc)',
+      mesh:  print ? '#90a4ae' : 'var(--text-muted,#8fa3b8)',
+      conc:  print ? '#bdbdbd' : 'var(--text-muted,#9e9e9e)',
+      dim:   print ? '#b34700' : 'var(--accent,#ff9f43)',
+      grnd:  print ? '#8d6e63' : 'var(--text-muted,#8d6e63)',
+      txt:   print ? '#37474f' : 'var(--text,#cfd8dc)',
+      bar:   print ? '#c0392b' : '#e2624b'
+    };
+    var W = 520, H = 340, pad = 46;
+    var topZ = g.height + 0.25;
+    var upH = topZ + s.hornRise;
+    var reach = Math.max(g.postSize, s.hornProj * 2 + g.postSize) + 0.5;
+    var sc = Math.min((W - pad * 3) / reach, (H - pad * 2) / (upH + g.postDepth + 0.3));
+    // The approach is to the LEFT of the section, so an arm that leans
+    // 'out' leans left — the same side the reader is standing on.
+    var cx = W * 0.58;
+    var sgn = (g.hornDir === 'in') ? 1 : -1;
+    var gy = pad + upH * sc;
+    function X(m) { return cx + m * sc; }
+    function Y(m) { return gy - m * sc; }
+
+    var o = [];
+    o.push('<text x="14" y="20" fill="' + col.txt + '" font-size="12" font-weight="800">' +
+      esc(tt('חתך דרך עמוד · קרן ויסוד', 'ภาคตัดผ่านเสา', 'مقطع عبر العمود')) + '</text>');
+
+    // ground
+    o.push('<line x1="16" y1="' + gy + '" x2="' + (W - 16) + '" y2="' + gy +
+      '" stroke="' + col.grnd + '" stroke-width="2"/>');
+    // approach arrow — who the horn is leaning toward
+    var ax = X(sgn * (s.hornProj + 0.45));
+    o.push('<line x1="' + ax + '" y1="' + (gy + 22) + '" x2="' + X(sgn * 0.12) + '" y2="' + (gy + 22) +
+      '" stroke="' + col.dim + '" stroke-width="1"/>' +
+      gArrow(X(sgn * 0.12), gy + 22, ax, gy + 22, col.dim));
+    o.push('<text x="' + ax + '" y="' + (gy + 38) + '" fill="' + col.dim +
+      '" font-size="10.5" font-weight="700" text-anchor="middle">' +
+      esc(tt('כיוון הגעה', 'ทิศทางเข้า', 'اتجاه القدوم')) + '</text>');
+
+    // foundation + cage
+    var fw = g.postSize * sc;
+    o.push('<rect x="' + (X(0) - fw / 2) + '" y="' + gy + '" width="' + fw + '" height="' +
+      (g.postDepth * sc) + '" fill="' + col.conc + '" opacity=".55"/>');
+    if (typeof Rebar !== 'undefined') {
+      o.push(Rebar.overlay(g.rebar, { x: X(0) - fw / 2, y: gy, w: fw, h: g.postDepth * sc },
+        { color: col.bar, scale: sc }));
+    }
+
+    // post
+    o.push('<rect x="' + (X(0) - 5) + '" y="' + Y(topZ) + '" width="10" height="' +
+      (topZ * sc) + '" fill="' + col.steel + '"/>');
+
+    // the arm, at its true angle
+    if (g.horns) {
+      var tipX = X(sgn * s.hornProj), tipY = Y(upH);
+      o.push('<line x1="' + X(0) + '" y1="' + Y(topZ) + '" x2="' + tipX + '" y2="' + tipY +
+        '" stroke="' + col.steel + '" stroke-width="5" stroke-linecap="round"/>');
+      if (g.hornMesh) {
+        for (var i = 1; i <= 4; i++) {
+          var t = i / 5;
+          o.push('<line x1="' + (X(0) + (tipX - X(0)) * t) + '" y1="' + (Y(topZ) + (tipY - Y(topZ)) * t) +
+            '" x2="' + (X(0) + (tipX - X(0)) * t - sgn * 5) + '" y2="' +
+            (Y(topZ) + (tipY - Y(topZ)) * t) + '" stroke="' + col.mesh + '" stroke-width="1.4"/>');
+        }
+      }
+      // angle from the vertical, marked at the knuckle
+      o.push('<path d="M' + X(0) + ',' + (Y(topZ) + 26) + ' A 26 26 0 0 ' + (sgn < 0 ? 1 : 0) + ' ' +
+        (X(0) + sgn * 26 * Math.sin(g.hornAngle * Math.PI / 180)) + ',' +
+        (Y(topZ) + 26 * Math.cos(g.hornAngle * Math.PI / 180)) +
+        '" fill="none" stroke="' + col.dim + '" stroke-width="1"/>');
+      o.push('<text x="' + (X(0) + sgn * 34) + '" y="' + (Y(topZ) + 20) + '" fill="' + col.dim +
+        '" font-size="11" font-weight="800" text-anchor="middle">' + n1(g.hornAngle) + '\u00b0</text>');
+      // arm length, along the arm
+      o.push('<text x="' + ((X(0) + tipX) / 2 + sgn * 22) + '" y="' + ((Y(topZ) + tipY) / 2) +
+        '" fill="' + col.dim + '" font-size="11" font-weight="800" text-anchor="middle">' +
+        n1(g.hornLen) + ' m</text>');
+      // horizontal reach — the number that decides whether it overhangs a road
+      o.push('<line x1="' + X(0) + '" y1="' + (tipY - 14) + '" x2="' + tipX + '" y2="' + (tipY - 14) +
+        '" stroke="' + col.dim + '" stroke-width="1" stroke-dasharray="3,3"/>');
+      o.push('<text x="' + ((X(0) + tipX) / 2) + '" y="' + (tipY - 19) + '" fill="' + col.dim +
+        '" font-size="10.5" font-weight="700" text-anchor="middle">' + n1(s.hornProj) + ' m</text>');
+    }
+
+    // heights
+    o.push('<line x1="' + (X(0) + fw / 2 + 30) + '" y1="' + Y(0) + '" x2="' + (X(0) + fw / 2 + 30) +
+      '" y2="' + Y(topZ) + '" stroke="' + col.dim + '" stroke-width="1"/>');
+    o.push('<text x="' + (X(0) + fw / 2 + 34) + '" y="' + Y(topZ / 2) + '" fill="' + col.dim +
+      '" font-size="11" font-weight="800">' + n1(topZ) + ' m</text>');
+    o.push('<text x="' + (X(0) + fw / 2 + 34) + '" y="' + (gy + g.postDepth * sc / 2) +
+      '" fill="' + col.conc + '" font-size="10.5" font-weight="700">' +
+      n1(g.postSize) + '\u00d7' + n1(g.postSize) + '\u00d7' + n1(g.postDepth) + ' m</text>');
+
+    // schedule
+    var lines = [g.post + ' \u00b7 ' + tt('עמוד', 'เสา', 'عمود')];
+    if (g.horns) {
+      lines.push(tt('קרן', 'แขนเอียง', 'ذراع') + ' ' + n1(g.hornLen) + ' m @ ' +
+        n1(g.hornAngle) + '\u00b0 ' + (g.hornDir === 'in'
+          ? tt('פנימה', 'เข้า', 'للداخل') : tt('כלפי הכניסה', 'ออกนอก', 'نحو المدخل')));
+    }
+    if (typeof Rebar !== 'undefined' && g.rebar) lines.push(Rebar.summaryLabel(g.rebar));
+    lines.forEach(function (ln, i) {
+      o.push('<text x="14" y="' + (H - 30 + i * 13) + '" fill="' +
+        col.txt + '" font-size="10.5" font-weight="700" opacity=".85">' + esc(ln) + '</text>');
+    });
+
+    return '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto;">' +
+      o.join('') + '</svg>';
+  }
+
+  // ══════════════════════════════════════════════════════════════════
+  //  3D MODEL
+  // ══════════════════════════════════════════════════════════════════
+  // Handed to Shed3D.mount() as a prebuilt face list, so a gate orbits,
+  // pans, zooms and picks with exactly the controls the shed has — one
+  // viewer, one set of gestures, one thing to learn. The 3D view is also
+  // the only honest picture of a horn: it points at the camera when you
+  // look at the gate head-on, which is the whole idea.
+  //
+  // Axes match the shed: x across the opening, y through the gate (−y is
+  // the approach side), z up.
+  var G3 = {
+    post: '#5f6a72', frame: '#6b7780', rail: '#6b7780', brace: '#77838c',
+    horn: '#4e5a62', mesh: '#9fb0bd', found: '#8d8579', tail: '#7c878f',
+    track: '#8a8a8a', ground: '#b9ae92'
+  };
+
+  function model3d(g) {
+    g = norm(g);
+    var s = summary(g);
+    var P = (typeof Shed3D !== 'undefined' && Shed3D.prim) ? Shed3D.prim : null;
+    if (!P) return null;
+
+    var F = [];
+    var hw = g.width / 2;                       // half opening
+    var t = 0.05;                               // half thickness of a leaf member
+    var pw = 0.075;                             // half width of a post
+    var topZ = g.height + 0.25;
+
+    // Long members are split so the painter's sort stays honest — the same
+    // reason shed3d subdivides. A 6 m top rail whose centroid sits in the
+    // middle of the opening otherwise sorts in front of a near post from
+    // one angle and behind it from the next.
+    function splitX(x1, x2, fn) {
+      var n = Math.max(1, Math.min(12, Math.round(Math.abs(x2 - x1) / 1.0)));
+      for (var i = 0; i < n; i++) {
+        fn(x1 + (x2 - x1) * i / n, x1 + (x2 - x1) * (i + 1) / n);
+      }
+    }
+    function barX(x1, x2, y1, z1, y2, z2, col, grp) {
+      splitX(x1, x2, function (a, b) { F = F.concat(P.bar(a, y1, z1, b, y2, z2, col, grp)); });
+    }
+    function colZ(x, y, z1, z2, col, grp) {
+      var n = Math.max(1, Math.round((z2 - z1) / 1.2));
+      for (var i = 0; i < n; i++) {
+        F = F.concat(P.box(x - pw, y - pw, z1 + (z2 - z1) * i / n,
+                           x + pw, y + pw, z1 + (z2 - z1) * (i + 1) / n, col, grp));
+      }
+    }
+    // A mesh panel: one translucent quad per metre of run, ribbed, rather
+    // than a wire per cell. Twelve hundred cylinders would be honest and
+    // unusable on a phone.
+    function meshPanel(x1, x2, y, z1, z2, grp) {
+      splitX(x1, x2, function (a, b) {
+        F = F.concat(P.quad([a, y, z1], [b, y, z1], [b, y, z2], [a, y, z2],
+          G3.mesh, grp || 'mesh', Math.max(2, Math.round((z2 - z1) / 0.2)), 0.55));
+      });
+    }
+
+    // ── ground ──
+    var padXY = Math.max(2, g.width * 0.5);
+    F = F.concat(P.quad([-hw - padXY, -padXY, -0.02], [hw + padXY, -padXY, -0.02],
+                        [hw + padXY, padXY, -0.02], [-hw - padXY, padXY, -0.02],
+                        G3.ground, 'ground', 0, 1));
+
+    // ── posts and their foundations ──
+    var postXs = (g.type === 'slide') ? [-hw - 0.6, -hw, hw, hw + 0.6]
+               : (g.type === 'cantil') ? [-hw, hw, hw + 0.6]
+               : [-hw, hw];
+    var fh = g.postSize / 2;
+    postXs.forEach(function (px) {
+      F = F.concat(P.box(px - fh, -fh, -g.postDepth, px + fh, fh, 0, G3.found, 'found'));
+      colZ(px, 0, 0, topZ, G3.post, 'post');
+    });
+
+    // ── leaves ──
+    function leaf(x1, x2) {
+      barX(x1, x2, -t, 0, t, 2 * t, G3.frame, 'frame');                       // bottom rail
+      barX(x1, x2, -t, g.height - 2 * t, t, g.height, G3.frame, 'frame');     // top rail
+      [x1, x2].forEach(function (ex) {
+        F = F.concat(P.box(ex - t, -t, 0, ex + t, t, g.height, G3.frame, 'frame'));
+      });
+      for (var r = 1; r <= g.infillRows; r++) {
+        var rz = g.height * r / (g.infillRows + 1);
+        barX(x1, x2, -t * 0.7, rz - t * 0.7, t * 0.7, rz + t * 0.7, G3.rail, 'rail');
+      }
+      if (g.bracing) {
+        F = F.concat(P.strut([x1, 0, 0.05], [x2, 0, g.height - 0.05], 0.035, G3.brace, 'brace'));
+      }
+      meshPanel(x1, x2, 0, 0.02, g.height - 0.02);
+    }
+
+    if (g.type === 'swing2') { leaf(-hw, 0); leaf(0, hw); }
+    else {
+      leaf(-hw, hw);
+      if (g.type === 'cantil' && s.tail > 0) {
+        barX(hw, hw + s.tail, -t, g.height - 2 * t, t, g.height, G3.tail, 'tail');
+        barX(hw, hw + s.tail, -t, 0, t, 2 * t, G3.tail, 'tail');
+        F = F.concat(P.box(hw + s.tail - t, -t, 0, hw + s.tail + t, t, g.height, G3.tail, 'tail'));
+      }
+      if (g.type === 'slide') {
+        barX(-hw - 0.6, hw + 0.6, -0.06, -0.04, 0.06, 0.06, G3.track, 'track');
+      }
+    }
+
+    // ── קרניים ──
+    // Leaning along −y when 'out': straight at whoever is arriving.
+    if (g.horns) {
+      var dir = (g.hornDir === 'in') ? 1 : -1;
+      var ty = dir * s.hornProj, tz = topZ + s.hornRise;
+      postXs.forEach(function (px) {
+        F = F.concat(P.strut([px, 0, topZ], [px, ty, tz], 0.075, G3.horn, 'horn'));
+      });
+      // head rail across the tips, and the mesh on the sloping face
+      splitX(-hw, hw, function (a, b) {
+        F = F.concat(P.bar(a, ty - 0.05, tz - 0.05, b, ty + 0.05, tz + 0.05, G3.horn, 'horn'));
+      });
+      if (g.hornMesh) {
+        splitX(-hw, hw, function (a, b) {
+          F = F.concat(P.quad([a, 0, topZ], [b, 0, topZ], [b, ty, tz], [a, ty, tz],
+            G3.mesh, 'mesh', Math.max(2, Math.round(g.hornLen / 0.2)), 0.55));
+        });
+      }
+    }
+
+    var far = Math.max(g.width, 3) + (s.tail || 0);
+    return {
+      // the prebuilt-geometry contract with shed3d
+      faces: F,
+      meta: {
+        span: Math.max(1.5, s.hornProj * 2 + 1), length: far, eaves: s.topZ,
+        ridgeZ: s.topZ, frames: postXs.length, bay: 1.5, rise: 0,
+        // Gate numbers, in gate places — the shed's span/length/eaves tags
+        // would be three readings of the same opening.
+        tags: [
+          { p: [0, -Math.max(1.2, s.hornProj + 0.8), 0], t: n1(g.width) + ' m' },
+          { p: [-far / 2 - 0.8, 0, g.height / 2], t: n1(g.height) + ' m' }
+        ].concat(g.horns
+          ? [{ p: [0, ((g.hornDir === 'in') ? 1 : -1) * (s.hornProj + 0.3), s.topZ + 0.35],
+               t: n1(g.hornLen) + ' m @ ' + n1(g.hornAngle) + '\u00b0' }]
+          : [])
+      },
+      // framing hints read by the projector
+      span: Math.max(2.5, s.hornProj * 2 + 1.5), length: far, eaves: s.topZ, bay: 1.5,
+      // a gate has no site context of its own; the ground quad above is all
+      context: false, slab: false, footings: false,
+      scaleRef: 'none', shadows: false, dims: true, callouts: true
+    };
+  }
+
   return { TYPES: TYPES, typeLabel: typeLabel, norm: norm,
            takeoff: takeoff, summary: summary, svg: svg, stages: stages,
+           // section detail and the orbitable model
+           detailSvg: detailSvg, model3d: model3d,
            // first-pass structural check
            check: check, checks: checks, candidates: candidates,
            roleLabel: roleLabel, sections: GSECT,

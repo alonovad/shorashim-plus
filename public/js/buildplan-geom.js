@@ -98,13 +98,43 @@
       out.push({ name: name, qty: qty, unit: unit, kg: kg, note: note || '' });
     }
 
+    // ── reinforcement ──
+    // The spec on the project is the same object the detail drawing reads,
+    // so the bill and the drawing cannot disagree about what is in the
+    // concrete. Defaults are Q188 in slabs and 4Ø12 + Ø8@20 in pads, which
+    // is what the hardcoded lines below used to assume — no existing
+    // project reprices because of this change.
+    function pushSlabSteel(area, note) {
+      if (!(area > 0)) return;
+      if (typeof Rebar === 'undefined') {
+        push('רשת פלדה Q188', Math.ceil(area / (6 * 2.35) * 1.1), "יח'", note);
+        return;
+      }
+      Rebar.slabTakeoff(d.rebar, area, w).forEach(function (r) {
+        push(r.name, r.qty, r.unit, note ? note + ' \u00b7 ' + r.note : r.note);
+      });
+    }
+    function pushPadSteel(n, side, depth) {
+      if (!(n > 0)) return;
+      if (typeof Rebar === 'undefined') {
+        push('ברזל זיון 12 מ"מ', n * side * 8 * 2 * w, "מ'",
+          BP.tt('כלוב זיון לבסיסים', 'เหล็กฐาน', 'تسليح القواعد'));
+        return;
+      }
+      Rebar.padTakeoff(d.rebar, { n: n, w: side, d: depth, waste: w })
+        .forEach(function (r) { push(r.name, r.qty, r.unit, r.note); });
+    }
+
     if (p.type === 'slab') {
       var a = BP.slabArea(p);
       push('בטון ב-30', a * d.slabTh * w, 'מ"ק',
         BP.n1(a) + ' ' + BP.dsp('מ"ר') + ' \u00d7 ' + d.slabTh + ' ' + BP.dsp("מ'"));
-      // Q188 sheets are 6×2.35 m; 10% is the standard lap allowance.
-      push('רשת פלדה Q188', Math.ceil(a / (6 * 2.35) * 1.1), "יח'", BP.tt('כולל חפיפה', 'รวมทาบ', 'شامل التداخل'));
-      push('ברזל זיון 12 מ"מ', Math.sqrt(a) * 4 * 2 * w, "מ'", BP.tt('היקף וחיזוקים', 'ขอบและเสริม', 'محيط وتقوية'));
+      pushSlabSteel(a, '');
+      // Edge trimmers around the perimeter, two per side. The diameter
+      // follows the spec rather than being frozen at Ø12.
+      var edgeD = (typeof Rebar !== 'undefined' && d.rebar) ? d.rebar.mainD : 12;
+      push('ברזל זיון ' + edgeD + ' מ"מ', Math.sqrt(a) * 4 * 2 * w, "מ'",
+        BP.tt('היקף וחיזוקים', 'ขอบและเสริม', 'محيط وتقوية'));
       (p.extras || []).forEach(function (e) { push(e.name, e.qty, e.unit, ''); });
       componentLines(p).forEach(function (l) { push(l.name, l.qty, l.unit, l.note); });
       return out;
@@ -118,7 +148,7 @@
       if (wantSlab) {
         var sa = BP.slabArea(p);
         push('בטון ב-30', sa * d.slabTh * w, 'מ"ק', BP.tt('רצפה', 'พื้น', 'أرضية'));
-        push('רשת פלדה Q188', Math.ceil(sa / (6 * 2.35) * 1.1), "יח'", BP.tt('רצפה', 'พื้น', 'أرضية'));
+        pushSlabSteel(sa, BP.tt('רצפה', 'พื้น', 'أرضية'));
       }
       (p.extras || []).forEach(function (e) { push(e.name, e.qty, e.unit, ''); });
       componentLines(p).forEach(function (l) { push(l.name, l.qty, l.unit, l.note); });
@@ -191,8 +221,7 @@
       push('בטון ב-30', ft.volAll * w, 'מ"ק',
         ft.n + ' ' + BP.tt('בסיסי עמוד', 'ฐานเสา', 'قواعد أعمدة') + ' ' +
         BP.n1(d.footW) + '\u00d7' + BP.n1(d.footW) + '\u00d7' + BP.n1(d.footD) + ' ' + BP.dsp("מ'"));
-      push('ברזל זיון 12 מ"מ', ft.n * d.footW * 8 * 2 * w, "מ'",
-        BP.tt('כלוב זיון לבסיסים', 'เหล็กฐาน', 'تسليح القواعد'));
+      pushPadSteel(ft.n, d.footW, d.footD);
     }
     if (d.skylights > 0 && d.roofClad !== 'none') {
       var skyA = (d.skylights * (d.length / (d.skylights * 2 + 1))) * g.rafterLen * 2;
@@ -217,7 +246,7 @@
       push('עמוד גדר', Math.ceil(per / 2.5), "יח'", BP.n1(d.fenceH) + ' ' + BP.dsp("מ'"));
       push('רשת גדר', per, "מ'", BP.n1(d.fenceH) + ' ' + BP.dsp("מ'") + ' ' + BP.tt('גובה', 'สูง', 'ارتفاع'));
     }
-    if (wantSlab) push('רשת פלדה Q188', Math.ceil(fa / (6 * 2.35) * 1.1), "יח'", BP.tt('רצפה', 'พื้น', 'أرضية'));
+    if (wantSlab) pushSlabSteel(fa, BP.tt('רצפה', 'พื้น', 'أرضية'));
     (p.extras || []).forEach(function (e) { push(e.name, e.qty, e.unit, ''); });
     componentLines(p).forEach(function (l) { push(l.name, l.qty, l.unit, l.note); });
     return out;

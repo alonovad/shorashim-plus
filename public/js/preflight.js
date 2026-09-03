@@ -161,6 +161,9 @@ orphans.length
 const order = (a, b) => tags.indexOf(a) < tags.indexOf(b);
 [['orders.js','agriplan.js'],
  ['shed3d.js','buildplan-core.js'], ['orders.js','buildplan-core.js'],
+ // rebar.js defines Rebar, which gates.js and the buildplan files normalise
+ // their reinforcement specs through at load time
+ ['rebar.js','gates.js'], ['rebar.js','buildplan-core.js'],
  // the six buildplan files share one namespace and MUST keep this order
  ['buildplan-core.js','buildplan-geom.js'], ['buildplan-geom.js','buildplan-draw.js'], ['buildplan-draw.js','buildplan-map.js'], ['buildplan-map.js','buildplan-ui.js'], ['buildplan-ui.js','buildplan-link.js']]
   .forEach(([a, b]) => {
@@ -252,7 +255,7 @@ head('8. Translation coverage');
 const HEB = /[\u0590-\u05FF]/;
 const OWN = ['orders.js','agriplan.js',
              'buildplan-core.js', 'buildplan-geom.js', 'buildplan-draw.js', 'buildplan-map.js', 'buildplan-ui.js', 'buildplan-link.js',
-             'shed3d.js','stickyactions.js'];
+             'shed3d.js','rebar.js','stickyactions.js'];
 OWN.forEach(f => {
   if (!src[f]) return;
   let m = src[f].replace(/\/\*[\s\S]*?\*\//g, x => x.replace(/[^\n]/g, ' '))
@@ -277,6 +280,12 @@ OWN.forEach(f => {
     if (/migrateClad\(/.test(t)) return;                      // catalogue defaults
     if (/x\.group ===/.test(t)) return;                       // catalogue group key
     if (/^if \(c === '/.test(t)) return;                      // migration mapping
+    // Hebrew that is a DATA KEY, not UI text: catalogue product names join
+    // takeoff → catalogue → order → maintenance line, so translating them
+    // would break every saved project. They are translated at display time
+    // by BP.dsp() instead. The marker has to be explicit and on the line,
+    // so nothing is exempted by accident.
+    if (/CATALOGUE KEY/.test(t)) return;
     const re = /'((?:\\.|[^'\\])*)'/g; let g;
     while ((g = re.exec(line))) if (HEB.test(g[1])) hits.push(i + 1);
   });

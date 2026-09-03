@@ -218,7 +218,14 @@ window.BuildPlanInternals = BuildPlanInternals;
     'לוח סקיילייט': 95,
     'בטון ב-30': 420,           // per m3 delivered
     'רשת פלדה Q188': 145,       // per 6x2.35 sheet
+    'ברזל זיון 8 מ"מ': 2.94,    // per m — 7.43 ₪/kg on nominal mass
+    'ברזל זיון 10 מ"מ': 4.58,
     'ברזל זיון 12 מ"מ': 6.6,    // per m
+    'ברזל זיון 14 מ"מ': 8.98,
+    'ברזל זיון 16 מ"מ': 11.73,
+    'ברזל זיון 20 מ"מ': 18.33,
+    // A #Ø10@15 mat runs ~8.2 kg/m² both ways, tied on site.
+    'רשת ברזל מצולע': 62,       // per m"ר
     'פלטת בסיס': 85,  'בורג עיגון': 12,
     'מרזב': 45,  'צינור ניקוז': 90,
     'שער הזזה': 4200,
@@ -280,7 +287,16 @@ window.BuildPlanInternals = BuildPlanInternals;
     { g: 'חיפוי',         n: 'לוח סקיילייט', kg: 0,   u: 'מ"ר' },
     { g: 'בטון',          n: 'בטון ב-30',   kg: 0,   u: 'מ"ק' },
     { g: 'בטון',          n: 'רשת פלדה Q188', kg: 0,  u: "יח'" },
+    // Every stocked diameter, so a cage specified in the drawing has
+    // somewhere to price from. Masses are 0.006165·d², which is where the
+    // 0.888 for Ø12 came from in the first place.
+    { g: 'בטון',          n: 'ברזל זיון 8 מ"מ',  kg: 0.395, u: "מ'" },
+    { g: 'בטון',          n: 'ברזל זיון 10 מ"מ', kg: 0.617, u: "מ'" },
     { g: 'בטון',          n: 'ברזל זיון 12 מ"מ', kg: 0.888, u: "מ'" },
+    { g: 'בטון',          n: 'ברזל זיון 14 מ"מ', kg: 1.208, u: "מ'" },
+    { g: 'בטון',          n: 'ברזל זיון 16 מ"מ', kg: 1.578, u: "מ'" },
+    { g: 'בטון',          n: 'ברזל זיון 20 מ"מ', kg: 2.466, u: "מ'" },
+    { g: 'בטון',          n: 'רשת ברזל מצולע', kg: 8.2, u: 'מ"ר' },
     { g: 'אביזרים',       n: 'פלטת בסיס', kg: 0, u: "יח'" },
     { g: 'אביזרים',       n: 'בורג עיגון', kg: 0, u: "יח'" },
     { g: 'אביזרים',       n: 'מרזב', kg: 0, u: "מ'" },
@@ -382,7 +398,16 @@ window.BuildPlanInternals = BuildPlanInternals;
     'לוח סקיילייט':      ['แผ่นสกายไลท์', 'لوح إضاءة'],
     'בטון ב-30':         ['คอนกรีต B-30', 'خرسانة B-30'],
     'רשת פלדה Q188':     ['ตะแกรงเหล็ก Q188', 'شبكة حديد Q188'],
+    'ברזל זיון 8 מ"מ':   ['เหล็กเส้น 8 มม.', 'حديد تسليح 8 مم'],
+    'ברזל זיון 10 מ"מ':  ['เหล็กเส้น 10 มม.', 'حديد تسليح 10 مم'],
     'ברזל זיון 12 מ"מ':  ['เหล็กเส้น 12 มม.', 'حديد تسليح 12 مم'],
+    'ברזל זיון 14 מ"מ':  ['เหล็กเส้น 14 มม.', 'حديد تسليح 14 مم'],
+    'ברזל זיון 16 מ"מ':  ['เหล็กเส้น 16 มม.', 'حديد تسليح 16 مم'],
+    'ברזל זיון 20 מ"מ':  ['เหล็กเส้น 20 มม.', 'حديد تسليح 20 مم'],
+    'רשת ברזל מצולע':    ['ตะแกรงเหล็กข้ออ้อย', 'شبكة حديد مضلع'],
+    'כלוב יסוד':         ['กรงฐานราก', 'قفص الأساس'],
+    'מרבד תחתון':        ['ตะแกรงล่าง', 'شبكة سفلية'],
+    'חישוקים':           ['ปลอกเหล็ก', 'أساور'],
     'פלטת בסיס':     ['แผ่นฐาน', 'لوح قاعدة'],
     'בורג עיגון':    ['สลักยึด', 'برغي تثبيت'],
     'מרזב':          ['รางน้ำ', 'مزراب'],
@@ -526,7 +551,13 @@ window.BuildPlanInternals = BuildPlanInternals;
       mapGround: (d.mapGround === undefined) ? !isPhone() : !!d.mapGround,
       dims: d.dims === false ? false : true,
       sunAz: Number(d.sunAz) || 130,
-      sunEl: Number(d.sunEl) || 48
+      sunEl: Number(d.sunEl) || 48,
+      // What is inside the concrete. Normalised by rebar.js when it is
+      // loaded; passed through untouched when it is not, so a project that
+      // was saved with a cage never loses it to load order. Defaults match
+      // what the takeoff already assumed (Q188 in slabs), so no existing
+      // project reprices on this deploy.
+      rebar: (typeof Rebar !== 'undefined') ? Rebar.norm(d.rebar) : (d.rebar || null)
     };
   }
 
@@ -595,6 +626,20 @@ window.BuildPlanInternals = BuildPlanInternals;
           unit: String(p.unit || "מ'"),
           price: Number(p.price) || 0
         };
+      });
+      // A saved catalogue is only seeded once, on a fresh install. Every
+      // product added to SEED afterwards would therefore be missing from
+      // every existing install, and the takeoff would quote it at zero —
+      // which is exactly what happened when the gate hardware was added.
+      // Missing entries are appended at their seed price; anything already
+      // in the catalogue is left completely alone, so an edited price is
+      // never overwritten by a deploy.
+      var have = {};
+      out.profiles.forEach(function (p) { have[p.name] = 1; });
+      SEED.forEach(function (s2) {
+        if (have[s2.n]) return;
+        out.profiles.push({ id: BP.uid() + Math.random(), group: s2.g, name: s2.n,
+          kgPerM: s2.kg, unit: s2.u, price: seedPrice(s2.n, s2.kg, s2.u) });
       });
     } else {
       out.profiles = SEED.map(function (s2) {

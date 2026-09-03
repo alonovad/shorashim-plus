@@ -351,8 +351,20 @@
     var d = p.dims;
     var rows = BP.takeoff(p), tot = BP.takeoffTotals(rows);
 
-    var tabs = ['design', 'gates', 'living', 'sketch', 'materials', 'site'].map(function (t) {
-      var lbl = t === 'design' ? '\ud83c\udfd7 ' + BP.tt('מודל', 'โมเดล', 'نموذج')
+    // 'מודל' was a tab you had to walk through even on a job that is one
+    // gate and nothing else — it held the shed sliders, and a gate has no
+    // span, pitch or bay. It is now named for what it is, and it is absent
+    // when the project contains no structure and no slab to design.
+    // Components are added from the dropdown in the header instead, which
+    // is also where a shed gets switched back on.
+    var hasModel = (p.hasStruct !== false) || (p.hasSlab !== false) || p.type === 'slab';
+    var tabList = ['design', 'gates', 'living', 'sketch', 'materials', 'site'];
+    if (!hasModel) {
+      tabList = tabList.filter(function (t) { return t !== 'design'; });
+      if (BP._tab === 'design') BP._tab = (p.gates || []).length ? 'gates' : 'materials';
+    }
+    var tabs = tabList.map(function (t) {
+      var lbl = t === 'design' ? '\ud83c\udfd7 ' + BP.tt('סככה / שלד', 'โครงสร้าง', 'الهيكل')
               : t === 'gates' ? '\ud83d\udea7 ' + BP.tt('שערים', 'ประตู', 'بوابات') +
                   ((p.gates || []).length ? ' (' + p.gates.length + ')' : '')
               : t === 'living' ? '\ud83c\udfe0 ' + BP.tt('מגורים', 'ที่พัก', 'سكن') +
@@ -384,6 +396,23 @@
           BP.tt('מגורים', 'ที่พัก', 'سكن') + ': ' +
           ((p.living && p.living.people) ? p.living.people + ' ' + BP.tt('אנשים','คน','أشخاص')
                                           : BP.tt('ללא','ไม่มี','بدون')) + '</span>' +
+      '</div>' +
+      // One list of everything a project can contain. Adding a gate used
+      // to mean finding the gates tab and pressing a plus inside it;
+      // turning a shed back on meant finding a checkbox in a third place.
+      '<div style="margin-top:8px;max-width:280px;">' +
+        '<select class="bp-in" onchange="BuildPlan.addComp(' + id + ',this.value);this.value=\'\';">' +
+          '<option value="">\u2795 ' +
+            BP.tt('הוסף לפרויקט…', 'เพิ่มในโครงการ…', 'إضافة للمشروع…') + '</option>' +
+          (p.hasStruct === false ? '<option value="struct">\ud83c\udfd7 ' +
+            BP.tt('סככה / שלד', 'โครงสร้าง', 'هيكل') + '</option>' : '') +
+          (p.hasSlab === false ? '<option value="slab">\ud83e\uddf1 ' +
+            BP.tt('משטח בטון', 'พื้นคอนกรีต', 'سطح خرساني') + '</option>' : '') +
+          '<option value="gate">\ud83d\udea7 ' +
+            BP.tt('שער', 'ประตู', 'بوابة') + '</option>' +
+          (!(p.living && p.living.people) ? '<option value="living">\ud83c\udfe0 ' +
+            BP.tt('יחידת מגורים', 'ที่พัก', 'وحدة سكن') + '</option>' : '') +
+        '</select>' +
       '</div>' +
       (p.hasStruct === false
         ? '<div style="font-size:.75rem;color:var(--accent,#ff9f43);margin-top:8px;">\u26a0\ufe0f ' +
@@ -491,13 +520,91 @@
   }
 
   var _gatePick = [];
+  // Which view each gate is showing, the live viewers, and the camera each
+  // one was left at. Keyed by index, and cleared whenever the list changes
+  // shape — after a delete, index 2 is a different gate.
+  var _gView = {}, _g3d = {}, _g3dCam = {};
+  function _gateReset() { _gView = {}; _g3dDestroy(); _g3dCam = {}; }
+  function _g3dDestroy() {
+    Object.keys(_g3d).forEach(function (k) {
+      // getState() reads closure variables, not the DOM, so it is still
+      // truthful after paint() has replaced the canvas it was drawing on.
+      try { _g3dCam[k] = _g3d[k].getState(); } catch (e) {}
+      try { _g3d[k].destroy(); } catch (e) {}
+    });
+    _g3d = {};
+  }
+
+  BP.gateView = function gateView(id, i, mode) {
+    _g3dDestroy();
+    _gView[i] = mode;
+    BP.open(id);
+  };
+  BP.gate3dView = function gate3dView(i, yaw, pitch) {
+    if (_g3d[i]) _g3d[i].setView(yaw, pitch);
+  };
+  BP.gate3dReset = function gate3dReset(i) {
+    if (!_g3d[i]) return;
+    _g3d[i].resetView();
+    if (_g3dCam[i]) _g3dCam[i].cam = null;
+  };
+  // Per-gate reinforcement setter, bound once so the onchange strings stay
+  // short. Same shape as BP._rebarBind for the structure's own footings.
+  BP._gateRebarBind = function _gateRebarBind(id, i) {
+    var nm = '_gr_' + id + '_' + i;
+    if (!BuildPlan[nm]) {
+      BuildPlan[nm] = function (k, v) {
+        var p = BP.projById(id);
+        if (!p || !p.gates[i]) return;
+        var cur = (p.gates[i].rebar && typeof p.gates[i].rebar === 'object')
+          ? JSON.parse(JSON.stringify(p.gates[i].rebar)) : {};
+        cur[k] = (k === 'show' || k === 'mat') ? !!v
+               : (k === 'slabMesh') ? String(v) : (Number(v) || 0);
+        p.gates[i].rebar = (typeof Rebar !== 'undefined') ? Rebar.norm(cur) : cur;
+        BP.saveP(); BP.open(id);
+      };
+    }
+    return 'BuildPlan.' + nm;
+  };
+
   function mountGates(p) {
     _gatePick.forEach(function (h) { try { h.destroy(); } catch (e) {} });
     _gatePick = [];
+    _g3dDestroy();
     if (typeof Gates === 'undefined') return;
     (p.gates || []).forEach(function (g, i) {
-      var host = document.getElementById('gDraw' + i);
       var out = document.getElementById('gSel' + i);
+
+      // ── 3D ──
+      // Handed to the same viewer the shed uses, as a prebuilt face list.
+      // One viewer at a time by construction: a phone cannot fill four
+      // canvases, and nobody orbits two gates at once.
+      var host3 = document.getElementById('gView' + i);
+      if (host3 && typeof Shed3D !== 'undefined' && Gates.model3d) {
+        var model = Gates.model3d(g);
+        if (model) {
+          var labels = {};
+          Gates.partsOf(g).forEach(function (role) {
+            var lab = Gates.partLabel(g, role);
+            if (lab) labels[role] = { title: lab.name, sub: lab.profile };
+          });
+          _g3d[i] = Shed3D.mount(host3, model, {
+            state: _g3dCam[i] || null,
+            labels: labels,
+            onSelect: function (role) {
+              if (!out) return;
+              var lab = role ? Gates.partLabel(g, role) : null;
+              out.innerHTML = lab
+                ? '<span style="opacity:.75;">' + BP.esc(lab.name) + '</span> ' +
+                  '<b style="color:var(--accent,#ff9f43);">' + BP.esc(lab.profile) + '</b>'
+                : '';
+            }
+          });
+        }
+        return;
+      }
+
+      var host = document.getElementById('gDraw' + i);
       if (!host) return;
       var h = Gates.bindPicker(host, g, out);
       if (h) _gatePick.push(h);
@@ -1003,11 +1110,18 @@
 
     var g = BP.geom(d), ft = BP.footing(d), con = BP.concrete(p);
 
-    var models = Object.keys(BP.MODELS).map(function (k) {
-      return '<button class="bp-btn ' + (d._model === k ? 'on' : 'ghost') +
-        '" style="padding:7px 11px;font-size:.76rem;" onclick="BuildPlan.applyModel(' + id +
-        ',\'' + k + '\')">' + BP.esc(BP.pick(BP.MODELS[k].label)) + '</button>';
-    }).join('');
+    // Five buttons wrapping onto three lines on a phone, of which four are
+    // always wrong. A dropdown states which one is loaded and costs one tap
+    // to change — and applyModel() overwrites the dimensions, so it should
+    // not be the easiest thing on the panel to hit by accident.
+    var models = '<select class="bp-in" onchange="BuildPlan.applyModel(' + id + ',this.value)">' +
+      '<option value="">' +
+        (d._model ? BP.tt('החלף דגם…', 'เปลี่ยนแบบ…', 'تغيير النموذج…')
+                  : BP.tt('בחר דגם התחלתי…', 'เลือกแบบเริ่มต้น…', 'اختر نموذجاً…')) + '</option>' +
+      Object.keys(BP.MODELS).map(function (k) {
+        return '<option value="' + k + '"' + (d._model === k ? ' selected' : '') + '>' +
+          BP.esc(BP.pick(BP.MODELS[k].label)) + '</option>';
+      }).join('') + '</select>';
 
     // Left column holds the model and the derived numbers and stays put;
     // the right column scrolls. Previously every panel was stacked in one
@@ -1203,6 +1317,7 @@
           ctl(id, 'soilBearing', BP.tt('כושר נשיאה (kPa)', 'กำลังรับดิน', 'تحمل التربة'), d.soilBearing, 60, 400, 10) +
         '</div>' +
         '<div id="bpFound" style="margin-top:8px;">' + BP.footingSummary(p) + '</div>' +
+        rebarPanel(p) +
         '<div style="font-size:.72rem;color:var(--text-muted,#888);margin-top:6px;">\u26a0\ufe0f ' +
           BP.tt('הערכה ראשונית בלבד: עומס אחיד, ללא רוח/מומנט, קרקע הומוגנית. נדרש אישור מהנדס וסקר קרקע.',
              'ประมาณการเบื้องต้นเท่านั้น ต้องมีวิศวกรรับรอง',
@@ -1254,6 +1369,108 @@
         '</div></div></details>' +
       '</div></div>';
   }
+
+  // ── זיון ──────────────────────────────────────────────────────────────
+  // The cage was always priced and never drawn, so the numbers behind
+  // 'ברזל זיון' lived nowhere the user could see or change them. These are
+  // those numbers, in the panel next to the pad they belong to, with the
+  // detail drawing underneath so a change is visible immediately.
+  //
+  // `path` is what the setter writes through: 'dims' for the structure's
+  // own footings, 'gate:N' for the Nth gate's post foundations. One builder
+  // for both, because it is one cage either way.
+  function rebarCtl(setter, key, label, val, min, max, step) {
+    return '<div><div class="bp-lbl">' + label +
+        ' <b style="color:var(--accent,#ff9f43);">' + val + '</b></div>' +
+      '<input class="bp-rng" type="range" min="' + min + '" max="' + max + '" step="' + step +
+        '" value="' + val + '" onchange="' + setter + '(\'' + key + '\',this.value)"></div>';
+  }
+  function diamSel(setter, key, label, val) {
+    var list = (typeof Rebar !== 'undefined') ? Rebar.DIAM : [8, 10, 12, 14, 16, 20];
+    var o = list.map(function (dd) {
+      return '<option value="' + dd + '"' + (Number(val) === dd ? ' selected' : '') + '>\u00d8' +
+        dd + '</option>';
+    }).join('');
+    return '<div><div class="bp-lbl">' + label + '</div>' +
+      '<select class="bp-in" onchange="' + setter + '(\'' + key + '\',this.value)">' + o +
+      '</select></div>';
+  }
+
+  function rebarFields(r, setter, opt) {
+    opt = opt || {};
+    r = (typeof Rebar !== 'undefined') ? Rebar.norm(r) : (r || {});
+    return '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:6px;font-size:.8rem;">' +
+        '<label><input type="checkbox"' + (r.show ? ' checked' : '') +
+          ' onchange="' + setter + '(\'show\',this.checked)"> ' +
+          BP.tt('הצג זיון באיור', 'แสดงเหล็กเสริมในภาพ', 'إظهار التسليح في الرسم') + '</label>' +
+        '<label><input type="checkbox"' + (r.mat ? ' checked' : '') +
+          ' onchange="' + setter + '(\'mat\',this.checked)"> ' +
+          BP.tt('מרבד תחתון', 'ตะแกรงล่าง', 'شبكة سفلية') + '</label>' +
+      '</div>' +
+      '<div class="bp-grid" style="margin-top:8px;">' +
+        rebarCtl(setter, 'mainN', BP.tt('מוטות ראשיים', 'เหล็กหลัก', 'قضبان رئيسية'), r.mainN, 2, 12, 1) +
+        diamSel(setter, 'mainD', BP.tt('קוטר ראשי', 'ขนาดเหล็กหลัก', 'قطر رئيسي'), r.mainD) +
+        diamSel(setter, 'stirD', BP.tt('קוטר חישוק', 'ขนาดปลอก', 'قطر الأسورة'), r.stirD) +
+        rebarCtl(setter, 'stirSp', BP.tt('מרווח חישוקים (ס"מ)', 'ระยะปลอก', 'تباعد الأساور'), r.stirSp, 5, 40, 1) +
+        rebarCtl(setter, 'cover', BP.tt('כיסוי בטון (ס"מ)', 'ระยะหุ้ม', 'الغطاء'), r.cover, 2.5, 10, 0.5) +
+        (r.mat ? diamSel(setter, 'matD', BP.tt('קוטר מרבד', 'ขนาดตะแกรง', 'قطر الشبكة'), r.matD) : '') +
+        (r.mat ? rebarCtl(setter, 'matSp', BP.tt('מרווח מרבד (ס"מ)', 'ระยะตะแกรง', 'تباعد الشبكة'), r.matSp, 10, 30, 1) : '') +
+      '</div>' +
+      (opt.slab
+        ? '<div class="bp-grid" style="margin-top:8px;">' +
+            '<div><div class="bp-lbl">' + BP.tt('רשת במשטח', 'ตะแกรงพื้น', 'شبكة السطح') + '</div>' +
+              '<select class="bp-in" onchange="' + setter + '(\'slabMesh\',this.value)">' +
+                '<option value="Q188"' + (r.slabMesh === 'Q188' ? ' selected' : '') + '>' +
+                  BP.tt('יריעות Q188', 'แผ่น Q188', 'ألواح Q188') + '</option>' +
+                '<option value="deformed"' + (r.slabMesh === 'deformed' ? ' selected' : '') + '>' +
+                  BP.tt('רשת ברזל מצולע', 'ตะแกรงข้ออ้อย', 'شبكة حديد مضلع') + '</option>' +
+                '<option value="none"' + (r.slabMesh === 'none' ? ' selected' : '') + '>' +
+                  BP.tt('ללא', 'ไม่มี', 'بدون') + '</option></select></div>' +
+            (r.slabMesh === 'deformed'
+              ? diamSel(setter, 'meshD', BP.tt('קוטר רשת', 'ขนาดตะแกรง', 'قطر الشبكة'), r.meshD) +
+                rebarCtl(setter, 'meshSp', BP.tt('מרווח רשת (ס"מ)', 'ระยะตะแกรง', 'تباعد الشبكة'), r.meshSp, 10, 30, 1)
+              : '') +
+          '</div>'
+        : '') +
+      ((typeof Rebar !== 'undefined')
+        ? '<div class="bp-read" style="margin-top:8px;"><span>' +
+            BP.tt('כלוב', 'กรง', 'قفص') + '</span><b>' + BP.esc(Rebar.cageLabel(r)) + '</b></div>'
+        : '');
+  }
+
+  function rebarPanel(p) {
+    if (typeof Rebar === 'undefined') return '';
+    var id = p.id, d = p.dims;
+    var det = BP.rebarSvg ? BP.rebarSvg(p) : '';
+    return '<div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--panel-border,rgba(255,255,255,.12));">' +
+      '<div class="bp-lbl">' + BP.tt('זיון ורשתות', 'เหล็กเสริมและตะแกรง', 'التسليح والشبكات') + '</div>' +
+      rebarFields(d.rebar, BP._rebarBind(id), { slab: true }) +
+      (det ? '<div class="bp-draw" style="margin-top:8px;">' + det + '</div>' : '') +
+    '</div>';
+  }
+
+  // The onchange strings above name a per-project function so the id does
+  // not have to be threaded through every one of them. Registered lazily,
+  // once per project, when the panel is built.
+  BP._rebar = function _rebar(id, k, v) {
+    var p = BP.projById(id);
+    if (!p) return;
+    var cur = (p.dims.rebar && typeof p.dims.rebar === 'object')
+      ? JSON.parse(JSON.stringify(p.dims.rebar)) : {};
+    cur[k] = (k === 'show' || k === 'mat') ? !!v
+           : (k === 'slabMesh') ? String(v) : (Number(v) || 0);
+    p.dims.rebar = (typeof Rebar !== 'undefined') ? Rebar.norm(cur) : cur;
+    BP.saveP();
+    if (BP._v3d) { try { BP._v3d.update(BP.model3d(p)); } catch (e) {} }
+    BP.open(id);
+  };
+  BP._rebarBind = function _rebarBind(id) {
+    var nm = '_rebar_' + id;
+    if (!BuildPlan[nm]) {
+      BuildPlan[nm] = function (k, v) { BP._rebar(id, k, v); };
+    }
+    return 'BuildPlan.' + nm;
+  };
 
   // ── free sketch ──────────────────────────────────────────────────────
   // The parametric model covers rectangular portal frames. Everything else
@@ -1426,9 +1643,49 @@
         return '<option value="' + t + '"' + (g.type === t ? ' selected' : '') + '>' +
           BP.esc(Gates.typeLabel(t)) + '</option>';
       }).join('');
+      var mode = _gView[i] || '2d';
+      // Three ways to look at the same gate. The elevation is what a client
+      // signs; the section is what a welder needs, because it is the only
+      // one that shows which way a horn actually points; the 3D view is
+      // what answers "what will it look like from the road", with the same
+      // orbit, pan, zoom and tap-to-identify the shed has.
+      var viewBar = '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:6px;">' +
+        [['2d', '\ud83d\udcd0', BP.tt('חזית', 'ด้านหน้า', 'واجهة')],
+         ['sec', '\u2702', BP.tt('חתך ופרט', 'ภาคตัด', 'مقطع')],
+         ['3d', '\ud83e\uddca', BP.tt('תלת-מימד', '3 มิติ', 'ثلاثي الأبعاد')]].map(function (v) {
+          return '<button class="bp-btn ' + (mode === v[0] ? 'on' : 'ghost') +
+            '" style="padding:5px 9px;font-size:.72rem;" onclick="BuildPlan.gateView(' + id + ',' +
+            i + ',\'' + v[0] + '\')">' + v[1] + ' ' + v[2] + '</button>';
+        }).join('') + '</div>';
+
+      var drawHost = (mode === '3d')
+        ? '<div id="gView' + i + '" style="height:min(46vh,420px);border-radius:12px;' +
+            'overflow:hidden;background:radial-gradient(circle at 50% 30%,' +
+            'rgba(255,255,255,.06),rgba(0,0,0,.25));"></div>' +
+          '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:6px;">' +
+            [['(-0.62,0.42)', '\u2934', BP.tt('איזומטרי', 'ไอโซ', 'أيزومتري')],
+             ['(0,0.02)', '\u25ad', BP.tt('חזית', 'ด้านหน้า', 'واجهة')],
+             ['(1.5708,0.02)', '\u25b1', BP.tt('צד', 'ด้านข้าง', 'جانب')],
+             ['(0,1.35)', '\u2b1c', BP.tt('מבט על', 'ด้านบน', 'علوي')]].map(function (v) {
+              return '<button class="bp-btn ghost" style="padding:5px 9px;font-size:.72rem;" ' +
+                'onclick="BuildPlan.gate3dView(' + i + ',' + v[0].slice(1, -1) + ')">' +
+                v[1] + ' ' + v[2] + '</button>';
+            }).join('') +
+            '<button class="bp-btn ghost" style="padding:5px 9px;font-size:.72rem;" ' +
+              'onclick="BuildPlan.gate3dReset(' + i + ')">\u21ba ' +
+              BP.tt('איפוס', 'รีเซ็ต', 'إعادة') + '</button>' +
+          '</div>' +
+          '<div style="font-size:.72rem;color:var(--text-muted,#888);margin-top:5px;">' +
+            BP.tt('גרירה = סיבוב \u00b7 Shift+גרירה = הזזה \u00b7 גלגלת = זום \u00b7 לחיצה = בחירה',
+               'ลาก=หมุน Shift=เลื่อน ล้อ=ซูม แตะ=เลือก',
+               'سحب=تدوير \u00b7 Shift=تحريك \u00b7 عجلة=تكبير \u00b7 نقر=تحديد') + '</div>'
+        : (mode === 'sec')
+        ? '<div id="gDraw' + i + '">' + Gates.detailSvg(g) + '</div>'
+        : '<div id="gDraw' + i + '">' + Gates.svg(g) + '</div>';
+
       h += '<div class="bp-split" style="margin-bottom:14px;">' +
         '<div class="bp-stick"><div class="bp-card">' +
-          '<div id="gDraw' + i + '">' + Gates.svg(g) + '</div>' +
+          viewBar + drawHost +
           // The answer lands here rather than as a label on the drawing:
           // a gate is 640x340 of mostly thin lines and a floating tag over
           // it covers the very member it is describing.
@@ -1473,7 +1730,35 @@
               '<label><input type="checkbox"' + (g.motor ? ' checked' : '') +
                 ' onchange="BuildPlan.setGate(' + id + ',' + i + ',\'motor\',this.checked)"> ' +
                 BP.tt('מנוע חשמלי', 'มอเตอร์', 'محرك') + '</label>' +
+              '<label><input type="checkbox"' + (g.horns ? ' checked' : '') +
+                ' onchange="BuildPlan.setGate(' + id + ',' + i + ',\'horns\',this.checked)"> ' +
+                BP.tt('קרניים מעל העמודים', 'แขนเอียงบนเสา', 'أذرع فوق الأعمدة') + '</label>' +
             '</div>' +
+            // ── קרניים ──
+            // The arm's reach over the approach is shown as a derived
+            // number, because that is the one that decides whether it
+            // overhangs a road — nobody thinks in "0.5 m at 30 degrees".
+            (g.horns
+              ? '<div class="bp-grid" style="margin-top:8px;">' +
+                  gctl(id, i, 'hornLen', BP.tt('אורך קרן (מ\')', 'ยาวแขน', 'طول الذراع'), g.hornLen, 0.2, 1.5, 0.05) +
+                  gctl(id, i, 'hornAngle', BP.tt('זווית מהאנך (\u00b0)', 'มุมจากแนวดิ่ง', 'الزاوية عن العمودي'), g.hornAngle, 10, 75, 5) +
+                  '<div><div class="bp-lbl">' + BP.tt('כיוון הטיה', 'ทิศเอียง', 'اتجاه الميل') + '</div>' +
+                    '<select class="bp-in" onchange="BuildPlan.setGate(' + id + ',' + i + ',\'hornDir\',this.value)">' +
+                      '<option value="out"' + (g.hornDir !== 'in' ? ' selected' : '') + '>' +
+                        BP.tt('כלפי הכניסה', 'ออกด้านนอก', 'نحو المدخل') + '</option>' +
+                      '<option value="in"' + (g.hornDir === 'in' ? ' selected' : '') + '>' +
+                        BP.tt('פנימה', 'เข้าด้านใน', 'للداخل') + '</option></select></div>' +
+                '</div>' +
+                '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:6px;font-size:.8rem;">' +
+                  '<label><input type="checkbox"' + (g.hornMesh ? ' checked' : '') +
+                    ' onchange="BuildPlan.setGate(' + id + ',' + i + ',\'hornMesh\',this.checked)"> ' +
+                    BP.tt('רשת על הקרניים', 'ตะแกรงบนแขน', 'شبك على الأذرع') + '</label>' +
+                '</div>' +
+                '<div class="bp-read" style="margin-top:6px;"><span>' +
+                  BP.tt('בליטה מעל הכניסה', 'ระยะยื่น', 'الامتداد') + '</span><b>' +
+                  BP.n1(sum.hornProj) + ' m \u00b7 ' +
+                  BP.tt('גובה כולל', 'สูงรวม', 'الارتفاع الكلي') + ' ' + BP.n1(sum.topZ) + ' m</b></div>'
+              : '') +
             '<div class="bp-grid" style="margin-top:8px;">' +
               '<div><div class="bp-lbl">' + BP.tt('פרופיל מסגרת', 'โปรไฟล์กรอบ', 'مقطع الإطار') + '</div>' +
                 gprof(id, i, 'frame', g.frame) + '</div>' +
@@ -1488,6 +1773,17 @@
             (sum.tail ? '<div class="bp-read"><span>' +
               BP.tt('זנב משקל נגדי', 'หางถ่วง', 'ذيل الموازنة') + '</span><b>' + BP.n1(sum.tail) + ' m</b></div>' : '') +
           '</div>' +
+          // Reinforcement in the post foundations, per gate. A gate on rock
+          // and a gate in wadi fill do not get the same cage, and the quote
+          // line "בטון לביסוס עמודים וברזל זיוון" was typed by hand because
+          // there was nowhere to say which one this is.
+          ((typeof Rebar !== 'undefined')
+            ? '<div class="bp-card">' +
+                '<div class="bp-lbl">' +
+                  BP.tt('זיון יסודות העמודים', 'เหล็กเสริมฐานเสา', 'تسليح أساسات الأعمدة') + '</div>' +
+                rebarFields(g.rebar, BP._gateRebarBind(id, i), { slab: false }) +
+              '</div>'
+            : '') +
         '</div></div>';
     });
     h += '<button class="bp-btn" onclick="BuildPlan.addGate(' + id + ')">\u2795 ' +
@@ -1516,25 +1812,54 @@
       '\',this.value)">' + o + '</select>';
   }
 
+  // One entry point for "this job also includes…". Each branch lands the
+  // user on the tab where the thing it just added is edited, because adding
+  // a component and then having to find it is how the gates tab went
+  // unnoticed in the first place.
+  BP.addComp = function addComp(id, what) {
+    if (!what) return;
+    var p = BP.projById(id);
+    if (!p) return;
+    if (what === 'struct')      { p.hasStruct = true;  BP._tab = 'design'; }
+    else if (what === 'slab')   { p.hasSlab = true;    BP._tab = 'design'; }
+    else if (what === 'gate')   { BP._tab = 'gates';   BP.addGate(id); return; }
+    else if (what === 'living') { BP._tab = 'living';  BP.addLiving(id); return; }
+    else return;
+    BP.saveP(); BP.open(id);
+  };
+
   BP.addGate = function addGate(id) {
     var p = BP.projById(id);
     if (!p || typeof Gates === 'undefined') return;
     p.gates.push(Gates.norm({ name: BP.tt('שער', 'ประตู', 'بوابة') + ' ' + (p.gates.length + 1) }));
+    _gateReset();
     BP.saveP(); BP.open(id);
   };
   BP.delGate = function delGate(id, i) {
     var p = BP.projById(id);
     if (!p) return;
     p.gates.splice(i, 1);
+    // Index 2 is now a different gate; a retained camera or view mode would
+    // belong to the one that was deleted.
+    _gateReset();
     BP.saveP(); BP.open(id);
   };
-  var BOOLG = { bracing: 1, motor: 1 };
-  var TEXTG = { name: 1, type: 1, frame: 1, post: 1, mesh: 1, notes: 1 };
+  var BOOLG = { bracing: 1, motor: 1, horns: 1, hornMesh: 1 };
+  var TEXTG = { name: 1, type: 1, frame: 1, post: 1, mesh: 1, notes: 1, hornDir: 1 };
   BP.setGate = function setGate(id, i, k, v) {
     var p = BP.projById(id);
     if (!p || !p.gates[i]) return;
     p.gates[i][k] = BOOLG[k] ? !!v : TEXTG[k] ? String(v) : (Number(v) || 0);
-    BP.saveP(); BP.open(id);
+    p.gates[i] = Gates.norm(p.gates[i]);
+    BP.saveP();
+    // With the 3D view open, rebuild the geometry in place and leave the
+    // sheet alone: a repaint would drop the canvas and the camera with it.
+    // Booleans and the type change which controls exist, so those repaint.
+    if (_g3d[i] && !BOOLG[k] && k !== 'type' && Gates.model3d) {
+      var m3 = Gates.model3d(p.gates[i]);
+      if (m3) { _g3d[i].update(m3); return; }
+    }
+    BP.open(id);
   };
 
   // ── accommodation ────────────────────────────────────────────────────

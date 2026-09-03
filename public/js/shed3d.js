@@ -258,6 +258,22 @@ var Shed3D = (function () {
   // ══════════════════════════════════════════════════════════════════
   function build(m) {
     setSeg(m);
+    // A model may arrive with its geometry already built. Gates are not
+    // portal frames — there is no span, pitch or bay to derive members
+    // from — but they orbit, pan, pick and shade identically, so the
+    // viewer takes the faces and the numbers to frame them by, and skips
+    // straight to rendering. Everything downstream (sort, shade, pick,
+    // layers, callouts) reads faces and never asks where they came from.
+    if (m && m.faces && m.faces.length) {
+      var pm = m.meta || {};
+      return { faces: m.faces, meta: {
+        frames: pm.frames || 0, bay: pm.bay || m.bay || 3,
+        rise: pm.rise || 0, runs: pm.runs || 0, slopeLen: pm.slopeLen || 0,
+        ridgeZ: pm.ridgeZ || m.eaves || 1,
+        span: pm.span || m.span || 1, length: pm.length || m.length || 1,
+        eaves: pm.eaves || m.eaves || 1,
+        tags: pm.tags || null } };
+    }
     var F = [];
     var span = m.span, len = m.length, eaves = m.eaves;
     var mono = m.roofType === 'mono';
@@ -719,7 +735,10 @@ var Shed3D = (function () {
         // an honest answer.
         var layer = (fc.group === 'ground') ? 0
                   : (fc.group === 'slab')   ? 1
-                  : (fc.group === 'footing') ? 2 : 3;
+                  // 'found' is what gates.js calls a post foundation. It is
+                  // the same thing as a footing and belongs in the same
+                  // layer, or it sorts against members it sits under.
+                  : (fc.group === 'footing' || fc.group === 'found') ? 2 : 3;
         // NEAREST vertex, not the centroid. A centroid answers "where is the
         // middle of this face", which is the wrong question — what decides
         // whether a purlin passes in front of a column is which of them has
@@ -759,7 +778,8 @@ var Shed3D = (function () {
         for (var si = 0; si < list.length; si++) {
           var fcs = list[si].fc;
           if (fcs.group === 'ground' || fcs.group === 'slab' ||
-              fcs.group === 'footing' || fcs.group === 'fence') continue;
+              fcs.group === 'footing' || fcs.group === 'found' ||
+              fcs.group === 'fence') continue;
           var sp = fcs.pts.map(function (pt) {
             var t = pt[2]/S[2];
             return P([pt[0] - S[0]*t, pt[1] - S[1]*t, 0.005]);
@@ -864,6 +884,14 @@ var Shed3D = (function () {
         ctx.fillRect(box.x, box.y, box.w, box.h);
         ctx.fillStyle = '#ffd166';
         ctx.fillText(txt, q[0], q[1]+4);
+      }
+      // A model that knows better says so. The shed's three tags are span,
+      // length and eaves because that is what a shed is; a gate's are the
+      // clear opening, its height and the horn, and reusing the shed's
+      // three would print the same width twice and call one of them a span.
+      if (g.tags && g.tags.length) {
+        g.tags.forEach(function (t) { if (t && t.p && t.t) tagIf(t.p, String(t.t)); });
+        return;
       }
       tagIf([0, -hs-1.6, 0], g.length.toFixed(1) + ' m');
       tagIf([-hl-1.6, 0, 0], g.span.toFixed(1) + ' m');
@@ -1204,5 +1232,12 @@ var Shed3D = (function () {
     };
   }
 
-  return { mount: mount, build: build, PALETTE: PALETTE };
+  // Exported so another module can describe a structure this file has no
+  // business knowing about — a gate, a fence, a water tank — in the same
+  // face format, without re-deriving swept sections and quad splitting.
+  var prim = { box: box, bar: bar, quad: quad, strut: strut, lerp: lerp,
+               boxSeg: boxSeg, barSeg: barSeg, quadSeg: quadSeg,
+               strutSeg: strutSeg, setSeg: setSeg };
+
+  return { mount: mount, build: build, PALETTE: PALETTE, prim: prim };
 })();

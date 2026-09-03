@@ -155,6 +155,24 @@
     // slab
     parts.push('<rect x="' + (x0 - 6) + '" y="' + y0 + '" width="' + (d.span * s + 12) +
       '" height="' + Math.max(4, d.slabTh * s) + '" fill="var(--text-muted,#888)" opacity=".45"/>');
+    // pad footings under the columns, with the cage inside them. The
+    // section drew a slab strip and stopped, so the one part of the
+    // structure that is invisible once poured was also the one part the
+    // drawing never described.
+    if (d.footings && p.hasStruct !== false) {
+      var fpw = Math.max(10, d.footW * s), fpd = Math.max(8, d.footD * s);
+      var fpy = y0 + Math.max(4, d.slabTh * s);
+      [eL.x, eR.x].forEach(function (fx) {
+        parts.push('<rect x="' + (fx - fpw / 2) + '" y="' + fpy + '" width="' + fpw +
+          '" height="' + fpd + '" fill="var(--text-muted,#888)" opacity=".35" ' +
+          'stroke="var(--text-muted,#999)" stroke-width="1"/>');
+        if (typeof Rebar !== 'undefined') {
+          parts.push(Rebar.overlay(d.rebar, { x: fx - fpw / 2, y: fpy, w: fpw, h: fpd },
+            { color: '#c0392b', scale: s }));
+        }
+      });
+    }
+
     // rafters + roof
     parts.push('<polyline points="' + eL.x + ',' + eL.y + ' ' + apex.x + ',' + apex.y + ' ' +
       eR.x + ',' + eR.y + '" fill="none" stroke="var(--primary,#2d6a4f)" stroke-width="4" ' +
@@ -248,6 +266,14 @@
            BP.dsp(d.girtProfile) + ' @ ' + cm(d.girtSp)]));
       }
 
+      // The cage, named where it is drawn. Without this the reader sees
+      // red lines in a grey box and has to guess the bar schedule.
+      if (d.footings && typeof Rebar !== 'undefined' && d.rebar && d.rebar.show) {
+        parts.push(leader(eL.x, y0 + Math.max(4, d.slabTh * s) + Math.max(8, d.footD * s) * 0.5,
+          x0 - 34, y0 - 8, 'l',
+          [BP.tt('זיון יסוד', 'เหล็กเสริมฐาน', 'تسليح الأساس'), Rebar.cageLabel(d.rebar)]));
+      }
+
       // height chain: eaves, then the rise to the ridge, then the overall
       var cx = X(d.span) + 118;
       parts.push(dimChainV(cx, y0, [Y(d.eaves), Y(g.ridgeH)],
@@ -292,6 +318,25 @@
            '<div class="bp-draw" style="margin-top:8px;">' + plan + '</div>';
   };
 
+  // ── פרט זיון ─────────────────────────────────────────────────────────
+  // The full detail at its own scale, section and plan, for the design
+  // panel and the printed sheet. Geometry comes from the project so the
+  // detail is of THIS foundation, not a generic one: pad side and depth
+  // from the footing inputs, post size read off the column profile.
+  BP.rebarSvg = function rebarSvg(p, opt) {
+    if (typeof Rebar === 'undefined') return '';
+    var d = p.dims;
+    if (p.type === 'slab' || !d.footings) return '';
+    // 'SHS 100x100x4' → 0.10 m. A section name is the only place the post
+    // width is recorded, so it is parsed rather than stored twice.
+    var mm = String(d.colProfile || '').match(/(\d{2,4})\s*[xX\u00d7]/);
+    var postW = mm ? Math.min(0.6, Number(mm[1]) / 1000) : 0.16;
+    return Rebar.detailSvg(d.rebar, {
+      w: d.footW, d: d.footD, postW: postW,
+      title: BP.tt('פרט זיון יסוד עמוד', 'รายละเอียดเหล็กเสริมฐานเสา', 'تفصيل تسليح أساس العمود')
+    }, opt || {});
+  };
+
   function slabSvg(p) {
     var d = p.dims;
     var a = BP.slabArea(p);
@@ -326,6 +371,17 @@
     out.push('<text x="' + (x0 + sLen * s / 2) + '" y="' + (y0 + sWid * s + 24) +
       '" fill="var(--text-muted,#aaa)" font-size="12" text-anchor="middle">' +
       BP.n2(a * d.slabTh) + ' \u05de"\u05e7 ' + BP.tt('בטון', 'คอนกรีต', 'خرسانة') + '</text>');
+    // The blue grid above has always been drawn. Now it says what it is —
+    // Q188 sheets and a tied #Ø10@15 mat are different products at
+    // different prices, and the drawing was silent about which.
+    if (typeof Rebar !== 'undefined' && d.rebar && d.rebar.show) {
+      var ml = Rebar.slabLabel(d.rebar);
+      if (ml) {
+        out.push('<text x="' + (x0 + sLen * s / 2) + '" y="' + (y0 + sWid * s + 40) +
+          '" fill="var(--water,#4fc3f7)" font-size="11.5" font-weight="700" text-anchor="middle">' +
+          BP.esc(BP.dsp(ml)) + '</text>');
+      }
+    }
     return '<div class="bp-draw"><svg viewBox="0 0 ' + W + ' ' + H +
       '" style="width:100%;height:auto;">' + out.join('') + '</svg></div>';
   }
