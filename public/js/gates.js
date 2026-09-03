@@ -692,7 +692,14 @@ var Gates = (function () {
       // Each leader also reaches the nearest instance of its member, so no
       // leader crosses the gate to reach something on the far side.
       var lc = col.steel, ml = (g.type === 'swing2') ? g.width / 2 : g.width;
-      var rx = X(g.width + (s.tail || 0)) + 30, lx2 = X(0) - 30;
+      // x0 centres the OPENING, not the drawn extent, so a cantilever's
+      // counterweight tail sticks out past the margin the callouts were
+      // meant to live in — and the right-hand labels ran off the canvas
+      // and were clipped. Clamped so a label always has room to sit,
+      // whatever the tail does. 132 is the widest label this draws
+      // ("רשת מרותכת 50/200") plus its leader elbow.
+      var rx = Math.min(X(g.width + (s.tail || 0)) + 30, W - 132);
+      var lx2 = Math.max(X(0) - 30, 132);
       function lab(role) { var L = partLabel(g, role); return L ? [L.name, L.profile] : null; }
 
       // left margin
@@ -723,7 +730,7 @@ var Gates = (function () {
       // a leader saying the same thing twice is noise, not annotation.
     }
 
-    return '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto;">' +
+    return '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto;direction:ltr;" direction="ltr">' +
       o.join('') + '</svg>';
   }
 
@@ -866,14 +873,17 @@ var Gates = (function () {
       txt:   print ? '#37474f' : 'var(--text,#cfd8dc)',
       bar:   print ? '#c0392b' : '#e2624b'
     };
-    var W = 520, H = 340, pad = 46;
+    var H = 340, pad = 46;
     var topZ = g.height + 0.25;
     var upH = topZ + s.hornRise;
     var reach = Math.max(g.postSize, s.hornProj * 2 + g.postSize) + 0.5;
-    var sc = Math.min((W - pad * 3) / reach, (H - pad * 2) / (upH + g.postDepth + 0.3));
+    // Height is what limits the scale — a post is tall and thin — so the
+    // width follows from it rather than being fixed and mostly empty.
+    var sc = Math.min(210 / Math.max(reach, 0.6), (H - pad * 2) / (upH + g.postDepth + 0.4));
+    var W = Math.max(330, Math.round(reach * sc) + 250);
     // The approach is to the LEFT of the section, so an arm that leans
     // 'out' leans left — the same side the reader is standing on.
-    var cx = W * 0.58;
+    var cx = W * 0.54;
     var sgn = (g.hornDir === 'in') ? 1 : -1;
     var gy = pad + upH * sc;
     function X(m) { return cx + m * sc; }
@@ -887,11 +897,12 @@ var Gates = (function () {
     o.push('<line x1="16" y1="' + gy + '" x2="' + (W - 16) + '" y2="' + gy +
       '" stroke="' + col.grnd + '" stroke-width="2"/>');
     // approach arrow — who the horn is leaning toward
-    var ax = X(sgn * (s.hornProj + 0.45));
-    o.push('<line x1="' + ax + '" y1="' + (gy + 22) + '" x2="' + X(sgn * 0.12) + '" y2="' + (gy + 22) +
+    var ay = Y(topZ * 0.42);
+    var ax = X(sgn * (Math.max(s.hornProj, 0.25) + 0.85));
+    o.push('<line x1="' + ax + '" y1="' + ay + '" x2="' + X(sgn * g.postSize * 0.5) + '" y2="' + ay +
       '" stroke="' + col.dim + '" stroke-width="1"/>' +
-      gArrow(X(sgn * 0.12), gy + 22, ax, gy + 22, col.dim));
-    o.push('<text x="' + ax + '" y="' + (gy + 38) + '" fill="' + col.dim +
+      gArrow(X(sgn * g.postSize * 0.5), ay, ax, ay, col.dim));
+    o.push('<text x="' + ax + '" y="' + (ay - 8) + '" fill="' + col.dim +
       '" font-size="10.5" font-weight="700" text-anchor="middle">' +
       esc(tt('כיוון הגעה', 'ทิศทางเข้า', 'اتجاه القدوم')) + '</text>');
 
@@ -944,8 +955,8 @@ var Gates = (function () {
       '" y2="' + Y(topZ) + '" stroke="' + col.dim + '" stroke-width="1"/>');
     o.push('<text x="' + (X(0) + fw / 2 + 34) + '" y="' + Y(topZ / 2) + '" fill="' + col.dim +
       '" font-size="11" font-weight="800">' + n1(topZ) + ' m</text>');
-    o.push('<text x="' + (X(0) + fw / 2 + 34) + '" y="' + (gy + g.postDepth * sc / 2) +
-      '" fill="' + col.conc + '" font-size="10.5" font-weight="700">' +
+    o.push('<text x="' + X(0) + '" y="' + (gy + g.postDepth * sc + 15) +
+      '" fill="' + col.conc + '" font-size="10.5" font-weight="700" text-anchor="middle">' +
       n1(g.postSize) + '\u00d7' + n1(g.postSize) + '\u00d7' + n1(g.postDepth) + ' m</text>');
 
     // schedule
@@ -961,7 +972,7 @@ var Gates = (function () {
         col.txt + '" font-size="10.5" font-weight="700" opacity=".85">' + esc(ln) + '</text>');
     });
 
-    return '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto;">' +
+    return '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto;direction:ltr;" direction="ltr">' +
       o.join('') + '</svg>';
   }
 

@@ -320,7 +320,11 @@ var Rebar = (function () {
         '" opacity="' + (i === 0 ? 1 : 0.85) + '">' + esc(ln) + '</text>');
     });
 
-    return '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto;">' +
+    // See gates.js: an RTL context swaps text-anchor start/end, which sends
+    // every x-positioned label the wrong way and off the viewBox. The
+    // drawing is authored in LTR coordinates, so it is pinned to LTR.
+    return '<svg viewBox="0 0 ' + W + ' ' + H +
+      '" style="width:100%;height:auto;direction:ltr;" direction="ltr">' +
       o.join('') + '</svg>';
   }
 

@@ -358,7 +358,7 @@
     // Components are added from the dropdown in the header instead, which
     // is also where a shed gets switched back on.
     var hasModel = (p.hasStruct !== false) || (p.hasSlab !== false) || p.type === 'slab';
-    var tabList = ['design', 'gates', 'living', 'sketch', 'materials', 'site'];
+    var tabList = ['design', 'gates', 'living', 'sketch', 'materials', 'ledger', 'site'];
     if (!hasModel) {
       tabList = tabList.filter(function (t) { return t !== 'design'; });
       if (BP._tab === 'design') BP._tab = (p.gates || []).length ? 'gates' : 'materials';
@@ -371,6 +371,7 @@
                   ((p.living && p.living.people) ? ' (' + p.living.people + ')' : '')
               : t === 'sketch' ? '\u270f\ufe0f ' + BP.tt('שרטוט חופשי', 'วาดอิสระ', 'رسم حر')
               : t === 'materials' ? '\ud83e\uddfe ' + BP.tt('כתב כמויות', 'รายการวัสดุ', 'الكميات')
+              : t === 'ledger' ? '\ud83d\udcd6 ' + BP.tt('יומן מעקב', 'บันทึกงาน', 'سجل المتابعة')
               : '\ud83d\uddfa ' + BP.tt('מיקום במפה', 'ตำแหน่ง', 'الموقع');
       return '<button class="bp-btn ' + (BP._tab === t ? 'on' : 'ghost') +
         '" onclick="BuildPlan.setTab(\'' + t + '\')">' + lbl + '</button>';
@@ -436,6 +437,9 @@
     else if (BP._tab === 'living') body += livingTab(p);
     else if (BP._tab === 'sketch') body += sketchTab(p);
     else if (BP._tab === 'materials') body += matTab(p, rows, tot);
+    // Lazily, because the journal is its own Firestore document and is only
+    // worth a read when somebody actually looks at it.
+    else if (BP._tab === 'ledger') body += (BP.ledgerTab ? BP.ledgerTab(p) : '');
     else                        body += siteTab(p);
 
     var bar =

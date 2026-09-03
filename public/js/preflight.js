@@ -136,6 +136,21 @@ Object.keys(NS).forEach(f => {
   }
   exportsOf[NS[f]] = new Set([...block.matchAll(/[{,]\s*([A-Za-z_]\w*)\s*:/g)].map(m => m[1]));
 });
+
+// A handler can also be registered by direct assignment — `BuildPlan.foo =
+// BP.foo` — which is how a module that loads AFTER the namespace owner has
+// to do it: the owner's API object was already built and cannot reference a
+// function that does not exist yet. Runtime-wise it is the same thing, so
+// the check accepts it, scanned across every shipped file rather than only
+// the file that owns the namespace.
+Object.values(NS).forEach(ns => {
+  const re = new RegExp('\\b' + ns + '\\.([A-Za-z_]\\w*)\\s*=[^=]', 'g');
+  files.forEach(f => {
+    [...src[f].matchAll(re)].forEach(m => {
+      (exportsOf[ns] = exportsOf[ns] || new Set()).add(m[1]);
+    });
+  });
+});
 files.forEach(f => {
   const missing = [];
   Object.keys(exportsOf).forEach(ns => {
@@ -164,6 +179,9 @@ const order = (a, b) => tags.indexOf(a) < tags.indexOf(b);
  // rebar.js defines Rebar, which gates.js and the buildplan files normalise
  // their reinforcement specs through at load time
  ['rebar.js','gates.js'], ['rebar.js','buildplan-core.js'],
+ // the ledger reads BP helpers and registers onto the BuildPlan global that
+ // buildplan-link.js creates, so it must load after both
+ ['buildplan-core.js','buildplan-ledger.js'], ['buildplan-link.js','buildplan-ledger.js'],
  // the six buildplan files share one namespace and MUST keep this order
  ['buildplan-core.js','buildplan-geom.js'], ['buildplan-geom.js','buildplan-draw.js'], ['buildplan-draw.js','buildplan-map.js'], ['buildplan-map.js','buildplan-ui.js'], ['buildplan-ui.js','buildplan-link.js']]
   .forEach(([a, b]) => {
@@ -255,7 +273,7 @@ head('8. Translation coverage');
 const HEB = /[\u0590-\u05FF]/;
 const OWN = ['orders.js','agriplan.js',
              'buildplan-core.js', 'buildplan-geom.js', 'buildplan-draw.js', 'buildplan-map.js', 'buildplan-ui.js', 'buildplan-link.js',
-             'shed3d.js','rebar.js','stickyactions.js'];
+             'shed3d.js','rebar.js','buildplan-ledger.js','stickyactions.js'];
 OWN.forEach(f => {
   if (!src[f]) return;
   let m = src[f].replace(/\/\*[\s\S]*?\*\//g, x => x.replace(/[^\n]/g, ' '))
