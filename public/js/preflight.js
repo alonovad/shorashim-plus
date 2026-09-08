@@ -182,6 +182,8 @@ const order = (a, b) => tags.indexOf(a) < tags.indexOf(b);
  // the ledger reads BP helpers and registers onto the BuildPlan global that
  // buildplan-link.js creates, so it must load after both
  ['buildplan-core.js','buildplan-ledger.js'], ['buildplan-link.js','buildplan-ledger.js'],
+ // the plan tab builds Shed3D faces and Rebar details, and registers onto BuildPlan
+ ['buildplan-link.js','buildplan-plan.js'], ['shed3d.js','buildplan-plan.js'], ['rebar.js','buildplan-plan.js'],
  // the six buildplan files share one namespace and MUST keep this order
  ['buildplan-core.js','buildplan-geom.js'], ['buildplan-geom.js','buildplan-draw.js'], ['buildplan-draw.js','buildplan-map.js'], ['buildplan-map.js','buildplan-ui.js'], ['buildplan-ui.js','buildplan-link.js']]
   .forEach(([a, b]) => {
@@ -273,7 +275,7 @@ head('8. Translation coverage');
 const HEB = /[\u0590-\u05FF]/;
 const OWN = ['orders.js','agriplan.js',
              'buildplan-core.js', 'buildplan-geom.js', 'buildplan-draw.js', 'buildplan-map.js', 'buildplan-ui.js', 'buildplan-link.js',
-             'shed3d.js','rebar.js','buildplan-ledger.js','stickyactions.js'];
+             'shed3d.js','rebar.js','buildplan-ledger.js','buildplan-plan.js','stickyactions.js'];
 OWN.forEach(f => {
   if (!src[f]) return;
   let m = src[f].replace(/\/\*[\s\S]*?\*\//g, x => x.replace(/[^\n]/g, ' '))

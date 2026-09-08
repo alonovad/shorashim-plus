@@ -346,6 +346,9 @@
     // another that is a tenth the size would frame empty sky.
     if (BP._v3d && _v3dFor === id) { try { _v3dState = BP._v3d.getState(); } catch (e) {} }
     else if (_v3dFor !== id) { _v3dState = null; }
+    // The plan tab's viewer keeps its own camera the same way; drop the
+    // canvas before paint() replaces the host under it.
+    if (BP.planDestroy) BP.planDestroy();
     BP._view = 'project';
     BP._open = id;
     var d = p.dims;
@@ -358,7 +361,7 @@
     // Components are added from the dropdown in the header instead, which
     // is also where a shed gets switched back on.
     var hasModel = (p.hasStruct !== false) || (p.hasSlab !== false) || p.type === 'slab';
-    var tabList = ['design', 'gates', 'living', 'sketch', 'materials', 'ledger', 'site'];
+    var tabList = ['design', 'gates', 'living', 'sketch', 'plan', 'materials', 'ledger', 'site'];
     if (!hasModel) {
       tabList = tabList.filter(function (t) { return t !== 'design'; });
       if (BP._tab === 'design') BP._tab = (p.gates || []).length ? 'gates' : 'materials';
@@ -370,6 +373,8 @@
               : t === 'living' ? '\ud83c\udfe0 ' + BP.tt('מגורים', 'ที่พัก', 'سكن') +
                   ((p.living && p.living.people) ? ' (' + p.living.people + ')' : '')
               : t === 'sketch' ? '\u270f\ufe0f ' + BP.tt('שרטוט חופשי', 'วาดอิสระ', 'رسم حر')
+              : t === 'plan' ? '\ud83d\udcd0 ' + BP.tt('תוכנית קונסטרוקטור', 'แบบวิศวกร', 'مخطط المهندس') +
+                  ((p.plan && p.plan.elements && p.plan.elements.length) ? ' (' + p.plan.elements.length + ')' : '')
               : t === 'materials' ? '\ud83e\uddfe ' + BP.tt('כתב כמויות', 'รายการวัสดุ', 'الكميات')
               : t === 'ledger' ? '\ud83d\udcd6 ' + BP.tt('יומן מעקב', 'บันทึกงาน', 'سجل المتابعة')
               : '\ud83d\uddfa ' + BP.tt('מיקום במפה', 'ตำแหน่ง', 'الموقع');
@@ -436,6 +441,7 @@
     else if (BP._tab === 'gates')  body += gatesTab(p);
     else if (BP._tab === 'living') body += livingTab(p);
     else if (BP._tab === 'sketch') body += sketchTab(p);
+    else if (BP._tab === 'plan')   body += (BP.planTab ? BP.planTab(p) : '');
     else if (BP._tab === 'materials') body += matTab(p, rows, tot);
     // Lazily, because the journal is its own Firestore document and is only
     // worth a read when somebody actually looks at it.
@@ -460,6 +466,7 @@
     if (BP._tab === 'site') BP.linkPanel(p);
     if (BP._tab === 'gates') mountGates(p);
     if (BP._tab === 'sketch') mountSketch(p);
+    if (BP._tab === 'plan' && BP.planMount) BP.planMount(p);
     if (BP._tab === 'design') {
       if (p.type !== 'slab') mount3d(p);
       BP.refreshReadouts(p);

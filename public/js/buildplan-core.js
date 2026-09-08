@@ -607,8 +607,14 @@ window.BuildPlanInternals = BuildPlanInternals;
             w: Number(x.rect.w) || 0, h: Number(x.rect.h) || 0, rot: Number(x.rect.rot) || 0 }
         : null,
       extras: Array.isArray(x.extras) ? x.extras.map(function (e) {
-        return { name: String(e.name || ''), qty: Number(e.qty) || 0, unit: String(e.unit || "יח'") };
-      }) : []
+        // `plan` marks a line pushed from the engineer's-plan tab, so a
+        // re-push replaces those lines and leaves hand-typed extras alone.
+        return { name: String(e.name || ''), qty: Number(e.qty) || 0, unit: String(e.unit || "יח'"),
+                 plan: !!e.plan };
+      }) : [],
+      // The transcribed engineer's drawing (buildplan-plan.js). Null until
+      // the tab is first used, so existing documents do not grow.
+      plan: x.plan ? (BP.normPlan ? BP.normPlan(x.plan) : x.plan) : null
     };
   };
 
