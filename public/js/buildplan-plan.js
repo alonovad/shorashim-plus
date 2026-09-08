@@ -1,36 +1,44 @@
-/* buildplan-plan.js — תוכנית קונסטרוקטור (reading the engineer's drawing)
+/* buildplan-plan.js — תוכנית קונסטרוקטור (the engineer's documents, read)
  * ---------------------------------------------------------------------
- * An engineer hands over a sheet that says "י-1: 60/60/80, 6Ø12, חישוקים
- * Ø8@20, מרבד #Ø10@15, כיסוי 5, ב-30". To a builder that is a complete
- * instruction. To the person paying for it — who is not a builder — it is
- * a line of symbols, and the questions are always the same: what does
- * each part look like, what is it called, what do I ask for at the store,
- * and which of these choices are the engineer's and which are mine.
+ * A construction project arrives as documents: a foundation plan, a
+ * detail sheet, a reinforcement schedule, sometimes a BOQ — several PDFs
+ * and photos, from an engineer, to a client who is not a builder. This
+ * tab is where they live and where they get read.
  *
- * This tab answers those questions WITHOUT a vision model. The sheet is
- * transcribed by hand, element by element, in exactly the notation it is
- * written in (metres, millimetres, centimetres — see rebar.js). The
- * picture you can preview alongside stays on the phone: it is never
- * uploaded and never stored. Everything else derives from the numbers:
+ *   DOCUMENTS  uploaded to Storage (build-plans/{pid}/…), registered in
+ *              one Firestore document per project (shorashim-build-docs-
+ *              {pid}), openable, deletable. Images are downsized on the
+ *              phone first; PDFs go up whole.
+ *   READING    on a press, the planExtract Cloud Function hands the file
+ *              to a vision model that answers through a fixed schema:
+ *              every pad, pier, strip, column, beam and slab with its
+ *              dimensions and reinforcement as written, plus everything
+ *              that is not one of those, plus what to ask the engineer.
+ *              Cheapest capable model by default, a stronger one on
+ *              request; the answer is kept with the document, so nothing
+ *              is paid for twice.
+ *   INSERTING  each proposal is a checkbox. Accepted ones become plan
+ *              elements of the project — replacing an element with the
+ *              same mark, otherwise appended — and from then on the
+ *              project owns them: editable, drawn, explained, priced.
+ *   3D         the excavated pit, blinding, translucent concrete, every
+ *              bar of the cage, dowels or the anchor plate — in the same
+ *              viewer the shed and gates use (Shed3D prebuilt faces).
+ *   2D         section/plan detail (Rebar.detailSvg) for cage elements.
+ *   TEXT       a glossary of every part shown, its store name, and which
+ *              choices are the buyer's (prefab cage vs site-tied, welded
+ *              mat vs loose bars, ready-mix vs site-mix) and which are the
+ *              engineer's (diameter, count, spacing, cover, grade).
+ *   BOQ        bar metres, stirrup counts, concrete m³ per element,
+ *              pushed to the project's extras to price through the
+ *              catalogue.
  *
- *   3D   the excavated pit, blinding, translucent concrete, every bar of
- *        the cage, starter bars or the anchor plate — in the same viewer
- *        the shed and the gates use (Shed3D, prebuilt faces contract).
- *   2D   the section/plan detail (Rebar.detailSvg) for cage elements.
- *   Text a glossary of every part shown, its store name, and the
- *        alternatives that ARE the buyer's call (prefab cage vs site-tied,
- *        welded mat vs loose bars, ready-mix vs site-mix) kept strictly
- *        apart from the ones that are NOT (diameter, count, spacing,
- *        cover, concrete grade).
- *   BOQ  bar metres, stirrup counts, concrete m³ per element, pushed to
- *        the project's extras so they price through the catalogue.
+ * NOT A DESIGN. Nothing here sizes anything, and a model reading a sheet
+ * can misread it — which is why every proposal carries a confidence and
+ * is accepted by hand, never inserted silently.
  *
- * NOT A DESIGN. Nothing here sizes anything. It draws and explains what
- * was specified, and says so on the sheet.
- *
- * DATA lives on the project as `plan` (normProject → BP.normPlan), inside
- * the single build-projects document. A plan is a dozen small records, so
- * it does not need the ledger's per-project document.
+ * UNITS as on a drawing: metres for geometry, millimetres for bar
+ * diameter, centimetres for spacing and cover (see rebar.js).
  */
 (function (BP) {
   'use strict';
@@ -557,34 +565,8 @@
     var id = p.id, pl = planOf(p), el = selEl(p), i = pl.sel;
     var muted = 'color:var(--text-muted,#888);';
 
-    // ── sheet header + local preview ──
-    var head = '<div class="bp-card">' +
-      '<div class="bp-lbl" style="margin-bottom:6px;">\ud83d\udcd0 ' +
-        BP.tt('תוכנית הקונסטרוקטור', 'แบบวิศวกร', 'مخطط المهندس') + '</div>' +
-      '<div style="font-size:.78rem;' + muted + 'margin-bottom:8px;">' +
-        BP.tt('מעתיקים מהתוכנית את מה שכתוב על כל יסוד/עמוד/קורה, והמסך מראה איך זה נראה, איך קוראים לכל חלק ומה לבקש בחנות. המידות והברזל הם של הקונסטרוקטור — כאן רק מציירים ומסבירים.',
-              'คัดลอกจากแบบ แล้วดูภาพ ชื่อชิ้นส่วน และสิ่งที่ต้องซื้อ', 'انسخ ما هو مكتوب على المخطط، وتظهر الصورة والأسماء وما يُطلب من المتجر') + '</div>' +
-      '<div class="bp-grid">' +
-        fld(BP.tt('קונסטרוקטור', 'วิศวกร', 'المهندس'), in_(id, 'engineer', pl.engineer)) +
-        fld(BP.tt('מס\' תוכנית', 'เลขที่แบบ', 'رقم المخطط'), in_(id, 'drawingNo', pl.drawingNo)) +
-        fld(BP.tt('תאריך', 'วันที่', 'التاريخ'), in_(id, 'date', pl.date, '', 'date')) +
-        fld(BP.tt('דרגת בטון', 'เกรดคอนกรีต', 'درجة الخرسانة'),
-          '<select class="bp-in" onchange="BuildPlan.planSet(' + id + ',\'concrete\',this.value)">' +
-            GRADES.map(function (g) {
-              return '<option value="' + g + '"' + (pl.concrete === g ? ' selected' : '') + '>' + g + '</option>';
-            }).join('') + '</select>') +
-      '</div>' +
-      '<div style="margin-top:8px;"><div class="bp-lbl">' + BP.tt('הערות מהתוכנית', 'หมายเหตุจากแบบ', 'ملاحظات من المخطط') + '</div>' +
-        '<textarea class="bp-in" rows="2" onchange="BuildPlan.planSet(' + id + ',\'notes\',this.value)">' + BP.esc(pl.notes) + '</textarea></div>' +
-      '<div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">' +
-        '<label class="bp-btn ghost" style="cursor:pointer;">\ud83d\uddbc ' +
-          BP.tt('הצג צילום / PDF של התוכנית לצד הטופס', 'แสดงรูป/PDF ข้างฟอร์ม', 'عرض صورة/PDF بجانب النموذج') +
-          '<input type="file" accept="image/*,application/pdf" style="display:none;" onchange="BuildPlan.planPreview(this)"></label>' +
-        '<span style="font-size:.72rem;' + muted + '">' +
-          BP.tt('נשאר במכשיר בלבד — לא נשמר ולא נשלח.', 'อยู่ในเครื่องเท่านั้น ไม่บันทึก', 'يبقى على الجهاز فقط') + '</span>' +
-      '</div>' +
-      '<div id="bpPlanPreview" style="margin-top:8px;"></div>' +
-    '</div>';
+    // ── documents + what the model read ──
+    var head = docsCard(p);
 
     // ── element list ──
     var chips = pl.elements.map(function (e, j) {
@@ -603,7 +585,7 @@
 
     if (!el) {
       return head + list + '<div class="bp-empty">' +
-        BP.tt('הוסף את היסוד הראשון מהתוכנית — למשל "י-1: 60/60/80, 6Ø12, חישוקים Ø8@20".', 'เพิ่มฐานรากแรกจากแบบ', 'أضف أول أساس من المخطط') + '</div>';
+        BP.tt('העלה את תוכנית הקונסטרוקטור למעלה ולחץ "קרא" — או הוסף אלמנט ידנית מהרשימה.', 'อัปโหลดแบบแล้วกด "อ่าน" หรือเพิ่มเอง', 'ارفع المخطط واضغط "اقرأ" أو أضف يدوياً') + '</div>';
     }
 
     // ── element editor ──
@@ -821,23 +803,320 @@
   BP.plan3dView = function plan3dView(yaw, pitch) { if (_v) _v.setView(yaw, pitch); };
   BP.plan3dReset = function plan3dReset() { if (_v) { _v.resetView(); _cam = null; } };
 
-  // The picture never leaves the phone: an object URL into a pane, revoked
-  // on the next pick. PDFs go through <object>; browsers that refuse inline
-  // PDF get a link that opens it in a new tab.
-  var _prevUrl = null;
-  BP.planPreview = function planPreview(input) {
-    var host = document.getElementById('bpPlanPreview');
-    var f = input && input.files && input.files[0];
-    if (!host || !f) return;
-    if (_prevUrl) { try { URL.revokeObjectURL(_prevUrl); } catch (e) {} }
-    _prevUrl = URL.createObjectURL(f);
-    var isPdf = /pdf$/i.test(f.type) || /\.pdf$/i.test(f.name);
-    host.innerHTML = isPdf
-      ? '<object data="' + _prevUrl + '" type="application/pdf" style="width:100%;height:min(60vh,520px);border-radius:10px;">' +
-          '<a class="bp-btn ghost" href="' + _prevUrl + '" target="_blank" rel="noopener">\ud83d\udcc4 ' +
-          BP.tt('פתח את ה-PDF בחלון חדש', 'เปิด PDF', 'افتح PDF') + '</a></object>'
-      : '<img src="' + _prevUrl + '" alt="" style="max-width:100%;max-height:60vh;border-radius:10px;display:block;">';
+  // ══════════════════════════════════════════════════════════════════
+  //  DOCUMENTS — the engineer's drawings, uploaded and read
+  // ══════════════════════════════════════════════════════════════════
+  // Files live in Storage (build-plans/{pid}/{id}__{name}); their register,
+  // and what the model read out of each, in one Firestore document per
+  // project (shorashim-build-docs-{pid}) — the ledger's split, for the
+  // ledger's reason. Reading a document costs a model call, so it runs
+  // only on a press and the result is kept with the document: re-opening
+  // the tab never re-reads anything.
+  var DOCS_PREFIX = 'shorashim-build-docs-';
+  var _docs = {}, _docsLoading = {}, _openDoc = {}, _busy = {};
+
+  function normDocs(d) {
+    d = (d && typeof d === 'object') ? d : {};
+    return {
+      docs: Array.isArray(d.docs) ? d.docs.map(function (x) {
+        return {
+          id: String(x.id || BP.uid()), name: String(x.name || ''), path: String(x.path || ''),
+          size: Number(x.size) || 0, type: String(x.type || ''), at: Number(x.at) || 0,
+          by: String(x.by || ''), hint: String(x.hint || ''),
+          report: (x.report && typeof x.report === 'object') ? x.report : null,
+          model: String(x.model || ''), readAt: Number(x.readAt) || 0,
+          usage: (x.usage && typeof x.usage === 'object') ? { input: Number(x.usage.input) || 0, output: Number(x.usage.output) || 0 } : null,
+          error: String(x.error || '')
+        };
+      }) : []
+    };
+  }
+  function docsLoad(pid, then) {
+    if (_docs[pid]) { if (then) then(_docs[pid]); return; }
+    if (_docsLoading[pid]) return;
+    _docsLoading[pid] = 1;
+    DB.loadAsync(DOCS_PREFIX + pid).then(function (d) {
+      _docsLoading[pid] = 0; _docs[pid] = normDocs(d); if (then) then(_docs[pid]);
+    }).catch(function () {
+      _docsLoading[pid] = 0; _docs[pid] = normDocs(null); if (then) then(_docs[pid]);
+    });
+  }
+  function docsSave(pid) {
+    if (!BP.isManager()) { BP.toast('\u26d4 ' + BP.tt('אין הרשאה', 'ไม่มีสิทธิ์', 'لا صلاحية')); return; }
+    DB.save(DOCS_PREFIX + pid, JSON.parse(JSON.stringify(_docs[pid] || normDocs(null))));
+  }
+  function fmtSize(b) { return b > 1048576 ? BP.n1(b / 1048576) + ' MB' : Math.round(b / 1024) + ' KB'; }
+  function who() { var u = window.currentUser || {}; return String(u.username || u.name || ''); }
+
+  // Images are downsized on the phone before upload: a 12 MP photo of a
+  // sheet is 4 MB and thousands of tokens, a 2200 px JPEG of the same
+  // sheet is 400 KB and still legible to the model. PDFs go up as-is.
+  function shrink(file) {
+    return new Promise(function (resolve) {
+      if (!/^image\//.test(file.type) || file.type === 'image/gif') { resolve({ blob: file, type: file.type, name: file.name }); return; }
+      var img = new Image(), url = URL.createObjectURL(file);
+      img.onload = function () {
+        var MAX = 2200, sc = Math.min(1, MAX / Math.max(img.width, img.height));
+        if (sc === 1 && file.size < 1500000) { URL.revokeObjectURL(url); resolve({ blob: file, type: file.type, name: file.name }); return; }
+        var cv = document.createElement('canvas');
+        cv.width = Math.round(img.width * sc); cv.height = Math.round(img.height * sc);
+        cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+        cv.toBlob(function (b) {
+          URL.revokeObjectURL(url);
+          resolve({ blob: b || file, type: b ? 'image/jpeg' : file.type, name: file.name.replace(/\.[^.]+$/, '') + '.jpg' });
+        }, 'image/jpeg', 0.86);
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); resolve({ blob: file, type: file.type, name: file.name }); };
+      img.src = url;
+    });
+  }
+
+  BP.planUpload = function planUpload(id, input) {
+    var p = BP.projById(id);
+    var files = input && input.files ? Array.prototype.slice.call(input.files) : [];
+    if (!p || !files.length) return;
+    if (typeof firebase === 'undefined' || !firebase.storage) { BP.toast('\u26a0\ufe0f Storage SDK'); return; }
+    if (!BP.isManager()) { BP.toast('\u26d4 ' + BP.tt('אין הרשאה', 'ไม่มีสิทธิ์', 'لا صلاحية')); return; }
+    input.value = '';
+    docsLoad(id, function (reg) {
+      var done = 0;
+      BP.toast('\u2b06 ' + BP.tt('מעלה ' + files.length + ' קבצים…', 'กำลังอัปโหลด…', 'جارٍ الرفع…'));
+      files.reduce(function (chain, f) {
+        return chain.then(function () { return shrink(f); }).then(function (s) {
+          var did = String(BP.uid());
+          var safe = s.name.replace(/[^\w.\u0590-\u05FF-]+/g, '_').slice(0, 80);
+          var path = 'build-plans/' + id + '/' + did + '__' + safe;
+          return firebase.storage().ref(path).put(s.blob, { contentType: s.type }).then(function () {
+            reg.docs.push({ id: did, name: s.name, path: path, size: s.blob.size, type: s.type, at: Date.now(), by: who(),
+                            hint: '', report: null, model: '', readAt: 0, usage: null, error: '' });
+            done++;
+          });
+        });
+      }, Promise.resolve()).then(function () {
+        docsSave(id);
+        BP.toast('\u2705 ' + BP.tt(done + ' מסמכים הועלו', 'อัปโหลดแล้ว', 'تم الرفع'));
+        BP.open(id);
+      }).catch(function (e) {
+        if (done) docsSave(id);
+        BP.toast('\u274c ' + (e && e.message ? e.message : 'upload'));
+        BP.open(id);
+      });
+    });
   };
+
+  BP.planDocOpen = function planDocOpen(id, did) {
+    var reg = _docs[id]; if (!reg) return;
+    var d = reg.docs.filter(function (x) { return x.id === did; })[0]; if (!d) return;
+    firebase.storage().ref(d.path).getDownloadURL().then(function (u) { window.open(u, '_blank'); })
+      .catch(function (e) { BP.toast('\u274c ' + e.message); });
+  };
+  BP.planDocDel = function planDocDel(id, did) {
+    var reg = _docs[id]; if (!reg) return;
+    var d = reg.docs.filter(function (x) { return x.id === did; })[0]; if (!d) return;
+    if (!confirm(BP.tt('למחוק את המסמך "' + d.name + '"?', 'ลบเอกสาร?', 'حذف المستند؟'))) return;
+    firebase.storage().ref(d.path).delete().catch(function () {}).then(function () {
+      reg.docs = reg.docs.filter(function (x) { return x.id !== did; });
+      docsSave(id); BP.open(id);
+    });
+  };
+  BP.planDocToggle = function planDocToggle(id, did) {
+    _openDoc[id] = _openDoc[id] === did ? null : did; BP.open(id);
+  };
+  BP.planDocHint = function planDocHint(id, did, v) {
+    var reg = _docs[id]; if (!reg) return;
+    reg.docs.forEach(function (x) { if (x.id === did) x.hint = String(v || ''); });
+    docsSave(id);
+  };
+
+  // The model call. Sequential, one document at a time; the result (or
+  // the error) is stored on the document so it is never paid for twice.
+  BP.planRead = function planRead(id, did, model) {
+    var reg = _docs[id]; if (!reg) return;
+    var d = reg.docs.filter(function (x) { return x.id === did; })[0]; if (!d) return;
+    if (_busy[did]) return;
+    if (d.report && !confirm(BP.tt('המסמך כבר נקרא. לקרוא שוב (עלות נוספת)?', 'อ่านอีกครั้ง?', 'قراءة مرة أخرى؟'))) return;
+    _busy[did] = 1; _openDoc[id] = did; BP.open(id);
+    var fn = firebase.app().functions('us-central1').httpsCallable('planExtract');
+    fn({ path: d.path, model: model || 'haiku', hint: d.hint }).then(function (res) {
+      var r = res.data || {};
+      d.report = r.report || null; d.model = r.model || ''; d.usage = r.usage || null; d.readAt = r.at || Date.now(); d.error = '';
+    }).catch(function (e) {
+      d.error = (e && e.message) ? e.message : 'error';
+      BP.toast('\u274c ' + d.error);
+    }).then(function () {
+      _busy[did] = 0; docsSave(id); BP.open(id);
+    });
+  };
+  BP.planReadAll = function planReadAll(id) {
+    var reg = _docs[id]; if (!reg) return;
+    var todo = reg.docs.filter(function (x) { return !x.report && !_busy[x.id]; });
+    if (!todo.length) return;
+    (function next(i) {
+      if (i >= todo.length) return;
+      var d = todo[i]; _busy[d.id] = 1; BP.open(id);
+      firebase.app().functions('us-central1').httpsCallable('planExtract')({ path: d.path, model: 'haiku', hint: d.hint })
+        .then(function (res) { var r = res.data || {}; d.report = r.report || null; d.model = r.model || ''; d.usage = r.usage || null; d.readAt = r.at || Date.now(); d.error = ''; })
+        .catch(function (e) { d.error = (e && e.message) ? e.message : 'error'; })
+        .then(function () { _busy[d.id] = 0; docsSave(id); BP.open(id); next(i + 1); });
+    })(0);
+  };
+
+  // What the model proposed → what the project holds. Each proposal is a
+  // checkbox; a proposal whose mark already exists in the project
+  // replaces that element, anything else is appended. Sheet-level facts
+  // fill empty header fields only — a value typed by hand is never
+  // overwritten by a re-read.
+  function reportEl(e) {
+    e = e || {};
+    return normEl({
+      kind: e.kind, name: e.name, count: e.count, w: e.w, l: e.l, h: e.h, below: e.below, area: e.area,
+      topN: e.topN, botN: e.botN, starter: e.starter, plate: e.plate, blind: e.blind,
+      rebar: e.rebar || {}, notes: [e.notes, e.source ? '(' + e.source + ')' : ''].filter(Boolean).join(' ')
+    });
+  }
+  BP.planInsert = function planInsert(id, did) {
+    var p = BP.projById(id), reg = _docs[id]; if (!p || !reg) return;
+    var d = reg.docs.filter(function (x) { return x.id === did; })[0];
+    if (!d || !d.report) return;
+    var pl = planOf(p), rep = d.report, added = 0, replaced = 0;
+    (rep.elements || []).forEach(function (e, j) {
+      var cb = document.getElementById('bpPick_' + did + '_' + j);
+      if (cb && !cb.checked) return;
+      var el = reportEl(e);
+      var hit = -1;
+      pl.elements.forEach(function (x, k) { if (el.name && x.name === el.name) hit = k; });
+      if (hit >= 0) { el.id = pl.elements[hit].id; pl.elements[hit] = el; replaced++; }
+      else { pl.elements.push(el); added++; }
+    });
+    var sh = rep.sheet || {};
+    if (!pl.engineer && sh.engineer) pl.engineer = String(sh.engineer);
+    if (!pl.drawingNo && sh.drawingNo) pl.drawingNo = String(sh.drawingNo);
+    if (!pl.date && sh.date) pl.date = String(sh.date);
+    if (sh.concrete && /^ב-\d+$/.test(String(sh.concrete).trim())) pl.concrete = String(sh.concrete).trim();
+    pl.sel = Math.max(0, pl.elements.length - 1);
+    p.plan = BP.normPlan(pl);
+    BP.saveP();
+    BP.toast('\u2705 ' + BP.tt(added + ' נוספו, ' + replaced + ' עודכנו', 'เพิ่ม ' + added + ' อัปเดต ' + replaced, 'أُضيف ' + added + '، حُدّث ' + replaced));
+    repaint(id);
+  };
+  BP.planNotesFrom = function planNotesFrom(id, did) {
+    var p = BP.projById(id), reg = _docs[id]; if (!p || !reg) return;
+    var d = reg.docs.filter(function (x) { return x.id === did; })[0];
+    if (!d || !d.report) return;
+    var pl = planOf(p), lines = [];
+    (d.report.other || []).forEach(function (s) { lines.push('\u2022 ' + s); });
+    (d.report.questions || []).forEach(function (s) { lines.push('? ' + s); });
+    var block = '[' + d.name + ']\n' + lines.join('\n');
+    if (pl.notes.indexOf('[' + d.name + ']') >= 0) return;
+    pl.notes = (pl.notes ? pl.notes + '\n\n' : '') + block;
+    BP.saveP(); repaint(id);
+  };
+
+  function docsCard(p) {
+    var id = p.id, pl = planOf(p), reg = _docs[id];
+    var muted = 'color:var(--text-muted,#888);';
+    var acc = 'var(--accent,#ff9f43)';
+    if (!reg) {
+      docsLoad(id, function () { if (BP._tab === 'plan' && BP._open === id) BP.open(id); });
+    }
+    var upload = '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">' +
+      '<label class="bp-btn" style="cursor:pointer;">\ud83d\udcce ' +
+        BP.tt('העלה תוכניות / מסמכים', 'อัปโหลดแบบ/เอกสาร', 'رفع مخططات / مستندات') +
+        '<input type="file" multiple accept="image/*,application/pdf" style="display:none;" onchange="BuildPlan.planUpload(' + id + ',this)"></label>' +
+      (reg && reg.docs.some(function (x) { return !x.report; })
+        ? '<button class="bp-btn ghost" onclick="BuildPlan.planReadAll(' + id + ')">\ud83d\udd0e ' + BP.tt('קרא את כל מה שלא נקרא', 'อ่านที่ยังไม่อ่าน', 'اقرأ ما لم يُقرأ') + '</button>' : '') +
+      '<span style="font-size:.72rem;' + muted + '">' + BP.tt('PDF או צילום. קריאה = קריאת מודל, רק בלחיצה, נשמרת עם המסמך.', 'PDF/รูป อ่านเมื่อกดเท่านั้น', 'PDF أو صورة. القراءة عند الضغط فقط وتُحفظ') + '</span>' +
+    '</div>';
+
+    var list = '';
+    if (!reg) {
+      list = '<div style="padding:12px;text-align:center;' + muted + '">\u23f3</div>';
+    } else if (!reg.docs.length) {
+      list = '<div class="bp-empty" style="margin-top:8px;">' + BP.tt('אין עדיין מסמכים בפרויקט. העלה את תוכנית הקונסטרוקטור, פרטי היסודות, כתב הכמויות — כל מה שקיבלת.', 'ยังไม่มีเอกสาร', 'لا مستندات بعد') + '</div>';
+    } else {
+      list = reg.docs.map(function (d) {
+        var open = _openDoc[id] === d.id, busy = !!_busy[d.id];
+        var status = busy ? '<span style="color:' + acc + ';">\u23f3 ' + BP.tt('קורא…', 'กำลังอ่าน…', 'جارٍ القراءة…') + '</span>'
+                   : d.report ? '<span style="color:var(--ok,#41c47f);">\u2705 ' + BP.tt('נקרא', 'อ่านแล้ว', 'مقروء') + ' \u00b7 ' + ((d.report.elements || []).length) + ' ' + BP.tt('אלמנטים', 'ชิ้นส่วน', 'عناصر') + '</span>'
+                   : d.error ? '<span style="color:var(--warn,#e2624b);">\u26a0\ufe0f ' + BP.esc(d.error.slice(0, 80)) + '</span>'
+                   : '<span style="' + muted + '">' + BP.tt('טרם נקרא', 'ยังไม่อ่าน', 'لم يُقرأ') + '</span>';
+        var row = '<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap;padding:7px 0;border-top:1px solid rgba(255,255,255,.07);">' +
+          '<div style="min-width:0;"><b style="cursor:pointer;" onclick="BuildPlan.planDocToggle(' + id + ',\'' + d.id + '\')">' +
+            (/pdf/i.test(d.type) ? '\ud83d\udcc4' : '\ud83d\uddbc') + ' ' + BP.esc(d.name) + '</b>' +
+            '<div style="font-size:.72rem;' + muted + '">' + fmtSize(d.size) + (d.at ? ' \u00b7 ' + new Date(d.at).toLocaleDateString('he-IL') : '') + (d.by ? ' \u00b7 ' + BP.esc(d.by) : '') + ' \u00b7 ' + status + '</div></div>' +
+          '<div style="display:flex;gap:4px;flex-wrap:wrap;">' +
+            '<button class="bp-btn ghost" style="padding:4px 8px;font-size:.72rem;" onclick="BuildPlan.planDocOpen(' + id + ',\'' + d.id + '\')">\ud83d\udc41</button>' +
+            (busy ? '' : '<button class="bp-btn ' + (d.report ? 'ghost' : '') + '" style="padding:4px 8px;font-size:.72rem;" onclick="BuildPlan.planRead(' + id + ',\'' + d.id + '\',\'haiku\')">\ud83d\udd0e ' + BP.tt(d.report ? 'קרא שוב' : 'קרא', d.report ? 'อ่านอีก' : 'อ่าน', d.report ? 'اقرأ مجدداً' : 'اقرأ') + '</button>') +
+            (busy ? '' : '<button class="bp-btn ghost" style="padding:4px 8px;font-size:.72rem;" title="' + BP.tt('מודל חזק יותר, יקר יותר', 'โมเดลแรงกว่า', 'نموذج أقوى') + '" onclick="BuildPlan.planRead(' + id + ',\'' + d.id + '\',\'sonnet\')">\ud83d\udd0e+</button>') +
+            '<button class="bp-btn ghost" style="padding:4px 8px;font-size:.72rem;" onclick="BuildPlan.planDocToggle(' + id + ',\'' + d.id + '\')">' + (open ? '\u25b4' : '\u25be') + '</button>' +
+            '<button class="bp-btn warn" style="padding:4px 8px;font-size:.72rem;" onclick="BuildPlan.planDocDel(' + id + ',\'' + d.id + '\')">\ud83d\uddd1</button>' +
+          '</div></div>';
+        if (!open) return row;
+
+        var body = '<div style="padding:4px 0 10px;">' +
+          '<div style="margin-bottom:6px;"><div class="bp-lbl">' + BP.tt('הקשר למודל (לא חובה)', 'บริบทให้โมเดล', 'سياق للنموذج') + '</div>' +
+            '<input class="bp-in" value="' + BP.esc(d.hint) + '" placeholder="' + BP.esc(BP.tt('למשל: סככה 12×30, יסודות לעמודי פלדה, אדמת חמרה', 'เช่น โรงเรือน 12×30', 'مثلاً: سقيفة 12×30')) + '" onchange="BuildPlan.planDocHint(' + id + ',\'' + d.id + '\',this.value)"></div>';
+        if (d.report) {
+          var rep = d.report, sh = rep.sheet || {};
+          body += '<div style="font-size:.8rem;margin-bottom:6px;">' +
+            (sh.title ? '<b>' + BP.esc(sh.title) + '</b> \u00b7 ' : '') +
+            [sh.engineer, sh.drawingNo, sh.date, sh.concrete].filter(Boolean).map(BP.esc).join(' \u00b7 ') +
+            '<div style="margin-top:4px;">' + BP.esc(sh.summary || '') + '</div>' +
+            '<div style="font-size:.7rem;' + muted + 'margin-top:3px;">' + BP.esc(d.model) + (d.usage ? ' \u00b7 ' + d.usage.input + ' / ' + d.usage.output + ' tokens' : '') + '</div></div>';
+          var els = rep.elements || [];
+          body += '<div class="bp-lbl">' + BP.tt('אלמנטים שנקראו — סמן מה להכניס לפרויקט', 'ชิ้นส่วนที่อ่านได้ เลือกเพื่อเพิ่ม', 'العناصر المقروءة — اختر ما يُدرج') + '</div>';
+          if (!els.length) body += '<div style="font-size:.78rem;' + muted + '">' + BP.tt('לא זוהו אלמנטים קונסטרוקטיביים במסמך הזה.', 'ไม่พบชิ้นส่วน', 'لم تُرصد عناصر') + '</div>';
+          els.forEach(function (e, j) {
+            var el = reportEl(e), r = el.rebar;
+            var exists = pl.elements.some(function (x) { return el.name && x.name === el.name; });
+            var conf = e.confidence === 'low' ? '\ud83d\udfe0' : e.confidence === 'medium' ? '\ud83d\udfe1' : '\ud83d\udfe2';
+            var dims = el.kind === 'slab' ? el.area + ' m\u00b2 \u00d7 ' + el.h : el.kind === 'pier' ? '\u00d8' + el.w + ' \u00d7 ' + el.h : el.w + ' \u00d7 ' + el.l + ' \u00d7 ' + el.h;
+            var spec = el.kind === 'slab' ? ((typeof Rebar !== 'undefined') ? Rebar.slabLabel(r) : '')
+                     : isCage(el.kind) ? ((typeof Rebar !== 'undefined') ? Rebar.summaryLabel(r) : '')
+                     : el.topN + '+' + el.botN + '\u00d8' + r.mainD + ' \u00b7 \u00d8' + r.stirD + '@' + r.stirSp;
+            body += '<label style="display:flex;gap:8px;align-items:flex-start;font-size:.8rem;padding:5px 0;border-top:1px solid rgba(255,255,255,.05);cursor:pointer;">' +
+              '<input type="checkbox" id="bpPick_' + d.id + '_' + j + '"' + (e.confidence === 'low' ? '' : ' checked') + '>' +
+              '<div><b>' + ICON[el.kind] + ' ' + BP.esc(el.name || kindLabel(el.kind)) + '</b>' + (el.count > 1 ? ' \u00d7' + el.count : '') +
+                ' <span style="' + muted + '">' + kindLabel(el.kind) + '</span> ' + conf +
+                (exists ? ' <span style="font-size:.68rem;padding:1px 6px;border-radius:8px;background:rgba(255,159,67,.2);">' + BP.tt('יחליף קיים', 'แทนที่', 'سيستبدل') + '</span>' : '') +
+                '<div dir="ltr" style="text-align:left;">' + dims + ' m \u00b7 ' + BP.esc(spec) + '</div>' +
+                (e.notes ? '<div style="' + muted + '">' + BP.esc(e.notes) + '</div>' : '') +
+              '</div></label>';
+          });
+          if ((rep.other || []).length) {
+            body += '<div class="bp-lbl" style="margin-top:8px;">' + BP.tt('עוד דברים שכתובים במסמך', 'สิ่งอื่นในเอกสาร', 'أمور أخرى في المستند') + '</div>' +
+              '<ul style="margin:0;padding-inline-start:18px;font-size:.78rem;">' + rep.other.map(function (s) { return '<li>' + BP.esc(s) + '</li>'; }).join('') + '</ul>';
+          }
+          if ((rep.questions || []).length) {
+            body += '<div class="bp-lbl" style="margin-top:8px;color:' + acc + ';">\u2753 ' + BP.tt('לשאול את הקונסטרוקטור', 'ถามวิศวกร', 'اسأل المهندس') + '</div>' +
+              '<ul style="margin:0;padding-inline-start:18px;font-size:.78rem;">' + rep.questions.map(function (s) { return '<li>' + BP.esc(s) + '</li>'; }).join('') + '</ul>';
+          }
+          body += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;">' +
+            (els.length ? '<button class="bp-btn" onclick="BuildPlan.planInsert(' + id + ',\'' + d.id + '\')">\u2b07 ' + BP.tt('הכנס את המסומנים לפרויקט', 'เพิ่มที่เลือก', 'أدرج المحدد') + '</button>' : '') +
+            (((rep.other || []).length || (rep.questions || []).length) ? '<button class="bp-btn ghost" onclick="BuildPlan.planNotesFrom(' + id + ',\'' + d.id + '\')">\ud83d\udcdd ' + BP.tt('העתק הערות ושאלות לתוכנית', 'คัดลอกหมายเหตุ', 'انسخ الملاحظات') + '</button>' : '') +
+            '</div>';
+        } else if (!busy) {
+          body += '<div style="font-size:.78rem;' + muted + '">' + BP.tt('לחץ "קרא" כדי שהמערכת תוציא מהמסמך את היסודות, העמודים, הקורות והזיון.', 'กด "อ่าน" เพื่อดึงข้อมูล', 'اضغط "اقرأ" لاستخراج العناصر') + '</div>';
+        }
+        return row + body + '</div>';
+      }).join('');
+    }
+
+    return '<div class="bp-card">' +
+      '<div class="bp-lbl" style="margin-bottom:6px;">\ud83d\udcd0 ' + BP.tt('תוכניות ומסמכים של הפרויקט', 'แบบและเอกสารโครงการ', 'مخططات ومستندات المشروع') + '</div>' +
+      upload + list +
+      '<div class="bp-grid" style="margin-top:12px;">' +
+        fld(BP.tt('קונסטרוקטור', 'วิศวกร', 'المهندس'), in_(id, 'engineer', pl.engineer)) +
+        fld(BP.tt('מס\' תוכנית', 'เลขที่แบบ', 'رقم المخطط'), in_(id, 'drawingNo', pl.drawingNo)) +
+        fld(BP.tt('תאריך', 'วันที่', 'التاريخ'), in_(id, 'date', pl.date, '', 'date')) +
+        fld(BP.tt('דרגת בטון', 'เกรดคอนกรีต', 'درجة الخرسانة'),
+          '<select class="bp-in" onchange="BuildPlan.planSet(' + id + ',\'concrete\',this.value)">' +
+            GRADES.map(function (g) { return '<option value="' + g + '"' + (pl.concrete === g ? ' selected' : '') + '>' + g + '</option>'; }).join('') + '</select>') +
+      '</div>' +
+      '<div style="margin-top:8px;"><div class="bp-lbl">' + BP.tt('הערות ושאלות', 'หมายเหตุ', 'ملاحظات') + '</div>' +
+        '<textarea class="bp-in" rows="3" onchange="BuildPlan.planSet(' + id + ',\'notes\',this.value)">' + BP.esc(pl.notes) + '</textarea></div>' +
+    '</div>';
+  }
 
   // Lines from the plan replace lines from the plan — flagged `plan` (kept
   // by normProject) so a second press does not double the steel. Extras
@@ -916,7 +1195,15 @@
   BuildPlan.planRebar     = BP.planRebar;
   BuildPlan.plan3dView    = BP.plan3dView;
   BuildPlan.plan3dReset   = BP.plan3dReset;
-  BuildPlan.planPreview   = BP.planPreview;
+  BuildPlan.planUpload    = BP.planUpload;
+  BuildPlan.planDocOpen   = BP.planDocOpen;
+  BuildPlan.planDocDel    = BP.planDocDel;
+  BuildPlan.planDocToggle = BP.planDocToggle;
+  BuildPlan.planDocHint   = BP.planDocHint;
+  BuildPlan.planRead      = BP.planRead;
+  BuildPlan.planReadAll   = BP.planReadAll;
+  BuildPlan.planInsert    = BP.planInsert;
+  BuildPlan.planNotesFrom = BP.planNotesFrom;
   BuildPlan.planToTakeoff = BP.planToTakeoff;
   BuildPlan.planPrint     = BP.planPrint;
 

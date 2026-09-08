@@ -2,8 +2,13 @@ const { onRequest, onCall, HttpsError } = require("firebase-functions/v2/https")
 const { initializeApp } = require("firebase-admin/app");
 const { getAuth } = require("firebase-admin/auth");
 const { getFirestore } = require("firebase-admin/firestore");
+const { getStorage } = require("firebase-admin/storage");
+const { defineSecret } = require("firebase-functions/params");
 
 initializeApp();
+
+// Set once with: firebase functions:secrets:set ANTHROPIC_API_KEY
+const ANTHROPIC_API_KEY = defineSecret("ANTHROPIC_API_KEY");
 
 // ═══════════════════════════════════════════
 // 1. SET USER ROLE — sets custom claims on auth token
@@ -246,5 +251,191 @@ exports.recoverAccount = onCall(
     } catch (e) { /* ignore */ }
 
     return { email: match.email, username: match.username, name: match.name || "" };
+  }
+);
+
+
+// ═══════════════════════════════════════════
+// 5. PLAN EXTRACT — read an engineer's drawing / professional document
+//    that was uploaded to Storage (build-plans/{pid}/…) and return the
+//    structural elements it specifies, in the shape buildplan-plan.js
+//    stores them. The model is forced to answer through a tool with a
+//    strict schema, so the client never parses free text.
+//
+//    COST  Runs only when a staff user presses "read" on a document; the
+//    result is cached by the client per document. Default model is the
+//    cheapest vision-capable one; 'sonnet' is opt-in per call for a sheet
+//    the small model misread. The key never reaches the browser.
+// ═══════════════════════════════════════════
+
+const PLAN_MODELS = {
+  haiku:  "claude-haiku-4-5",
+  sonnet: "claude-sonnet-4-5"
+};
+
+const PLAN_TOOL = {
+  name: "report_plan",
+  description: "Report every structural element and instruction found in the document.",
+  input_schema: {
+    type: "object",
+    properties: {
+      sheet: {
+        type: "object",
+        properties: {
+          engineer:  { type: "string", description: "Engineer / office name, as printed" },
+          drawingNo: { type: "string" },
+          date:      { type: "string" },
+          concrete:  { type: "string", description: "Concrete grade as written, e.g. ב-30. Empty if absent." },
+          title:     { type: "string", description: "What the document is (foundation plan, BOQ, detail sheet…)" },
+          summary:   { type: "string", description: "3-5 sentences in Hebrew: what this document specifies and for what structure." }
+        },
+        required: ["summary"]
+      },
+      elements: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            kind:  { type: "string", enum: ["pad", "pier", "strip", "column", "beam", "slab"],
+                     description: "pad=יסוד בודד, pier=כלונס, strip=קורת יסוד/יסוד עובר, column=עמוד בטון, beam=קורה, slab=רצפה/משטח" },
+            name:  { type: "string", description: "The mark on the drawing, e.g. י-1, ק-2, F1" },
+            count: { type: "integer", description: "How many of this element the drawing shows or schedules" },
+            w:     { type: "number", description: "Width or diameter in METRES" },
+            l:     { type: "number", description: "Length / second side in METRES (span for strip/beam). Omit for pier/slab." },
+            h:     { type: "number", description: "Concrete depth/height/thickness in METRES" },
+            below: { type: "number", description: "Top of element below finished ground, METRES. 0 if at grade." },
+            area:  { type: "number", description: "Slab area in m² (slab only)" },
+            topN:  { type: "integer", description: "Top longitudinal bars (strip/beam)" },
+            botN:  { type: "integer", description: "Bottom longitudinal bars (strip/beam)" },
+            starter: { type: "number", description: "Projecting dowel (קוצים) length in METRES, 0 if none" },
+            plate: { type: "boolean", description: "True if an anchor plate / anchor bolts for a steel column are shown" },
+            blind: { type: "boolean", description: "True if lean concrete (בטון רזה) is specified under it" },
+            rebar: {
+              type: "object",
+              properties: {
+                mainN:  { type: "integer", description: "Number of longitudinal bars in a cage (pad/pier/column)" },
+                mainD:  { type: "integer", description: "Longitudinal bar diameter, mm" },
+                stirD:  { type: "integer", description: "Stirrup/tie diameter, mm" },
+                stirSp: { type: "number",  description: "Stirrup spacing, CM" },
+                cover:  { type: "number",  description: "Concrete cover, CM" },
+                mat:    { type: "boolean", description: "Bottom mat present (pad)" },
+                matD:   { type: "integer", description: "Bottom mat bar diameter, mm" },
+                matSp:  { type: "number",  description: "Bottom mat spacing, CM" },
+                slabMesh: { type: "string", enum: ["Q188", "deformed", "none"], description: "Slab mesh type" },
+                meshD:  { type: "integer", description: "Slab deformed-bar diameter, mm" },
+                meshSp: { type: "number",  description: "Slab bar spacing, CM" }
+              }
+            },
+            notes: { type: "string", description: "Anything else specified for this element, in Hebrew, verbatim where possible" },
+            confidence: { type: "string", enum: ["high", "medium", "low"],
+                          description: "high = read directly from a schedule/detail; low = inferred or partly illegible" },
+            source: { type: "string", description: "Where on the document: page/sheet/detail reference" }
+          },
+          required: ["kind", "name", "count", "w", "h", "rebar", "confidence"]
+        }
+      },
+      other: {
+        type: "array",
+        description: "Every instruction, material or item that is NOT one of the element kinds above (steel columns, bolts, welds, soil notes, BOQ lines, general notes). One short Hebrew line each, verbatim where possible.",
+        items: { type: "string" }
+      },
+      questions: {
+        type: "array",
+        description: "Things a non-builder should ask the engineer before building: ambiguities, missing dimensions, unusual requirements. Hebrew, one per item.",
+        items: { type: "string" }
+      }
+    },
+    required: ["sheet", "elements", "other", "questions"]
+  }
+};
+
+const PLAN_SYSTEM = [
+  "You are a senior structural engineer reading construction documents for a client who is not a builder.",
+  "Read the whole document: plans, sections, details, schedules (טבלאות זיון), general notes and any BOQ.",
+  "Report EVERY structural element with all dimensions and reinforcement exactly as written. Convert units:",
+  "geometry to metres (a drawing saying 60/60/80 cm is w=0.6 l=0.6 h=0.8), bar diameters in mm, spacing and cover in cm.",
+  "Israeli notation: 6Ø12 = six bars of 12 mm; חישוקים Ø8@20 = 8 mm stirrups every 20 cm; #Ø10@15 = 10 mm bars each way every 15 cm;",
+  "ב-30 = concrete grade; Q188 = welded mesh; קוצים = starter dowels; בטון רזה = lean concrete; כיסוי = cover.",
+  "Never invent a value: if a number is not on the document, omit the field and lower the confidence.",
+  "Mark text values (name, notes, other, questions, summary) in Hebrew.",
+  "Answer only through the report_plan tool."
+].join(" ");
+
+exports.planExtract = onCall(
+  { region: "us-central1", secrets: [ANTHROPIC_API_KEY], memory: "1GiB", timeoutSeconds: 300, maxInstances: 3 },
+  async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Sign in required");
+    const tok = request.auth.token || {};
+    const fb = tok.firebase || {};
+    if (fb.sign_in_provider === "phone") throw new HttpsError("permission-denied", "Not for recovery sessions");
+    // operator/admin, or the transitional no-claim state that the Firestore
+    // rules also accept (noRoleYet)
+    if (tok.role !== undefined && tok.role !== null && !["admin", "operator"].includes(tok.role)) {
+      throw new HttpsError("permission-denied", "Operator or admin required");
+    }
+
+    const { path, model, hint } = request.data || {};
+    if (typeof path !== "string" || !/^build-plans\/\d+\/[^/]+$/.test(path)) {
+      throw new HttpsError("invalid-argument", "path must be build-plans/{projectId}/{file}");
+    }
+    const modelId = PLAN_MODELS[model] || PLAN_MODELS.haiku;
+
+    // Same bucket the client is configured with (public/index.html).
+    const file = getStorage().bucket("shorashim-plus.firebasestorage.app").file(path);
+    const [exists] = await file.exists();
+    if (!exists) throw new HttpsError("not-found", "Document not found in storage");
+    const [meta] = await file.getMetadata();
+    const size = Number(meta.size) || 0;
+    const ctype = String(meta.contentType || "");
+    const isPdf = ctype === "application/pdf" || /\.pdf$/i.test(path);
+    if (isPdf && size > 30 * 1024 * 1024) throw new HttpsError("invalid-argument", "PDF over 30 MB");
+    if (!isPdf && size > 5 * 1024 * 1024) throw new HttpsError("invalid-argument", "Image over 5 MB — the app downsizes on upload; re-upload it");
+    if (!isPdf && !/^image\/(jpeg|png|webp|gif)$/.test(ctype)) throw new HttpsError("invalid-argument", "Unsupported type " + ctype);
+
+    const [buf] = await file.download();
+    const data = buf.toString("base64");
+    const block = isPdf
+      ? { type: "document", source: { type: "base64", media_type: "application/pdf", data } }
+      : { type: "image", source: { type: "base64", media_type: ctype, data } };
+
+    const userText = "Read this construction document and report it through the tool." +
+      (typeof hint === "string" && hint.trim() ? " Context from the client: " + hint.trim().slice(0, 600) : "");
+
+    let res, text;
+    try {
+      res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": ANTHROPIC_API_KEY.value(),
+          "anthropic-version": "2023-06-01"
+        },
+        body: JSON.stringify({
+          model: modelId,
+          max_tokens: 8000,
+          system: PLAN_SYSTEM,
+          tools: [PLAN_TOOL],
+          tool_choice: { type: "tool", name: "report_plan" },
+          messages: [{ role: "user", content: [block, { type: "text", text: userText }] }]
+        })
+      });
+      text = await res.text();
+    } catch (err) {
+      throw new HttpsError("unavailable", "Model call failed: " + err.message);
+    }
+    if (!res.ok) {
+      throw new HttpsError("internal", "Model " + res.status + ": " + text.slice(0, 300));
+    }
+    let body;
+    try { body = JSON.parse(text); } catch (e) { throw new HttpsError("internal", "Bad model response"); }
+    const call = (body.content || []).find((b) => b.type === "tool_use" && b.name === "report_plan");
+    if (!call || !call.input) throw new HttpsError("internal", "Model returned no report");
+
+    return {
+      report: call.input,
+      model: modelId,
+      usage: body.usage ? { input: body.usage.input_tokens, output: body.usage.output_tokens } : null,
+      at: Date.now()
+    };
   }
 );

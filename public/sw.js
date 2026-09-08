@@ -7,6 +7,7 @@ var CDN_URLS = [
   'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js',
   'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js',
   'https://www.gstatic.com/firebasejs/10.12.2/firebase-functions-compat.js',
+  'https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js',
   'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.2/html2pdf.bundle.min.js'
 ];
 // App files — these change on deploy, need network-first

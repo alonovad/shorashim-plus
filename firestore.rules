@@ -97,6 +97,13 @@ service cloud.firestore {
       allow write: if (isOperatorOrAbove() || noRoleYet()) &&
                       docId.matches('shorashim-build-ledger-[0-9]+');
 
+      // Operator+: one document register per construction project
+      // (shorashim-build-docs-1788460496331, ...): the engineer's drawings
+      // uploaded to Storage and what the model read out of each. Same
+      // per-project split as the ledger, for the same 1 MB reason.
+      allow write: if (isOperatorOrAbove() || noRoleYet()) &&
+                      docId.matches('shorashim-build-docs-[0-9]+');
+
       // Operator+: one pest-monitoring document per growing year
       // (shorashim-pest-monitor-2026, -2027, ...). Prefix match rather than a
       // literal list so a new season needs no rules deploy.

@@ -236,8 +236,11 @@ shipped.forEach(f => {
 });
 [...keys].sort().forEach(k => {
   const base = k.replace(/\*$/, '');
+  // Prefix keys are whitelisted by a matches() pattern: per-year
+  // (-[0-9]{4}) or per-project-id (-[0-9]+).
   const listed = rules.includes(`'${base}'`) ||
-                 rules.includes(base.replace(/-$/, '') + '-[0-9]{4}');
+                 rules.includes(base.replace(/-$/, '') + '-[0-9]{4}') ||
+                 rules.includes(base.replace(/-$/, '') + '-[0-9]+');
   listed ? ok(`${k} whitelisted`) : bad(`${k} NOT in firestore.rules — writes will be denied`);
 });
 // Keys belonging to modules that are not loaded. Not a failure — nothing

@@ -1,7 +1,11 @@
 {
   "hosting": {
     "public": "public",
-    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
     "rewrites": [
       {
         "source": "/api/govdata",
@@ -29,5 +33,8 @@
   },
   "functions": {
     "source": "functions"
+  },
+  "storage": {
+    "rules": "storage.rules"
   }
 }
