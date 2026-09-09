@@ -53,6 +53,225 @@ exports.setUserRole = onCall(
 );
 
 // ═══════════════════════════════════════════
+// 1b. ROLE CLAIM PLUMBING
+//
+//  WHY THIS EXISTS
+//  A user's role lives in two places: the profile document
+//  (appData/shorashim-users) and the custom claim on their Auth token.
+//  firestore.rules can only read the claim — it cannot read Firestore
+//  while evaluating a rule. Only the Admin SDK can write a claim.
+//  setUserRole (above) was deployed but never called from the client, so
+//  every account has an empty claim and the whole app has been running on
+//  the noRoleYet() escape hatch in the rules. These three functions close
+//  that gap so noRoleYet() can be removed.
+//
+//  ESCALATION NOTE
+//  appData/shorashim-users is currently writable by any signed-in user
+//  (see the TEMPORARY grant in firestore.rules). A function that blindly
+//  copied the profile role onto the token would therefore let a worker
+//  edit their own profile to "admin" and mint a real admin token — turning
+//  a UI-gated hole into a token-level one. So the split below is
+//  deliberate: self-service (claimSelfFromProfile) can only ever grant the
+//  two powerless tiers. Elevation to operator/admin always requires a call
+//  made BY an admin.
+// ═══════════════════════════════════════════
+
+const VALID_ROLES = ["admin", "operator", "worker", "viewer"];
+const SELF_GRANTABLE = ["worker", "viewer"];
+
+// Shared admin gate. Mirrors setUserRole: while no account anywhere holds
+// an admin claim the system is un-bootstrapped, so the first caller is
+// allowed through. That window closes permanently the moment the backfill
+// stamps the first admin.
+async function assertAdminOrBootstrap(request, auth) {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Must be logged in");
+  }
+  if (request.auth.token.role === "admin") return;
+  const listResult = await auth.listUsers(1000);
+  const hasAdmin = listResult.users.some(
+    (u) => u.customClaims && u.customClaims.role === "admin"
+  );
+  if (hasAdmin) {
+    throw new HttpsError("permission-denied", "Only admins can set roles");
+  }
+}
+
+// Profiles are keyed by username but looked up here by email, because the
+// email is the only thing an Auth account and a profile reliably share.
+// Casing is not normalised in older profiles, so compare lowercased.
+async function loadProfiles(db) {
+  const doc = await db.collection("appData").doc("shorashim-users").get();
+  return (doc.exists && doc.data().value) || {};
+}
+function findProfileByEmail(users, email) {
+  const needle = String(email || "").trim().toLowerCase();
+  if (!needle) return null;
+  return (
+    Object.values(users).find(
+      (u) => u && u.email && String(u.email).trim().toLowerCase() === needle
+    ) || null
+  );
+}
+
+// ── Admin: stamp one user by email ──
+// Called by the user-management UI right after it writes a profile, so a
+// role set in the UI takes effect without waiting for a backfill run.
+// Returns pending:true when the person has no Auth account yet (added by
+// an admin but never logged in) — there is no token to stamp, and
+// claimSelfFromProfile or the next admin backfill picks them up later.
+exports.setUserRoleByEmail = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    const auth = getAuth();
+    await assertAdminOrBootstrap(request, auth);
+
+    const email = String((request.data && request.data.email) || "").trim().toLowerCase();
+    const role = (request.data && request.data.role) || "";
+    if (!email || !role) {
+      throw new HttpsError("invalid-argument", "email and role required");
+    }
+    if (!VALID_ROLES.includes(role)) {
+      throw new HttpsError("invalid-argument", "Invalid role: " + role);
+    }
+
+    let user;
+    try {
+      user = await auth.getUserByEmail(email);
+    } catch (err) {
+      if (err.code === "auth/user-not-found") {
+        return { success: true, pending: true, email, role };
+      }
+      throw new HttpsError("internal", "Lookup failed");
+    }
+
+    const current = (user.customClaims && user.customClaims.role) || null;
+    if (current === role) {
+      return { success: true, pending: false, unchanged: true, email, role };
+    }
+    await auth.setCustomUserClaims(user.uid, { role });
+    return { success: true, pending: false, email, role, previous: current };
+  }
+);
+
+// ── Admin: one-off migration for the existing population ──
+// Walks every profile and stamps the claim from the stored role. Safe to
+// re-run: accounts already holding the right claim are counted, not
+// rewritten (a needless setCustomUserClaims would churn tokens for no
+// reason). Run this BEFORE removing noRoleYet() from firestore.rules —
+// removing the escape hatch first locks out everyone at once.
+exports.backfillUserRoles = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    const auth = getAuth();
+    await assertAdminOrBootstrap(request, auth);
+
+    const dryRun = !!(request.data && request.data.dryRun);
+    const db = getFirestore();
+    const users = await loadProfiles(db);
+
+    const report = {
+      dryRun,
+      total: 0,
+      stamped: 0,
+      alreadyCorrect: 0,
+      noAuthAccount: 0,
+      noEmail: 0,
+      invalidRole: 0,
+      errors: 0,
+      details: [],
+    };
+
+    for (const key of Object.keys(users)) {
+      const u = users[key];
+      if (!u) continue;
+      report.total++;
+
+      const email = String((u.email || "")).trim().toLowerCase();
+      const role = u.role || "worker";
+
+      if (!email) {
+        report.noEmail++;
+        report.details.push({ username: key, result: "no-email" });
+        continue;
+      }
+      if (!VALID_ROLES.includes(role)) {
+        report.invalidRole++;
+        report.details.push({ username: key, email, result: "invalid-role", role });
+        continue;
+      }
+
+      try {
+        const user = await auth.getUserByEmail(email);
+        const current = (user.customClaims && user.customClaims.role) || null;
+        if (current === role) {
+          report.alreadyCorrect++;
+          continue;
+        }
+        if (!dryRun) {
+          await auth.setCustomUserClaims(user.uid, { role });
+        }
+        report.stamped++;
+        report.details.push({ username: key, email, result: "stamped", from: current, to: role });
+      } catch (err) {
+        if (err.code === "auth/user-not-found") {
+          report.noAuthAccount++;
+          report.details.push({ username: key, email, result: "no-auth-account", role });
+        } else {
+          report.errors++;
+          report.details.push({ username: key, email, result: "error", message: err.message });
+        }
+      }
+    }
+
+    return report;
+  }
+);
+
+// ── Self-service: claim-less user picks up their own low tier at login ──
+// Covers the ordinary onboarding race: an admin adds the profile, the
+// person then registers, and at that moment no admin is present to stamp
+// them. Deliberately capped at worker/viewer — see the ESCALATION NOTE
+// above. A profile claiming operator/admin returns pending:true and waits
+// for a real admin action; it never self-elevates.
+// Never downgrades or overwrites an existing claim.
+exports.claimSelfFromProfile = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "Must be logged in");
+    }
+    const fb = request.auth.token.firebase || {};
+    if (fb.sign_in_provider === "phone") {
+      throw new HttpsError("permission-denied", "Temporary recovery session");
+    }
+    if (request.auth.token.role) {
+      return { changed: false, role: request.auth.token.role, reason: "already-claimed" };
+    }
+
+    const email = request.auth.token.email;
+    if (!email) {
+      return { changed: false, role: null, reason: "no-email-on-token" };
+    }
+
+    const db = getFirestore();
+    const profile = findProfileByEmail(await loadProfiles(db), email);
+    if (!profile) {
+      return { changed: false, role: null, reason: "no-profile" };
+    }
+
+    const role = profile.role || "worker";
+    if (!SELF_GRANTABLE.includes(role)) {
+      // operator/admin must be granted by an admin, not claimed.
+      return { changed: false, role: null, pending: true, reason: "needs-admin" };
+    }
+
+    await getAuth().setCustomUserClaims(request.auth.uid, { role });
+    return { changed: true, role };
+  }
+);
+
+// ═══════════════════════════════════════════
 // 2. TALGIL PROXY — with auth verification
 // ═══════════════════════════════════════════
 

@@ -138,14 +138,68 @@
     return users[username];
   }
 
+  // ── Role claims ──
+  // The role in a profile document and the role on the Auth token are two
+  // different stores. firestore.rules reads ONLY the token claim — it
+  // cannot read Firestore mid-evaluation — and only the Admin SDK can
+  // write a claim. Everything here is the client half of that plumbing;
+  // the server half is in functions/index.js.
+  //
+  // Every call is best-effort and never blocks the UI: a claim that fails
+  // to land is retried on the next login, and until the backfill has run
+  // the rules' noRoleYet() hatch still covers the user.
+  var RoleClaims = (function() {
+    function _fn(name) {
+      if (typeof firebase === 'undefined' || !firebase.app) return null;
+      try {
+        return firebase.app().functions('us-central1').httpsCallable(name);
+      } catch (e) {
+        console.warn('functions unavailable:', e && e.message);
+        return null;
+      }
+    }
+
+    // Called at every login. No-op for anyone who already holds a claim.
+    function claimSelf() {
+      var fn = _fn('claimSelfFromProfile');
+      if (!fn) return Promise.resolve(null);
+      return fn({}).then(function(res) {
+        return res && res.data;
+      }).catch(function(err) {
+        console.warn('claimSelfFromProfile failed (non-fatal):', err && err.message);
+        return null;
+      });
+    }
+
+    // Called by the admin user form. Resolves to the server report so the
+    // caller can tell the admin when the stamp is still pending.
+    function stampByEmail(email, role) {
+      var fn = _fn('setUserRoleByEmail');
+      if (!fn) return Promise.resolve(null);
+      return fn({ email: email, role: role }).then(function(res) {
+        return res && res.data;
+      }).catch(function(err) {
+        console.warn('setUserRoleByEmail failed:', err && err.message);
+        return { error: (err && err.message) || 'failed' };
+      });
+    }
+
+    function backfill(dryRun) {
+      var fn = _fn('backfillUserRoles');
+      if (!fn) return Promise.reject(new Error('functions unavailable'));
+      return fn({ dryRun: !!dryRun }).then(function(res) { return res && res.data; });
+    }
+
+    return { claimSelf: claimSelf, stampByEmail: stampByEmail, backfill: backfill };
+  })();
+  window.RoleClaims = RoleClaims;
+
   // ── Deep auth refresh ──
-  // Called between Firebase auth success and showing the app. Forces a
-  // token refresh so server-side custom-claim changes (set by an admin
-  // via the user-management UI, or via Firebase console) are picked up
-  // by this session. Does NOT call setUserRole — that function is
-  // admin-only by design (see functions/index.js). If a user has no
-  // role claim yet, the Firestore rules' noRoleYet() escape hatch
-  // handles them until an admin assigns a role.
+  // Called between Firebase auth success and showing the app. First asks
+  // the server to stamp a claim if this account has none (new users whose
+  // profile an admin created before they ever signed in), then forces a
+  // token refresh so that stamp — and any claim an admin set since the
+  // last login — is live for this session.
   //
   // Returns Promise<profile>. Never rejects — token-refresh failures
   // are logged but the user is still allowed into the app.
@@ -153,7 +207,12 @@
     var fbUser = (typeof firebase !== 'undefined' && firebase.auth) ? firebase.auth().currentUser : null;
     if (!fbUser || !profile) return Promise.resolve(profile);
 
-    return fbUser.getIdToken(true)        // force refresh — picks up server-side claim changes
+    // Order matters: stamp before refresh, or the new claim misses this
+    // token and the user runs claim-less until their next login.
+    return RoleClaims.claimSelf()
+      .then(function() {
+        return fbUser.getIdToken(true);   // force refresh — picks up server-side claim changes
+      })
       .then(function() {
         return profile;
       })
@@ -1178,6 +1237,22 @@
     'גישה למטעים': { th: 'เข้าถึงสวน', ar: 'الوصول إلى البساتين' },
     'עריכת משתמש': { th: 'แก้ไขผู้ใช้', ar: 'تعديل مستخدم' },
     'משתמש חדש': { th: 'ผู้ใช้ใหม่', ar: 'مستخدم جديد' },
+    'שם משתמש תפוס': { th: 'ชื่อผู้ใช้ถูกใช้แล้ว', ar: 'اسم المستخدم مأخوذ' },
+    'התפקיד נשמר אך לא הוחל על החשבון': { th: 'บันทึกบทบาทแล้ว แต่ยังไม่มีผลกับบัญชี', ar: 'تم حفظ الدور لكن لم يطبّق على الحساب' },
+    'התפקיד יוחל בהתחברות הראשונה': { th: 'บทบาทจะมีผลเมื่อเข้าสู่ระบบครั้งแรก', ar: 'سيطبّق الدور عند أول تسجيل دخول' },
+    'מסנכרן תפקידים...': { th: 'กำลังซิงค์บทบาท...', ar: 'جارٍ مزامنة الأدوار...' },
+    'הרצה יבשה — לא בוצע שינוי': { th: 'ทดสอบ — ไม่มีการเปลี่ยนแปลง', ar: 'تشغيل تجريبي — دون تغيير' },
+    'סונכרן': { th: 'ซิงค์แล้ว', ar: 'تمت المزامنة' },
+    'סה"כ פרופילים': { th: 'โปรไฟล์ทั้งหมด', ar: 'إجمالي الملفات' },
+    'הוחתמו': { th: 'ประทับแล้ว', ar: 'تم الختم' },
+    'כבר תקינים': { th: 'ถูกต้องอยู่แล้ว', ar: 'صحيحة مسبقاً' },
+    'ללא חשבון התחברות': { th: 'ไม่มีบัญชีเข้าสู่ระบบ', ar: 'لا يوجد حساب دخول' },
+    'ללא אימייל': { th: 'ไม่มีอีเมล', ar: 'بدون بريد' },
+    'שגיאות': { th: 'ข้อผิดพลาด', ar: 'أخطاء' },
+    'פירוט מלא בקונסולה': { th: 'รายละเอียดอยู่ในคอนโซล', ar: 'التفاصيل في وحدة التحكم' },
+    'להחיל תפקידים על כל המשתמשים?': { th: 'ใช้บทบาทกับผู้ใช้ทั้งหมด?', ar: 'تطبيق الأدوار على جميع المستخدمين؟' },
+    'בדיקה יבשה': { th: 'ทดสอบ', ar: 'فحص تجريبي' },
+    'החל תפקידים': { th: 'ใช้บทบาท', ar: 'تطبيق الأدوار' },
     'שם מלא': { th: 'ชื่อเต็ม', ar: 'الاسم الكامل' },
     'אימייל': { th: 'อีเมล', ar: 'بريد إلكتروني' },
     'תפקיד': { th: 'ตำแหน่ง', ar: 'وظيفة' },
@@ -4660,6 +4735,14 @@
     if (e.target && e.target.id === 'addUserBtn') {
       showUserModal(null);
     }
+    if (e.target && e.target.id === 'roleBackfillDryBtn') {
+      runRoleBackfill(true);
+    }
+    if (e.target && e.target.id === 'roleBackfillRunBtn') {
+      if (confirm(t('להחיל תפקידים על כל המשתמשים?'))) {
+        runRoleBackfill(false);
+      }
+    }
   });
 
   function showFarmModal(editId) {
@@ -4915,6 +4998,50 @@
     });
   }
 
+  // Push a role onto the Auth token after a profile write. Silent on
+  // success — the profile toast already fired. Speaks up only when the
+  // stamp could not land, because that is the case where what the admin
+  // sees in the list and what the user can actually do diverge.
+  function applyRoleClaim(email, role) {
+    if (!email) return;
+    RoleClaims.stampByEmail(email, role).then(function(res) {
+      if (!res) return;
+      if (res.error) {
+        showToast('⚠️ ' + t('התפקיד נשמר אך לא הוחל על החשבון'));
+        return;
+      }
+      if (res.pending) {
+        // No Auth account yet: normal for a user who has not signed in.
+        // claimSelfFromProfile handles worker/viewer at first login;
+        // operator/admin need a backfill run once they have an account.
+        showToast('ℹ️ ' + t('התפקיד יוחל בהתחברות הראשונה'));
+      }
+    });
+  }
+
+  // One-off migration UI. Dry run first so the admin sees the plan before
+  // any token is touched.
+  function runRoleBackfill(dryRun) {
+    showToast('⏳ ' + t('מסנכרן תפקידים...'));
+    RoleClaims.backfill(dryRun).then(function(r) {
+      if (!r) { showToast('❌ ' + t('שגיאה')); return; }
+      var lines = [
+        (dryRun ? t('הרצה יבשה — לא בוצע שינוי') : t('סונכרן')),
+        t('סה"כ פרופילים') + ': ' + r.total,
+        t('הוחתמו') + ': ' + r.stamped,
+        t('כבר תקינים') + ': ' + r.alreadyCorrect,
+        t('ללא חשבון התחברות') + ': ' + r.noAuthAccount,
+        t('ללא אימייל') + ': ' + r.noEmail,
+        t('שגיאות') + ': ' + r.errors
+      ];
+      console.table(r.details || []);
+      alert(lines.join('\n') + '\n\n' + t('פירוט מלא בקונסולה'));
+    }).catch(function(err) {
+      showToast('❌ ' + t('שגיאה') + ': ' + (err && err.message));
+    });
+  }
+  window.runRoleBackfill = runRoleBackfill;
+
   function showUserModal(editId) {
     var isEdit = editId !== null;
     var user = isEdit ? Object.values(users).find(function(u) { return u.id === editId; }) : null;
@@ -5005,6 +5132,10 @@
           DB.save('shorashim-users', users);
           renderUsersAdminList();
           showToast('✅ ' + t('משתמש עודכן'));
+          // The profile write above is not what the rules read. Push the
+          // role onto the Auth token too, or an edit here changes nothing
+          // the user can actually do.
+          applyRoleClaim(users[user.username].email, role);
         }
       } else {
         // Check if email already exists
@@ -5015,6 +5146,17 @@
         }
 
         var username = email.split('@')[0];
+
+        // Usernames are the email local-part, so two different addresses
+        // that share one (dani@gmail.com / dani@shorashim.co.il) collide.
+        // The duplicate check above is on email and does not catch it —
+        // without this guard the second save silently overwrites the
+        // first user's role, farm access and leave balances.
+        if (users[username]) {
+          showToast('❌ ' + t('שם משתמש תפוס') + ': ' + username + ' (' + (users[username].email || '') + ')');
+          return;
+        }
+
         var maxId = Object.keys(users).length > 0 ? Math.max.apply(null, Object.values(users).map(function(u) { return u.id; })) : 0;
         
         users[username] = {
@@ -5032,6 +5174,7 @@
         DB.save('shorashim-users', users);
         renderUsersAdminList();
         showToast('✅ ' + t('משתמש נוסף — יוכל להתחבר עם') + ' ' + email);
+        applyRoleClaim(email, role);
       }
 
       document.getElementById('modalContainer').innerHTML = '';
