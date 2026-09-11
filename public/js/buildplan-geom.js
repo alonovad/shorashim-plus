@@ -29,6 +29,7 @@
     var bays = Math.max(1, Math.round(d.length / d.bay));
     var actualBay = d.length / bays;
     var frames = bays + 1;
+    var cols = frames * (d.colLines === 3 ? 3 : 2);
     var purlinRuns = Math.ceil(rafterLen / d.purlinSp) + 1;   // per slope
     var girtRows = Math.max(0, Math.ceil(d.eaves / d.girtSp) - 1);
     var roofArea = 2 * rafterLen * d.length;
@@ -38,7 +39,7 @@
       : 0;
     return {
       half: half, rise: rise, rafterLen: rafterLen, bays: bays, actualBay: actualBay,
-      frames: frames, purlinRuns: purlinRuns, girtRows: girtRows,
+      frames: frames, cols: cols, purlinRuns: purlinRuns, girtRows: girtRows,
       roofArea: roofArea, wallArea: wallArea, gable: gable,
       ridgeH: d.eaves + rise, footprint: d.span * d.length,
       perimeter: 2 * (d.span + d.length)
@@ -57,7 +58,7 @@
     var selfW = d.footW * d.footW * d.footD * 25;   // pad self-weight, kN
     var reqA = (axial + selfW) / d.soilBearing;     // m²
     var reqSide = Math.sqrt(Math.max(reqA, 0.01));
-    var n = g.frames * 2;
+    var n = g.cols;
     return {
       trib: trib, axial: axial, reqSide: reqSide, n: n,
       ok: d.footW >= reqSide,
@@ -154,8 +155,8 @@
       componentLines(p).forEach(function (l) { push(l.name, l.qty, l.unit, l.note); });
       return out;
     }
-    push(d.colProfile,    g.frames * 2 * d.eaves * w, "מ'",
-      g.frames * 2 + ' ' + BP.tt('עמודים', 'เสา', 'أعمدة') + ' \u00d7 ' + BP.n1(d.eaves) + ' ' + BP.dsp("מ'"));
+    push(d.colProfile,    g.cols * d.eaves * w, "מ'",
+      g.cols + ' ' + BP.tt('עמודים', 'เสา', 'أعمدة') + ' \u00d7 ' + BP.n1(d.eaves) + ' ' + BP.dsp("מ'"));
     push(d.rafterProfile, g.frames * 2 * g.rafterLen * w, "מ'",
       g.frames * 2 + ' ' + BP.tt('קורות', 'คาน', 'روافد') + ' \u00d7 ' + BP.n1(g.rafterLen) + ' ' + BP.dsp("מ'"));
     push(d.purlinProfile, g.purlinRuns * 2 * d.length * w, "מ'",
@@ -189,11 +190,23 @@
       var hRun = Math.min(d.span * 0.10, 1.2);
       var hRise = Math.min(d.eaves * 0.26, 1.0);
       var haunchLen = Math.sqrt(hRun * hRun + hRise * hRise);
-      push(d.rafterProfile, g.frames * 2 * haunchLen * w, "מ'",
+      push(d.haunchProfile || d.rafterProfile, g.frames * 2 * haunchLen * w, "מ'",
         BP.tt('חיזוקי פינה', 'ฮันช์', 'تقويات الأركان') + ' \u00b7 ' +
         (g.frames * 2) + ' \u00d7 ' + BP.n1(haunchLen) + ' ' + BP.dsp("מ'"));
     }
-    if (d.bracing) {
+    if (d.bracing && d.braceType === 'cable') {
+      // Tensioned cables: an X in the roof plane of each end bay (per roof
+      // panel between column lines) and in each side wall of the end bays,
+      // with a turnbuckle per cable.
+      var cBays = Math.min(2, Math.max(1, g.bays)), cBay = g.actualBay;
+      var panels = (d.colLines === 3) ? 2 : 1, panelW = d.span / panels;
+      var cRoof = cBays * panels * 2 * Math.sqrt(cBay * cBay + panelW * panelW);
+      var cWall = (d.wallMode === 'open') ? 0 : cBays * 2 * 2 * Math.sqrt(cBay * cBay + d.eaves * d.eaves);
+      var cN = cBays * panels * 2 + ((d.wallMode === 'open') ? 0 : cBays * 4);
+      push('כבל פלדה 8 מ"מ', (cRoof + cWall) * w, "מ'",
+        BP.tt('ייצוב רוח — כבלים בגג ובקירות', 'สายเคเบิลค้ำยัน', 'كابلات تثبيت') + ' \u00b7 ' + cN);
+      push('מותחן כבל', cN, "יח'", '');
+    } else if (d.bracing) {
       // One braced bay at each end, or the single bay if that is all there
       // is: cross bracing in the roof plane and in both side walls.
       var bays = Math.min(2, Math.max(1, g.bays));
@@ -207,8 +220,8 @@
         bays + ' ' + BP.tt('משבצות מיוצבות', 'ช่วงค้ำยัน', 'حقول مثبتة'));
     }
 
-    push('פלטת בסיס', g.frames * 2, "יח'", '');
-    push('בורג עיגון', g.frames * 2 * 4, "יח'", BP.tt('4 לעמוד', '4 ต่อเสา', '4 لكل عمود'));
+    push('פלטת בסיס', g.cols, "יח'", '');
+    push('בורג עיגון', g.cols * 4, "יח'", BP.tt('4 לעמוד', '4 ต่อเสา', '4 لكل عمود'));
     if (d.gutter && d.roofClad !== 'none') {
       push('מרזב', 2 * d.length, "מ'", '');
       push('צינור ניקוז', Math.max(2, Math.ceil(d.length / 12) * 2), "יח'", '');
@@ -272,6 +285,20 @@
                    note: BP.tt('מגורים','ที่พัก','سكن') + (l.note ? ' \u00b7 ' + l.note : '') });
       });
     }
+    // Free elements: a member is billed by its profile length; a box by
+    // its material — concrete by volume, block wall by the two long faces'
+    // area. A box with no material is drawn and not billed.
+    var w = 1 + (p.dims.waste || 0) / 100;
+    (p.free || []).forEach(function (f) {
+      var tag = f.name || BP.tt('אלמנט חופשי', 'ชิ้นส่วนอิสระ', 'عنصر حر');
+      if (f.kind === 'member') {
+        if (f.profile) out.push({ name: f.profile, qty: f.l * w, unit: "מ'", note: tag });
+      } else if (f.material === 'concrete') {
+        out.push({ name: 'בטון ב-30', qty: f.l * f.w * f.h, unit: 'מ"ק', note: tag });   // CATALOGUE KEY
+      } else if (f.material === 'block') {
+        out.push({ name: 'בלוק בטון 20 ס"מ', qty: f.l * f.h * w, unit: 'מ"ר', note: tag });   // CATALOGUE KEY
+      }
+    });
     return out;
   }
 

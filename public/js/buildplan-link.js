@@ -188,6 +188,7 @@
                mapGround: 1, callouts: 1, shadows: 1, dims: 1 };
   var TEXT = { roofType: 1, wallMode: 1, roofClad: 1, wallClad: 1, rafterType: 1, scaleRef: 1,
                colProfile: 1, rafterProfile: 1, purlinProfile: 1, girtProfile: 1,
+               braceType: 1, haunchProfile: 1,
                roofClad: 1, wallClad: 1 };
   // Numbers only nudge the model, so the viewer is updated in place and the
   // sheet is left alone — a full repaint on every slider tick would rebuild
@@ -293,7 +294,7 @@
       row(BP.tt('אורך קורת גג', 'ความยาวคาน', 'طول الرافدة'), BP.n2(g.rafterLen) + ' m') +
       row(BP.tt('גובה רכס', 'สูงสัน', 'ارتفاع القمة'), BP.n2(g.ridgeH) + ' m') +
       row(BP.tt('מסגרות', 'เฟรม', 'إطارات'), g.frames + ' @ ' + BP.n2(g.actualBay) + ' m') +
-      row(BP.tt('עמוד יחיד', 'เสาเดี่ยว', 'عمود واحد'), BP.n2(d.eaves) + ' m \u00d7 ' + (g.frames*2)) +
+      row(BP.tt('עמוד יחיד', 'เสาเดี่ยว', 'عمود واحد'), BP.n2(d.eaves) + ' m \u00d7 ' + g.cols) +
       row(BP.tt('שורות מרישים', 'แถวแป', 'صفوف المرايش'), (g.purlinRuns*2) + ' \u00d7 ' + BP.n1(d.length) + ' m') +
       row(BP.tt('שטח גג', 'พื้นที่หลังคา', 'مساحة السقف'), BP.n1(g.roofArea) + ' \u05de"\u05e8') +
       row(BP.tt('משקל פלדה', 'น้ำหนักเหล็ก', 'وزن الحديد'), BP.n2(tot.kg/1000) + ' ' + BP.tt('טון','ตัน','طن')) +
@@ -311,7 +312,7 @@
     var p = BP.projById(id);
     if (!p) return;
     p.dims[k] = BOOL[k] ? !!v : TEXT[k] ? String(v) : (Number(v) || 0);
-    var TOPO = { skylights: 1, leanTo: 1, mezz: 1 };
+    var TOPO = { skylights: 1, leanTo: 1, mezz: 1, colLines: 1 };
     if (BOOL[k] || TEXT[k] || TOPO[k]) { BP.saveP(); BP.open(id); return; }
     if (BP._v3d) BP._v3d.update(BP.model3d(p));
     // Numbers still have to reach the readouts, but only once the user
@@ -496,19 +497,56 @@
     // printing "erect 5 frames" and "install the panel roof".
     if (p.hasStruct !== false && (p.type === 'shed' || p.type === 'house')) {
       var g = BP.geom(d), ft = BP.footing(d);
-      st.push([BP.tt('סימון ויסודות', 'ทำเครื่องหมายและฐานราก', 'التخطيط والأساسات'),
-        BP.tt('סימון ' + g.frames + ' מסגרות במרווח ' + BP.n1(g.actualBay) + ' מ\'. ' +
-           (d.footings ? 'חפירת ' + (g.frames*2) + ' בסיסים ' + BP.n1(d.footW) + '\u00d7' +
-             BP.n1(d.footW) + '\u00d7' + BP.n1(d.footD) + ' מ\'. ' : '') +
-           'לוודא אלכסונים שווים לפני היציקה — מסגרת לא מרובעת לא תתאסף.',
-           'ตรวจสอบมุมฉาก', 'التأكد من التعامد')]);
-      st.push([BP.tt('עוגנים ויציקה', 'สมอและเท', 'المراسي والصب'),
-        BP.tt('בורגי עיגון בתבנית לפי פלטת הבסיס, לא לאחר היציקה. אשפרה 7 ימים לפני העמסת שלד.',
-           'สมอก่อนเท', 'المراسي قبل الصب')]);
-      st.push([BP.tt('הקמת שלד', 'ประกอบโครง', 'تركيب الهيكل'),
-        BP.tt('הרכבת מסגרות, ' + (d.bracing ? 'אלכסוני ייצוב בשתי מפתחות הקצה, ' : '') +
-           'מרישים ומסילות. יישור וחיזוק סופי לפני החיפוי.',
-           'ประกอบและปรับ', 'التركيب والضبط')]);
+      // The pit is dug wider than the pad for working room; the plan tab's
+      // pad element carries the engineer's blinding/dowel choices when
+      // there is one, so the sequence says what THIS drawing says.
+      var pad = (p.plan && p.plan.elements || []).filter(function (e) { return e.kind === 'pad'; })[0];
+      var blind = pad ? pad.blind !== false : true;
+      var rb = d.rebar || {};
+      var lineNames = (d.colLines === 3) ? 'A, B, C' : 'A, B';
+      st.push([BP.tt('סימון גריד', 'ทำเครื่องหมายกริด', 'تخطيط الشبكة'),
+        BP.tt('סימון ' + (d.colLines === 3 ? 3 : 2) + ' קווי עמודים (' + lineNames + ') ברוחב ' + BP.n1(d.span) + ' מ\' ו-' +
+           g.frames + ' צירים לאורך במרווח ' + BP.n1(g.actualBay) + ' מ\' — ' + g.cols + ' נקודות. ' +
+           'למדוד אלכסונים: שני האלכסונים של המלבן חייבים להיות שווים לפני שחופרים.',
+           'ทำเครื่องหมายเสา ' + g.cols + ' จุด ตรวจเส้นทแยง', 'تحديد ' + g.cols + ' نقطة والتحقق من الأقطار')]);
+      if (d.footings) {
+        st.push([BP.tt('חפירת בורות', 'ขุดหลุม', 'حفر الحفر'),
+          BP.tt(g.cols + ' בורות. היסוד ' + BP.n1(d.footW) + '\u00d7' + BP.n1(d.footW) + '\u00d7' + BP.n1(d.footD) +
+             ' מ\', הבור כ-' + BP.n1(d.footW + 0.6) + '\u00d7' + BP.n1(d.footW + 0.6) + ' ועומק ' +
+             BP.n1(d.footD + (pad ? pad.below : 0) + (blind ? 0.05 : 0)) + ' מ\' (כולל ' +
+             (pad && pad.below ? 'ראש יסוד ' + BP.n1(pad.below) + ' מ\' מתחת לקרקע' : 'ראש בגובה הקרקע') +
+             (blind ? ' ו-5 ס"מ בטון רזה' : '') + '). תחתית ישרה, בלי אדמה תחוחה.',
+             'ขุด ' + g.cols + ' หลุม', 'حفر ' + g.cols + ' حفرة')]);
+        st.push([BP.tt('בטון רזה, כלובים ופלטות', 'คอนกรีตหยาบ กรง แผ่น', 'خرسانة نظافة، أقفاص، صفائح'),
+          BP.tt((blind ? 'יציקת 5 ס"מ בטון רזה בכל בור ויום ייבוש. ' : '') +
+             'הנחת ' + g.cols + ' כלובים (' + (rb.mainN || 4) + '\u00d8' + (rb.mainD || 12) + ', חישוקים \u00d8' + (rb.stirD || 8) + '@' + BP.n1(rb.stirSp || 20) +
+             ') על שומרי מרחק ' + BP.n1(rb.cover || 5) + ' ס"מ. פלטת בסיס עם ' + 4 + ' ברגי עיגון בתבנית, מפולסת ובמרחקים לפי שרטוט העמוד — לא אחרי היציקה.',
+             'วางกรงและแผ่นฐาน ปรับระดับ', 'وضع الأقفاص والصفائح وتسويتها')]);
+        st.push([BP.tt('יציקת יסודות', 'เทฐานราก', 'صب الأساسات'),
+          BP.tt('בטון ב-30, ' + BP.n2(ft.volAll) + ' מ"ק (+10% הזמנה). ויברציה, בדיקת פילוס הפלטות מיד אחרי היציקה. אשפרה 7 ימים לפני העמסת שלד.',
+             'เทและบ่ม 7 วัน', 'الصب والمعالجة 7 أيام')]);
+      } else {
+        st.push([BP.tt('עוגנים ויציקה', 'สมอและเท', 'المراسي والصب'),
+          BP.tt('בורגי עיגון בתבנית לפי פלטת הבסיס, לא לאחר היציקה. אשפרה 7 ימים לפני העמסת שלד.',
+             'สมอก่อนเท', 'المراسي قبل الصب')]);
+      }
+      st.push([BP.tt('הקמת עמודים וקורות', 'ตั้งเสาและคาน', 'نصب الأعمدة والروافد'),
+        BP.tt(g.cols + ' עמודים ' + BP.dsp(d.colProfile) + ' על הפלטות, פילוס ואיזון זמני. ' +
+           'קורות ' + BP.dsp(d.rafterProfile) + ' ' + (d.roofType === 'mono' ? 'בשיפוע חד-כיווני ' + BP.n1(d.pitch) + '\u00b0' : 'לרכס') +
+           (d.haunch ? ', חיזוקי פינה ' + BP.dsp(d.haunchProfile || d.rafterProfile) : '') + '. ' +
+           'לא לשחרר את הקשירות הזמניות לפני הייצוב.',
+           'ตั้งเสาและคาน', 'نصب الأعمدة والروافد')]);
+      if (d.bracing) {
+        st.push([BP.tt('ייצוב', 'ค้ำยัน', 'التثبيت'),
+          BP.tt(d.braceType === 'cable'
+            ? 'כבלי פלדה 8 מ"מ בצורת X בגג ובקירות של מפתחות הקצה, עם מותחן בכל כבל. למתוח בהדרגה ובאיזון — כבל אחד מתוח מדי מעקם את המסגרת.'
+            : 'אלכסוני ייצוב בשתי מפתחות הקצה, בגג ובקירות. לחזק סופית רק אחרי יישור השלד.',
+            'ติดค้ำยัน', 'تركيب التثبيت')]);
+      }
+      st.push([BP.tt('מרישים ומסילות', 'แปและราง', 'المدادات'),
+        BP.tt(g.purlinRuns * 2 + ' שורות מרישים ' + BP.dsp(d.purlinProfile) + ' כל ' + BP.n1(d.purlinSp) + ' מ\'' +
+           (d.wallMode !== 'open' && d.wallClad !== 'none' ? ', מסילות קיר ' + BP.dsp(d.girtProfile) : '') + '. יישור סופי של השלד לפני החיפוי.',
+           'ติดแปและปรับ', 'تركيب المدادات والضبط')]);
       if (d.roofClad !== 'none') {
         st.push([BP.tt('חיפוי גג', 'มุงหลังคา', 'تغطية السقف'),
           BP.tt('התקנת ' + BP.dsp(d.roofClad) + ' מהצד המוגן מהרוח כלפי הרוח, חפיפה לפי היצרן. ' +
@@ -768,6 +806,14 @@
     applyModel: BP.applyModel,
     view3d: BP.view3d,
     resetView: BP.resetView,
+    tool3d: BP.tool3d,
+    markText: BP.markText,
+    markDel: BP.markDel,
+    freeAdd: BP.freeAdd,
+    freeSet: BP.freeSet,
+    freeDel: BP.freeDel,
+    freeDup: BP.freeDup,
+    freeSel: BP.freeSel,
     sun: BP.sun,
     openCatalog: BP.openCatalog,
     startFootprint: BP.startFootprint,

@@ -99,6 +99,8 @@ window.BuildPlanInternals = BuildPlanInternals;
     'IPE 160': { wy: 109, ar: 20.1, iz: 1.84 },
     'IPE 200': { wy: 194, ar: 28.5, iz: 2.24 },
     'IPE 240': { wy: 324, ar: 39.1, iz: 2.69 },
+    'IPN 160': { wy: 117, ar: 22.8, iz: 1.55 },
+    'SHS 120x120x5':  { wy: 70.9, ar: 22.7, iz: 4.66 },
     'RHS 100x50x3':   { wy: 20.9, ar: 8.55, iz: 2.00 },
     'RHS 120x60x4':   { wy: 39.5, ar: 13.4, iz: 2.40 },
     'SHS 80x80x4':    { wy: 27.2, ar: 11.7, iz: 3.00 },
@@ -263,6 +265,12 @@ window.BuildPlanInternals = BuildPlanInternals;
     { g: 'עמודים / קורות', n: 'IPE 160', kg: 15.8,  u: "מ'" },
     { g: 'עמודים / קורות', n: 'IPE 200', kg: 22.4,  u: "מ'" },
     { g: 'עמודים / קורות', n: 'IPE 240', kg: 30.7,  u: "מ'" },
+    // Sections the Na'aran drawings call for (R-1, 24.08.26). Nominal mass
+    // only — priced by the owner, like every other row.
+    { g: 'עמודים / קורות', n: 'IPN 160', kg: 17.9,  u: "מ'" },
+    { g: 'עמודים / קורות', n: 'SHS 120x120x5', kg: 17.8, u: "מ'" },
+    { g: 'אביזרים',       n: 'כבל פלדה 8 מ"מ', kg: 0.25, u: "מ'" },
+    { g: 'אביזרים',       n: 'מותחן כבל', kg: 0, u: "יח'" },
     { g: 'פרופיל מלבני',  n: 'RHS 100x50x3', kg: 6.71, u: "מ'" },
     { g: 'פרופיל מלבני',  n: 'RHS 120x60x4', kg: 10.5, u: "מ'" },
     { g: 'פרופיל מרובע',  n: 'SHS 80x80x4',  kg: 9.22, u: "מ'" },
@@ -528,6 +536,16 @@ window.BuildPlanInternals = BuildPlanInternals;
       haunch: d.haunch === false ? false : true,
       taper: !!d.taper,
       bracing: d.bracing === false ? false : true,
+      // How many lines of columns across the span: 2 (a portal) or 3 (an
+      // intermediate line under the ridge / mid-slope, as on a wide
+      // mono-pitch shed). Footings, plates, bolts and column steel follow.
+      colLines: (Number(d.colLines) === 3) ? 3 : 2,
+      // Wind bracing member: cut from the girt section (site practice for
+      // small sheds) or tensioned steel cable with turnbuckles (what an
+      // engineer's drawing usually specifies).
+      braceType: (d.braceType === 'cable') ? 'cable' : 'girt',
+      // Knee-brace section when it is not the rafter section; '' = rafter.
+      haunchProfile: String(d.haunchProfile || ''),
       skylights: Number(d.skylights) || 0,
       door: !!d.door,
       doorW: Number(d.doorW) || 4,
@@ -614,9 +632,54 @@ window.BuildPlanInternals = BuildPlanInternals;
       }) : [],
       // The transcribed engineer's drawing (buildplan-plan.js). Null until
       // the tab is first used, so existing documents do not grow.
-      plan: x.plan ? (BP.normPlan ? BP.normPlan(x.plan) : x.plan) : null
+      plan: x.plan ? (BP.normPlan ? BP.normPlan(x.plan) : x.plan) : null,
+      // Tape measurements and pins placed on the 3D model, in model metres.
+      // Points are {x,y,z} objects, never arrays — Firestore has no nested
+      // array type.
+      marks: normMarks(x.marks),
+      // Free elements: boxes and members placed by hand on top of the
+      // parametric model (a wall, a beam, a tank pad, a room) — the
+      // "SketchUp-lite" layer. Metres, centre-based, rotation about z.
+      free: Array.isArray(x.free) ? x.free.map(normFree) : []
     };
   };
+  var FREE_MAT = ['none', 'concrete', 'block'];
+  function normFree(f) {
+    f = f || {};
+    function n(v, d, lo, hi) { var q = Number(v); return isFinite(q) ? Math.max(lo, Math.min(hi, q)) : d; }
+    var kind = (f.kind === 'member') ? 'member' : 'box';
+    return {
+      id: f.id || BP.uid(),
+      kind: kind,
+      name: String(f.name || ''),
+      x: n(f.x, 0, -200, 200), y: n(f.y, 0, -200, 200), z: n(f.z, 0, -5, 30),   // centre x,y; z = base
+      l: n(f.l, kind === 'member' ? 4 : 2, 0.05, 60),                          // along local x
+      w: n(f.w, kind === 'member' ? 0.15 : 0.2, 0.02, 30),
+      h: n(f.h, kind === 'member' ? 0.15 : 2.5, 0.02, 30),
+      rot: n(f.rot, 0, -360, 360),                                             // degrees about z
+      tilt: n(f.tilt, 0, -89, 89),                                             // degrees, member only (raise its far end)
+      profile: String(f.profile || ''),                                        // catalogue name, member only
+      material: FREE_MAT.indexOf(f.material) >= 0 ? f.material : 'none',       // box only
+      color: /^#[0-9a-fA-F]{6}$/.test(String(f.color || '')) ? f.color : ''
+    };
+  }
+  BP.normFree = normFree;
+
+  function normMarks(m) {
+    m = (m && typeof m === 'object') ? m : {};
+    function pt(q) {
+      q = q || {};
+      return { x: Number(q.x) || 0, y: Number(q.y) || 0, z: Number(q.z) || 0 };
+    }
+    return {
+      measures: Array.isArray(m.measures) ? m.measures.map(function (k) {
+        return { a: pt(k.a), b: pt(k.b), text: String(k.text || '') };
+      }) : [],
+      pins: Array.isArray(m.pins) ? m.pins.map(function (k) {
+        return { p: pt(k.p), text: String(k.text || '') };
+      }) : []
+    };
+  }
 
   function normCat(d) {
     var s = (d && typeof d === 'object') ? d : {};

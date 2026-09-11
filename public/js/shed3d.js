@@ -308,11 +308,15 @@ var Shed3D = (function () {
     if (m.slab !== false) {
       F = F.concat(box(x0-0.2, y0-0.2, -m.slabTh, x1+0.2, y1+0.2, 0, PALETTE.slab, 'slab'));
     }
+    // Column lines across the span. A third line stands under the ridge on
+    // a gable and mid-slope on a mono-pitch, which is where a wide shed's
+    // engineer puts it.
+    var lines = (m.colLines === 3) ? [y0, 0, y1] : [y0, y1];
     if (m.footings) {
       var fw = m.footW / 2;
       for (var i2 = 0; i2 < frames; i2++) {
         var fx = x0 + i2*bay;
-        [y0, y1].forEach(function (fy) {
+        lines.forEach(function (fy) {
           F = F.concat(box(fx-fw, fy-fw, -m.slabTh-m.footD, fx+fw, fy+fw, -m.slabTh,
             PALETTE.footing, 'footing'));
         });
@@ -324,9 +328,10 @@ var Shed3D = (function () {
     for (var f2 = 0; f2 < frames; f2++) {
       var x = x0 + f2*bay;
 
-      [y0, y1].forEach(function (cy) {
+      lines.forEach(function (cy) {
         var top = zAt(cy);
-        if (m.taper) {
+        var inner = cy !== y0 && cy !== y1;
+        if (m.taper && !inner) {
           // Wider at the knee, where the moment peaks — what the fabricated
           // frames in the reference photos actually do.
           var wB = cw*0.8, wT = cw*2.0, sgn = cy < 0 ? 1 : -1;
@@ -339,7 +344,7 @@ var Shed3D = (function () {
         } else {
           F = F.concat(colSeg(x, cy, cw, top));
         }
-        if (haunch > 0) {
+        if (haunch > 0 && !inner) {
           var dir = cy < 0 ? 1 : -1;
           F.push({ pts: [[x-cw,cy,top],[x+cw,cy,top],
                          [x+cw, cy+dir*haunch, top - haunch*Math.tan(pitch) - 0.4],
@@ -392,14 +397,53 @@ var Shed3D = (function () {
       F = F.concat(barSeg(x0, ey-0.09, eaves-0.2, x1, ey+0.09, eaves, PALETTE.strut, 'strut'));
     });
     if (m.bracing) {
-      // Cross bracing in the end bays, the usual arrangement for wind.
-      [[x0, x0+bay], [x1-bay, x1]].forEach(function (bp) {
+      // Cross bracing in the end bays, the usual arrangement for wind. A
+      // cable is drawn thin and dark; a section brace at its real size.
+      var cable = m.braceType === 'cable';
+      var br = cable ? 0.012 : 0.035, bc = cable ? '#3a3f44' : PALETTE.brace;
+      var endBays = (frames > 2) ? [[x0, x0+bay], [x1-bay, x1]] : [[x0, x1]];
+      endBays.forEach(function (bp) {
         [y0, y1].forEach(function (by) {
-          F = F.concat(strutSeg([bp[0],by,0], [bp[1],by,eaves], 0.035, PALETTE.brace, 'brace'));
-          F = F.concat(strutSeg([bp[1],by,0], [bp[0],by,eaves], 0.035, PALETTE.brace, 'brace'));
+          F = F.concat(strutSeg([bp[0],by,0], [bp[1],by,eaves], br, bc, 'brace'));
+          F = F.concat(strutSeg([bp[1],by,0], [bp[0],by,eaves], br, bc, 'brace'));
         });
+        if (cable) {
+          // ...and in the roof plane, one X per panel between column lines
+          for (var pl = 0; pl < lines.length - 1; pl++) {
+            var ya = lines[pl], yb = lines[pl+1], zz = 0.12;
+            F = F.concat(strutSeg([bp[0],ya,zAt(ya)+zz], [bp[1],yb,zAt(yb)+zz], br, bc, 'brace'));
+            F = F.concat(strutSeg([bp[1],ya,zAt(ya)+zz], [bp[0],yb,zAt(yb)+zz], br, bc, 'brace'));
+          }
+        }
       });
     }
+
+    // ── free elements ──
+    // Boxes and members placed by hand. Group is 'free:<id>' so a tap
+    // selects exactly one of them; a rotated box is four side quads and
+    // two caps built from its corner ring, a member is a strut so it can
+    // tilt.
+    (m.free || []).forEach(function (f) {
+      var g = 'free:' + f.id, col = f.color || (f.kind === 'member' ? PALETTE.rafter : '#c9b79c');
+      var a = f.rot * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a);
+      if (f.kind === 'member') {
+        var t = f.tilt * Math.PI / 180, hl = f.l / 2;
+        var p0 = [f.x - ca*hl*Math.cos(t), f.y - sa*hl*Math.cos(t), f.z + f.h/2 - hl*Math.sin(t)];
+        var p1 = [f.x + ca*hl*Math.cos(t), f.y + sa*hl*Math.cos(t), f.z + f.h/2 + hl*Math.sin(t)];
+        F = F.concat(strutSeg(p0, p1, Math.max(f.w, f.h) / 2, col, g));
+        return;
+      }
+      var hx = f.l / 2, hy = f.w / 2;
+      function R(px, py, z) { return [f.x + px*ca - py*sa, f.y + px*sa + py*ca, z]; }
+      var lo = [R(-hx,-hy,f.z), R(hx,-hy,f.z), R(hx,hy,f.z), R(-hx,hy,f.z)];
+      var hi = [R(-hx,-hy,f.z+f.h), R(hx,-hy,f.z+f.h), R(hx,hy,f.z+f.h), R(-hx,hy,f.z+f.h)];
+      F = F.concat(quadSeg2(lo[0], lo[1], lo[2], lo[3], col, g));
+      F = F.concat(quadSeg2(hi[0], hi[1], hi[2], hi[3], col, g));
+      for (var e = 0; e < 4; e++) {
+        var e2 = (e + 1) % 4;
+        F = F.concat(quadSeg2(lo[e], lo[e2], hi[e2], hi[e], col, g));
+      }
+    });
 
     // ── roof cladding + skylights ──
     // Corrugation is drawn when the chosen product IS corrugated sheet,
@@ -629,6 +673,14 @@ var Shed3D = (function () {
     }
 
     var lastPolys = [], wheelIdle = null, calloutBoxes = [];
+    // ── measuring and marking ──
+    // tool: 'orbit' (default) | 'measure' | 'pin'. In measure mode two
+    // taps make a dimension; in pin mode one tap drops a marker. Marks are
+    // owned by whoever mounted the viewer (kept with the project) and
+    // handed in through setMarks(); the viewer only draws them and reports
+    // taps as 3D points.
+    var tool = 'orbit', pending = null;
+    var marks = (opts.state && opts.state.marks) || { measures: [], pins: [] };
     // Rolling frame cost. If drawing consistently exceeds ~28 ms the device
     // cannot hold 30 fps, so shadows go first, then the ground texture,
     // then truss detail. Measured rather than guessed from the user agent.
@@ -837,6 +889,7 @@ var Shed3D = (function () {
       if (m.callouts !== false && !busy && !autoLod) drawCallouts(P, w, h);
       if (m.scaleRef && m.scaleRef !== 'none') drawScaleRef(P);
       if (m.dims !== false) drawDims(P);
+      drawMarks(P, w, h);
 
       var t1 = (typeof performance !== 'undefined') ? performance.now() : Date.now();
       frameMs = frameMs ? (frameMs * 0.7 + (t1 - t0) * 0.3) : (t1 - t0);
@@ -1128,6 +1181,94 @@ var Shed3D = (function () {
       calloutBoxes.push({ g: sel, x: bx, y: by, w: bw, h: bh });
     }
 
+    // A tap on a face → a point on that face in metres. Perspective-correct
+    // barycentric interpolation over the two triangles of the projected
+    // quad; faces are subdivided small, so this is exact enough for a tape.
+    // Snaps to the nearest projected vertex within 14 px, so corner-to-
+    // corner and edge measurements come out clean without aiming.
+    function unproject(x, y) {
+      var best = null, bd = 14;
+      for (var i = lastPolys.length-1; i >= 0; i--) {
+        var it = lastPolys[i];
+        if (it.fc.group === 'ground') continue;
+        for (var v = 0; v < it.pr.length; v++) {
+          var dd = Math.hypot(it.pr[v][0]-x, it.pr[v][1]-y);
+          if (dd < bd) { bd = dd; best = { p: it.fc.pts[v].slice(), g: it.fc.group, snap: true }; }
+        }
+      }
+      if (best) return best;
+      for (var j = lastPolys.length-1; j >= 0; j--) {
+        var jt = lastPolys[j];
+        if (!inPoly([x, y], jt.pr)) continue;
+        var pr = jt.pr, pts = jt.fc.pts, tris = pr.length === 4 ? [[0,1,2],[0,2,3]] : [[0,1,2]];
+        for (var t = 0; t < tris.length; t++) {
+          var a = pr[tris[t][0]], b = pr[tris[t][1]], c = pr[tris[t][2]];
+          var den = (b[1]-c[1])*(a[0]-c[0]) + (c[0]-b[0])*(a[1]-c[1]);
+          if (Math.abs(den) < 1e-9) continue;
+          var l0 = ((b[1]-c[1])*(x-c[0]) + (c[0]-b[0])*(y-c[1])) / den;
+          var l1 = ((c[1]-a[1])*(x-c[0]) + (a[0]-c[0])*(y-c[1])) / den;
+          var l2 = 1 - l0 - l1;
+          if (l0 < -0.02 || l1 < -0.02 || l2 < -0.02) continue;
+          var w0 = l0/a[2], w1 = l1/b[2], w2 = l2/c[2], ws = w0+w1+w2;
+          var P0 = pts[tris[t][0]], P1 = pts[tris[t][1]], P2 = pts[tris[t][2]];
+          return { p: [(P0[0]*w0+P1[0]*w1+P2[0]*w2)/ws, (P0[1]*w0+P1[1]*w1+P2[1]*w2)/ws,
+                       (P0[2]*w0+P1[2]*w1+P2[2]*w2)/ws], g: jt.fc.group, snap: false };
+        }
+      }
+      // nothing hit: the ground plane
+      return null;
+    }
+
+    function fmtM(d) { return (Math.round(d*100)/100).toFixed(2) + ' m'; }
+
+    function drawMarks(P, w, h) {
+      var ms = marks.measures || [], ps = marks.pins || [];
+      if (!ms.length && !ps.length && !pending) return;
+      ctx.save();
+      ctx.lineCap = 'round';
+      ms.forEach(function (mk, i) {
+        var a = P(mk.a), b = P(mk.b);
+        var d = Math.hypot(mk.b[0]-mk.a[0], mk.b[1]-mk.a[1], mk.b[2]-mk.a[2]);
+        ctx.strokeStyle = '#ff5c8a'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+        [a, b].forEach(function (q) {
+          ctx.fillStyle = '#ff5c8a'; ctx.beginPath(); ctx.arc(q[0], q[1], 3.5, 0, 6.29); ctx.fill();
+        });
+        var mx = (a[0]+b[0])/2, my = (a[1]+b[1])/2;
+        var txt = fmtM(d) + (mk.text ? ' \u00b7 ' + mk.text : '');
+        ctx.font = '800 12px Heebo,Arial,sans-serif';
+        var tw = ctx.measureText(txt).width + 12;
+        ctx.fillStyle = 'rgba(8,18,12,.9)'; ctx.strokeStyle = '#ff5c8a'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.rect(mx - tw/2, my - 20, tw, 18); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#ffd6e2'; ctx.textAlign = 'center'; ctx.fillText(txt, mx, my - 7);
+        calloutBoxes.push({ g: 'measure:' + i, x: mx - tw/2, y: my - 20, w: tw, h: 18 });
+      });
+      ps.forEach(function (pn, i) {
+        var q = P(pn.p);
+        ctx.strokeStyle = '#4cc9f0'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(q[0], q[1]); ctx.lineTo(q[0], q[1]-22); ctx.stroke();
+        ctx.fillStyle = '#4cc9f0'; ctx.beginPath(); ctx.arc(q[0], q[1]-26, 6, 0, 6.29); ctx.fill();
+        ctx.fillStyle = '#08120c'; ctx.font = '800 9px Heebo,Arial,sans-serif'; ctx.textAlign = 'center';
+        ctx.fillText(String(i+1), q[0], q[1]-23);
+        if (pn.text) {
+          ctx.font = '600 11px Heebo,Arial,sans-serif';
+          var tw2 = ctx.measureText(pn.text).width + 12;
+          ctx.fillStyle = 'rgba(8,18,12,.9)'; ctx.strokeStyle = '#4cc9f0'; ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.rect(q[0] + 10, q[1]-42, tw2, 18); ctx.fill(); ctx.stroke();
+          ctx.fillStyle = '#d6f3fb'; ctx.textAlign = 'left'; ctx.fillText(pn.text, q[0] + 16, q[1]-29);
+          calloutBoxes.push({ g: 'pin:' + i, x: q[0] + 10, y: q[1]-42, w: tw2, h: 18 });
+        } else {
+          calloutBoxes.push({ g: 'pin:' + i, x: q[0]-8, y: q[1]-34, w: 16, h: 16 });
+        }
+      });
+      if (pending) {
+        var pq = P(pending.p);
+        ctx.strokeStyle = '#ff5c8a'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(pq[0], pq[1], 6, 0, 6.29); ctx.stroke();
+      }
+      ctx.restore();
+    }
+
     function inPoly(pt, poly) {
       var ins = false;
       for (var i = 0, j = poly.length-1; i < poly.length; j = i++) {
@@ -1151,12 +1292,31 @@ var Shed3D = (function () {
       return null;
     }
 
+    // Moving a free element: with it selected, dragging on it slides it
+    // across the ground plane at its own height. Screen pixels become
+    // metres through the projector's scale at that depth, rotated back by
+    // the camera yaw — good enough for placing a wall, not a CAD gizmo.
+    var grab = null;
+    function metresPerPx(pt) {
+      var d0 = size(), Pq = projector(d0.w, d0.h), q = Pq(pt);
+      var f = Math.min(d0.w, d0.h) * 0.92;
+      return q[2] / f;
+    }
     cv.addEventListener('pointerdown', function (e) {
       cv.setPointerCapture(e.pointerId);
       drag = { x: e.clientX, y: e.clientY };
       moved = 0;
       pan = (e.button === 2) || e.shiftKey;
-      cv.style.cursor = pan ? 'move' : 'grabbing';
+      grab = null;
+      if (tool === 'orbit' && sel && /^free:/.test(sel) && !pan) {
+        var r0 = cv.getBoundingClientRect();
+        var hitG = pick(e.clientX - r0.left, e.clientY - r0.top);
+        if (hitG === sel) {
+          var fid = sel.slice(5), fe = (m.free || []).filter(function (f) { return String(f.id) === fid; })[0];
+          if (fe) grab = { f: fe, mpp: metresPerPx([fe.x, fe.y, fe.z]), sx: fe.x, sy: fe.y };
+        }
+      }
+      cv.style.cursor = pan ? 'move' : grab ? 'move' : 'grabbing';
     });
     cv.addEventListener('contextmenu', function (e) { e.preventDefault(); });
     cv.addEventListener('pointermove', function (e) {
@@ -1164,6 +1324,16 @@ var Shed3D = (function () {
       var dx = e.clientX - drag.x, dy = e.clientY - drag.y;
       moved += Math.abs(dx) + Math.abs(dy);
       busy = true;
+      if (grab) {
+        // screen right = +rx, screen up = −ry·sin(pitch)... on the ground
+        // plane, screen-up moves the point away from the camera
+        var cy = Math.cos(cam.yaw), sy = Math.sin(cam.yaw), sp = Math.sin(cam.pitch) || 0.2;
+        var rx = dx * grab.mpp, ry = -dy * grab.mpp / sp;
+        grab.f.x += rx*cy + ry*sy;
+        grab.f.y += -rx*sy + ry*cy;
+        geo = build(m); drag = { x: e.clientX, y: e.clientY }; draw();
+        return;
+      }
       if (pan) { cam.px += dx; cam.py += dy; }
       else {
         cam.yaw += dx*0.008;
@@ -1176,9 +1346,40 @@ var Shed3D = (function () {
       cv.style.cursor = 'grab';
       var wasDrag = moved > 6, wasPan = pan;
       drag = null; pan = false; busy = false;
+      if (grab) {
+        var gf = grab; grab = null;
+        if (wasDrag) {
+          // snap to 5 cm so typed and dragged positions agree
+          gf.f.x = Math.round(gf.f.x * 20) / 20; gf.f.y = Math.round(gf.f.y * 20) / 20;
+          geo = build(m); draw();
+          if (opts.onMove) opts.onMove(gf.f.id, gf.f.x, gf.f.y);
+          return;
+        }
+      }
       if (wasDrag || wasPan) { draw(); return; }   // repaint at full quality
       var r = cv.getBoundingClientRect();
-      var g = pick(e.clientX - r.left, e.clientY - r.top);
+      var cx2 = e.clientX - r.left, cy2 = e.clientY - r.top;
+      if (tool !== 'orbit') {
+        // a tap on an existing mark's chip selects it (for deletion)
+        var hitMark = pick(cx2, cy2);
+        if (hitMark && /^(measure|pin):/.test(hitMark)) {
+          if (opts.onMark) opts.onMark(hitMark);
+          return;
+        }
+        var hit = unproject(cx2, cy2);
+        if (!hit) return;
+        if (tool === 'pin') {
+          if (opts.onPoint) opts.onPoint({ kind: 'pin', p: hit.p, group: hit.g });
+          return;
+        }
+        if (!pending) { pending = hit; draw(); return; }
+        var done = { kind: 'measure', a: pending.p, b: hit.p, group: hit.g };
+        pending = null; draw();
+        if (opts.onPoint) opts.onPoint(done);
+        return;
+      }
+      var g = pick(cx2, cy2);
+      if (g && /^(measure|pin):/.test(g)) { if (opts.onMark) opts.onMark(g); return; }
       sel = (g === sel) ? null : g;
       draw();
       if (opts.onSelect) opts.onSelect(sel);
@@ -1198,6 +1399,10 @@ var Shed3D = (function () {
 
     return {
       update: function (nm) { m = nm; geo = build(m); draw(); },
+      setTool: function (t) { tool = (t === 'measure' || t === 'pin') ? t : 'orbit'; pending = null;
+                              cv.style.cursor = tool === 'orbit' ? 'grab' : 'crosshair'; draw(); },
+      getTool: function () { return tool; },
+      setMarks: function (mk) { marks = mk || { measures: [], pins: [] }; pending = null; draw(); },
       setView: function (y, p) { cam.yaw = y; cam.pitch = p; cam.px = 0; cam.py = 0; draw(); },
       setSun: function (az, el) { sunAz = az; sunEl = el; draw(); },
       setGround: function (img, extent) { groundImg = img; groundExtent = extent || null; draw(); },
@@ -1220,7 +1425,7 @@ var Shed3D = (function () {
       getState: function () {
         return { cam: { yaw: cam.yaw, pitch: cam.pitch, zoom: cam.zoom, px: cam.px, py: cam.py },
                  hidden: hidden, sel: sel, sunAz: sunAz, sunEl: sunEl,
-                 groundImg: groundImg, groundExtent: groundExtent };
+                 groundImg: groundImg, groundExtent: groundExtent, marks: marks };
       },
       snapshot: function () { return cv.toDataURL('image/png'); },
       redraw: draw,

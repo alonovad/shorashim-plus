@@ -827,6 +827,8 @@
       fence: d.fence, fenceH: d.fenceH, fenceOff: d.fenceOff,
       rafterType: d.rafterType, trussDepth: d.trussDepth,
       haunch: d.haunch, taper: d.taper, bracing: d.bracing,
+      colLines: d.colLines, braceType: d.braceType,
+      free: (p.free || []).map(function (f) { return JSON.parse(JSON.stringify(f)); }),
       skylights: d.skylights, door: d.door, doorW: d.doorW, doorH: d.doorH,
       leanTo: d.leanTo, mezz: d.mezz, mezzH: d.mezzH,
       gutter: d.gutter, shadows: d.shadows, dims: d.dims, callouts: d.callouts,
@@ -839,11 +841,164 @@
   // document. Rebuilt rather than reused across repaints — the host node is
   // replaced by every innerHTML swap, so a retained instance would be
   // pointing at a detached canvas.
+  // ── free elements ────────────────────────────────────────────────
+  // Boxes and members you place yourself. Numbers here, dragging in the
+  // viewer (select it, then drag) — both write the same x/y.
+  function freeCard(p) {
+    return '<div class="bp-card" id="bpFreeCard"><div class="bp-lbl" style="margin-bottom:4px;">\ud83e\uddf1 ' +
+      BP.tt('אלמנטים חופשיים', 'ชิ้นส่วนอิสระ', 'عناصر حرة') + '</div>' +
+      '<div style="font-size:.72rem;color:var(--text-muted,#888);margin-bottom:6px;">' +
+        BP.tt('קיר, קורה, משטח, חדר — מציבים לפי מידות, ואפשר לגרור במודל אחרי בחירה. חומר = לכתב הכמויות.', 'วางตามขนาด ลากในโมเดลได้', 'يوضع بالأبعاد ويمكن سحبه في النموذج') + '</div>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;">' +
+        '<button class="bp-btn ghost" style="padding:5px 9px;font-size:.74rem;" onclick="BuildPlan.freeAdd(' + p.id + ',\'box\')">\u2795 ' + freeKindLabel('box') + '</button>' +
+        '<button class="bp-btn ghost" style="padding:5px 9px;font-size:.74rem;" onclick="BuildPlan.freeAdd(' + p.id + ',\'member\')">\u2795 ' + freeKindLabel('member') + '</button>' +
+      '</div>' +
+      '<div id="bpFree">' + freeCardBody(p) + '</div></div>';
+  }
+  function fnum(id, i, k, v, step) {
+    return '<input class="bp-in" type="number" step="' + step + '" value="' + v + '" style="padding:3px 5px;font-size:.74rem;" ' +
+      'onchange="BuildPlan.freeSet(' + id + ',' + i + ',\'' + k + '\',this.value)">';
+  }
+  function freeCardBody(p) {
+    var id = p.id, list = p.free || [];
+    if (!list.length) return '';
+    return list.map(function (f, i) {
+      var lab = function (t) { return '<span style="font-size:.66rem;color:var(--text-muted,#888);">' + t + '</span>'; };
+      var isM = f.kind === 'member';
+      return '<div style="padding:6px 0;border-top:1px solid rgba(255,255,255,.07);">' +
+        '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:4px;">' +
+          '<button class="bp-btn ghost" style="padding:3px 8px;font-size:.72rem;" onclick="BuildPlan.freeSel(' + id + ',' + i + ')">\ud83d\udc46</button>' +
+          '<input class="bp-in" style="flex:1;min-width:110px;padding:3px 6px;font-size:.76rem;" value="' + BP.esc(f.name) + '" placeholder="' +
+            BP.esc(freeKindLabel(f.kind)) + '" onchange="BuildPlan.freeSet(' + id + ',' + i + ',\'name\',this.value)">' +
+          (isM
+            ? '<select class="bp-in" style="max-width:150px;padding:3px 6px;font-size:.74rem;" onchange="BuildPlan.freeSet(' + id + ',' + i + ',\'profile\',this.value)">' +
+                '<option value="">' + BP.tt('ללא פרופיל', 'ไม่มีโปรไฟล์', 'بدون مقطع') + '</option>' +
+                (BP.C.profiles || []).filter(function (x) { return x.unit === "מ'" && x.kgPerM > 0; }).map(function (x) {
+                  return '<option value="' + BP.esc(x.name) + '"' + (x.name === f.profile ? ' selected' : '') + '>' + BP.esc(BP.dsp(x.name)) + '</option>';
+                }).join('') + '</select>'
+            : '<select class="bp-in" style="max-width:150px;padding:3px 6px;font-size:.74rem;" onchange="BuildPlan.freeSet(' + id + ',' + i + ',\'material\',this.value)">' +
+                '<option value="none"' + (f.material === 'none' ? ' selected' : '') + '>' + BP.tt('ללא חומר (ציור בלבד)', 'ไม่คิดวัสดุ', 'بدون مادة') + '</option>' +
+                '<option value="concrete"' + (f.material === 'concrete' ? ' selected' : '') + '>' + BP.tt('בטון ב-30 (מ"ק)', 'คอนกรีต', 'خرسانة') + '</option>' +
+                '<option value="block"' + (f.material === 'block' ? ' selected' : '') + '>' + BP.tt('קיר בלוקים (מ"ר)', 'ผนังบล็อก', 'جدار بلوك') + '</option></select>') +
+          '<button class="bp-btn ghost" style="padding:3px 8px;font-size:.72rem;" onclick="BuildPlan.freeDup(' + id + ',' + i + ')">\u29c9</button>' +
+          '<button class="bp-btn warn" style="padding:3px 8px;font-size:.72rem;" onclick="BuildPlan.freeDel(' + id + ',' + i + ')">\u2715</button>' +
+        '</div>' +
+        '<div style="display:grid;grid-template-columns:repeat(4,minmax(60px,1fr));gap:4px;" dir="ltr">' +
+          '<div>' + lab('x') + fnum(id, i, 'x', f.x, 0.05) + '</div>' +
+          '<div>' + lab('y') + fnum(id, i, 'y', f.y, 0.05) + '</div>' +
+          '<div>' + lab('z') + fnum(id, i, 'z', f.z, 0.05) + '</div>' +
+          '<div>' + lab('rot\u00b0') + fnum(id, i, 'rot', f.rot, 5) + '</div>' +
+          '<div>' + lab(isM ? 'L' : 'L') + fnum(id, i, 'l', f.l, 0.05) + '</div>' +
+          '<div>' + lab('W') + fnum(id, i, 'w', f.w, 0.05) + '</div>' +
+          '<div>' + lab('H') + fnum(id, i, 'h', f.h, 0.05) + '</div>' +
+          (isM ? '<div>' + lab('tilt\u00b0') + fnum(id, i, 'tilt', f.tilt, 1) + '</div>' : '<div></div>') +
+        '</div></div>';
+    }).join('');
+  }
+  var FREE_TEXT = { name: 1, profile: 1, material: 1, color: 1 };
+  function freeRefresh(p, repaintList) {
+    BP.saveP();
+    if (BP._v3d) { BP._v3d.update(BP.model3d(p)); }
+    var el = document.getElementById('bpRead'); if (el) BP.refreshReadouts(p);
+    if (repaintList) { var card = document.getElementById('bpFree'); if (card) card.innerHTML = freeCardBody(p); }
+  }
+  BP.freeAdd = function freeAdd(id, kind) {
+    var p = BP.projById(id); if (!p) return;
+    if (!p.free) p.free = [];
+    // dropped just outside the slab on the near side, so it is visible
+    // and not inside a wall
+    p.free.push(BP.normFree({ kind: kind, x: 0, y: -(p.dims.span / 2) - 1.5, z: 0 }));
+    freeRefresh(p, true);
+    if (BP._v3d) BP._v3d.select('free:' + p.free[p.free.length - 1].id);
+  };
+  BP.freeSet = function freeSet(id, i, k, v) {
+    var p = BP.projById(id); if (!p || !p.free || !p.free[i]) return;
+    p.free[i][k] = FREE_TEXT[k] ? String(v) : (Number(v) || 0);
+    p.free[i] = BP.normFree(p.free[i]);
+    freeRefresh(p, k === 'profile' || k === 'material');
+  };
+  BP.freeDel = function freeDel(id, i) {
+    var p = BP.projById(id); if (!p || !p.free || !p.free[i]) return;
+    p.free.splice(i, 1);
+    freeRefresh(p, true);
+  };
+  BP.freeDup = function freeDup(id, i) {
+    var p = BP.projById(id); if (!p || !p.free || !p.free[i]) return;
+    var c = BP.normFree(JSON.parse(JSON.stringify(p.free[i])));
+    c.id = BP.uid(); c.x += 1;
+    p.free.splice(i + 1, 0, c);
+    freeRefresh(p, true);
+  };
+  BP.freeSel = function freeSel(id, i) {
+    var p = BP.projById(id); if (!p || !p.free || !p.free[i] || !BP._v3d) return;
+    BP.tool3d('orbit');
+    BP._v3d.select('free:' + p.free[i].id);
+    var el = document.getElementById('bpSel'); if (el) el.textContent = memberLabel('free:' + p.free[i].id);
+  };
+
+  var _tool = 'orbit';
+  function toolBtn(t, label) {
+    return '<button class="bp-btn ' + (_tool === t ? 'on' : 'ghost') + '" style="padding:6px 10px;font-size:.74rem;" ' +
+      'onclick="BuildPlan.tool3d(\'' + t + '\')">' + label + '</button>';
+  }
+  function marksList(p) {
+    var mk = p.marks || { measures: [], pins: [] };
+    if (!mk.measures.length && !mk.pins.length) return '';
+    var rows = mk.measures.map(function (m, i) {
+      var d = Math.hypot(m.b.x - m.a.x, m.b.y - m.a.y, m.b.z - m.a.z);
+      return '<div class="bp-read"><span>\ud83d\udccf ' + (i + 1) + ' \u00b7 ' +
+        '<input class="bp-in" style="display:inline-block;width:150px;padding:2px 6px;font-size:.74rem;" value="' + BP.esc(m.text) +
+        '" placeholder="' + BP.esc(BP.tt('הערה', 'หมายเหตุ', 'ملاحظة')) + '" onchange="BuildPlan.markText(' + p.id + ',\'measure\',' + i + ',this.value)"></span>' +
+        '<b>' + d.toFixed(2) + ' m <button class="bp-btn warn" style="padding:1px 6px;font-size:.68rem;" onclick="BuildPlan.markDel(' + p.id + ',\'measure\',' + i + ')">\u2715</button></b></div>';
+    }).join('') + mk.pins.map(function (m, i) {
+      return '<div class="bp-read"><span>\ud83d\udccd ' + (i + 1) + ' \u00b7 ' +
+        '<input class="bp-in" style="display:inline-block;width:150px;padding:2px 6px;font-size:.74rem;" value="' + BP.esc(m.text) +
+        '" placeholder="' + BP.esc(BP.tt('מה כאן?', 'อะไรตรงนี้?', 'ما هنا؟')) + '" onchange="BuildPlan.markText(' + p.id + ',\'pin\',' + i + ',this.value)"></span>' +
+        '<b dir="ltr">' + m.p.x.toFixed(1) + ', ' + m.p.y.toFixed(1) + ', ' + m.p.z.toFixed(1) +
+        ' <button class="bp-btn warn" style="padding:1px 6px;font-size:.68rem;" onclick="BuildPlan.markDel(' + p.id + ',\'pin\',' + i + ')">\u2715</button></b></div>';
+    }).join('');
+    return '<div style="margin-top:6px;">' + rows + '</div>';
+  }
+  function marksFor(p) {
+    var mk = p.marks || { measures: [], pins: [] };
+    return {
+      measures: mk.measures.map(function (m) { return { a: [m.a.x, m.a.y, m.a.z], b: [m.b.x, m.b.y, m.b.z], text: m.text }; }),
+      pins: mk.pins.map(function (m) { return { p: [m.p.x, m.p.y, m.p.z], text: m.text }; })
+    };
+  }
+  BP.tool3d = function tool3d(t) {
+    _tool = t;
+    if (BP._v3d) BP._v3d.setTool(t);
+    var bar = document.getElementById('bpTools');
+    if (bar) {
+      bar.querySelectorAll('button').forEach(function (b, i) {
+        b.className = 'bp-btn ' + (['orbit', 'measure', 'pin'][i] === t ? 'on' : 'ghost');
+      });
+    }
+  };
+  BP.markText = function markText(id, kind, i, v) {
+    var p = BP.projById(id); if (!p || !p.marks) return;
+    var list = kind === 'pin' ? p.marks.pins : p.marks.measures;
+    if (!list[i]) return;
+    list[i].text = String(v || '');
+    BP.saveP();
+    if (BP._v3d) BP._v3d.setMarks(marksFor(p));
+  };
+  BP.markDel = function markDel(id, kind, i) {
+    var p = BP.projById(id); if (!p || !p.marks) return;
+    var list = kind === 'pin' ? p.marks.pins : p.marks.measures;
+    if (!list[i]) return;
+    list.splice(i, 1);
+    BP.saveP();
+    if (BP._v3d) { try { _v3dState = BP._v3d.getState(); } catch (e) {} }
+    BP.open(id);
+  };
   function mount3d(p) {
     var host = document.getElementById('bp3d');
     if (!host || typeof Shed3D === 'undefined') return;
+    if (_v3dState) _v3dState.marks = marksFor(p);
     BP._v3d = Shed3D.mount(host, BP.model3d(p), {
-      state: _v3dState,
+      state: _v3dState || { marks: marksFor(p) },
       labels: calloutLabels(p),
       onSelect: function (g) {
         var el = document.getElementById('bpSel');
@@ -851,8 +1006,33 @@
         // Tapping the member in the model is the same gesture as tapping it
         // in the legend — both should offer the swap.
         if (g) BP.swapPanel(g); else BP.closeSwap();
+      },
+      onPoint: function (ev) {
+        if (!p.marks) p.marks = { measures: [], pins: [] };
+        if (ev.kind === 'measure') {
+          p.marks.measures.push({ a: { x: ev.a[0], y: ev.a[1], z: ev.a[2] }, b: { x: ev.b[0], y: ev.b[1], z: ev.b[2] }, text: '' });
+        } else {
+          var t = prompt(BP.tt('מה לסמן כאן?', 'ปักหมุดอะไร?', 'ماذا تعلّم هنا؟'), '') || '';
+          p.marks.pins.push({ p: { x: ev.p[0], y: ev.p[1], z: ev.p[2] }, text: t });
+        }
+        BP.saveP();
+        try { _v3dState = BP._v3d.getState(); } catch (e) {}
+        BP.open(p.id);
+      },
+      onMove: function (fid, x, y) {
+        (p.free || []).forEach(function (f) { if (String(f.id) === String(fid)) { f.x = x; f.y = y; } });
+        BP.saveP();
+        var card = document.getElementById('bpFree');
+        if (card) card.innerHTML = freeCardBody(p);
+      },
+      onMark: function (ref) {
+        var m2 = /^(measure|pin):(\d+)$/.exec(ref);
+        if (!m2) return;
+        if (!confirm(BP.tt('למחוק את הסימון?', 'ลบเครื่องหมาย?', 'حذف العلامة؟'))) return;
+        BP.markDel(p.id, m2[1], Number(m2[2]));
       }
     });
+    BP._v3d.setTool(_tool);
     _v3dFor = p.id;
     if (!_v3dState) BP._v3d.setSun(p.dims.sunAz*Math.PI/180, p.dims.sunEl*Math.PI/180);
 
@@ -878,6 +1058,11 @@
       rows.forEach(function (r) { if (r.name === name) { t += r.qty; u = r.unit; } });
       return t ? BP.n1(t) + ' ' + u : '';
     }
+    (p.free || []).forEach(function (f) {
+      out['free:' + f.id] = { title: memberLabel('free:' + f.id),
+        sub: (f.kind === 'member' ? (f.profile ? f.profile + ' \u00b7 ' : '') + BP.n1(f.l) + ' m'
+                                  : BP.n1(f.l) + ' \u00d7 ' + BP.n1(f.w) + ' \u00d7 ' + BP.n1(f.h) + ' m') };
+    });
     out.column = { title: memberLabel('column'), sub: d.colProfile + '  ' + qty(d.colProfile) };
     out.rafter = { title: memberLabel('rafter'),
       sub: (d.rafterType === 'truss' ? BP.tt('סבכה', 'โครงถัก', 'جملون') + ' ' + BP.n1(d.trussDepth) + 'm  ' : '') +
@@ -1091,7 +1276,18 @@
       door:    BP.tt('דלת/שער', 'ประตู', 'باب'),
       mezz:    BP.tt('גלריה', 'ชั้นลอย', 'ميزانين')
     };
+    if (/^free:/.test(String(g))) {
+      var fid = String(g).slice(5), hit = null;
+      if (BP._open) {
+        var pp = BP.projById(BP._open);
+        (pp && pp.free || []).forEach(function (f) { if (String(f.id) === fid) hit = f; });
+      }
+      return '\ud83d\udc46 ' + (hit ? (hit.name || freeKindLabel(hit.kind)) : BP.tt('אלמנט חופשי', 'ชิ้นส่วนอิสระ', 'عنصر حر'));
+    }
     return '\ud83d\udc46 ' + (names[g] || g);
+  }
+  function freeKindLabel(k) {
+    return k === 'member' ? BP.tt('פרופיל / קורה', 'โปรไฟล์/คาน', 'مقطع / جسر') : BP.tt('קופסה / קיר', 'กล่อง/ผนัง', 'صندوق / جدار');
   }
 
   function designTab(p) {
@@ -1164,10 +1360,22 @@
           '<button class="bp-btn ghost" style="padding:6px 10px;font-size:.74rem;" ' +
             'onclick="BuildPlan.resetView()">\u21ba ' + BP.tt('איפוס', 'รีเซ็ต', 'إعادة') + '</button>' +
         '</div>' +
+        // Tape and pins. A tap in measure mode starts a dimension, a second
+        // tap ends it; a tap in pin mode drops a numbered marker with a
+        // note. Both snap to member corners and are saved with the project.
+        '<div id="bpTools" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;align-items:center;">' +
+          toolBtn('orbit', '\u270b ' + BP.tt('סיבוב', 'หมุน', 'تدوير')) +
+          toolBtn('measure', '\ud83d\udccf ' + BP.tt('מד מטר', 'ตลับเมตร', 'شريط قياس')) +
+          toolBtn('pin', '\ud83d\udccd ' + BP.tt('סימון', 'ปักหมุด', 'علامة')) +
+          '<span style="font-size:.72rem;color:var(--text-muted,#888);">' +
+            BP.tt('נצמד לפינות · לחיצה על תווית = מחיקה', 'สแนปมุม · แตะป้าย=ลบ', 'يلتقط الزوايا · نقر على البطاقة = حذف') + '</span>' +
+        '</div>' +
+        marksList(p) +
       '</div>' +
         '<div class="bp-card"><div class="bp-lbl" style="margin-bottom:4px;">' +
           BP.tt('נתונים מחושבים', 'ค่าที่คำนวณ', 'قيم محسوبة') + '</div>' +
           '<div id="bpRead"></div></div>' +
+        freeCard(p) +
       '</div>' +
 
       '<div class="bp-pane">' +
@@ -1226,6 +1434,12 @@
               BP.tt('אגוזי (שני שיפועים)', 'จั่ว', 'جملوني') + '</option>' +
             '<option value="mono"' + (d.roofType === 'mono' ? ' selected' : '') + '>' +
               BP.tt('חד-שיפועי', 'เพิงหมาแหงน', 'ميل واحد') + '</option></select></div>' +
+        '<div><div class="bp-lbl">' + BP.tt('קווי עמודים', 'แนวเสา', 'خطوط الأعمدة') + '</div>' +
+          '<select class="bp-in" onchange="BuildPlan._dim(' + id + ',\'colLines\',this.value)">' +
+            '<option value="2"' + (d.colLines !== 3 ? ' selected' : '') + '>2 \u2014 ' +
+              BP.tt('מסגרת פורטל', 'โครงประตู', 'إطار بوابي') + '</option>' +
+            '<option value="3"' + (d.colLines === 3 ? ' selected' : '') + '>3 \u2014 ' +
+              BP.tt('עמודים גם באמצע', 'มีเสากลาง', 'أعمدة وسطية') + '</option></select></div>' +
         // Built from the catalogue, because the model stores the PRODUCT.
         // These used to offer a three-value enum while the model held a
         // product name, so nothing ever matched: the box showed the first
@@ -1286,6 +1500,24 @@
           '<label><input type="checkbox"' + (d.bracing ? ' checked' : '') +
             ' onchange="BuildPlan._dim(' + id + ',\'bracing\',this.checked)"> ' +
             BP.tt('אלכסוני ייצוב', 'ค้ำยัน', 'دعامات') + '</label>' +
+          (d.bracing
+            ? '<select class="bp-in" style="max-width:190px;" onchange="BuildPlan._dim(' + id + ',\'braceType\',this.value)">' +
+                '<option value="girt"' + (d.braceType !== 'cable' ? ' selected' : '') + '>' +
+                  BP.tt('פרופיל (מסילה)', 'โปรไฟล์', 'مقطع') + '</option>' +
+                '<option value="cable"' + (d.braceType === 'cable' ? ' selected' : '') + '>' +
+                  BP.tt('כבלים + מותחנים', 'สายเคเบิล', 'كابلات') + '</option></select>'
+            : '') +
+          (d.haunch
+            ? '<select class="bp-in" style="max-width:190px;" onchange="BuildPlan._dim(' + id + ',\'haunchProfile\',this.value)">' +
+                '<option value=""' + (!d.haunchProfile ? ' selected' : '') + '>' +
+                  BP.tt('חיזוק פינה: כמו הקורה', 'ฮันช์: เหมือนคาน', 'تقوية: كالرافدة') + '</option>' +
+                (BP.C.profiles || []).filter(function (x) {
+                  return x.group === 'עמודים / קורות' || x.group === 'פרופיל מרובע' || x.group === 'פרופיל מלבני';   // CATALOGUE KEY
+                }).map(function (x) {
+                  return '<option value="' + BP.esc(x.name) + '"' + (x.name === d.haunchProfile ? ' selected' : '') + '>' +
+                    BP.esc(BP.dsp(x.name)) + '</option>';
+                }).join('') + '</select>'
+            : '') +
           '<label><input type="checkbox"' + (d.gutter ? ' checked' : '') +
             ' onchange="BuildPlan._dim(' + id + ',\'gutter\',this.checked)"> ' +
             BP.tt('מרזבים', 'รางน้ำ', 'مزاريب') + '</label>' +

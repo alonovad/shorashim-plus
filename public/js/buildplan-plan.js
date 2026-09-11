@@ -999,6 +999,77 @@
     BP.toast('\u2705 ' + BP.tt(added + ' נוספו, ' + replaced + ' עודכנו', 'เพิ่ม ' + added + ' อัปเดต ' + replaced, 'أُضيف ' + added + '، حُدّث ' + replaced));
     repaint(id);
   };
+  // The drawing drives the parametric model. Geometry maps directly;
+  // steel sections are matched against the catalogue by normalised name
+  // (RHS 120/120/5 == SHS 120x120x5) and left untouched when there is no
+  // match — a section the catalogue does not know cannot be priced, so it
+  // is reported rather than silently substituted.
+  function profKey(s) {
+    return String(s || '').toLowerCase().replace(/[\s\u00d7*\/]+/g, function (c) { return /[\s]/.test(c) ? '' : 'x'; })
+      .replace(/^shs/, 'rhs').replace(/^upn|^u(?=\d)/, 'c').replace(/x+/g, 'x');
+  }
+  function matchProfile(name, groups) {
+    var k = profKey(name); if (!k) return null;
+    var hit = null;
+    (BP.C.profiles || []).forEach(function (x) {
+      if (hit) return;
+      if (groups && groups.indexOf(x.group) < 0) return;
+      if (profKey(x.name) === k) hit = x.name;
+    });
+    return hit;
+  }
+  BP.planApply = function planApply(id, did) {
+    var p = BP.projById(id), reg = _docs[id]; if (!p || !reg) return;
+    var d = reg.docs.filter(function (x) { return x.id === did; })[0];
+    var st = d && d.report && d.report.structure;
+    if (!st || !st.present) return;
+    var dm = p.dims, miss = [];
+    var num = function (v) { var n = Number(v); return isFinite(n) && n > 0 ? n : 0; };
+    if (num(st.bay)) dm.bay = num(st.bay);
+    if (num(st.length)) dm.length = num(st.length);
+    else if (num(st.colsPerLine) > 1 && num(st.bay)) dm.length = (num(st.colsPerLine) - 1) * num(st.bay);
+    if (num(st.span)) dm.span = num(st.span);
+    if (num(st.eaves)) dm.eaves = num(st.eaves);
+    if (st.roofType === 'mono' || st.roofType === 'flat') dm.roofType = 'mono';
+    else if (st.roofType === 'gable') dm.roofType = 'gable';
+    if (num(st.slope)) dm.pitch = num(st.slope);
+    else if (num(st.ridge) && num(st.eaves) && num(dm.span)) {
+      var run = dm.roofType === 'mono' ? dm.span : dm.span / 2;
+      dm.pitch = Math.round(Math.atan((num(st.ridge) - num(st.eaves)) / run) * 180 / Math.PI * 10) / 10;
+    }
+    if (st.roofType === 'flat') dm.pitch = Math.max(dm.pitch || 0, 2);
+    dm.colLines = (Number(st.lines) >= 3) ? 3 : 2;
+    if (num(st.purlinSp)) dm.purlinSp = num(st.purlinSp);
+    var MAIN = ['עמודים / קורות', 'פרופיל מרובע', 'פרופיל מלבני'];   // CATALOGUE KEY
+    [['colProfile', st.colProfile, MAIN], ['rafterProfile', st.rafterProfile, MAIN],
+     ['purlinProfile', st.purlinProfile, ['מרישים']], ['girtProfile', st.girtProfile, ['מרישים']]].forEach(function (t) {   // CATALOGUE KEY
+      if (!t[1]) return;
+      var hit = matchProfile(t[1], t[2]);
+      if (hit) dm[t[0]] = hit; else miss.push(t[1]);
+    });
+    if (st.braceMember) {
+      dm.bracing = true;
+      dm.braceType = /כבל|cable|wire|\u00d8?\s*8\b/i.test(st.braceMember) ? 'cable' : 'girt';
+    }
+    if (st.cornerBrace) {
+      dm.haunch = true;
+      var hb = matchProfile(st.cornerBrace, MAIN);
+      if (hb) dm.haunchProfile = hb; else miss.push(st.cornerBrace);
+    }
+    // footings from the pad detail on the same document, if it has one
+    var pad = (d.report.elements || []).filter(function (e) { return e.kind === 'pad'; })[0];
+    if (pad) {
+      var pe = reportEl(pad);
+      dm.footings = true; dm.footW = Math.max(pe.w, pe.l); dm.footD = pe.h;
+      if (typeof Rebar !== 'undefined') dm.rebar = Rebar.norm(pe.rebar);
+    }
+    p.dims = BP.normProject({ dims: dm }).dims;
+    BP.saveP();
+    BP.toast('\u2705 ' + BP.tt('המודל עודכן לפי התוכנית', 'อัปเดตโมเดลแล้ว', 'تم تحديث النموذج') +
+      (miss.length ? ' \u00b7 \u26a0\ufe0f ' + BP.tt('לא בקטלוג: ', 'ไม่มีในแคตตาล็อก: ', 'غير موجود في الكتالوج: ') + miss.join(', ') : ''));
+    BP._tab = 'design';
+    repaint(id);
+  };
   BP.planNotesFrom = function planNotesFrom(id, did) {
     var p = BP.projById(id), reg = _docs[id]; if (!p || !reg) return;
     var d = reg.docs.filter(function (x) { return x.id === did; })[0];
@@ -1063,6 +1134,31 @@
             [sh.engineer, sh.drawingNo, sh.date, sh.concrete].filter(Boolean).map(BP.esc).join(' \u00b7 ') +
             '<div style="margin-top:4px;">' + BP.esc(sh.summary || '') + '</div>' +
             '<div style="font-size:.7rem;' + muted + 'margin-top:3px;">' + BP.esc(d.model) + (d.usage ? ' \u00b7 ' + d.usage.input + ' / ' + d.usage.output + ' tokens' : '') + '</div></div>';
+          var st = rep.structure;
+          if (st && st.present) {
+            body += '<div style="font-size:.8rem;padding:6px 8px;border-radius:8px;background:rgba(255,159,67,.10);margin-bottom:8px;">' +
+              '<b>\ud83c\udfd7 ' + BP.tt('השלד לפי התוכנית', 'โครงตามแบบ', 'الهيكل حسب المخطط') + '</b> ' +
+              (st.confidence === 'low' ? '\ud83d\udfe0' : st.confidence === 'medium' ? '\ud83d\udfe1' : '\ud83d\udfe2') +
+              '<div dir="ltr" style="text-align:left;margin-top:3px;">' +
+                [st.lines ? st.lines + ' ' + BP.tt('קווי עמודים', 'แนวเสา', 'خطوط') : '',
+                 st.colsPerLine ? '\u00d7 ' + st.colsPerLine : '',
+                 st.bay ? '@ ' + st.bay + ' m' : '',
+                 st.span ? BP.tt('רוחב', 'กว้าง', 'عرض') + ' ' + st.span + ' m' : '',
+                 st.length ? BP.tt('אורך', 'ยาว', 'طول') + ' ' + st.length + ' m' : '',
+                 st.eaves ? 'H ' + st.eaves + (st.ridge ? '\u2013' + st.ridge : '') + ' m' : '',
+                 st.roofType ? st.roofType + (st.slope ? ' ' + st.slope + '\u00b0' : '') : '',
+                 st.colProfile ? BP.tt('עמודים', 'เสา', 'أعمدة') + ' ' + st.colProfile : '',
+                 st.rafterProfile ? BP.tt('קורות', 'คาน', 'روافد') + ' ' + st.rafterProfile : '',
+                 st.purlinProfile ? BP.tt('מרישים', 'แป', 'مدادات') + ' ' + st.purlinProfile : '',
+                 st.braceMember ? BP.tt('ייצוב', 'ค้ำยัน', 'تثبيت') + ' ' + st.braceMember : '',
+                 st.cornerBrace ? BP.tt('חיזוק פינה', 'ฮันช์', 'تقوية') + ' ' + st.cornerBrace : '',
+                 st.basePlate ? BP.tt('פלטה', 'แผ่น', 'صفيحة') + ' ' + st.basePlate : '',
+                 st.anchorBolts || ''].filter(Boolean).map(BP.esc).join(' \u00b7 ') + '</div>' +
+              (st.notes ? '<div style="' + muted + 'margin-top:3px;">' + BP.esc(st.notes) + '</div>' : '') +
+              '<button class="bp-btn" style="margin-top:6px;" onclick="BuildPlan.planApply(' + id + ',\'' + d.id + '\')">\ud83c\udfd7 ' +
+                BP.tt('החל על המודל (שלד, יסודות, כתב כמויות)', 'ใช้กับโมเดล', 'طبّق على النموذج') + '</button>' +
+            '</div>';
+          }
           var els = rep.elements || [];
           body += '<div class="bp-lbl">' + BP.tt('אלמנטים שנקראו — סמן מה להכניס לפרויקט', 'ชิ้นส่วนที่อ่านได้ เลือกเพื่อเพิ่ม', 'العناصر المقروءة — اختر ما يُدرج') + '</div>';
           if (!els.length) body += '<div style="font-size:.78rem;' + muted + '">' + BP.tt('לא זוהו אלמנטים קונסטרוקטיביים במסמך הזה.', 'ไม่พบชิ้นส่วน', 'لم تُرصد عناصر') + '</div>';
@@ -1203,6 +1299,7 @@
   BuildPlan.planRead      = BP.planRead;
   BuildPlan.planReadAll   = BP.planReadAll;
   BuildPlan.planInsert    = BP.planInsert;
+  BuildPlan.planApply     = BP.planApply;
   BuildPlan.planNotesFrom = BP.planNotesFrom;
   BuildPlan.planToTakeoff = BP.planToTakeoff;
   BuildPlan.planPrint     = BP.planPrint;

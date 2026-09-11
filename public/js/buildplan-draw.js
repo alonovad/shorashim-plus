@@ -301,6 +301,9 @@
         '" stroke="var(--primary,#2d6a4f)" stroke-width="2.5"/>');
       pp.push('<circle cx="' + fx + '" cy="' + py0 + '" r="3.5" fill="var(--accent,#ff9f43)"/>');
       pp.push('<circle cx="' + fx + '" cy="' + (py0 + d.span * ps) + '" r="3.5" fill="var(--accent,#ff9f43)"/>');
+      if (d.colLines === 3) {
+        pp.push('<circle cx="' + fx + '" cy="' + (py0 + d.span * ps / 2) + '" r="3.5" fill="var(--accent,#ff9f43)"/>');
+      }
     }
     // ridge
     pp.push('<line x1="' + px0 + '" y1="' + (py0 + d.span * ps / 2) + '" x2="' + (px0 + d.length * ps) +
