@@ -56,6 +56,15 @@ var Audit = (function() {
       userAgent: navigator.userAgent || '',
       online: navigator.onLine !== false
     };
+    // "צפה כמשתמש": window.currentUser is the impersonated profile, so the
+    // actor fields above would credit the worker for an admin's action.
+    // Stamp the real admin alongside them so the trail stays honest.
+    var realAdmin = window.__viewAsAdmin;
+    if (realAdmin && realAdmin.username) {
+      doc.viewAs = true;
+      doc.realActor = realAdmin.username;
+      doc.realActorName = realAdmin.name || realAdmin.username;
+    }
     return db.collection('audit-log').doc(docId).set(doc)
       .catch(function(err) {
         console.warn('Audit log write failed:', err.message);

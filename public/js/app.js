@@ -675,6 +675,81 @@
   function isManager() {
     return currentUser && (currentUser.role === 'admin' || currentUser.role === 'operator');
   }
+
+  // ── View as user (צפה כמשתמש) — admin only, client-side ──
+  // Re-renders the app with another user's profile so an admin can see
+  // exactly what that worker sees. The Firebase session is NOT touched:
+  // Firestore reads still run under the admin's own token and role claim,
+  // so this grants no data access the admin didn't already have. It only
+  // changes which profile drives the UI and the client-side plot/farm
+  // filters.
+  //
+  // Exit reloads the page on purpose. The viewer role tears down the tab
+  // bar and every tab-content active state; a reload restores the admin's
+  // own session through onAuthStateChanged instead of unwinding each role
+  // by hand.
+  var _viewAsAdmin = null;   // the admin's own profile while impersonating
+
+  function isViewingAs() { return !!_viewAsAdmin; }
+  window.__isViewingAs = isViewingAs;
+
+  function viewAsUser(username) {
+    if (_viewAsAdmin) return;                        // already impersonating
+    if (!currentUser || currentUser.role !== 'admin') return;
+    var target = users[username];
+    if (!target) {
+      if (typeof showToast === 'function') showToast('⚠️ ' + t('משתמש לא נמצא'));
+      return;
+    }
+    if (target.username === currentUser.username) return;
+
+    _viewAsAdmin = currentUser;
+    window.__viewAsAdmin = _viewAsAdmin;             // read by audit.js
+
+    if (typeof Audit !== 'undefined' && typeof Audit.log === 'function') {
+      try {
+        Audit.log('view-as-start', 'user', String(target.id), {
+          targetUser: target.username,
+          reason: 'admin viewing the app as another user'
+        });
+      } catch (e) {}
+    }
+
+    showApp(target, null);
+    showViewAsBanner(target);
+    if (typeof initMapAndData === 'function') initMapAndData();
+  }
+  window.__viewAsUser = viewAsUser;
+
+  function exitViewAs() {
+    if (!_viewAsAdmin) return;
+    if (typeof Audit !== 'undefined' && typeof Audit.log === 'function') {
+      try {
+        Audit.log('view-as-end', 'user', String((currentUser && currentUser.id) || ''), {
+          targetUser: (currentUser && currentUser.username) || ''
+        });
+      } catch (e) {}
+    }
+    _viewAsAdmin = null;
+    window.__viewAsAdmin = null;
+    location.reload();
+  }
+  window.__exitViewAs = exitViewAs;
+
+  function showViewAsBanner(target) {
+    var bar = document.getElementById('viewAsBanner');
+    if (!bar) return;
+    var label = document.getElementById('viewAsBannerText');
+    if (label) {
+      var roleText = target.role === 'admin' ? t('מנהל') :
+                     target.role === 'operator' ? t('מפעיל') :
+                     target.role === 'worker' ? t('עובד') : t('צופה');
+      label.textContent = '👁️ ' + t('צופה כ') + ' ' + (target.name || target.username) + ' · ' + roleText;
+    }
+    bar.style.display = 'flex';
+    document.body.classList.add('view-as-active');
+  }
+
   var colorIdx = 0;
 
   // ── State ──
@@ -800,6 +875,11 @@
     'מנהל': { th: 'ผู้จัดการ', ar: 'مدير' },
     'מפעיל': { th: 'ผู้ปฏิบัติงาน', ar: 'مشغل' },
     'צופה': { th: 'ผู้ชม', ar: 'مشاهد' },
+    'צפה כמשתמש': { th: 'ดูในฐานะผู้ใช้', ar: 'اعرض كمستخدم' },
+    'צופה כ': { th: 'กำลังดูในฐานะ', ar: 'يعرض بصفة' },
+    'לצפות באפליקציה כ': { th: 'ดูแอปในฐานะ', ar: 'عرض التطبيق بصفة' },
+    'משתמש לא נמצא': { th: 'ไม่พบผู้ใช้', ar: 'المستخدم غير موجود' },
+    'חזור לחשבון שלי': { th: 'กลับไปบัญชีของฉัน', ar: 'العودة إلى حسابي' },
     'ייצא PDF': { th: 'ส่งออก PDF', ar: 'تصدير PDF' },
     'מיקום זוהה': { th: 'พบตำแหน่ง', ar: 'تم تحديد الموقع' },
     'שעות': { th: 'ชั่วโมง', ar: 'ساعات' },
@@ -4966,6 +5046,10 @@
       html += primaryBadge;
       html += '</div>';
       html += '<div class="pesticide-admin-actions">';
+      if (currentUser && currentUser.role === 'admin' &&
+          user.username !== currentUser.username && !isViewingAs()) {
+        html += '<button class="btn-icon view-as" data-viewas-user="' + user.username + '" title="' + t('צפה כמשתמש') + '">👁️</button>';
+      }
       html += '<button class="btn-icon edit" data-edit-user-id="' + user.id + '">✏️</button>';
       if (user.username !== 'admin') {
         html += '<button class="btn-icon delete" data-delete-user-id="' + user.id + '">🗑️</button>';
@@ -4975,6 +5059,17 @@
     });
 
     container.innerHTML = html;
+
+    container.querySelectorAll('.btn-icon.view-as').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var uname = this.getAttribute('data-viewas-user');
+        var u = users[uname];
+        if (!u) return;
+        if (confirm(t('לצפות באפליקציה כ') + ' ' + (u.name || uname) + '?')) {
+          viewAsUser(uname);
+        }
+      });
+    });
 
     container.querySelectorAll('.btn-icon.edit').forEach(function(btn) {
       btn.addEventListener('click', function() {
