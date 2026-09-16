@@ -645,7 +645,8 @@ var AgriPlan = (function () {
           'oninput="AgriPlan._setMat(' + pid + ',' + i + ',' + mi + ',\'value\',this.value)">' +
         '<input class="ap-in" type="number" step="any" value="' + (m.price || '') + '" placeholder="\u20aa/L" ' +
           'oninput="AgriPlan._setMat(' + pid + ',' + i + ',' + mi + ',\'price\',this.value)">' +
-        '<button class="ap-btn warn" style="padding:5px 7px;" ' +
+        '<button class="ap-btn warn" data-no-sticky ' +
+          'title="' + tt('מחק חומר', 'ลบสาร', 'حذف مادة') + '" style="padding:5px 7px;" ' +
           'onclick="AgriPlan._delMat(' + pid + ',' + i + ',' + mi + ')">\u2715</button>' +
         '<div style="grid-column:1/-1;font-size:.74rem;color:var(--primary,#2d6a4f);font-weight:700;">' +
           '\u2192 ' + n1(litres) + ' ' + tt('ליטר לחלקה', 'ลิตร/แปลง', 'لتر/قطعة') +
@@ -675,7 +676,8 @@ var AgriPlan = (function () {
         '<div><div class="ap-lbl">' + carrierLabel(r.method) + '</div>' +
           '<input class="ap-in" type="number" step="any" value="' + (r.carrier || '') + '" ' +
             'oninput="AgriPlan._setRow(' + pid + ',' + i + ',\'carrier\',this.value)"></div>' +
-        '<div><button class="ap-btn warn" style="padding:7px 9px;" ' +
+        '<div><button class="ap-btn warn" data-no-sticky ' +
+          'title="' + tt('מחק שורה', 'ลบแถว', 'حذف صف') + '" style="padding:7px 9px;" ' +
           'onclick="AgriPlan._delRow(' + pid + ',' + i + ')">\ud83d\uddd1</button></div>' +
       '</div>' +
 
@@ -735,7 +737,20 @@ var AgriPlan = (function () {
   }
   function _delRow(pid, i) {
     var p = editable(pid);
-    if (!p) return;
+    if (!p || !p.rows[i]) return;
+    // Deleting a row drops every material on it and saves immediately —
+    // a plan has no undo. Always name what is about to be destroyed.
+    var r = p.rows[i];
+    var pl = plotById(r.plotId);
+    var nMat = (r.materials || []).length;
+    var what = [
+      (pl ? pl.name : '') + (r.cohort ? ' \u2014 ' + r.cohort : ''),
+      r.trees ? (r.trees + ' ' + tt('עצים', 'ต้น', 'شجرة')) : '',
+      nMat ? (nMat + ' ' + tt('חומרים', 'สาร', 'مواد')) : ''
+    ].filter(Boolean).join(' \u00b7 ');
+    if (!confirm(tt('למחוק את השורה?', 'ลบแถวนี้?', 'حذف هذا الصف؟') +
+                 (what ? '\n\n' + what : '') + '\n\n' +
+                 tt('לא ניתן לשחזר.', 'ไม่สามารถกู้คืนได้', 'لا يمكن التراجع.'))) return;
     p.rows.splice(i, 1);
     save();
     showPlan(pid);
@@ -839,6 +854,10 @@ var AgriPlan = (function () {
   function _delMat(pid, i, mi) {
     var p = editable(pid);
     if (!p || !p.rows[i]) return;
+    var m = (p.rows[i].materials || [])[mi];
+    if (!m) return;
+    if (!confirm(tt('למחוק את החומר', 'ลบสาร', 'حذف المادة') + ' "' +
+                 (m.name || tt('ללא שם', 'ไม่มีชื่อ', 'بدون اسم')) + '"?')) return;
     p.rows[i].materials.splice(mi, 1);
     save();
     showPlan(pid);

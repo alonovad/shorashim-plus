@@ -94,8 +94,27 @@
     return (el.textContent || '').replace(/\s+/g, ' ').trim();
   }
 
+  // A bare ✕ is ambiguous: it is the label of a modal's close button AND of
+  // every inline row-remove button in the app. Mirroring the second kind put
+  // a delete under the user's thumb labelled like an escape — in the spray
+  // plan editor the bar's ✕ silently deleted a material row. So anything
+  // that looks destructive is refused regardless of its label.
+  var DESTRUCTIVE_ATTR = /(^|[^a-z])(_?del|delete|remove|destroy|trash|clear)/i;
+  var DESTRUCTIVE_CLASS = /\b(warn|danger|delete|destructive|btn-icon\s+delete)\b/;
+
+  function isDestructive(el) {
+    if (el.hasAttribute('data-no-sticky')) return true;
+    if (DESTRUCTIVE_CLASS.test(el.className || '')) return true;
+    var on = el.getAttribute('onclick') || '';
+    if (DESTRUCTIVE_ATTR.test(on)) return true;
+    var txt = label(el);
+    if (/\ud83d\uddd1|\ud83d\uddd1\ufe0f/.test(txt)) return true;   // 🗑
+    return false;
+  }
+
   function isCandidate(el) {
     if (el.disabled || el.closest('[data-no-sticky]')) return false;
+    if (isDestructive(el)) return false;
     var txt = label(el);
     if (!txt || txt.length > 26) return false;
     for (var i = 0; i < PATTERNS.length; i++) if (PATTERNS[i].test(txt)) return true;
