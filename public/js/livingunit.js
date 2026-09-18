@@ -261,7 +261,7 @@ var LivingUnit = (function () {
       (u.mode === 'full' ? tt('מבנה חדש', 'อาคารใหม่', 'مبنى جديد')
                          : tt('התאמת מבנה קיים', 'ปรับปรุงอาคารเดิม', 'تجهيز مبنى قائم')) + '</text>');
 
-    return '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto;">' + o.join('') + '</svg>';
+    return '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto;direction:ltr;" direction="ltr">' + o.join('') + '</svg>';
   }
 
   function stages(u) {

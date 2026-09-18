@@ -168,10 +168,16 @@ const tags = [...html.matchAll(/<script[^>]*src="js\/([^"]+)"/g)].map(m => m[1])
 const dupTags = tags.filter((t, i) => tags.indexOf(t) !== i);
 dupTags.length ? bad(`duplicate tags: ${[...new Set(dupTags)].join(', ')}`)
                : ok(`${tags.length} tags, no duplicates`);
-const orphans = files.filter(f => !tags.includes(f));
+// A file nobody loads is still downloaded by anyone who asks for it, still
+// answers every grep, and still looks maintained. buildplan.js sat in here
+// at 219 KB for weeks answering searches with code that could not run, so
+// this stopped being a warning. preflight.js is the one exception: a Node
+// tool that ships beside the code it checks and is deliberately untagged.
+const NOT_LOADED_OK = ['preflight.js'];
+const orphans = files.filter(f => !tags.includes(f) && NOT_LOADED_OK.indexOf(f) === -1);
 orphans.length
-  ? console.log('  \x1b[33mwarn\x1b[0m ' + `dead files (shipped, never loaded): ${orphans.join(', ')}`)
-  : ok('every js file is loaded');
+  ? bad(`in public/js but never loaded by index.html: ${orphans.join(', ')} — delete them, or park them outside public/`)
+  : ok(`all ${files.length - NOT_LOADED_OK.length} modules are reachable`);
 // dependency order
 const order = (a, b) => tags.indexOf(a) < tags.indexOf(b);
 [['orders.js','agriplan.js'],
@@ -265,9 +271,21 @@ unwired.forEach(f => {
   console.log('  \x1b[33mwarn\x1b[0m ' + `${k} — module not loaded; whitelist it before wiring it up`));
 
 // ── 7. stale public copy of the rules ──────────────────────────────────
+// Was firestore.rules only; a storage.rules copy then sat in public/js for
+// weeks, served at /js/storage.rules and never deployed from there. Any
+// .rules file anywhere under public/ is the same mistake.
 head('7. No publicly-served rules copy');
-fs.existsSync(path.join(JS_DIR, 'firestore.rules'))
-  ? bad('public/js/firestore.rules exists — served publicly and never deployed')
+function rulesUnderPublic(dir, out) {
+  fs.readdirSync(dir, { withFileTypes: true }).forEach(e => {
+    const full = path.join(dir, e.name);
+    if (e.isDirectory()) rulesUnderPublic(full, out);
+    else if (e.name.endsWith('.rules')) out.push(path.relative(ROOT, full));
+  });
+  return out;
+}
+const strayRules = rulesUnderPublic(path.join(ROOT, 'public'), []);
+strayRules.length
+  ? bad(`served publicly and never deployed from there: ${strayRules.join(', ')}`)
   : ok('none');
 
 // ── 8. untranslated user-facing Hebrew ────────────────────────────────
@@ -323,6 +341,59 @@ const appSrc = src['app.js'] || '';
   ? ok('map has maxZoom + minZoom') : bad('map is unbounded — tiles can run out and blank');
 (appSrc.match(/maxNativeZoom/g) || []).length >= 2
   ? ok('both tile layers set maxNativeZoom') : bad('tile layer missing maxNativeZoom');
+
+// ── 10. SVG text direction is pinned ──────────────────────────────────
+// Every report and quote window is dir="rtl". RTL inheritance reverses what
+// text-anchor start/end MEAN inside SVG, so a margin callout anchored
+// "start" renders to the LEFT of its x and walks off the viewBox. It cost
+// the gate drawings once and the shed section a second time, silently both
+// times — the drawing still renders, it is just missing its labels at the
+// edge. Any SVG that carries <text> must pin itself to ltr at the root.
+head('10. SVG text direction pinned to ltr');
+files.forEach(f => {
+  // This file is the scanner: its <svg> occurrences are the patterns it
+  // searches FOR, not markup it emits.
+  if (f === 'preflight.js') return;
+  // Comments only — the string literals ARE the markup, so code() is no use
+  // here; it blanks exactly what needs reading.
+  const c = src[f].replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+  const opens = [...c.matchAll(/<svg\b/g)];
+  if (!opens.length) return;
+  // Only text-anchor is direction-sensitive. A drawing is built by string
+  // concatenation, so the <text> that belongs to an <svg> is nowhere near
+  // it in the source and cannot be paired up — judge at file level and
+  // exempt the files that anchor nothing. app.js emits one solid-colour
+  // placeholder tile and is rightly exempt; effects.js is decorative.
+  if (!/text-anchor/.test(c)) { ok(`${f} (no anchored text)`); return; }
+  const unpinned = opens.filter(m => {
+    // The pin may be an inline style or the presentation attribute; both sit
+    // inside the opening tag, which in source ends within a line or two.
+    const tag = c.slice(m.index, m.index + 320);
+    return !/direction\s*:\s*ltr/.test(tag) && !/direction=["']ltr["']/.test(tag);
+  });
+  unpinned.length
+    ? bad(`${f}: ${unpinned.length} of ${opens.length} <svg> not pinned direction:ltr — RTL flips text-anchor and clips margin labels`)
+    : ok(`${f} (${opens.length} svg pinned)`);
+});
+
+// ── 11. storage.rules agrees with firestore.rules ─────────────────────
+// Two rules files, one identity model. firestore.rules closed the
+// no-role-claim hatch after the backfill; storage.rules kept its own copy
+// of it open, which made every claim-less account staff on the bucket.
+head('11. Storage rules match the Firestore identity model');
+const storagePath = path.join(ROOT, 'storage.rules');
+if (!fs.existsSync(storagePath)) {
+  bad('storage.rules missing but firebase.json points at it');
+} else {
+  const st = fs.readFileSync(storagePath, 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+  /role\(\)\s*==\s*null\s*\|\|/.test(st)
+    ? bad('storage.rules still treats a missing role claim as staff — firestore.rules does not')
+    : ok('no no-role-claim hatch');
+  /sign_in_provider\s*!=\s*'phone'/.test(st)
+    ? ok('phone sessions excluded, as in firestore.rules')
+    : bad('storage.rules does not exclude phone-provider sessions');
+}
 
 console.log(`\n${'-'.repeat(52)}`);
 console.log(failures ? `\x1b[31m${failures} FAILURE(S)\x1b[0m of ${checks} checks`

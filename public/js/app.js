@@ -6,6 +6,33 @@
   // built-in "Print → Save as PDF" flow (works reliably on iOS/Android/desktop).
   // Falls back to a blob download if popups are blocked.
   window.Util = window.Util || {};
+
+  // ── The print-safety sheet ─────────────────────────────────────────
+  // Injected into EVERY window exportReport opens. It corrects two faults
+  // that belong to the print context itself, not to any one report, so
+  // fixing them per-report means fixing them again on the next one.
+  //
+  //  1. RTL inheritance into SVG. `dir="rtl"` on the document reverses what
+  //     text-anchor start/end MEAN: a label drawn with text-anchor="start"
+  //     at x renders to the LEFT of x instead of the right. Every margin
+  //     callout on a structural drawing is anchored that way, so every one
+  //     of them walked off the left edge of the viewBox and was clipped —
+  //     measured at 27 px and 43 px of overhang on a 10 x 24 m shed
+  //     section. Pinning svg to ltr restores the drawing. Hebrew inside
+  //     <text> still shapes right-to-left: the bidi algorithm handles the
+  //     run, direction only sets the anchor's frame of reference.
+  //  2. Theme variables with dark-theme fallbacks. A print window loads no
+  //     stylesheet, so `var(--text,#ddd)` resolves to its fallback — #ddd,
+  //     near-white ink on white paper. Declaring the palette here gives
+  //     every drawing real ink without each emitter having to know whether
+  //     it is being printed.
+  window.Util.PRINT_SAFE_CSS =
+    ':root{--text:#1f1f1f;--text-muted:#666;--primary:#2d6a4f;--accent:#b36b00;' +
+    '--water:#1565c0;--border:#c9c9c9;--line:#c9c9c9;--danger:#b3261e;' +
+    '--warn:#b36b00;--ok:#2d6a4f;--dark:#1f1f1f;--surface:#fff;--card:#fff;--card-solid:#fff;}' +
+    'svg{direction:ltr;max-width:100%;}' +
+    'img{max-width:100%;}';
+
   window.Util.exportReport = function(html, filename) {
     var hebrew = (typeof t === 'function');
     var btnSave  = hebrew ? t('שמור כ-PDF')  : 'Save as PDF';
@@ -20,7 +47,8 @@
         '<button onclick="window.close()" style="padding:11px 14px;background:#777;color:#fff;border:none;border-radius:10px;font-weight:700;font-size:0.92rem;cursor:pointer;">✕ ' + btnClose + '</button>' +
       '</div>' +
       '<script>function __doDownload(){var b=new Blob([document.documentElement.outerHTML],{type:"text/html;charset=utf-8"});var a=document.createElement("a");a.href=URL.createObjectURL(b);a.download=' + JSON.stringify(filename || 'report.html') + ';document.body.appendChild(a);a.click();setTimeout(function(){document.body.removeChild(a);URL.revokeObjectURL(a.href);},100);}<\/script>' +
-      '<style>@media print{.no-print,#__print_toolbar{display:none !important;}}</style>';
+      '<style>' + window.Util.PRINT_SAFE_CSS +
+        '@media print{.no-print,#__print_toolbar{display:none !important;}}</style>';
 
     // Place the toolbar right after the opening <body> if present, otherwise prepend to body content.
     var enhanced;

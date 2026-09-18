@@ -284,7 +284,7 @@
       (CAL ? BP.n1(d.pitch) + '\u00b0' : BP.n1(g.ridgeH) + ' m \u00b7 ' + BP.n1(d.pitch) + '\u00b0') +
       '</text>');
 
-    var section = '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto;">' +
+    var section = '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto;direction:ltr;" direction="ltr">' +
       parts.join('') + '</svg>';
 
     // ── plan view: frame lines along the length ──
@@ -314,7 +314,7 @@
       BP.n1(d.length) + ' m \u00b7 ' + g.frames + ' ' + BP.tt('מסגרות', 'เฟรม', 'إطارات') +
       ' @ ' + BP.n1(g.actualBay) + ' m</text>');
 
-    var plan = '<svg viewBox="0 0 ' + PW + ' ' + PH + '" style="width:100%;height:auto;">' +
+    var plan = '<svg viewBox="0 0 ' + PW + ' ' + PH + '" style="width:100%;height:auto;direction:ltr;" direction="ltr">' +
       pp.join('') + '</svg>';
 
     return '<div class="bp-draw">' + section + '</div>' +
@@ -386,7 +386,7 @@
       }
     }
     return '<div class="bp-draw"><svg viewBox="0 0 ' + W + ' ' + H +
-      '" style="width:100%;height:auto;">' + out.join('') + '</svg></div>';
+      '" style="width:100%;height:auto;direction:ltr;" direction="ltr">' + out.join('') + '</svg></div>';
   }
 
 

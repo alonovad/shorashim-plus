@@ -2,8 +2,19 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
     // Same identity model as firestore.rules: custom-claim role, phone
-    // recovery sessions excluded, and the transitional no-claim state
-    // (noRoleYet) accepted so a first login is not silently denied.
+    // recovery sessions excluded.
+    //
+    // The transitional no-claim hatch is GONE, to match firestore.rules.
+    // `role() == null || ...` meant every signed-in account with no role
+    // claim — which was all of them before the backfill — counted as staff
+    // and could upload to or delete from build-plans/. firestore.rules
+    // closed its equivalent hatch (noRoleYet) when the backfill finished;
+    // this file kept its own copy open and was the last way in.
+    //
+    // Uploading an engineer's drawing is an admin action and admin is
+    // stamped, so nothing legitimate loses access. A brand-new account is
+    // stamped by claimSelfFromProfile at first login, before it can reach
+    // any screen that writes here.
     function signedIn() {
       return request.auth != null &&
              request.auth.token.firebase.sign_in_provider != 'phone';
@@ -12,7 +23,7 @@ service firebase.storage {
       return ('role' in request.auth.token) ? request.auth.token.role : null;
     }
     function staff() {
-      return signedIn() && (role() == null || role() in ['admin', 'operator']);
+      return signedIn() && role() in ['admin', 'operator'];
     }
 
     // Engineer's drawings and professional documents, one folder per
