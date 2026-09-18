@@ -20,9 +20,17 @@
   //  GEOMETRY + TAKEOFF
   // ══════════════════════════════════════════════════════════════════
   BP.geom = function geom(d) {
+    // A mono-pitch (chad-shipui) roof slopes ONCE across the whole span, so
+    // its rise is taken over the full span and one rafter spans it; a gable
+    // rises over half the span and takes two. Same convention as
+    // shed3d.js, which has always built the mono roof correctly while this
+    // function computed gable numbers for it.
+    var mono = d.roofType === 'mono';
     var half = d.span / 2;
-    var rise = half * Math.tan(d.pitch * Math.PI / 180);
-    var rafterLen = Math.sqrt(half * half + rise * rise);
+    var run = mono ? d.span : half;          // horizontal run of one slope
+    var slopes = mono ? 1 : 2;               // rafters per frame, purlin sets
+    var rise = run * Math.tan(d.pitch * Math.PI / 180);
+    var rafterLen = Math.sqrt(run * run + rise * rise);
     // Bays are made to fit the length rather than left with a remainder —
     // a fabricator spaces frames evenly, so the actual spacing is derived
     // back from the frame count and shown to the user.
@@ -32,14 +40,32 @@
     var cols = frames * (d.colLines === 3 ? 3 : 2);
     var purlinRuns = Math.ceil(rafterLen / d.purlinSp) + 1;   // per slope
     var girtRows = Math.max(0, Math.ceil(d.eaves / d.girtSp) - 1);
-    var roofArea = 2 * rafterLen * d.length;
+    var roofArea = slopes * rafterLen * d.length;
+    // The triangle a slope adds above eaves level on the wall it climbs.
+    // Gable: one at each end, span x rise / 2. Mono: the two end walls are
+    // right trapezoids whose triangular part is the same figure, so the
+    // term is identical — but the mono ALSO has one long wall standing a
+    // full `rise` taller than the other, which the gable does not, and
+    // that term was simply missing.
     var gable = d.span * rise / 2;                            // one triangle
+    var wallH = (d.wallMode === 'half' ? d.eaves * 0.5 : d.eaves);
     var wallArea = (d.wallMode !== 'open')
-      ? (2 * d.length + 2 * d.span) * (d.wallMode === 'half' ? d.eaves*0.5 : d.eaves) + 2 * gable
+      ? (2 * d.length + 2 * d.span) * wallH + 2 * gable + (mono ? d.length * rise : 0)
       : 0;
+    // Column steel is the sum of the lines, not the count times one height:
+    // a mono-pitch stands its far line at eaves + rise. colLines 3 puts the
+    // middle line at the slope's midpoint.
+    var colH = mono
+      ? (d.colLines === 3 ? [d.eaves, d.eaves + rise / 2, d.eaves + rise]
+                          : [d.eaves, d.eaves + rise])
+      : (d.colLines === 3 ? [d.eaves, d.eaves + rise, d.eaves]
+                          : [d.eaves, d.eaves]);
+    var colLen = frames * colH.reduce(function (s, h) { return s + h; }, 0);
     return {
-      half: half, rise: rise, rafterLen: rafterLen, bays: bays, actualBay: actualBay,
-      frames: frames, cols: cols, purlinRuns: purlinRuns, girtRows: girtRows,
+      half: half, run: run, slopes: slopes, mono: mono,
+      rise: rise, rafterLen: rafterLen, bays: bays, actualBay: actualBay,
+      frames: frames, cols: cols, colH: colH, colLen: colLen,
+      purlinRuns: purlinRuns, girtRows: girtRows,
       roofArea: roofArea, wallArea: wallArea, gable: gable,
       ridgeH: d.eaves + rise, footprint: d.span * d.length,
       perimeter: 2 * (d.span + d.length)
@@ -155,12 +181,16 @@
       componentLines(p).forEach(function (l) { push(l.name, l.qty, l.unit, l.note); });
       return out;
     }
-    push(d.colProfile,    g.cols * d.eaves * w, "מ'",
-      g.cols + ' ' + BP.tt('עמודים', 'เสา', 'أعمدة') + ' \u00d7 ' + BP.n1(d.eaves) + ' ' + BP.dsp("מ'"));
-    push(d.rafterProfile, g.frames * 2 * g.rafterLen * w, "מ'",
-      g.frames * 2 + ' ' + BP.tt('קורות', 'คาน', 'روافد') + ' \u00d7 ' + BP.n1(g.rafterLen) + ' ' + BP.dsp("מ'"));
-    push(d.purlinProfile, g.purlinRuns * 2 * d.length * w, "מ'",
-      (g.purlinRuns * 2) + ' ' + BP.tt('שורות מרישים', 'แถวแป', 'صفوف') + ' \u00d7 ' + BP.n1(d.length) + ' ' + BP.dsp("מ'"));
+    // Columns are billed per line at that line's own height. On a mono the
+    // far line is a full `rise` taller, which the old single-height line
+    // never charged for.
+    push(d.colProfile,    g.colLen * w, "מ'",
+      g.cols + ' ' + BP.tt('עמודים', 'เสา', 'أعمدة') + ' \u00b7 ' +
+      g.colH.map(function (h) { return BP.n1(h); }).join(' / ') + ' ' + BP.dsp("מ'"));
+    push(d.rafterProfile, g.frames * g.slopes * g.rafterLen * w, "מ'",
+      g.frames * g.slopes + ' ' + BP.tt('קורות', 'คาน', 'روافد') + ' \u00d7 ' + BP.n1(g.rafterLen) + ' ' + BP.dsp("מ'"));
+    push(d.purlinProfile, g.purlinRuns * g.slopes * d.length * w, "מ'",
+      (g.purlinRuns * g.slopes) + ' ' + BP.tt('שורות מרישים', 'แถวแป', 'صفوف') + ' \u00d7 ' + BP.n1(d.length) + ' ' + BP.dsp("מ'"));
     if (d.wallMode !== 'open' && d.wallClad !== 'none') {
       push(d.girtProfile, g.girtRows * g.perimeter * w, "מ'",
         g.girtRows + ' ' + BP.tt('שורות', 'แถว', 'صفوف'));

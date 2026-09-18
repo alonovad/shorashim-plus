@@ -143,9 +143,15 @@
     function X(m) { return x0 + m * s; }
     function Y(m) { return y0 - m * s; }
 
+    // On a mono-pitch there is no apex at mid-span: the roof runs from the
+    // low eaves straight to the high end. Modelling it as a degenerate
+    // "apex" that sits at the high column keeps every downstream use —
+    // rafters, purlin dots, haunch, leaders — working unchanged, and makes
+    // the drawing agree with the 3D view and the takeoff for the first time.
     var eL = { x: X(0), y: Y(d.eaves) };
-    var eR = { x: X(d.span), y: Y(d.eaves) };
-    var apex = { x: X(d.span / 2), y: Y(g.ridgeH) };
+    var eR = { x: X(d.span), y: Y(g.mono ? g.ridgeH : d.eaves) };
+    var apex = g.mono ? { x: X(d.span), y: Y(g.ridgeH) }
+                      : { x: X(d.span / 2), y: Y(g.ridgeH) };
 
     var parts = [];
     parts.push('<rect x="0" y="0" width="' + W + '" height="' + H + '" fill="none"/>');
@@ -182,6 +188,15 @@
       '" stroke="var(--primary,#2d6a4f)" stroke-width="5"/>');
     parts.push('<line x1="' + eR.x + '" y1="' + eR.y + '" x2="' + eR.x + '" y2="' + y0 +
       '" stroke="var(--primary,#2d6a4f)" stroke-width="5"/>');
+    // A third column line, when specified, stands under the ridge on a
+    // gable and at the slope's midpoint on a mono. It was drawn in plan and
+    // billed in the takeoff but never appeared in the section.
+    if (d.colLines === 3) {
+      var midX = X(d.span / 2);
+      var midY = g.mono ? Y(d.eaves + g.rise / 2) : Y(g.ridgeH);
+      parts.push('<line x1="' + midX + '" y1="' + midY + '" x2="' + midX + '" y2="' + y0 +
+        '" stroke="var(--primary,#2d6a4f)" stroke-width="4" stroke-dasharray="7,4"/>');
+    }
     // haunch diagonal at each eaves corner. It was named in the callouts
     // but never drawn, so the leader pointed at bare air — worse than no
     // callout, because it says the drawing is wrong rather than terse.
@@ -194,8 +209,15 @@
       parts.push('<line x1="' + eL.x + '" y1="' + (eL.y + hRise) +
         '" x2="' + (eL.x + slopeL.x / lenL * hRun) + '" y2="' + (eL.y + slopeL.y / lenL * hRun) +
         '" stroke="var(--water,#4fc3f7)" stroke-width="2.5"/>');
+      // Unit vector from the right-hand column back up its own rafter:
+      // toward the apex on a gable, back toward the low column on a mono
+      // (where the apex IS this column and the vector would be degenerate).
+      var backX, backY;
+      if (g.mono) { backX = (eL.x - eR.x); backY = (eL.y - eR.y); }
+      else        { backX = (apex.x - eR.x); backY = (apex.y - eR.y); }
+      var lenR = Math.sqrt(backX * backX + backY * backY) || 1;
       parts.push('<line x1="' + eR.x + '" y1="' + (eR.y + hRise) +
-        '" x2="' + (eR.x - slopeL.x / lenL * hRun) + '" y2="' + (eR.y + slopeL.y / lenL * hRun) +
+        '" x2="' + (eR.x + backX / lenR * hRun) + '" y2="' + (eR.y + backY / lenR * hRun) +
         '" stroke="var(--water,#4fc3f7)" stroke-width="2.5"/>');
     }
 
@@ -279,7 +301,8 @@
       parts.push(dimChainV(cx, y0, [Y(d.eaves), Y(g.ridgeH)],
         [cm(d.eaves), cm(g.ridgeH - d.eaves)], cm(g.ridgeH)));
     }
-    parts.push('<text x="' + apex.x + '" y="' + (apex.y - 12) + '" fill="var(--text,#ddd)" ' +
+    var capX = g.mono ? X(d.span * 0.72) : apex.x;
+    parts.push('<text x="' + capX + '" y="' + (apex.y - 12) + '" fill="var(--text,#ddd)" ' +
       'font-size="12" font-weight="700" text-anchor="middle">' +
       (CAL ? BP.n1(d.pitch) + '\u00b0' : BP.n1(g.ridgeH) + ' m \u00b7 ' + BP.n1(d.pitch) + '\u00b0') +
       '</text>');
