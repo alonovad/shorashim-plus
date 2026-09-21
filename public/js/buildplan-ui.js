@@ -349,6 +349,7 @@
     // The plan tab's viewer keeps its own camera the same way; drop the
     // canvas before paint() replaces the host under it.
     if (BP.planDestroy) BP.planDestroy();
+    if (typeof Frame !== 'undefined') Frame.destroy();
     BP._view = 'project';
     BP._open = id;
     var d = p.dims;
@@ -380,7 +381,18 @@
               : '\ud83d\uddfa ' + BP.tt('מיקום במפה', 'ตำแหน่ง', 'الموقع');
       return '<button class="bp-btn ' + (BP._tab === t ? 'on' : 'ghost') +
         '" onclick="BuildPlan.setTab(\'' + t + '\')">' + lbl + '</button>';
+    }).join('') +
+    // One tab per model built from an engineer's document, named after the
+    // file. The id rides in the tab key so setTab/open need no new state.
+    (p.models || []).map(function (mm) {
+      var t = 'm:' + mm.id, nm = String(mm.name || '').replace(/\.[a-z0-9]{2,4}$/i, '');
+      if (nm.length > 26) nm = nm.slice(0, 25) + '\u2026';
+      return '<button class="bp-btn ' + (BP._tab === t ? 'on' : 'ghost') +
+        '" onclick="BuildPlan.setTab(\'' + t + '\')">\ud83e\uddca ' + BP.esc(nm) + '</button>';
     }).join('');
+    // A model tab whose model was deleted falls back to the plan tab.
+    if (String(BP._tab).indexOf('m:') === 0 &&
+        !(p.models || []).some(function (mm) { return 'm:' + mm.id === BP._tab; })) BP._tab = 'plan';
 
     // What is in this project. Shown before anything else, because it
     // decides which of the tabs below actually mean anything.
@@ -442,6 +454,8 @@
     else if (BP._tab === 'living') body += livingTab(p);
     else if (BP._tab === 'sketch') body += sketchTab(p);
     else if (BP._tab === 'plan')   body += (BP.planTab ? BP.planTab(p) : '');
+    else if (String(BP._tab).indexOf('m:') === 0 && typeof Frame !== 'undefined')
+      body += Frame.tab(p, String(BP._tab).slice(2));
     else if (BP._tab === 'materials') body += matTab(p, rows, tot);
     // Lazily, because the journal is its own Firestore document and is only
     // worth a read when somebody actually looks at it.
@@ -467,6 +481,7 @@
     if (BP._tab === 'gates') mountGates(p);
     if (BP._tab === 'sketch') mountSketch(p);
     if (BP._tab === 'plan' && BP.planMount) BP.planMount(p);
+    if (String(BP._tab).indexOf('m:') === 0 && typeof Frame !== 'undefined') Frame.mount(p, String(BP._tab).slice(2));
     if (BP._tab === 'design') {
       if (p.type !== 'slab') mount3d(p);
       BP.refreshReadouts(p);
@@ -696,24 +711,35 @@
         'onchange="BuildPlan._commit(' + id + ',\'' + key + '\',this.value)"></div>';
   }
 
-  // One list of real products plus "ללא". What is shown is what is billed.
-  function cladSelect(id, key, cur) {
-    var o = '<option value="none"' + (cur === 'none' ? ' selected' : '') + '>' +
-      BP.tt('ללא', 'ไม่มี', 'بدون') + '</option>';
-    var seen = false;
+  // The catalogue's cladding products as <option>s, the current one
+  // selected. What is shown is what is billed. A product since removed from
+  // the catalogue still shows, flagged, or the box would silently claim the
+  // project uses something else.
+  //
+  // Options only, so each caller keeps its own <select> and its own
+  // onchange. The living unit's partition and envelope selects call this by
+  // name; when it was folded into cladSelect they were not updated, and the
+  // מגורים tab threw a ReferenceError for every project with a unit in it.
+  // No "ללא" here: a partition of nothing would bill a row named "none".
+  function cladOptions(cur) {
+    var o = '', seen = false;
     (BP.C.profiles || []).forEach(function (x) {
       if (x.group !== 'חיפוי') return;
       if (x.name === cur) seen = true;
       o += '<option value="' + BP.esc(x.name) + '"' + (x.name === cur ? ' selected' : '') + '>' +
         BP.esc(BP.dsp(x.name)) + (x.price ? ' \u00b7 ' + BP.money(x.price) : '') + '</option>';
     });
-    // A product that has been removed from the catalogue still has to show,
-    // or the box would silently claim the project uses something else.
     if (cur && cur !== 'none' && !seen) {
       o += '<option value="' + BP.esc(cur) + '" selected>' + BP.esc(BP.dsp(cur)) + ' \u26a0\ufe0f</option>';
     }
+    return o;
+  }
+  // The design tab's cladding choice: the same list plus "ללא".
+  function cladSelect(id, key, cur) {
     return '<select class="bp-in" onchange="BuildPlan._dim(' + id + ',\'' + key + '\',this.value)">' +
-      o + '</select>';
+      '<option value="none"' + (cur === 'none' ? ' selected' : '') + '>' +
+        BP.tt('ללא', 'ไม่มี', 'بدون') + '</option>' +
+      cladOptions(cur) + '</select>';
   }
 
   function profSel(id, key, group, cur) {
