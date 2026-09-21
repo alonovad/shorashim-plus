@@ -936,17 +936,60 @@
     if (_busy[did]) return;
     if (d.report && !confirm(BP.tt('המסמך כבר נקרא. לקרוא שוב (עלות נוספת)?', 'อ่านอีกครั้ง?', 'قراءة مرة أخرى؟'))) return;
     _busy[did] = 1; _openDoc[id] = did; BP.open(id);
-    var fn = firebase.app().functions('us-central1').httpsCallable('planExtract');
-    fn({ path: d.path, model: model || 'haiku', hint: d.hint }).then(function (res) {
+    readWith(id, d, Frame.payloadFor(d, model || 'sonnet'), true);
+  };
+  // Read by the reader this build no longer trusts. Every read made by the
+  // current client is tiled in the browser and stamped d.tiled = true, so
+  // anything without that stamp came from the old whole-sheet read — the one
+  // that shrank a 1:50 sheet into a single image the model could not read
+  // and returned a footing of 1.25 x 1.25 that is on no drawing. Haiku is
+  // the old default and is treated the same way. Such a report used to show
+  // the same green tick as a good one; nothing on screen said the numbers
+  // under it were not read off the sheet.
+  function staleRead(d) {
+    return !!(d && d.report) && (d.tiled !== true || /haiku/i.test(String(d.model || '')));
+  }
+  BP.planStale = staleRead;
+  // One read, however the payload was produced. The sheet is tiled in the
+  // browser (Frame.payloadFor / payloadFromFile) so the model sees 1:50
+  // labels at full resolution, then the result becomes a frame model with
+  // its own tab. `open` switches to that tab on success.
+  function readWith(id, d, payloadP, open) {
+    var fn = firebase.app().functions('us-central1').httpsCallable('planExtract', { timeout: 300000 });
+    return payloadP.then(function (payload) {
+      d.tiled = !!(payload.tiles && payload.tiles.length);
+      return fn(payload);
+    }).then(function (res) {
       var r = res.data || {};
       d.report = r.report || null; d.model = r.model || ''; d.usage = r.usage || null; d.readAt = r.at || Date.now(); d.error = '';
     }).catch(function (e) {
       d.error = (e && e.message) ? e.message : 'error';
       BP.toast('\u274c ' + d.error);
     }).then(function () {
-      _busy[did] = 0; docsSave(id); BP.open(id);
+      _busy[d.id] = 0; docsSave(id);
+      if (d.report && typeof Frame !== 'undefined') Frame.fromDoc(id, d.id, !open);
+      if (!open || !d.report) BP.open(id);
     });
+  }
+  // The same read from a file picked on this device: no download, so no
+  // bucket CORS in the way, and always the full-resolution tiles.
+  BP.planReadLocal = function planReadLocal(id, did) {
+    var reg = _docs[id]; if (!reg) return;
+    var d = reg.docs.filter(function (x) { return x.id === did; })[0]; if (!d || _busy[did]) return;
+    var inp = document.createElement('input');
+    inp.type = 'file'; inp.accept = 'application/pdf,image/*';
+    inp.onchange = function () {
+      var file = inp.files && inp.files[0]; if (!file) return;
+      _busy[did] = 1; _openDoc[id] = did; BP.open(id);
+      readWith(id, d, Frame.payloadFromFile(file, d, 'sonnet'), true);
+    };
+    inp.click();
   };
+  BP.planModel = function planModel(id, did) {
+    if (typeof Frame !== 'undefined') Frame.fromDoc(id, did, false);
+  };
+  // Frame reads the project's documents through this.
+  BP.planDocs = function planDocs(id) { var reg = _docs[id]; return reg ? reg.docs : []; };
   BP.planReadAll = function planReadAll(id) {
     var reg = _docs[id]; if (!reg) return;
     var todo = reg.docs.filter(function (x) { return !x.report && !_busy[x.id]; });
@@ -954,10 +997,7 @@
     (function next(i) {
       if (i >= todo.length) return;
       var d = todo[i]; _busy[d.id] = 1; BP.open(id);
-      firebase.app().functions('us-central1').httpsCallable('planExtract')({ path: d.path, model: 'haiku', hint: d.hint })
-        .then(function (res) { var r = res.data || {}; d.report = r.report || null; d.model = r.model || ''; d.usage = r.usage || null; d.readAt = r.at || Date.now(); d.error = ''; })
-        .catch(function (e) { d.error = (e && e.message) ? e.message : 'error'; })
-        .then(function () { _busy[d.id] = 0; docsSave(id); BP.open(id); next(i + 1); });
+      readWith(id, d, Frame.payloadFor(d, 'sonnet'), false).then(function () { next(i + 1); });
     })(0);
   };
 
@@ -1108,6 +1148,7 @@
       list = reg.docs.map(function (d) {
         var open = _openDoc[id] === d.id, busy = !!_busy[d.id];
         var status = busy ? '<span style="color:' + acc + ';">\u23f3 ' + BP.tt('קורא…', 'กำลังอ่าน…', 'جارٍ القراءة…') + '</span>'
+                   : (d.report && staleRead(d)) ? '<span style="color:var(--warn,#e0a030);font-weight:700;">\u26a0\ufe0f ' + BP.tt('נקרא בקורא הישן — הערכים אינם אמינים, קרא שוב', 'อ่านด้วยตัวอ่านเก่า — อ่านใหม่', 'قُرئ بالقارئ القديم — أعد القراءة') + '</span>'
                    : d.report ? '<span style="color:var(--ok,#41c47f);">\u2705 ' + BP.tt('נקרא', 'อ่านแล้ว', 'مقروء') + ' \u00b7 ' + ((d.report.elements || []).length) + ' ' + BP.tt('אלמנטים', 'ชิ้นส่วน', 'عناصر') + '</span>'
                    : d.error ? '<span style="color:var(--warn,#e2624b);">\u26a0\ufe0f ' + BP.esc(d.error.slice(0, 80)) + '</span>'
                    : '<span style="' + muted + '">' + BP.tt('טרם נקרא', 'ยังไม่อ่าน', 'لم يُقرأ') + '</span>';
@@ -1117,8 +1158,9 @@
             '<div style="font-size:.72rem;' + muted + '">' + fmtSize(d.size) + (d.at ? ' \u00b7 ' + new Date(d.at).toLocaleDateString('he-IL') : '') + (d.by ? ' \u00b7 ' + BP.esc(d.by) : '') + ' \u00b7 ' + status + '</div></div>' +
           '<div style="display:flex;gap:4px;flex-wrap:wrap;">' +
             '<button class="bp-btn ghost" style="padding:4px 8px;font-size:.72rem;" onclick="BuildPlan.planDocOpen(' + id + ',\'' + d.id + '\')">\ud83d\udc41</button>' +
-            (busy ? '' : '<button class="bp-btn ' + (d.report ? 'ghost' : '') + '" style="padding:4px 8px;font-size:.72rem;" onclick="BuildPlan.planRead(' + id + ',\'' + d.id + '\',\'haiku\')">\ud83d\udd0e ' + BP.tt(d.report ? 'קרא שוב' : 'קרא', d.report ? 'อ่านอีก' : 'อ่าน', d.report ? 'اقرأ مجدداً' : 'اقرأ') + '</button>') +
-            (busy ? '' : '<button class="bp-btn ghost" style="padding:4px 8px;font-size:.72rem;" title="' + BP.tt('מודל חזק יותר, יקר יותר', 'โมเดลแรงกว่า', 'نموذج أقوى') + '" onclick="BuildPlan.planRead(' + id + ',\'' + d.id + '\',\'sonnet\')">\ud83d\udd0e+</button>') +
+            (busy ? '' : '<button class="bp-btn ' + (d.report && !staleRead(d) ? 'ghost' : '') + '" style="padding:4px 8px;font-size:.72rem;" onclick="BuildPlan.planRead(' + id + ',\'' + d.id + '\',\'sonnet\')">\ud83d\udd0e ' + BP.tt(d.report ? 'קרא שוב' : 'קרא', d.report ? 'อ่านอีก' : 'อ่าน', d.report ? 'اقرأ مجدداً' : 'اقرأ') + '</button>') +
+            (busy ? '' : '<button class="bp-btn ghost" style="padding:4px 8px;font-size:.72rem;" title="' + BP.tt('קרא מהקובץ שבמכשיר — תמיד ברזולוציה מלאה', 'อ่านจากไฟล์ในเครื่อง', 'اقرأ من الملف على الجهاز') + '" onclick="BuildPlan.planReadLocal(' + id + ',\'' + d.id + '\')">\ud83d\udcc1</button>') +
+            (d.report ? '<button class="bp-btn" style="padding:4px 8px;font-size:.72rem;" onclick="BuildPlan.planModel(' + id + ',\'' + d.id + '\')">\ud83e\uddca ' + BP.tt('מודל', 'โมเดล', 'نموذج') + '</button>' : '') +
             '<button class="bp-btn ghost" style="padding:4px 8px;font-size:.72rem;" onclick="BuildPlan.planDocToggle(' + id + ',\'' + d.id + '\')">' + (open ? '\u25b4' : '\u25be') + '</button>' +
             '<button class="bp-btn warn" style="padding:4px 8px;font-size:.72rem;" onclick="BuildPlan.planDocDel(' + id + ',\'' + d.id + '\')">\ud83d\uddd1</button>' +
           '</div></div>';
@@ -1293,6 +1335,8 @@
   BuildPlan.plan3dReset   = BP.plan3dReset;
   BuildPlan.planUpload    = BP.planUpload;
   BuildPlan.planDocOpen   = BP.planDocOpen;
+  BuildPlan.planReadLocal = BP.planReadLocal;
+  BuildPlan.planModel     = BP.planModel;
   BuildPlan.planDocDel    = BP.planDocDel;
   BuildPlan.planDocToggle = BP.planDocToggle;
   BuildPlan.planDocHint   = BP.planDocHint;
