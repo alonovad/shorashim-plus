@@ -395,6 +395,28 @@ if (!fs.existsSync(storagePath)) {
     : bad('storage.rules does not exclude phone-provider sessions');
 }
 
+// ── 12. every file the page loads or the worker precaches exists ─────
+// Check 4 catches files nobody loads. This is the opposite, and it is the
+// one that mattered: index.html loaded js/frame.js and sw.js precached it,
+// and the file was never committed. The page threw "Frame is not defined"
+// on every plan read — and because cache.addAll() is all-or-nothing, every
+// new service worker failed to INSTALL, so the old one stayed in charge
+// serving old files. Nothing on screen connected the two.
+head('12. Everything referenced exists');
+const PUB = path.join(ROOT, 'public');
+const missingTags = tags.filter(f => !fs.existsSync(path.join(JS_DIR, f)));
+missingTags.length
+  ? bad(`index.html loads files that do not exist: ${missingTags.join(', ')}`)
+  : ok(`all ${tags.length} script tags resolve to a file`);
+const swSrc = fs.readFileSync(path.join(PUB, 'sw.js'), 'utf8');
+const appUrls = ((swSrc.match(/var APP_URLS = \[([\s\S]*?)\];/) || [])[1] || '')
+  .match(/'[^']+'/g) || [];
+const missingSw = appUrls.map(u => u.slice(1, -1))
+  .filter(u => !fs.existsSync(u === '/' ? path.join(PUB, 'index.html') : path.join(PUB, u)));
+missingSw.length
+  ? bad(`sw.js precaches files that do not exist — every service-worker install fails: ${missingSw.join(', ')}`)
+  : ok(`all ${appUrls.length} precached files exist`);
+
 console.log(`\n${'-'.repeat(52)}`);
 console.log(failures ? `\x1b[31m${failures} FAILURE(S)\x1b[0m of ${checks} checks`
                      : `\x1b[32mall ${checks} checks passed\x1b[0m`);

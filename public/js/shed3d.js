@@ -635,11 +635,19 @@ var Shed3D = (function () {
     // Distance is fitted to the building, so a 6 m lean-to and a 60 m
     // warehouse both arrive on screen usable without manual zooming.
     function projector(w, h) {
-      var reach = Math.max(m.length, m.span, m.eaves*2) * 1.28;
+      // Sized from the BUILT geometry's meta, falling back to the model.
+      // A model handed over as prebuilt faces — the footing preview in the
+      // plan tab, the frame models — keeps its extents in `meta` only, so
+      // reading m.length/m.span/m.eaves gave NaN, every projected point was
+      // NaN, and the viewer painted sky and nothing else. That was the
+      // blank footing preview.
+      var gm = (geo && geo.meta) || {};
+      var L = m.length || gm.length || 1, S = m.span || gm.span || 1, E = m.eaves || gm.eaves || 1;
+      var reach = Math.max(L, S, E*2) * 1.28;
       var d = reach/cam.zoom;
       var cy = Math.cos(cam.yaw), sy = Math.sin(cam.yaw);
       var cp = Math.cos(cam.pitch), sp = Math.sin(cam.pitch);
-      var f = Math.min(w, h)*0.92, zc = m.eaves*0.42;
+      var f = Math.min(w, h)*0.92, zc = E*0.42;
       return function (p) {
         var x = p[0], y = p[1], z = p[2] - zc;
         var rx = x*cy - y*sy, ry = x*sy + y*cy;

@@ -598,6 +598,15 @@ window.BuildPlanInternals = BuildPlanInternals;
       status: String(x.status || 'planning'),
       notes: String(x.notes || ''),
       sketch: (x.sketch && Array.isArray(x.sketch.shapes)) ? x.sketch : { shapes: [] },
+      // Frame models built from engineer's plans, one per document. This
+      // loader rebuilds every project from a whitelist, so a field missing
+      // here is silently dropped on the next load — models included.
+      models: Array.isArray(x.models)
+        ? x.models.filter(function (m) { return m && m.id; }).map(function (m) {
+            return { id: String(m.id), docId: String(m.docId || ''), name: String(m.name || ''),
+                     frame: (typeof Frame !== 'undefined') ? Frame.norm(m.frame) : (m.frame || {}) };
+          })
+        : [],
       // Components, not project types. A yard job is routinely a shed plus a
       // slab plus a gate plus a room for the crew, and quoting it as four
       // projects loses the fact that it is one price to one client.
