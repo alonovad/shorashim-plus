@@ -1,4 +1,4 @@
-var CACHE_NAME = 'shorashim-v112';
+var CACHE_NAME = 'shorashim-v113';
 // CDN libs — these never change, safe to cache-first
 var CDN_URLS = [
   'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js',
@@ -61,11 +61,21 @@ var APP_URLS = [
   '/js/report-theme.js',
   '/js/effects.js'
 ];
-// Install — precache CDN libs + app files
+// Install — precache CDN libs + app files.
+//
+// App files are fetched with cache:'reload', straight from the server. A
+// plain cache.addAll() is answered by the browser's HTTP cache, and Firebase
+// Hosting served JS with a max-age of about an hour — so for an hour after
+// every deploy a NEW service worker filled its NEW cache with the OLD files
+// from disk, and bumping CACHE_NAME changed the label without changing the
+// contents. That is how a browser ended up running a buildplan-ui.js older
+// than the repo and an index.html from before frame.js existed.
+// CDN URLs are versioned and immutable, so the disk copy of those is fine.
 self.addEventListener('install', function(event) {
   event.waitUntil(
     caches.open(CACHE_NAME).then(function(cache) {
-      return cache.addAll(CDN_URLS.concat(APP_URLS));
+      var fresh = APP_URLS.map(function(u) { return new Request(u, { cache: 'reload' }); });
+      return cache.addAll(CDN_URLS.concat(fresh));
     })
   );
   self.skipWaiting();
@@ -119,9 +129,16 @@ self.addEventListener('fetch', function(event) {
     );
     return;
   }
-  // App files → network-first (deploys visible immediately, offline fallback to cache)
+  // App files → network-first (deploys visible immediately, offline fallback to cache).
+  // cache:'no-cache' makes the browser revalidate with the server (a cheap 304
+  // when nothing changed) instead of answering from its HTTP cache — without
+  // it "network-first" was really "disk-first" for an hour after a deploy.
+  // A navigation cannot be re-issued with an init, so it goes by URL.
+  var fresh = event.request.mode === 'navigate'
+    ? new Request(event.request.url, { cache: 'no-cache', credentials: 'same-origin' })
+    : new Request(event.request, { cache: 'no-cache' });
   event.respondWith(
-    fetch(event.request).then(function(response) {
+    fetch(fresh).then(function(response) {
       if (response && response.status === 200) {
         var clone = response.clone();
         caches.open(CACHE_NAME).then(function(cache) {
