@@ -75,31 +75,49 @@ var MaintSchedule = (function() {
   //  DATA LAYER (Firestore sync — mirrors maintenance.js)
   // ═══════════════════════════════════════════════
 
-  // DB.load() fires its callback twice: localStorage first, Firestore second.
-  // Resolve on the SECOND (authoritative) callback, with a timeout fallback.
+  // Resolves { ok, data }. ok:false means the server was not reached — NOT
+  // that there are no events.
+  //
+  // This used to resolve on DB.load's SECOND callback, assuming the first is
+  // the local copy. A browser with no local copy gets only one — the real
+  // answer — so a fresh device always waited out the timer. The same bug as
+  // maintenance.js had; DB.read answers once, explicitly.
   function _loadFromFirestore(key) {
     return new Promise(function(resolve) {
-      if (typeof DB === 'undefined') {
-        try { resolve(JSON.parse(localStorage.getItem(key) || '[]')); }
-        catch (e) { resolve([]); }
+      function localCopy() {
+        try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch (e) { return []; }
+      }
+      if (typeof DB === 'undefined' || typeof DB.read !== 'function') {
+        resolve({ ok: false, data: localCopy() });
         return;
       }
-      var callCount = 0, localData = null, settled = false;
+      var settled = false;
       var timer = setTimeout(function() {
-        if (!settled) { settled = true; console.warn('[MaintSchedule] Firestore timeout for ' + key); resolve(localData || []); }
-      }, 4000);
-      DB.load(key, function(data) {
-        callCount++;
-        if (callCount === 1) { localData = data; }
-        else if (!settled) { settled = true; clearTimeout(timer); resolve(data || []); }
+        if (settled) return;
+        settled = true;
+        console.warn('[MaintSchedule] Firestore timeout for ' + key + ' \u2014 NOT treating as empty');
+        resolve({ ok: false, data: localCopy() });
+      }, 8000);
+      DB.read(key).then(function(r) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve({ ok: r.ok, data: r.ok ? (r.data || []) : (r.data || localCopy()) });
       });
     });
   }
 
   function _migrateIfNeeded() {
-    if (_migrationDone) return Promise.resolve(null);
-    _migrationDone = true;
-    return _loadFromFirestore(KEY).then(function(fs) {
+    if (_migrationDone) return Promise.resolve(_events || []);
+    return _loadFromFirestore(KEY).then(function(res) {
+      // A read that never reached the server says nothing about what is
+      // stored. Migrating on it could write a stale local list over the
+      // real one, and marking the migration done BEFORE knowing the outcome
+      // (as this did) made a first failure permanent. Serve what we have;
+      // the realtime listener brings the real list when it arrives.
+      if (!res.ok) return res.data || [];
+      _migrationDone = true;
+      var fs = res.data;
       if (fs && fs.length > 0) return fs;
       var local = [];
       try { local = JSON.parse(localStorage.getItem(KEY) || '[]'); } catch (e) {}

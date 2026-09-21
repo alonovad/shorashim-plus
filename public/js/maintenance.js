@@ -95,37 +95,36 @@ var Maintenance = (function() {
   // so Firestore data is always ignored. This waits for the SECOND callback.
   function _loadFromFirestore(key) {
     return new Promise(function(resolve) {
-      if (typeof DB === 'undefined') {
-        try { resolve({ ok: false, data: JSON.parse(localStorage.getItem(key) || '[]') }); }
-        catch (e) { resolve({ ok: false, data: [] }); }
+      // Resolves { ok, data }. ok:false means we never heard from the
+      // server — NOT that it is empty. Collapsing those two into a bare []
+      // is what once let a failed read look like "no projects", and then
+      // let the migration below overwrite real data with a stale local copy.
+      //
+      // This used to resolve on DB.load's SECOND callback, on the theory
+      // that the first is the local copy. A browser with no local copy gets
+      // only one — the real answer — so every new device, Incognito window
+      // and cleared browser waited out the whole timer and was told the
+      // projects could not be loaded. DB.read answers once, explicitly.
+      function localCopy() {
+        try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch (e) { return null; }
+      }
+      if (typeof DB === 'undefined' || typeof DB.read !== 'function') {
+        resolve({ ok: false, data: localCopy() || [] });
         return;
       }
-      // Resolves { ok, data }. `ok:false` means we never heard from
-      // Firestore — NOT that the collection is empty. Collapsing those two
-      // into a bare [] is what let a failed read look like "no projects",
-      // and then let the migration below overwrite real data with a stale
-      // local cache.
-      var callCount = 0;
-      var localData = null;
       var settled = false;
       var timer = setTimeout(function() {
-        if (!settled) {
-          settled = true;
-          console.warn('[Maintenance] Firestore timeout for ' + key + ' — NOT treating as empty');
-          resolve({ ok: false, data: localData || [] });
-        }
+        if (settled) return;
+        settled = true;
+        console.warn('[Maintenance] Firestore timeout for ' + key + ' \u2014 NOT treating as empty');
+        resolve({ ok: false, data: localCopy() || [] });
       }, 8000);
-      DB.load(key, function(data) {
-        callCount++;
-        if (callCount === 1) {
-          localData = data;
-        } else {
-          if (!settled) {
-            settled = true;
-            clearTimeout(timer);
-            resolve({ ok: true, data: data || [] });
-          }
-        }
+      DB.read(key).then(function(r) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (!r.ok) console.warn('[Maintenance] ' + key + ': server read failed (' + r.error + ') \u2014 NOT treating as empty');
+        resolve({ ok: r.ok, data: r.ok ? r.data : (r.data || []) });
       });
     });
   }
@@ -137,7 +136,13 @@ var Maintenance = (function() {
     // Only a SUCCESSFUL attempt counts as done. Marking the key done before
     // knowing the outcome meant a first failure was cached forever and the
     // retry button could never do anything — it re-served the same failure.
-    if (_migrationDone[key]) return Promise.resolve({ ok: true, data: _projectsCache || [] });
+    // What this key already holds. It used to return the projects for ANY
+    // key, so the second access check got the project list back as its
+    // permission table.
+    if (_migrationDone[key]) {
+      return Promise.resolve({ ok: true, data: key === 'shorashim-maintenance-access'
+        ? (_accessCache || {}) : (_projectsCache || []) });
+    }
     return _loadFromFirestore(key).then(function(res) {
       var firestoreData = res.data;
       // A read that never completed says nothing about what is stored.
@@ -290,9 +295,16 @@ var Maintenance = (function() {
   }
   function loadAccess() {
     if (_accessCache !== null) return Promise.resolve(_accessCache);
-    return _migrateIfNeeded('shorashim-maintenance-access').then(function(data) {
-      _accessCache = data || {};
-      return _accessCache;
+    return _migrateIfNeeded('shorashim-maintenance-access').then(function(res) {
+      // _migrateIfNeeded resolves { ok, data }. This stored the whole
+      // wrapper as the permission table, so hasPerm() looked for the user's
+      // email among { ok, data } and found nothing — every non-admin was
+      // refused. Admins never noticed: isAdmin() short-circuits.
+      var d = res && res.data;
+      var access = (d && typeof d === 'object' && !Array.isArray(d)) ? d : {};
+      // Only a real answer is cached; a failed read is asked again next time.
+      if (res && res.ok) _accessCache = access;
+      return access;
     });
   }
 
@@ -614,7 +626,11 @@ var Maintenance = (function() {
   // ══════════════════════════════════════
   function showProjectsList() {
     ensureLabels();
-    loadAccess().then(function(access) {
+    // An admin may see everything, so there is nothing to wait for: draw the
+    // window now and let the list fill in. Everyone else is gated on the
+    // access table. This used to hold EVERY click until that read returned,
+    // then start the projects read — two round trips of dead button.
+    (isAdmin() ? Promise.resolve(null) : loadAccess()).then(function(access) {
       if (!isAdmin() && !hasPerm('view', access)) { if (typeof showToast === 'function') showToast(tt('⛔ אין הרשאה','⛔ ไม่มีสิทธิ์','⛔ لا إذن')); return; }
       var modal = document.getElementById('modalContainer');
       var topBtns = '<button onclick="Maintenance.showNewProject()" style="padding:6px 14px;border-radius:8px;border:none;background:#4caf50;color:white;font-family:inherit;font-weight:700;cursor:pointer;">➕ ' + tt('חדש','ใหม่','جديد') + '</button>';

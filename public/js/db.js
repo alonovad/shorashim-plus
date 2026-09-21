@@ -126,6 +126,41 @@ var DB = (function() {
     });
   }
 
+  // One read of the SERVER copy, with the outcome spelled out:
+  //   { ok:true,  exists:true,  data }        the server has it
+  //   { ok:true,  exists:false, data:null }   the server has nothing here
+  //   { ok:false, error, data:<cached|null> }  we could not ask — this says
+  //                                            NOTHING about what is stored
+  // load() cannot express that. It calls back once or twice depending on
+  // whether this browser happened to hold a local copy, and callers that
+  // counted callbacks read a fresh browser's single, correct answer as "no
+  // answer": maintenance waited out an 8-second timer on every new device,
+  // every Incognito window and every browser whose storage was cleared, then
+  // announced that the projects could not be loaded.
+  function read(key) {
+    return new Promise(function(resolve) {
+      var local = null;
+      try { var s = localStorage.getItem(key); if (s) local = JSON.parse(s); } catch (e) {}
+      if (!firestore) { resolve({ ok: false, exists: false, data: local, error: 'no-firestore' }); return; }
+      firestore.collection('appData').doc(key).get({ source: 'server' })
+        .then(function(doc) {
+          if (doc.exists && doc.data().value !== undefined) {
+            var data = doc.data().value;
+            cache[key] = data;
+            try { localStorage.setItem(key, JSON.stringify(data)); } catch (e) {}
+            resolve({ ok: true, exists: true, data: data });
+          } else {
+            resolve({ ok: true, exists: false, data: null });
+          }
+        })
+        .catch(function(err) {
+          var code = (err && (err.code || err.message)) || 'error';
+          console.warn('[DB] server read of ' + key + ' failed (' + code + ') \u2014 not treating as empty');
+          resolve({ ok: false, exists: false, data: cache[key] !== undefined ? cache[key] : local, error: code });
+        });
+    });
+  }
+
   // Delete a key
   function remove(key) {
     localStorage.removeItem(key);
@@ -156,6 +191,7 @@ var DB = (function() {
     load: load,
     loadAsync: loadAsync,
     loadFresh: loadFresh,
+    read: read,
     remove: remove,
     listen: listen
   };
