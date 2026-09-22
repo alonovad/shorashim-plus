@@ -930,13 +930,41 @@
 
   // The model call. Sequential, one document at a time; the result (or
   // the error) is stored on the document so it is never paid for twice.
+  // Which model reads a drawing. Remembered per device, not per project: it
+  // is a cost/accuracy preference, not a property of the building. Every call
+  // site hard-coded 'sonnet', so there was no way to try a stronger reader on
+  // a sheet that came back half-read.
+  var MODEL_KEY = 'shorashim-plan-model';
+  BP.planModelGet = function planModelGet() {
+    try { return localStorage.getItem(MODEL_KEY) || 'opus-5.5'; } catch (e) { return 'opus-5.5'; }
+  };
+  BP.planModelSet = function planModelSet(v) {
+    try { localStorage.setItem(MODEL_KEY, v); } catch (e) {}
+    if (BP._tab === 'plan' && BP._open != null && BP.open) BP.open(BP._open);
+  };
+  BP.planModelSelect = function planModelSelect() {
+    var cur = BP.planModelGet();
+    var opts = [
+      ['opus-5.5', BP.tt('\u05de\u05d3\u05d5\u05d9\u05e7 \u05d1\u05d9\u05d5\u05ea\u05e8', '\u0e41\u0e21\u0e48\u0e19\u0e17\u0e35\u0e48\u0e2a\u0e38\u0e14', '\u0627\u0644\u0623\u062f\u0642') + ' \u00b7 Opus 5.5'],
+      ['opus',     BP.tt('\u05de\u05d3\u05d5\u05d9\u05e7', '\u0e41\u0e21\u0e48\u0e19', '\u062f\u0642\u064a\u0642') + ' \u00b7 Opus 5'],
+      ['sonnet-5', BP.tt('\u05de\u05d0\u05d5\u05d6\u05df', '\u0e2a\u0e21\u0e14\u0e38\u0e25', '\u0645\u062a\u0648\u0627\u0632\u0646') + ' \u00b7 Sonnet 5'],
+      ['haiku',    BP.tt('\u05de\u05d4\u05d9\u05e8 \u05d5\u05d6\u05d5\u05dc', '\u0e40\u0e23\u0e47\u0e27', '\u0633\u0631\u064a\u0639') + ' \u00b7 Haiku 4.5']
+    ];
+    return '<label style="font-size:.72rem;display:inline-flex;align-items:center;gap:5px;">' +
+      BP.tt('\u05e7\u05d5\u05e8\u05d0 \u05e2\u05dd', '\u0e2d\u0e48\u0e32\u0e19\u0e14\u0e49\u0e27\u0e22', '\u064a\u0642\u0631\u0623 \u0628\u0640') +
+      '<select class="bp-in" style="padding:3px 6px;font-size:.72rem;width:auto;" onchange="BuildPlan.planModelSet(this.value)">' +
+      opts.map(function (o) {
+        return '<option value="' + o[0] + '"' + (o[0] === cur ? ' selected' : '') + '>' + o[1] + '</option>';
+      }).join('') + '</select></label>';
+  };
+
   BP.planRead = function planRead(id, did, model) {
     var reg = _docs[id]; if (!reg) return;
     var d = reg.docs.filter(function (x) { return x.id === did; })[0]; if (!d) return;
     if (_busy[did]) return;
     if (d.report && !confirm(BP.tt('המסמך כבר נקרא. לקרוא שוב (עלות נוספת)?', 'อ่านอีกครั้ง?', 'قراءة مرة أخرى؟'))) return;
     _busy[did] = 1; _openDoc[id] = did; BP.open(id);
-    readWith(id, d, Frame.payloadFor(d, model || 'sonnet'), true);
+    readWith(id, d, Frame.payloadFor(d, model || BP.planModelGet()), true);
   };
   // Read by the reader this build no longer trusts. Every read made by the
   // current client is tiled in the browser and stamped d.tiled = true, so
@@ -981,7 +1009,7 @@
     inp.onchange = function () {
       var file = inp.files && inp.files[0]; if (!file) return;
       _busy[did] = 1; _openDoc[id] = did; BP.open(id);
-      readWith(id, d, Frame.payloadFromFile(file, d, 'sonnet'), true);
+      readWith(id, d, Frame.payloadFromFile(file, d, BP.planModelGet()), true);
     };
     inp.click();
   };
@@ -997,7 +1025,7 @@
     (function next(i) {
       if (i >= todo.length) return;
       var d = todo[i]; _busy[d.id] = 1; BP.open(id);
-      readWith(id, d, Frame.payloadFor(d, 'sonnet'), false).then(function () { next(i + 1); });
+      readWith(id, d, Frame.payloadFor(d, BP.planModelGet()), false).then(function () { next(i + 1); });
     })(0);
   };
 
@@ -1134,6 +1162,7 @@
       '<label class="bp-btn" style="cursor:pointer;">\ud83d\udcce ' +
         BP.tt('העלה תוכניות / מסמכים', 'อัปโหลดแบบ/เอกสาร', 'رفع مخططات / مستندات') +
         '<input type="file" multiple accept="image/*,application/pdf" style="display:none;" onchange="BuildPlan.planUpload(' + id + ',this)"></label>' +
+      BP.planModelSelect() +
       (reg && reg.docs.some(function (x) { return !x.report; })
         ? '<button class="bp-btn ghost" onclick="BuildPlan.planReadAll(' + id + ')">\ud83d\udd0e ' + BP.tt('קרא את כל מה שלא נקרא', 'อ่านที่ยังไม่อ่าน', 'اقرأ ما لم يُقرأ') + '</button>' : '') +
       '<span style="font-size:.72rem;' + muted + '">' + BP.tt('PDF או צילום. קריאה = קריאת מודל, רק בלחיצה, נשמרת עם המסמך.', 'PDF/รูป อ่านเมื่อกดเท่านั้น', 'PDF أو صورة. القراءة عند الضغط فقط وتُحفظ') + '</span>' +
@@ -1158,7 +1187,7 @@
             '<div style="font-size:.72rem;' + muted + '">' + fmtSize(d.size) + (d.at ? ' \u00b7 ' + new Date(d.at).toLocaleDateString('he-IL') : '') + (d.by ? ' \u00b7 ' + BP.esc(d.by) : '') + ' \u00b7 ' + status + '</div></div>' +
           '<div style="display:flex;gap:4px;flex-wrap:wrap;">' +
             '<button class="bp-btn ghost" style="padding:4px 8px;font-size:.72rem;" onclick="BuildPlan.planDocOpen(' + id + ',\'' + d.id + '\')">\ud83d\udc41</button>' +
-            (busy ? '' : '<button class="bp-btn ' + (d.report && !staleRead(d) ? 'ghost' : '') + '" style="padding:4px 8px;font-size:.72rem;" onclick="BuildPlan.planRead(' + id + ',\'' + d.id + '\',\'sonnet\')">\ud83d\udd0e ' + BP.tt(d.report ? 'קרא שוב' : 'קרא', d.report ? 'อ่านอีก' : 'อ่าน', d.report ? 'اقرأ مجدداً' : 'اقرأ') + '</button>') +
+            (busy ? '' : '<button class="bp-btn ' + (d.report && !staleRead(d) ? 'ghost' : '') + '" style="padding:4px 8px;font-size:.72rem;" onclick="BuildPlan.planRead(' + id + ',\'' + d.id + '\')">\ud83d\udd0e ' + BP.tt(d.report ? 'קרא שוב' : 'קרא', d.report ? 'อ่านอีก' : 'อ่าน', d.report ? 'اقرأ مجدداً' : 'اقرأ') + '</button>') +
             (busy ? '' : '<button class="bp-btn ghost" style="padding:4px 8px;font-size:.72rem;" title="' + BP.tt('קרא מהקובץ שבמכשיר — תמיד ברזולוציה מלאה', 'อ่านจากไฟล์ในเครื่อง', 'اقرأ من الملف على الجهاز') + '" onclick="BuildPlan.planReadLocal(' + id + ',\'' + d.id + '\')">\ud83d\udcc1</button>') +
             (d.report ? '<button class="bp-btn" style="padding:4px 8px;font-size:.72rem;" onclick="BuildPlan.planModel(' + id + ',\'' + d.id + '\')">\ud83e\uddca ' + BP.tt('מודל', 'โมเดล', 'نموذج') + '</button>' : '') +
             '<button class="bp-btn ghost" style="padding:4px 8px;font-size:.72rem;" onclick="BuildPlan.planDocToggle(' + id + ',\'' + d.id + '\')">' + (open ? '\u25b4' : '\u25be') + '</button>' +
@@ -1341,6 +1370,7 @@
   BuildPlan.planDocToggle = BP.planDocToggle;
   BuildPlan.planDocHint   = BP.planDocHint;
   BuildPlan.planRead      = BP.planRead;
+  BuildPlan.planModelSet  = BP.planModelSet;
   BuildPlan.planReadAll   = BP.planReadAll;
   BuildPlan.planInsert    = BP.planInsert;
   BuildPlan.planApply     = BP.planApply;

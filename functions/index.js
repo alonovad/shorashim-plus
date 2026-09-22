@@ -482,9 +482,19 @@ exports.recoverAccount = onCall(
 //    the small model misread. The key never reaches the browser.
 // ═══════════════════════════════════════════
 
+// Reading a 1:50 sheet is the hardest vision task in the app, and the model
+// tier decides what it is physically able to see. Claude 4.7 and later are
+// on the high-resolution tier: 2576 px on the long edge and 4784 visual
+// tokens, against 1568 px / 1568 tokens for everything earlier. That is ~1.6x
+// the linear detail — the difference between "IPN 160" and a grey smudge.
+// The old pinned pair were both on the standard tier.
+// Keys are stored on the document as d.model; old values keep working.
 const PLAN_MODELS = {
-  haiku:  "claude-haiku-4-5",
-  sonnet: "claude-sonnet-4-5"
+  haiku:      "claude-haiku-4-5",      // cheapest, standard tier
+  sonnet:     "claude-sonnet-4-5",     // legacy — kept so old reads still name their model
+  "sonnet-5": "claude-sonnet-5",       // high-resolution tier
+  opus:       "claude-opus-5",         // high-resolution tier
+  "opus-5.5": "claude-opus-5-5"        // high-resolution tier, strongest
 };
 
 const PLAN_TOOL = {
@@ -545,7 +555,10 @@ const PLAN_TOOL = {
                           description: "high = read directly from a schedule/detail; low = inferred or partly illegible" },
             source: { type: "string", description: "Where on the document: page/sheet/detail reference" }
           },
-          required: ["kind", "name", "count", "w", "h", "rebar", "confidence"]
+          // Only what every element genuinely has. Numbers are optional ON
+          // PURPOSE: a required number the drawing does not show gets
+          // invented, and an invented footing size reaches a quote.
+          required: ["kind", "name", "confidence"]
         }
       },
       structure: {
@@ -576,6 +589,75 @@ const PLAN_TOOL = {
           confidence:    { type: "string", enum: ["high", "medium", "low"] }
         }
       },
+      frame: {
+        type: "object",
+        description: "The building frame as a GRID of named axes and the members on it. Fill it whenever the document shows a plan, sections or elevations of the structure. Every number optional: omit what you cannot actually read.",
+        properties: {
+          axesX: {
+            type: "array",
+            description: "Axes along the LENGTH, usually numbered (1,2,3,4,5), in order. pos = distance in METRES from the first axis, accumulated from the dimension chain (350 350 350 350 -> 0, 3.5, 7, 10.5, 14).",
+            items: { type: "object", properties: { name: { type: "string" }, pos: { type: "number" } }, required: ["name"] }
+          },
+          axesY: {
+            type: "array",
+            description: "Column LINES across the width, usually lettered (A,B,C), in order. pos in METRES from the first line (700 700 -> 0, 7, 14). Count the lines from the grid bubbles and the foundation plan (A1..A5, B1..B5, C1..C5 = 3 lines).",
+            items: { type: "object", properties: { name: { type: "string" }, pos: { type: "number" } }, required: ["name"] }
+          },
+          totalX: { type: "number", description: "The overall dimension printed on the length chain, METRES (e.g. 1400 -> 14). Used to check the chain." },
+          totalY: { type: "number", description: "The overall dimension printed on the width chain, METRES." },
+          heights: {
+            type: "array",
+            description: "Top-of-column height above ground for each lettered line, METRES, read from the sections (e.g. A 5.50, C 5.00 on a mono-pitch). Include a middle line only if its height is printed or clearly on the slope.",
+            items: { type: "object", properties: { line: { type: "string" }, h: { type: "number" } }, required: ["line"] }
+          },
+          sections: {
+            type: "object",
+            description: "The steel section label for each member ROLE, exactly as written on the drawing.",
+            properties: {
+              column:    { type: "string", description: "Typical column, e.g. RHS 120/120/5" },
+              mainBeam:  { type: "string", description: "Beam / rafter running across the column lines, e.g. IPN 160" },
+              edgeBeam:  { type: "string", description: "Beam along the outer lines between columns, e.g. IPN 120" },
+              purlin:    { type: "string", description: "Purlin, e.g. P60-120/60/3.6" },
+              kneeBrace: { type: "string", description: "Knee / diagonal brace (דיאגונל), e.g. RHS 80/80/4" },
+              bracing:   { type: "string", description: "Roof or wall X-bracing, e.g. cable 8mm" }
+            }
+          },
+          exceptions: {
+            type: "array",
+            description: "Individual elements whose section differs from their role's typical one — e.g. corner columns A1 and A5 labelled RHS 150/150/6.3 while the rest are RHS 120/120/5.",
+            items: { type: "object", properties: {
+              ref: { type: "string", description: "Grid node, e.g. A1" },
+              role: { type: "string", enum: ["column"] },
+              section: { type: "string" } }, required: ["ref", "section"] }
+          },
+          purlinSp:   { type: "number", description: "Purlin spacing, METRES (@100 -> 1.0)" },
+          kneeDrop:   { type: "number", description: "How far below the column top the knee brace meets the column, METRES" },
+          kneeRun:    { type: "number", description: "How far along the beam the knee brace meets it, METRES" },
+          bracedBays: { type: "array", items: { type: "string" }, description: "Bays carrying X-bracing, as numbered-axis pairs, e.g. [\"1-2\", \"4-5\"]" },
+          braceDepth: { type: "number", description: "Depth of the X-braced panel across the width from the outer line, METRES, if dimensioned" },
+          footing: {
+            type: "object",
+            description: "The isolated footing (יסוד בודד), from the foundation detail.",
+            properties: {
+              w: { type: "number", description: "Footing width, METRES" },
+              l: { type: "number", description: "Footing length, METRES" },
+              t: { type: "number", description: "Footing thickness, METRES" },
+              below: { type: "number", description: "Depth of the footing's TOP below ground, METRES" },
+              ped: { type: "number", description: "Pedestal / neck (צוואר) side, METRES, if shown" },
+              blind: { type: "number", description: "Lean concrete (בטון רזה) thickness, METRES" },
+              plate: { type: "string", description: "Base plate, e.g. 250/250/12" },
+              anchors: { type: "string", description: "Anchor bolts, e.g. 4Ø20" },
+              count: { type: "integer", description: "Number of footings on the foundation plan" }
+            }
+          },
+          evidence: {
+            type: "array",
+            items: { type: "string" },
+            description: "For each number reported, the exact text read and which tile/view it came from, e.g. 'plan, tile r2c2: 350 350 350 350 = 1400 along A'."
+          },
+          confidence: { type: "string", enum: ["high", "medium", "low"] }
+        }
+      },
       other: {
         type: "array",
         description: "Every instruction, material or item that is NOT one of the element kinds above (steel columns, bolts, welds, soil notes, BOQ lines, general notes). One short Hebrew line each, verbatim where possible.",
@@ -600,6 +682,9 @@ const PLAN_SYSTEM = [
   "ב-30 = concrete grade; Q188 = welded mesh; קוצים = starter dowels; בטון רזה = lean concrete; כיסוי = cover.",
   "If the document shows the frame (column grid, sections, roof), fill `structure`: count the column LINES across the width and the columns along each line from the grid marks (A1..A5, B1..B5, C1..C5 = 3 lines x 5), read the spacings off the dimension strings, the heights and slope off the sections, and every steel section label exactly as written.",
   "Never invent a value: if a number is not on the document, omit the field and lower the confidence.",
+  "Fill `frame` for any sheet showing the structure: name every axis from its grid bubble, accumulate each axis position from the dimension chain, give each lettered line its column height from the sections, and put every steel label under its role. A single element labelled differently from its role (e.g. corner columns) goes in `exceptions`.",
+  "When the document arrives as TILES: the first image of each page is an overview for layout only; the following tiles are overlapping full-resolution crops labelled with their position. Read every label and dimension from the tiles, not the overview. A label cut by a tile edge appears whole in the neighbouring tile. Report in `evidence` which tile each number came from.",
+  "An empty field is correct. A guessed field is a defect: it will be priced and built.",
   "Mark text values (name, notes, other, questions, summary) in Hebrew.",
   "Answer only through the report_plan tool."
 ].join(" ");
@@ -617,11 +702,30 @@ exports.planExtract = onCall(
       throw new HttpsError("permission-denied", "Operator or admin required");
     }
 
-    const { path, model, hint } = request.data || {};
+    const { path, model, hint, tiles, name } = request.data || {};
     if (typeof path !== "string" || !/^build-plans\/\d+\/[^/]+$/.test(path)) {
       throw new HttpsError("invalid-argument", "path must be build-plans/{projectId}/{file}");
     }
-    const modelId = PLAN_MODELS[model] || PLAN_MODELS.haiku;
+    const modelId = PLAN_MODELS[model] || PLAN_MODELS.sonnet;
+    // Tiles rendered in the browser. Bounded so one call cannot run away:
+    // at most 20 images, each under 1.6 MB of base64, 9 MB in total (the
+    // callable request limit is 10 MB).
+    let tileBlocks = null;
+    if (Array.isArray(tiles) && tiles.length) {
+      if (tiles.length > 20) throw new HttpsError("invalid-argument", "At most 20 tiles");
+      let total = 0;
+      tileBlocks = [];
+      for (const t of tiles) {
+        const d = t && typeof t.data === "string" ? t.data : "";
+        if (!d || d.length > 1.6 * 1024 * 1024 || !/^[A-Za-z0-9+/=]+$/.test(d.slice(0, 200))) {
+          throw new HttpsError("invalid-argument", "Bad tile");
+        }
+        total += d.length;
+        tileBlocks.push({ type: "text", text: String((t && t.label) || "tile").slice(0, 160) + ":" });
+        tileBlocks.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: d } });
+      }
+      if (total > 9 * 1024 * 1024) throw new HttpsError("invalid-argument", "Tiles over 9 MB");
+    }
 
     // Same bucket the client is configured with (public/index.html).
     const file = getStorage().bucket("shorashim-plus.firebasestorage.app").file(path);
@@ -635,13 +739,22 @@ exports.planExtract = onCall(
     if (!isPdf && size > 5 * 1024 * 1024) throw new HttpsError("invalid-argument", "Image over 5 MB — the app downsizes on upload; re-upload it");
     if (!isPdf && !/^image\/(jpeg|png|webp|gif)$/.test(ctype)) throw new HttpsError("invalid-argument", "Unsupported type " + ctype);
 
-    const [buf] = await file.download();
-    const data = buf.toString("base64");
-    const block = isPdf
-      ? { type: "document", source: { type: "base64", media_type: "application/pdf", data } }
-      : { type: "image", source: { type: "base64", media_type: ctype, data } };
+    let blocks;
+    if (tileBlocks) {
+      // The file was already checked above to exist and belong to the
+      // project's folder; the tiles are what the model reads.
+      blocks = tileBlocks;
+    } else {
+      const [buf] = await file.download();
+      const data = buf.toString("base64");
+      blocks = [isPdf
+        ? { type: "document", source: { type: "base64", media_type: "application/pdf", data } }
+        : { type: "image", source: { type: "base64", media_type: ctype, data } }];
+    }
 
     const userText = "Read this construction document and report it through the tool." +
+      (tileBlocks ? " It arrives as tiles: overview first, then full-resolution crops." : "") +
+      (typeof name === "string" && name.trim() ? " File name: " + name.trim().slice(0, 160) + "." : "") +
       (typeof hint === "string" && hint.trim() ? " Context from the client: " + hint.trim().slice(0, 600) : "");
 
     let res, text;
@@ -655,11 +768,11 @@ exports.planExtract = onCall(
         },
         body: JSON.stringify({
           model: modelId,
-          max_tokens: 8000,
+          max_tokens: 12000,
           system: PLAN_SYSTEM,
           tools: [PLAN_TOOL],
           tool_choice: { type: "tool", name: "report_plan" },
-          messages: [{ role: "user", content: [block, { type: "text", text: userText }] }]
+          messages: [{ role: "user", content: blocks.concat([{ type: "text", text: userText }]) }]
         })
       });
       text = await res.text();
