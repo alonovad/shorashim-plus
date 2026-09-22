@@ -936,7 +936,7 @@
   // a sheet that came back half-read.
   var MODEL_KEY = 'shorashim-plan-model';
   BP.planModelGet = function planModelGet() {
-    try { return localStorage.getItem(MODEL_KEY) || 'opus-5.5'; } catch (e) { return 'opus-5.5'; }
+    try { return localStorage.getItem(MODEL_KEY) || 'opus'; } catch (e) { return 'opus'; }
   };
   BP.planModelSet = function planModelSet(v) {
     try { localStorage.setItem(MODEL_KEY, v); } catch (e) {}

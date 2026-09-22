@@ -757,6 +757,25 @@ exports.planExtract = onCall(
       (typeof name === "string" && name.trim() ? " File name: " + name.trim().slice(0, 160) + "." : "") +
       (typeof hint === "string" && hint.trim() ? " Context from the client: " + hint.trim().slice(0, 600) : "");
 
+    // Forcing the tool ({ type: "tool" }) is the reliable way to get a
+    // structured answer, and every model here accepted it until Opus 5.5:
+    // forced tool use now returns an error there, and thinking cannot be
+    // switched off, so the reply carries thinking blocks and needs more room.
+    // Those models are asked rather than forced, and the prompt already says
+    // to answer through the tool. Anything unlisted keeps the old behaviour.
+    function noForcedTools(id) { return /^claude-(opus-5-5|fable-|mythos-)/.test(id); }
+    function reqBody(id, blocks, userText) {
+      const soft = noForcedTools(id);
+      return {
+        model: id,
+        max_tokens: soft ? 24000 : 12000,
+        system: PLAN_SYSTEM + (soft ? "\n\nAnswer ONLY by calling the report_plan tool. Do not reply with prose." : ""),
+        tools: [PLAN_TOOL],
+        tool_choice: soft ? { type: "auto" } : { type: "tool", name: "report_plan" },
+        messages: [{ role: "user", content: blocks.concat([{ type: "text", text: userText }]) }]
+      };
+    }
+
     let res, text;
     try {
       res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -766,26 +785,31 @@ exports.planExtract = onCall(
           "x-api-key": ANTHROPIC_API_KEY.value(),
           "anthropic-version": "2023-06-01"
         },
-        body: JSON.stringify({
-          model: modelId,
-          max_tokens: 12000,
-          system: PLAN_SYSTEM,
-          tools: [PLAN_TOOL],
-          tool_choice: { type: "tool", name: "report_plan" },
-          messages: [{ role: "user", content: blocks.concat([{ type: "text", text: userText }]) }]
-        })
+        body: JSON.stringify(reqBody(modelId, blocks, userText))
       });
       text = await res.text();
     } catch (err) {
       throw new HttpsError("unavailable", "Model call failed: " + err.message);
     }
     if (!res.ok) {
-      throw new HttpsError("internal", "Model " + res.status + ": " + text.slice(0, 300));
+      // The API's own message, verbatim — an unknown model id, a rejected
+      // parameter and an exhausted credit balance all used to look the same
+      // on screen.
+      let why = text.slice(0, 300);
+      try { const e = JSON.parse(text); if (e && e.error && e.error.message) why = e.error.message; } catch (e) {}
+      throw new HttpsError("internal", modelId + " \u2014 " + res.status + ": " + why);
     }
     let body;
     try { body = JSON.parse(text); } catch (e) { throw new HttpsError("internal", "Bad model response"); }
     const call = (body.content || []).find((b) => b.type === "tool_use" && b.name === "report_plan");
-    if (!call || !call.input) throw new HttpsError("internal", "Model returned no report");
+    if (!call || !call.input) {
+      // Asked rather than forced, a model can answer in prose instead. Say so
+      // plainly, with what it did say, instead of "no report".
+      const said = (body.content || []).filter((b) => b.type === "text")
+        .map((b) => b.text).join(" ").slice(0, 200);
+      throw new HttpsError("internal", modelId + " \u2014 " +
+        (said ? "answered in text instead of the report tool: " + said : "returned no report"));
+    }
 
     return {
       report: call.input,
