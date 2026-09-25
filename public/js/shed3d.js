@@ -689,6 +689,13 @@ var Shed3D = (function () {
     // taps as 3D points.
     var tool = 'orbit', pending = null;
     var marks = (opts.state && opts.state.marks) || { measures: [], pins: [] };
+    // 'free' measures the straight line between two points. 'x' | 'y' | 'z'
+    // measure ALONG one axis only: the second point is dropped onto the axis
+    // through the first, which is what a tape held against a building does.
+    // Without it every reading was a diagonal, and a diagonal between two
+    // corners tells you nothing about the span, the bay or the height.
+    var axisLock = (opts.state && opts.state.axisLock) || 'free';
+    var hover = null;
     // Rolling frame cost. If drawing consistently exceeds ~28 ms the device
     // cannot hold 30 fps, so shadows go first, then the ground texture,
     // then truss detail. Measured rather than guessed from the user agent.
@@ -1194,17 +1201,57 @@ var Shed3D = (function () {
     // quad; faces are subdivided small, so this is exact enough for a tape.
     // Snaps to the nearest projected vertex within 14 px, so corner-to-
     // corner and edge measurements come out clean without aiming.
-    function unproject(x, y) {
-      var best = null, bd = 14;
+    // How close the finger has to be, in CSS pixels. 14 was fixed, which on
+    // a phone at 3x is a third of the target it looks like.
+    function snapR() { return 14 * Math.min(2, Math.max(1, (window.devicePixelRatio || 1) * 0.75)); }
+
+    // Where a tap lands, in order of how much the answer can be trusted:
+    // a corner, the middle of an edge, a point on an edge, a point on a
+    // face, and finally the ground. Only corners used to snap, so measuring
+    // along a beam or to the middle of a bay meant aiming at a face and
+    // hoping — the reason a tape reading never quite matched the drawing.
+    function snapAt(x, y) {
+      var R = snapR(), best = null, bd = R;
+      function better(d, p, g, kind) { if (d < bd) { bd = d; best = { p: p.slice(), g: g, snap: kind }; } }
       for (var i = lastPolys.length-1; i >= 0; i--) {
         var it = lastPolys[i];
         if (it.fc.group === 'ground') continue;
-        for (var v = 0; v < it.pr.length; v++) {
-          var dd = Math.hypot(it.pr[v][0]-x, it.pr[v][1]-y);
-          if (dd < bd) { bd = dd; best = { p: it.fc.pts[v].slice(), g: it.fc.group, snap: true }; }
+        var pr = it.pr, pts = it.fc.pts, n = pr.length;
+        for (var v = 0; v < n; v++) better(Math.hypot(pr[v][0]-x, pr[v][1]-y), pts[v], it.fc.group, 'corner');
+      }
+      if (best) return best;
+      bd = R;
+      for (var j = lastPolys.length-1; j >= 0; j--) {
+        var jt = lastPolys[j], jpr = jt.pr, jpts = jt.fc.pts, jn = jpr.length;
+        for (var e2 = 0; e2 < jn; e2++) {
+          var a2 = jpr[e2], b2 = jpr[(e2+1) % jn], A3 = jpts[e2], B3 = jpts[(e2+1) % jn];
+          var mx2 = (a2[0]+b2[0])/2, my2 = (a2[1]+b2[1])/2;
+          better(Math.hypot(mx2-x, my2-y),
+                 [(A3[0]+B3[0])/2, (A3[1]+B3[1])/2, (A3[2]+B3[2])/2], jt.fc.group, 'midpoint');
         }
       }
       if (best) return best;
+      bd = R;
+      for (var k = lastPolys.length-1; k >= 0; k--) {
+        var kt = lastPolys[k], kpr = kt.pr, kpts = kt.fc.pts, kn = kpr.length;
+        for (var e3 = 0; e3 < kn; e3++) {
+          var a4 = kpr[e3], b4 = kpr[(e3+1) % kn];
+          var vx = b4[0]-a4[0], vy = b4[1]-a4[1], L2 = vx*vx + vy*vy;
+          if (L2 < 1e-9) continue;
+          var t2 = Math.max(0, Math.min(1, ((x-a4[0])*vx + (y-a4[1])*vy) / L2));
+          var px2 = a4[0] + vx*t2, py2 = a4[1] + vy*t2;
+          var A5 = kpts[e3], B5 = kpts[(e3+1) % kn];
+          better(Math.hypot(px2-x, py2-y),
+                 [A5[0] + (B5[0]-A5[0])*t2, A5[1] + (B5[1]-A5[1])*t2, A5[2] + (B5[2]-A5[2])*t2],
+                 kt.fc.group, 'edge');
+        }
+      }
+      if (best) return best;
+      return unproject(x, y);
+    }
+
+    function unproject(x, y) {
+      var best = null;
       for (var j = lastPolys.length-1; j >= 0; j--) {
         var jt = lastPolys[j];
         if (!inPoly([x, y], jt.pr)) continue;
@@ -1223,14 +1270,94 @@ var Shed3D = (function () {
                        (P0[2]*w0+P1[2]*w1+P2[2]*w2)/ws], g: jt.fc.group, snap: false };
         }
       }
-      // nothing hit: the ground plane
+      // The ground is skipped above so a tap through the slab reaches the
+      // steel; here, with nothing else under the finger, it IS the answer.
+      // Measuring a setback from a column to the edge of the slab used to be
+      // impossible: the tap simply did nothing.
+      for (var gq = lastPolys.length-1; gq >= 0; gq--) {
+        var gt = lastPolys[gq];
+        if (gt.fc.group !== 'ground' || !inPoly([x, y], gt.pr)) continue;
+        var gp = gt.pr, gpts = gt.fc.pts, gtr = gp.length === 4 ? [[0,1,2],[0,2,3]] : [[0,1,2]];
+        for (var gi = 0; gi < gtr.length; gi++) {
+          var ga = gp[gtr[gi][0]], gb = gp[gtr[gi][1]], gc = gp[gtr[gi][2]];
+          var gden = (gb[1]-gc[1])*(ga[0]-gc[0]) + (gc[0]-gb[0])*(ga[1]-gc[1]);
+          if (Math.abs(gden) < 1e-9) continue;
+          var m0 = ((gb[1]-gc[1])*(x-gc[0]) + (gc[0]-gb[0])*(y-gc[1])) / gden;
+          var m1 = ((gc[1]-ga[1])*(x-gc[0]) + (ga[0]-gc[0])*(y-gc[1])) / gden;
+          var m2 = 1 - m0 - m1;
+          if (m0 < -0.02 || m1 < -0.02 || m2 < -0.02) continue;
+          var u0 = m0/ga[2], u1 = m1/gb[2], u2 = m2/gc[2], us = u0+u1+u2;
+          var Q0 = gpts[gtr[gi][0]], Q1 = gpts[gtr[gi][1]], Q2 = gpts[gtr[gi][2]];
+          return { p: [(Q0[0]*u0+Q1[0]*u1+Q2[0]*u2)/us, (Q0[1]*u0+Q1[1]*u1+Q2[1]*u2)/us,
+                       (Q0[2]*u0+Q1[2]*u1+Q2[2]*u2)/us], g: 'ground', snap: 'ground' };
+        }
+      }
       return null;
     }
 
     function fmtM(d) { return (Math.round(d*100)/100).toFixed(2) + ' m'; }
 
+    // The axes as the person sees them, not as the array is indexed.
+    // This file draws; it does not speak. Labels arrive from the caller,
+    // which has the translation table. English names are a fallback, not UI.
+    var L = opts.labels || {};
+    var AXIS = { x: { i: 0, t: L.x || 'length' }, y: { i: 1, t: L.y || 'width' }, z: { i: 2, t: L.z || 'height' } };
+    function applyLock(a, b) {
+      if (axisLock === 'free' || !a) return b;
+      var q = a.slice(), i = AXIS[axisLock].i;
+      q[i] = b[i];
+      return q;
+    }
+    // Total, plus how much of it is length, width and height. A single
+    // number could not answer "how far across the span?" on its own.
+    function measureText(a, b) {
+      var dx = b[0]-a[0], dy = b[1]-a[1], dz = b[2]-a[2];
+      var d = Math.hypot(dx, dy, dz);
+      if (axisLock !== 'free') return fmtM(d) + ' \u00b7 ' + AXIS[axisLock].t;
+      var parts = [];
+      if (Math.abs(dx) > 0.005) parts.push(AXIS.x.t.charAt(0) + ' ' + fmtM(Math.abs(dx)));
+      if (Math.abs(dy) > 0.005) parts.push(AXIS.y.t.charAt(0) + ' ' + fmtM(Math.abs(dy)));
+      if (Math.abs(dz) > 0.005) parts.push(AXIS.z.t.charAt(0) + ' ' + fmtM(Math.abs(dz)));
+      return fmtM(d) + (parts.length > 1 ? '  (' + parts.join(' · ') + ')' : '');
+    }
+
+    // What the tap will take, drawn BEFORE it is taken: the point, what it
+    // snapped to, and — once the first point is down — the live reading.
+    // Without this the point is placed under a finger that hides it, and
+    // whether it caught the corner is only visible afterwards.
+    var SNAP_T = { corner: L.corner || 'corner', midpoint: L.midpoint || 'mid',
+                   edge: L.edge || 'edge', ground: L.ground || 'ground' };
+    function drawHover(P) {
+      if (!hover || tool === 'orbit') return;
+      var q = P(hover.p);
+      ctx.save();
+      ctx.strokeStyle = '#ffd166'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(q[0]-9, q[1]); ctx.lineTo(q[0]+9, q[1]);
+      ctx.moveTo(q[0], q[1]-9); ctx.lineTo(q[0], q[1]+9); ctx.stroke();
+      if (hover.snap && hover.snap !== true) {
+        ctx.beginPath(); ctx.arc(q[0], q[1], 5, 0, 6.29); ctx.stroke();
+      }
+      var lbl = SNAP_T[hover.snap] || '';
+      if (pending) lbl = measureText(pending.p, hover.p) + (lbl ? ' · ' + lbl : '');
+      if (lbl) {
+        ctx.font = '800 12px Heebo,Arial,sans-serif';
+        var tw = ctx.measureText(lbl).width + 12;
+        ctx.fillStyle = 'rgba(8,18,12,.92)'; ctx.strokeStyle = '#ffd166'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.rect(q[0] - tw/2, q[1] - 34, tw, 18); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#ffe9b0'; ctx.textAlign = 'center'; ctx.fillText(lbl, q[0], q[1] - 21);
+      }
+      if (pending) {
+        var a0 = P(pending.p);
+        ctx.setLineDash([5, 4]); ctx.strokeStyle = '#ffd166'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(a0[0], a0[1]); ctx.lineTo(q[0], q[1]); ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      ctx.restore();
+    }
+
     function drawMarks(P, w, h) {
       var ms = marks.measures || [], ps = marks.pins || [];
+      drawHover(P);
       if (!ms.length && !ps.length && !pending) return;
       ctx.save();
       ctx.lineCap = 'round';
@@ -1243,7 +1370,7 @@ var Shed3D = (function () {
           ctx.fillStyle = '#ff5c8a'; ctx.beginPath(); ctx.arc(q[0], q[1], 3.5, 0, 6.29); ctx.fill();
         });
         var mx = (a[0]+b[0])/2, my = (a[1]+b[1])/2;
-        var txt = fmtM(d) + (mk.text ? ' \u00b7 ' + mk.text : '');
+        var txt = measureText(mk.a, mk.b) + (mk.text ? ' \u00b7 ' + mk.text : '');
         ctx.font = '800 12px Heebo,Arial,sans-serif';
         var tw = ctx.measureText(txt).width + 12;
         ctx.fillStyle = 'rgba(8,18,12,.9)'; ctx.strokeStyle = '#ff5c8a'; ctx.lineWidth = 1;
@@ -1342,6 +1469,17 @@ var Shed3D = (function () {
         geo = build(m); drag = { x: e.clientX, y: e.clientY }; draw();
         return;
       }
+      if (!drag && tool !== 'orbit') {
+        var hr = cv.getBoundingClientRect();
+        var hx = e.clientX - hr.left, hy = e.clientY - hr.top;
+        var hp = snapAt(hx, hy);
+        if (hp && tool === 'measure' && pending) hp = { p: applyLock(pending.p, hp.p), g: hp.g, snap: hp.snap };
+        var changed = (!!hp) !== (!!hover) ||
+          (hp && hover && (hp.p[0] !== hover.p[0] || hp.p[1] !== hover.p[1] || hp.p[2] !== hover.p[2]));
+        hover = hp;
+        if (changed) draw();
+        return;
+      }
       if (pan) { cam.px += dx; cam.py += dy; }
       else {
         cam.yaw += dx*0.008;
@@ -1374,8 +1512,9 @@ var Shed3D = (function () {
           if (opts.onMark) opts.onMark(hitMark);
           return;
         }
-        var hit = unproject(cx2, cy2);
+        var hit = snapAt(cx2, cy2);
         if (!hit) return;
+        if (tool === 'measure' && pending) hit = { p: applyLock(pending.p, hit.p), g: hit.g, snap: hit.snap };
         if (tool === 'pin') {
           if (opts.onPoint) opts.onPoint({ kind: 'pin', p: hit.p, group: hit.g });
           return;
@@ -1410,6 +1549,8 @@ var Shed3D = (function () {
       setTool: function (t) { tool = (t === 'measure' || t === 'pin') ? t : 'orbit'; pending = null;
                               cv.style.cursor = tool === 'orbit' ? 'grab' : 'crosshair'; draw(); },
       getTool: function () { return tool; },
+      setAxis: function (a) { axisLock = (a === 'x' || a === 'y' || a === 'z') ? a : 'free'; draw(); },
+      getAxis: function () { return axisLock; },
       setMarks: function (mk) { marks = mk || { measures: [], pins: [] }; pending = null; draw(); },
       setView: function (y, p) { cam.yaw = y; cam.pitch = p; cam.px = 0; cam.py = 0; draw(); },
       setSun: function (az, el) { sunAz = az; sunEl = el; draw(); },
@@ -1433,7 +1574,8 @@ var Shed3D = (function () {
       getState: function () {
         return { cam: { yaw: cam.yaw, pitch: cam.pitch, zoom: cam.zoom, px: cam.px, py: cam.py },
                  hidden: hidden, sel: sel, sunAz: sunAz, sunEl: sunEl,
-                 groundImg: groundImg, groundExtent: groundExtent, marks: marks };
+                 groundImg: groundImg, groundExtent: groundExtent, marks: marks,
+                 axisLock: axisLock };
       },
       snapshot: function () { return cv.toDataURL('image/png'); },
       redraw: draw,

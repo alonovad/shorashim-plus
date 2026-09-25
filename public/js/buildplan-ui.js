@@ -992,6 +992,32 @@
       pins: mk.pins.map(function (m) { return { p: [m.p.x, m.p.y, m.p.z], text: m.text }; })
     };
   }
+  // Which axis the tape is held along. 'free' is the straight line between
+  // two points; the rest drop the second point onto that axis, so a reading
+  // is a span, a bay or a height rather than a diagonal that is none of them.
+  var _axis = 'free';
+  function axisBtn(a, label) {
+    return '<button class="bp-btn ' + (_axis === a ? 'on' : 'ghost') + '" ' +
+      'style="padding:5px 9px;font-size:.72rem;" onclick="BuildPlan.axis3d(\'' + a + '\')">' + label + '</button>';
+  }
+  BP.axisBar = function axisBar() {
+    return '<span id="bpAxis" style="display:inline-flex;gap:4px;margin-inline-start:8px;' +
+      (_tool === 'measure' ? '' : 'display:none;') + '">' +
+      axisBtn('free', BP.tt('חופשי', 'อิสระ', 'حر')) +
+      axisBtn('x', BP.tt('אורך', 'ยาว', 'طول')) +
+      axisBtn('y', BP.tt('רוחב', 'กว้าง', 'عرض')) +
+      axisBtn('z', BP.tt('גובה', 'สูง', 'ارتفاع')) + '</span>';
+  };
+  BP.axis3d = function axis3d(a) {
+    _axis = a;
+    if (BP._v3d && BP._v3d.setAxis) BP._v3d.setAxis(a);
+    var bar = document.getElementById('bpAxis');
+    if (bar) {
+      bar.querySelectorAll('button').forEach(function (b, i) {
+        b.className = 'bp-btn ' + (['free', 'x', 'y', 'z'][i] === a ? 'on' : 'ghost');
+      });
+    }
+  };
   BP.tool3d = function tool3d(t) {
     _tool = t;
     if (BP._v3d) BP._v3d.setTool(t);
@@ -1001,6 +1027,9 @@
         b.className = 'bp-btn ' + (['orbit', 'measure', 'pin'][i] === t ? 'on' : 'ghost');
       });
     }
+    // The axis choice only means anything with the tape in hand.
+    var ax = document.getElementById('bpAxis');
+    if (ax) ax.style.display = (t === 'measure') ? 'inline-flex' : 'none';
   };
   BP.markText = function markText(id, kind, i, v) {
     var p = BP.projById(id); if (!p || !p.marks) return;
@@ -1024,6 +1053,11 @@
     if (!host || typeof Shed3D === 'undefined') return;
     if (_v3dState) _v3dState.marks = marksFor(p);
     BP._v3d = Shed3D.mount(host, BP.model3d(p), {
+      labels: {
+        x: BP.tt('אורך', 'ยาว', 'طول'), y: BP.tt('רוחב', 'กว้าง', 'عرض'), z: BP.tt('גובה', 'สูง', 'ارتفاع'),
+        corner: BP.tt('פינה', 'มุม', 'زاوية'), midpoint: BP.tt('אמצע', 'กลาง', 'منتصف'),
+        edge: BP.tt('קו', 'เส้น', 'خط'), ground: BP.tt('קרקע', 'พื้น', 'أرض')
+      },
       state: _v3dState || { marks: marksFor(p) },
       labels: calloutLabels(p),
       onSelect: function (g) {
@@ -1059,6 +1093,7 @@
       }
     });
     BP._v3d.setTool(_tool);
+    if (BP._v3d.setAxis) BP._v3d.setAxis(_axis);
     _v3dFor = p.id;
     if (!_v3dState) BP._v3d.setSun(p.dims.sunAz*Math.PI/180, p.dims.sunEl*Math.PI/180);
 
@@ -1393,6 +1428,7 @@
           toolBtn('orbit', '\u270b ' + BP.tt('סיבוב', 'หมุน', 'تدوير')) +
           toolBtn('measure', '\ud83d\udccf ' + BP.tt('מד מטר', 'ตลับเมตร', 'شريط قياس')) +
           toolBtn('pin', '\ud83d\udccd ' + BP.tt('סימון', 'ปักหมุด', 'علامة')) +
+          BP.axisBar() +
           '<span style="font-size:.72rem;color:var(--text-muted,#888);">' +
             BP.tt('נצמד לפינות · לחיצה על תווית = מחיקה', 'สแนปมุม · แตะป้าย=ลบ', 'يلتقط الزوايا · نقر على البطاقة = حذف') + '</span>' +
         '</div>' +

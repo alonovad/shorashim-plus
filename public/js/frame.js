@@ -881,6 +881,10 @@ var Frame = (function () {
     var key = p.id + '/' + mid;
     if (_v3dFor !== key) _v3dState = null;
     _v3d = Shed3D.mount(host, model3d(m.frame, _hidden), {
+      labels: {
+        x: tt('אורך'), y: tt('רוחב'), z: tt('גובה'),
+        corner: tt('פינה'), midpoint: tt('אמצע'), edge: tt('קו'), ground: tt('קרקע')
+      },
       state: _v3dState,
       onSelect: function (g) { if (g && /^(col|beam|edge|purlin|knee|cable|foot):/.test(g)) selectOnly(g); else selectOnly(null); }
     });

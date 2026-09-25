@@ -807,6 +807,7 @@
     view3d: BP.view3d,
     resetView: BP.resetView,
     tool3d: BP.tool3d,
+    axis3d: BP.axis3d,
     markText: BP.markText,
     markDel: BP.markDel,
     freeAdd: BP.freeAdd,
