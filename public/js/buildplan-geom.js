@@ -112,7 +112,44 @@
   };
 
   // Returns [{name, qty, unit, kg, note}]
+  // A project built from drawings is priced from the drawing's own model,
+  // not from the sliders. The two describe different buildings: the slider
+  // model has one span, one height and one profile per role, and a real
+  // sheet has none of that. Until now the bill always came from the
+  // sliders, so a plan project quoted a building nobody had drawn.
+  //
+  // Same row shape as below (name / qty / unit / kg / note), so the quote,
+  // the totals and the ledger need no knowledge of where it came from.
+  function takeoffFromPlan(p) {
+    var out = [];
+    if (typeof Frame === 'undefined' || !Frame.takeoff) return out;
+    var w = 1 + ((p.dims && p.dims.waste || 0) / 100);
+    function push(name, qty, unit, note) {
+      if (!name || !(qty > 0)) return;
+      var pr = BP.profByName(name);
+      var kg = (pr && pr.kgPerM && unit === "מ'") ? qty * pr.kgPerM : 0;
+      out.push({ name: name, qty: qty, unit: unit, kg: kg, note: note || '' });
+    }
+    (p.models || []).forEach(function (m) {
+      if (!m || !m.frame) return;
+      var T = Frame.takeoff(m.frame);
+      var tag = m.name ? BP.tt('לפי', 'ตาม', 'حسب') + ' ' + m.name : '';
+      (T.rows || []).forEach(function (r) {
+        // Lengths are metres of that profile; a count with no length (a
+        // plate, a fitting) is priced by the piece.
+        if (r.len > 0) push(r.sec, r.len * w, "מ'", (r.n ? r.n + ' \u00d7 ' : '') + tag);
+        else if (r.n > 0) push(r.sec, r.n, "יח'", tag);
+      });
+      if (T.concrete > 0) push(BP.tt('בטון יסודות', 'คอนกรีตฐาน', 'خرسانة أساسات'),
+        T.concrete * w, 'מ"ק', (T.footings ? T.footings + ' ' + BP.tt('יסודות', 'ฐาน', 'أساسات') : '') + ' ' + tag);
+      if (T.blindArea > 0) push(BP.tt('בטון רזה', 'คอนกรีตหยาบ', 'خرسانة نظافة'),
+        T.blindArea, 'מ"ר', tag);
+    });
+    return out;
+  }
+
   BP.takeoff = function takeoff(p) {
+    if (p.source === 'plan') return takeoffFromPlan(p);
     var d = p.dims, out = [];
     var w = 1 + (d.waste / 100);
     var wantStruct = p.hasStruct !== false;
@@ -331,6 +368,79 @@
     });
     return out;
   }
+
+  // Does this bill of quantities make sense? Arithmetic can be right and the
+  // answer still absurd — a decimal point in a span, a footing depth read as
+  // centimetres, a profile the reader invented. These are the checks a
+  // person does by eye before sending a quote, written down.
+  BP.boqChecks = function boqChecks(p, rows) {
+    var w = [];
+    var area = 0;
+    if (p.source === 'plan') {
+      (p.models || []).forEach(function (m) {
+        var f = m && m.frame; if (!f || !f.x || !f.y || f.x.length < 2 || f.y.length < 2) return;
+        var xs = f.x.map(function (a) { return a.p; }), ys = f.y.map(function (a) { return a.p; });
+        area += (Math.max.apply(null, xs) - Math.min.apply(null, xs)) *
+                (Math.max.apply(null, ys) - Math.min.apply(null, ys));
+      });
+    } else if (p.dims) { area = (p.dims.span || 0) * (p.dims.length || 0); }
+
+    var kg = 0, priced = 0, unpriced = [];
+    rows.forEach(function (r) {
+      kg += r.kg || 0;
+      var pr = BP.profByName(r.name);
+      if (pr && pr.price > 0) priced++; else unpriced.push(r.name);
+    });
+
+    // A light steel shed runs roughly 10-40 kg of steel per square metre of
+    // footprint. Outside that, something was read wrong — most often a
+    // length in centimetres treated as metres, or the reverse.
+    if (area > 0 && kg > 0) {
+      var per = kg / area;
+      if (per < 6) w.push(BP.tt('משקל הפלדה נמוך מהמצופה', 'เหล็กน้อยผิดปกติ', 'الفولاذ أقل من المتوقع') +
+        ' \u2014 ' + BP.n1(per) + ' ' + BP.tt('ק"ג למ"ר', 'กก./ตร.ม.', 'كغ/م²') + ' (' +
+        BP.tt('מצופה 10-40', 'ปกติ 10-40', 'المتوقع 10-40') + ')');
+      else if (per > 60) w.push(BP.tt('משקל הפלדה גבוה מהמצופה', 'เหล็กมากผิดปกติ', 'الفولاذ أعلى من المتوقع') +
+        ' \u2014 ' + BP.n1(per) + ' ' + BP.tt('ק"ג למ"ר', 'กก./ตร.ม.', 'كغ/م²'));
+    }
+    if (unpriced.length) w.push(BP.tt('אין מחיר בקטלוג ל', 'ไม่มีราคาสำหรับ', 'لا يوجد سعر لـ') +
+      ': ' + unpriced.slice(0, 4).map(BP.dsp).join(', ') + (unpriced.length > 4 ? ' \u2026' : ''));
+    if (!rows.length) w.push(BP.tt('כתב הכמויות ריק', 'รายการว่าง', 'قائمة فارغة'));
+
+    // Footings and columns come from different parts of a drawing, so a
+    // mismatch means one of them was misread.
+    if (p.source === 'plan') {
+      (p.models || []).forEach(function (m) {
+        var f = m && m.frame; if (!f || typeof Frame === 'undefined' || !Frame.takeoff) return;
+        var T = Frame.takeoff(f);
+        var nCols = (f.x || []).length * (f.y || []).length;
+        if (T.footings && nCols && T.footings !== nCols) {
+          w.push(BP.tt('מספר היסודות שונה ממספר העמודים', 'จำนวนฐานไม่ตรงกับเสา', 'عدد الأساسات لا يطابق الأعمدة') +
+            ' \u2014 ' + T.footings + ' / ' + nCols);
+        }
+        if (f.foot && f.foot.w > 0 && (f.foot.w < 0.4 || f.foot.w > 4)) {
+          w.push(BP.tt('מידת יסוד חריגה', 'ขนาดฐานผิดปกติ', 'مقاس أساس غير معتاد') + ' \u2014 ' + BP.n1(f.foot.w) + ' m');
+        }
+      });
+    }
+    return w;
+  };
+
+  // Cheaper items in the catalogue of the same kind and a similar weight
+  // class. Not an engineering recommendation — a purchasing one: the section
+  // still has to be checked before it is swapped.
+  BP.altProfiles = function altProfiles(name, limit) {
+    var pr = BP.profByName(name);
+    if (!pr || !pr.kgPerM || !(pr.price > 0)) return [];
+    return (BP.C.profiles || []).filter(function (x) {
+      return x.group === pr.group && x.name !== pr.name && x.kgPerM && x.price > 0 &&
+        x.kgPerM >= pr.kgPerM * 0.95 && x.kgPerM <= pr.kgPerM * 1.25 && x.price < pr.price;
+    }).sort(function (a, b) { return a.price - b.price; }).slice(0, limit || 2)
+      .map(function (x) {
+        return { name: x.name, price: x.price, kgPerM: x.kgPerM,
+                 saveRatio: (pr.price - x.price) / pr.price };
+      });
+  };
 
   BP.takeoffTotals = function takeoffTotals(rows) {
     var cost = 0, kg = 0, unpriced = 0;

@@ -695,6 +695,18 @@ var Frame = (function () {
     return (p && isArr(p.models)) ? p.models.filter(function (m) { return m.id === mid; })[0] : null;
   }
   function save() { var B = BPI(); if (B.saveP) B.saveP(); }
+  // Measurements and pins are part of the model, not of the canvas: leaving
+  // the tab and coming back must not lose them.
+  function keepMarks() {
+    if (!_v3d || !_v3d.getState) return;
+    try {
+      var st = _v3d.getState();
+      _v3dState = st;
+      var p = proj(_pid), m = p && modelOf(p, _mid);
+      if (m && st.marks) { m.marks = st.marks; save(); }
+    } catch (e) {}
+  }
+
   function reopen() { var B = BPI(); if (B.open && _pid != null) B.open(_pid); }
 
   function srcChip(f, key) {
@@ -755,29 +767,41 @@ var Frame = (function () {
       return H.join('');
     }
 
-    H.push('<div class="fr-card"><div class="fr-row" style="justify-content:space-between;margin-bottom:6px">' +
-      '<div class="fr-h" style="margin:0">\ud83e\uddca ' + tt('מודל תלת-ממד') + '</div>' +
-      '<div class="fr-row">' + ROLES.map(function (r) {
+    H.push(foldCard('3d', '\ud83e\uddca ' + tt('מודל תלת-ממד'),
+      '<div id="fr-3d" class="fr-3d"></div>' +
+      '<div style="font-size:.76rem;opacity:.75;margin-top:4px">' + tt('לחיצה על אלמנט בתלת-ממד, במבט העל או בחתך — בוחרת אותו לעריכה.') + '</div>',
+      '<div class="fr-row">' +
+        [['orbit', '\u270b'], ['measure', '\ud83d\udccf'], ['pin', '\ud83d\udccd']].map(function (b) {
+          return '<button class="fr-tog' + (_frTool === b[0] ? '' : ' off') + '" style="text-decoration:none" ' +
+            'onclick="Frame.tool(\'' + b[0] + '\')">' + b[1] + '</button>';
+        }).join('') +
+        (_frTool === 'measure'
+          ? '<span style="margin-inline-start:6px">' +
+            [['free', tt('חופשי')], ['x', tt('אורך')], ['y', tt('רוחב')], ['z', tt('גובה')]].map(function (a) {
+              return '<button class="fr-tog' + (_frAxis === a[0] ? '' : ' off') + '" style="text-decoration:none" ' +
+                'onclick="Frame.axis3d(\'' + a[0] + '\')">' + a[1] + '</button>';
+            }).join('') + '</span>'
+          : '') +
+        '<span style="margin-inline-start:6px"></span>' +
+        ROLES.map(function (r) {
         return '<button class="fr-tog' + (_hidden[r] ? ' off' : '') + '" onclick="Frame.toggle(\'' + r + '\')">' +
           '<span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:' + ROLE_COLOR[r] + ';margin-inline-end:4px"></span>' + tt(ROLE_HE[r]) + '</button>';
-      }).join('') + '</div></div>' +
-      '<div id="fr-3d" class="fr-3d"></div>' +
-      '<div style="font-size:.76rem;opacity:.75;margin-top:4px">' + tt('לחיצה על אלמנט בתלת-ממד, במבט העל או בחתך — בוחרת אותו לעריכה.') + '</div></div>');
+      }).join('') + '</div>'));
 
     H.push('<div id="fr-insp">' + inspector(f) + '</div>');
 
     H.push('<div class="fr-grid2">' +
-      '<div class="fr-card"><div class="fr-h">' + tt('מבט על') + '</div><div id="fr-plan">' + planSvg(f, _sel) + '</div></div>' +
-      '<div class="fr-card"><div class="fr-row" style="justify-content:space-between"><div class="fr-h" style="margin:0">' + tt('חתך') + '</div>' +
+      foldCard('plan', tt('מבט על'), '<div id="fr-plan">' + planSvg(f, _sel) + '</div>') +
+      foldCard('sec', tt('חתך'), '<div id="fr-sec">' + sectionSvg(f, _sec, _sel) + '</div>',
         '<div class="fr-row">' + sorted(f.x).map(function (a) {
           return '<button class="fr-tog' + (a.n === _sec ? '' : ' off') + '" style="text-decoration:none" onclick="Frame.section(\'' + esc(a.n) + '\')">' + esc(a.n) + '</button>';
-        }).join('') + '</div></div><div id="fr-sec">' + sectionSvg(f, _sec, _sel) + '</div></div>' +
+        }).join('') + '</div>') +
       '</div>');
 
-    H.push('<div class="fr-card"><div class="fr-h">' + tt('פרמטרים של השלד') + '</div>' + params(f) + '</div>');
-    H.push('<div class="fr-card"><div class="fr-h">' + tt('כתב כמויות של המודל') + '</div>' + boqHtml(T) +
+    H.push(foldCard('params', tt('פרמטרים של השלד'), params(f)));
+    H.push(foldCard('boq', tt('כתב כמויות של המודל'), boqHtml(T) +
       '<div style="font-size:.76rem;opacity:.7;margin-top:6px">' +
-      tt('מחושב מהמודל הזה בלבד — לא נכנס לכתב הכמויות הראשי של הפרויקט.') + '</div></div>');
+      tt('מחושב מהמודל הזה בלבד — לא נכנס לכתב הכמויות הראשי של הפרויקט.') + '</div>'));
     if (f.ev.length) H.push('<div class="fr-card"><details><summary class="fr-h" style="cursor:pointer">' +
       tt('מה הקורא ראה בתוכנית') + ' (' + f.ev.length + ')</summary><div style="font-size:.8rem;line-height:1.6;margin-top:6px">' +
       f.ev.map(esc).join('<br>') + '</div></details></div>');
@@ -799,8 +823,71 @@ var Frame = (function () {
            list('y', f.y, tt('קווי עמודים (A, B, C…) — מיקום במטרים'));
   }
 
+  // A roof has one slope, not a height per column line. Typing each line
+  // separately is both tedious and how lines end up missing — R-1 came back
+  // with a height for one line out of three, and a model missing heights
+  // draws nothing. Give the height at one line and the fall across the
+  // span, and every other line follows from where it sits.
+  //
+  // Fall is entered the way a builder says it: centimetres of drop per metre
+  // across. 2 cm/m on a 14 m span is the 0.50 m that R-1 actually has.
+  function slopeUI(f) {
+    var Y = sorted(f.y);
+    if (Y.length < 2) return '';
+    var ref = Y[0], last = Y[Y.length - 1];
+    var span = last.p - ref.p;
+    var hRef = f.h[ref.n], hLast = f.h[last.n];
+    var fall = (hRef != null && hLast != null && span > 0)
+      ? r2((hRef - hLast) / span * 100) : '';
+    return '<div style="margin-top:8px"><b>' + tt('שיפוע הגג') + '</b>' +
+      '<div class="fr-row" style="align-items:flex-end">' +
+        '<label>' + tt('גובה בקו') + ' ' + esc(ref.n) +
+          ' <input class="fr-in s" id="fr-sl-h" type="number" step="0.01" value="' +
+          (hRef == null ? '' : hRef) + '"></label>' +
+        '<label>' + tt('ירידה (ס"מ למטר)') +
+          ' <input class="fr-in s" id="fr-sl-f" type="number" step="0.1" value="' + fall + '"></label>' +
+        '<button class="fr-btn" onclick="Frame.slope(' +
+          'document.getElementById(\'fr-sl-h\').value,' +
+          'document.getElementById(\'fr-sl-f\').value)">' + tt('החל על כל הקווים') + '</button>' +
+      '</div>' +
+      '<div style="font-size:.7rem;opacity:.7">' +
+        tt('לפי מרחק בין הקווים') + ' \u00b7 ' + esc(ref.n) + ' \u2192 ' + esc(last.n) +
+        ' = ' + r2(span) + ' m' + '</div></div>';
+  }
+
+  // Sections fold away and stay folded. The tab puts the 3D, the plan, the
+  // section, every parameter and the bill of quantities on one page at once,
+  // which is more than fits on a screen and more than anyone needs while
+  // working on one of them. The choice is remembered per device, so it does
+  // not have to be made again on every project.
+  // The tape lives here too, not only on the preset viewer. Measuring a
+  // structure read from a drawing is the case that needs it most: it is the
+  // only way to check the reader against the sheet.
+  var _frTool = 'orbit', _frAxis = 'free';
+  var FOLD_KEY = 'shorashim-frame-folds';
+  var _folds = null;
+  function foldState() {
+    if (_folds) return _folds;
+    try { _folds = JSON.parse(localStorage.getItem(FOLD_KEY) || '{}'); } catch (e) { _folds = {}; }
+    return _folds;
+  }
+  function foldOpen(k) { return foldState()[k] !== false; }   // open unless closed before
+  // head is whatever belongs on the title row (layer buttons, axis picker).
+  // It stays visible when the body is folded, so a folded section is still
+  // a control, not just a heading.
+  function foldCard(k, title, inner, head, cls) {
+    var open = foldOpen(k);
+    return '<div class="' + (cls || 'fr-card') + '">' +
+      '<div class="fr-row" style="justify-content:space-between;align-items:center;margin-bottom:' + (open ? '6px' : '0') + '">' +
+        '<div class="fr-h" style="margin:0;cursor:pointer;user-select:none" onclick="Frame.fold(\'' + k + '\')">' +
+          '<span style="display:inline-block;width:1em">' + (open ? '\u25be' : '\u25b8') + '</span>' + title + '</div>' +
+        (head || '') +
+      '</div>' +
+      '<div' + (open ? '' : ' style="display:none"') + '>' + inner + '</div></div>';
+  }
+
   function params(f) {
-    var H = [axesEditor(f)];
+    var H = [axesEditor(f), slopeUI(f)];
     H.push('<div style="margin-top:8px"><b>' + tt('גובה עמוד לכל קו (עליון, מטרים)') + '</b><div class="fr-row">' +
       sorted(f.y).map(function (a) {
         return '<label>' + esc(a.n) + ' <input class="fr-in s" type="number" step="0.01" value="' + (f.h[a.n] == null ? '' : f.h[a.n]) +
@@ -878,9 +965,15 @@ var Frame = (function () {
     _pid = p.id; _mid = mid;
     var host = document.getElementById('fr-3d'), m = modelOf(p, mid);
     if (!host || !m || typeof Shed3D === 'undefined') return;
+    // Folded away: building a renderer into a hidden box costs the work and
+    // produces a zero-size canvas. Unfolding re-renders and mounts properly.
+    if (!foldOpen('3d')) { _v3d = null; return; }
+    if (_v3dState && m.marks && !_v3dState.marks) _v3dState.marks = m.marks;
+    if (!_v3dState && m.marks) _v3dState = { marks: m.marks };
     var key = p.id + '/' + mid;
     if (_v3dFor !== key) _v3dState = null;
     _v3d = Shed3D.mount(host, model3d(m.frame, _hidden), {
+      tool: _frTool,
       labels: {
         x: tt('אורך'), y: tt('רוחב'), z: tt('גובה'),
         corner: tt('פינה'), midpoint: tt('אמצע'), edge: tt('קו'), ground: tt('קרקע')
@@ -1097,6 +1190,25 @@ var Frame = (function () {
     payloadFor: payloadFor, payloadFromFile: payloadFromFile, tilesFromBytes: tilesFromBytes,
 
     pick: function (id) { selectOnly(id); },
+    tool: function (t) {
+      _frTool = t;
+      if (_v3d) { _v3d.setTool(t); if (_v3d.setAxis) _v3d.setAxis(_frAxis); }
+      keepMarks();
+      reopen();
+    },
+    axis3d: function (a) {
+      _frAxis = a;
+      if (_v3d && _v3d.setAxis) _v3d.setAxis(a);
+      reopen();
+    },
+    fold: function (k) {
+      var st = foldState();
+      st[k] = !foldOpen(k);
+      try { localStorage.setItem(FOLD_KEY, JSON.stringify(st)); } catch (e) {}
+      // The canvas is about to be torn down and rebuilt; keep the camera.
+      if (_v3d) { try { _v3dState = _v3d.getState(); } catch (e) {} }
+      reopen();
+    },
     section: function (xn) { _sec = xn; selectOnly(_sel); var p = proj(_pid); if (p) reopen(); },
     toggle: function (r) {
       _hidden[r] = !_hidden[r];
@@ -1113,6 +1225,26 @@ var Frame = (function () {
         else if (key === 'braced') f.braced = String(v || '').split(/[,;\s]+/).filter(function (s) { return /^\S+-\S+$/.test(s); });
         else if (key === 'purlinSp' || key === 'braceDepth') f[key] = num(v);
         f.src[key] = 'user';
+      });
+    },
+    // One slope, every line. Heights are computed from the first line's
+    // height and the fall, by each line's own position — so an uneven grid
+    // (7 m then 7 m, or 4/6/4) comes out right without any arithmetic.
+    slope: function (h0, fallCmPerM) {
+      edit(function (f) {
+        var Y = sorted(f.y);
+        if (Y.length < 2) return;
+        // An empty box reads as zero, which would flatten every line to 0 m
+        // rather than do nothing. Blank means "not given", not "zero".
+        if (String(h0).trim() === '' || String(fallCmPerM).trim() === '') return;
+        var base = num(h0);
+        var fall = num(fallCmPerM);
+        if (base == null || fall == null) return;
+        var ref = Y[0].p;
+        Y.forEach(function (a) {
+          f.h[a.n] = r2(base - (a.p - ref) * fall / 100);
+          f.src['h.' + a.n] = 'user';
+        });
       });
     },
     axis: function (key, i, fld, v) {

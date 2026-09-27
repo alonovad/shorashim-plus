@@ -97,6 +97,11 @@
     var R = (typeof Rebar !== 'undefined') ? Rebar.norm : function (r) { return r || {}; };
     return {
       id: e.id || BP.uid(),
+      // Which document, and which entry in it, this came from. Matching on
+      // the name alone meant anything unnamed, or renamed by the reader
+      // between two readings, came in again as a second copy — the same
+      // footing three times, and a bill of quantities quietly overstated.
+      src: String(e.src || ''),
       kind: kind,
       name: String(e.name || ''),                       // the engineer's mark: י-1, ק-2 …
       count: Math.max(1, Math.min(200, Math.round(Number(e.count) || 1))),
@@ -1034,27 +1039,58 @@
   // replaces that element, anything else is appended. Sheet-level facts
   // fill empty header fields only — a value typed by hand is never
   // overwritten by a re-read.
-  function reportEl(e) {
+  function reportEl(e, docId, idx) {
     e = e || {};
     return normEl({
+      src: (docId != null && idx != null) ? (docId + '#' + idx) : (e.src || ''),
       kind: e.kind, name: e.name, count: e.count, w: e.w, l: e.l, h: e.h, below: e.below, area: e.area,
       topN: e.topN, botN: e.botN, starter: e.starter, plate: e.plate, blind: e.blind,
       rebar: e.rebar || {}, notes: [e.notes, e.source ? '(' + e.source + ')' : ''].filter(Boolean).join(' ')
     });
   }
+  // The same element, by provenance first and the engineer's mark second.
+  // Provenance survives the reader renaming something between two readings;
+  // the mark catches an element typed in by hand and then read from a sheet.
+  function sameEl(a, b) {
+    if (a.src && b.src && a.src === b.src) return true;
+    return !!(a.name && a.name === b.name);
+  }
+  // Ignoring id and provenance: has anything the project would price changed?
+  function elBody(e) {
+    var c = JSON.parse(JSON.stringify(e));
+    delete c.id; delete c.src;
+    return JSON.stringify(c);
+  }
+  // new | same | changed — what pressing insert would do to this proposal.
+  function proposalState(pl, el) {
+    for (var i = 0; i < pl.elements.length; i++) {
+      if (sameEl(el, pl.elements[i])) {
+        return elBody(el) === elBody(pl.elements[i]) ? 'same' : 'changed';
+      }
+    }
+    return 'new';
+  }
+  BP.planIns = { sameEl: sameEl, proposalState: proposalState };
+
   BP.planInsert = function planInsert(id, did) {
     var p = BP.projById(id), reg = _docs[id]; if (!p || !reg) return;
     var d = reg.docs.filter(function (x) { return x.id === did; })[0];
     if (!d || !d.report) return;
-    var pl = planOf(p), rep = d.report, added = 0, replaced = 0;
+    var pl = planOf(p), rep = d.report, added = 0, replaced = 0, same = 0;
     (rep.elements || []).forEach(function (e, j) {
       var cb = document.getElementById('bpPick_' + did + '_' + j);
       if (cb && !cb.checked) return;
-      var el = reportEl(e);
+      var el = reportEl(e, did, j);
       var hit = -1;
-      pl.elements.forEach(function (x, k) { if (el.name && x.name === el.name) hit = k; });
-      if (hit >= 0) { el.id = pl.elements[hit].id; pl.elements[hit] = el; replaced++; }
-      else { pl.elements.push(el); added++; }
+      pl.elements.forEach(function (x, k) { if (sameEl(el, x)) hit = k; });
+      if (hit >= 0) {
+        // Identical: leave it alone. Re-inserting an unchanged report used to
+        // rewrite every element and report them all as "updated".
+        if (elBody(el) === elBody(pl.elements[hit])) { same++; return; }
+        el.id = pl.elements[hit].id;
+        pl.elements[hit] = el;
+        replaced++;
+      } else { pl.elements.push(el); added++; }
     });
     var sh = rep.sheet || {};
     if (!pl.engineer && sh.engineer) pl.engineer = String(sh.engineer);
@@ -1064,7 +1100,10 @@
     pl.sel = Math.max(0, pl.elements.length - 1);
     p.plan = BP.normPlan(pl);
     BP.saveP();
-    BP.toast('\u2705 ' + BP.tt(added + ' נוספו, ' + replaced + ' עודכנו', 'เพิ่ม ' + added + ' อัปเดต ' + replaced, 'أُضيف ' + added + '، حُدّث ' + replaced));
+    BP.toast((added + replaced ? '\u2705 ' : '\u2139\ufe0f ') +
+      BP.tt(added + ' נוספו, ' + replaced + ' עודכנו' + (same ? ', ' + same + ' כבר היו' : ''),
+            'เพิ่ม ' + added + ' อัปเดต ' + replaced,
+            'أُضيف ' + added + '، حُدّث ' + replaced));
     repaint(id);
   };
   // The drawing drives the parametric model. Geometry maps directly;
@@ -1226,26 +1265,40 @@
                  st.basePlate ? BP.tt('פלטה', 'แผ่น', 'صفيحة') + ' ' + st.basePlate : '',
                  st.anchorBolts || ''].filter(Boolean).map(BP.esc).join(' \u00b7 ') + '</div>' +
               (st.notes ? '<div style="' + muted + 'margin-top:3px;">' + BP.esc(st.notes) + '</div>' : '') +
-              '<button class="bp-btn" style="margin-top:6px;" onclick="BuildPlan.planApply(' + id + ',\'' + d.id + '\')">\ud83c\udfd7 ' +
-                BP.tt('החל על המודל (שלד, יסודות, כתב כמויות)', 'ใช้กับโมเดล', 'طبّق على النموذج') + '</button>' +
+              // "החל על המודל" used to paste these numbers over the
+              // parametric shed's sliders — silently, lossily, and only for
+              // the handful of values a slider model can hold. A drawing
+              // with three column lines at different heights cannot survive
+              // that. The drawing's own model (the 🧊 tab) keeps all of it.
+              (p.source === 'plan' ? '' :
+                '<button class="bp-btn ghost" style="margin-top:6px;" onclick="BuildPlan.setSource(' + id + ',\'plan\')">\ud83d\udcd0 ' +
+                BP.tt('הפוך את הפרויקט לפרויקט לפי תוכניות', 'เปลี่ยนเป็นตามแบบ', 'حوّل إلى مشروع حسب المخططات') + '</button>') +
             '</div>';
           }
           var els = rep.elements || [];
           body += '<div class="bp-lbl">' + BP.tt('אלמנטים שנקראו — סמן מה להכניס לפרויקט', 'ชิ้นส่วนที่อ่านได้ เลือกเพื่อเพิ่ม', 'العناصر المقروءة — اختر ما يُدرج') + '</div>';
           if (!els.length) body += '<div style="font-size:.78rem;' + muted + '">' + BP.tt('לא זוהו אלמנטים קונסטרוקטיביים במסמך הזה.', 'ไม่พบชิ้นส่วน', 'لم تُرصد عناصر') + '</div>';
           els.forEach(function (e, j) {
-            var el = reportEl(e), r = el.rebar;
-            var exists = pl.elements.some(function (x) { return el.name && x.name === el.name; });
+            var el = reportEl(e, d.id, j), r = el.rebar;
+            var state = proposalState(pl, el);
             var conf = e.confidence === 'low' ? '\ud83d\udfe0' : e.confidence === 'medium' ? '\ud83d\udfe1' : '\ud83d\udfe2';
             var dims = el.kind === 'slab' ? el.area + ' m\u00b2 \u00d7 ' + el.h : el.kind === 'pier' ? '\u00d8' + el.w + ' \u00d7 ' + el.h : el.w + ' \u00d7 ' + el.l + ' \u00d7 ' + el.h;
             var spec = el.kind === 'slab' ? ((typeof Rebar !== 'undefined') ? Rebar.slabLabel(r) : '')
                      : isCage(el.kind) ? ((typeof Rebar !== 'undefined') ? Rebar.summaryLabel(r) : '')
                      : el.topN + '+' + el.botN + '\u00d8' + r.mainD + ' \u00b7 \u00d8' + r.stirD + '@' + r.stirSp;
             body += '<label style="display:flex;gap:8px;align-items:flex-start;font-size:.8rem;padding:5px 0;border-top:1px solid rgba(255,255,255,.05);cursor:pointer;">' +
-              '<input type="checkbox" id="bpPick_' + d.id + '_' + j + '"' + (e.confidence === 'low' ? '' : ' checked') + '>' +
+              // Nothing to do for one already in the project unchanged, so it
+              // starts unticked: pressing insert on a re-read changes nothing
+              // unless something actually changed.
+              '<input type="checkbox" id="bpPick_' + d.id + '_' + j + '"' +
+                ((state === 'same' || e.confidence === 'low') ? '' : ' checked') + '>' +
               '<div><b>' + ICON[el.kind] + ' ' + BP.esc(el.name || kindLabel(el.kind)) + '</b>' + (el.count > 1 ? ' \u00d7' + el.count : '') +
                 ' <span style="' + muted + '">' + kindLabel(el.kind) + '</span> ' + conf +
-                (exists ? ' <span style="font-size:.68rem;padding:1px 6px;border-radius:8px;background:rgba(255,159,67,.2);">' + BP.tt('יחליף קיים', 'แทนที่', 'سيستبدل') + '</span>' : '') +
+                (state === 'same'
+                  ? ' <span style="font-size:.68rem;padding:1px 6px;border-radius:8px;background:rgba(65,196,127,.18);">' + BP.tt('כבר בפרויקט', 'มีอยู่แล้ว', 'موجود') + '</span>'
+                  : state === 'changed'
+                  ? ' <span style="font-size:.68rem;padding:1px 6px;border-radius:8px;background:rgba(255,159,67,.2);">' + BP.tt('יעודכן', 'อัปเดต', 'سيُحدّث') + '</span>'
+                  : ' <span style="font-size:.68rem;padding:1px 6px;border-radius:8px;background:rgba(77,163,255,.18);">' + BP.tt('חדש', 'ใหม่', 'جديد') + '</span>') +
                 '<div dir="ltr" style="text-align:left;">' + dims + ' m \u00b7 ' + BP.esc(spec) + '</div>' +
                 (e.notes ? '<div style="' + muted + '">' + BP.esc(e.notes) + '</div>' : '') +
               '</div></label>';

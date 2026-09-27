@@ -687,7 +687,9 @@ var Shed3D = (function () {
     // owned by whoever mounted the viewer (kept with the project) and
     // handed in through setMarks(); the viewer only draws them and reports
     // taps as 3D points.
-    var tool = 'orbit', pending = null;
+    // The caller may open straight into a tool; a toolbar that shows the
+    // tape selected while the viewer is orbiting is worse than no toolbar.
+    var tool = opts.tool || 'orbit', pending = null;
     var marks = (opts.state && opts.state.marks) || { measures: [], pins: [] };
     // 'free' measures the straight line between two points. 'x' | 'y' | 'z'
     // measure ALONG one axis only: the second point is dropped onto the axis

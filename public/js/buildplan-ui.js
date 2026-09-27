@@ -361,11 +361,15 @@
     // when the project contains no structure and no slab to design.
     // Components are added from the dropdown in the header instead, which
     // is also where a shed gets switched back on.
-    var hasModel = (p.hasStruct !== false) || (p.hasSlab !== false) || p.type === 'slab';
-    var tabList = ['design', 'gates', 'living', 'sketch', 'plan', 'materials', 'ledger', 'site'];
+    // A project built from drawings has no sliders to show: the structure
+    // lives in the plan's model, and the design tab would offer a second,
+    // contradictory version of the same building.
+    var fromPlan = p.source === 'plan';
+    var hasModel = !fromPlan && ((p.hasStruct !== false) || (p.hasSlab !== false) || p.type === 'slab');
+    var tabList = ['design', 'gates', 'living', 'plan', 'materials', 'ledger', 'site'];
     if (!hasModel) {
       tabList = tabList.filter(function (t) { return t !== 'design'; });
-      if (BP._tab === 'design') BP._tab = (p.gates || []).length ? 'gates' : 'materials';
+      if (BP._tab === 'design') BP._tab = fromPlan ? 'plan' : ((p.gates || []).length ? 'gates' : 'materials');
     }
     var tabs = tabList.map(function (t) {
       var lbl = t === 'design' ? '\ud83c\udfd7 ' + BP.tt('סככה / שלד', 'โครงสร้าง', 'الهيكل')
@@ -373,7 +377,6 @@
                   ((p.gates || []).length ? ' (' + p.gates.length + ')' : '')
               : t === 'living' ? '\ud83c\udfe0 ' + BP.tt('מגורים', 'ที่พัก', 'سكن') +
                   ((p.living && p.living.people) ? ' (' + p.living.people + ')' : '')
-              : t === 'sketch' ? '\u270f\ufe0f ' + BP.tt('שרטוט חופשי', 'วาดอิสระ', 'رسم حر')
               : t === 'plan' ? '\ud83d\udcd0 ' + BP.tt('תוכנית קונסטרוקטור', 'แบบวิศวกร', 'مخطط المهندس') +
                   ((p.plan && p.plan.elements && p.plan.elements.length) ? ' (' + p.plan.elements.length + ')' : '')
               : t === 'materials' ? '\ud83e\uddfe ' + BP.tt('כתב כמויות', 'รายการวัสดุ', 'الكميات')
@@ -399,7 +402,9 @@
     var comps = '<div class="bp-card">' +
       '<div class="bp-lbl" style="margin-bottom:6px;">' +
         BP.tt('מה כולל הפרויקט', 'โครงการนี้ประกอบด้วย', 'مكوّنات المشروع') + '</div>' +
-      '<div style="display:flex;gap:14px;flex-wrap:wrap;font-size:.84rem;">' +
+      BP.srcPick(p) +
+      '<div style="display:flex;gap:14px;flex-wrap:wrap;font-size:.84rem;' +
+        (p.source === 'plan' ? 'opacity:.5;pointer-events:none;' : '') + '">' +
         '<label style="display:inline-flex;gap:6px;align-items:center;">' +
           '<input type="checkbox"' + (p.hasStruct !== false ? ' checked' : '') +
           ' onchange="BuildPlan._comp(' + id + ',\'hasStruct\',this.checked)"> \ud83c\udfd7 ' +
@@ -452,7 +457,6 @@
     if (BP._tab === 'design')      body += designTab(p);
     else if (BP._tab === 'gates')  body += gatesTab(p);
     else if (BP._tab === 'living') body += livingTab(p);
-    else if (BP._tab === 'sketch') body += sketchTab(p);
     else if (BP._tab === 'plan')   body += (BP.planTab ? BP.planTab(p) : '');
     else if (String(BP._tab).indexOf('m:') === 0 && typeof Frame !== 'undefined')
       body += Frame.tab(p, String(BP._tab).slice(2));
@@ -479,7 +483,6 @@
       BP.esc(p.name || BP.typeLabel(p.type)), bar, body));
     if (BP._tab === 'site') BP.linkPanel(p);
     if (BP._tab === 'gates') mountGates(p);
-    if (BP._tab === 'sketch') mountSketch(p);
     if (BP._tab === 'plan' && BP.planMount) BP.planMount(p);
     if (String(BP._tab).indexOf('m:') === 0 && typeof Frame !== 'undefined') Frame.mount(p, String(BP._tab).slice(2));
     if (BP._tab === 'design') {
@@ -1017,6 +1020,29 @@
         b.className = 'bp-btn ' + (['free', 'x', 'y', 'z'][i] === a ? 'on' : 'ghost');
       });
     }
+  };
+  // Ready-made model, or built from drawings. Switching only changes which
+  // of the two the module shows and prices; neither is deleted, so a project
+  // can be switched back without losing anything.
+  BP.srcPick = function srcPick(p) {
+    function b(v, label, hint) {
+      return '<button class="bp-btn ' + (p.source === v ? 'on' : 'ghost') + '" ' +
+        'style="padding:5px 10px;font-size:.74rem;" title="' + BP.esc(hint) + '" ' +
+        'onclick="BuildPlan.setSource(' + p.id + ',\'' + v + '\')">' + label + '</button>';
+    }
+    return '<div class="bp-row" style="gap:6px;align-items:center;margin-top:6px;">' +
+      '<span style="font-size:.72rem;opacity:.75;">' + BP.tt('סוג הפרויקט', 'ประเภท', 'نوع المشروع') + '</span>' +
+      b('preset', '\ud83c\udfd7 ' + BP.tt('מודל מוכן', 'โมเดลสำเร็จ', 'نموذج جاهز'),
+        BP.tt('סככה פרמטרית — מוגדרת בעזרת מחוונים', '', '')) +
+      b('plan', '\ud83d\udcd0 ' + BP.tt('לפי תוכניות', 'ตามแบบ', 'حسب المخططات'),
+        BP.tt('השלד נקרא מתוכנית הקונסטרוקטור', '', '')) + '</div>';
+  };
+  BP.setSource = function setSource(id, v) {
+    var p = BP.projById(id); if (!p) return;
+    p.source = (v === 'plan') ? 'plan' : 'preset';
+    if (p.source === 'plan' && String(BP._tab).indexOf('m:') !== 0) BP._tab = 'plan';
+    BP.saveP();
+    BP.open(id);
   };
   BP.tool3d = function tool3d(t) {
     _tool = t;
@@ -1781,154 +1807,6 @@
   // The parametric model covers rectangular portal frames. Everything else
   // an orchard actually builds — an L-shaped canopy, a bund wall, a ramp
   // with a turn — needs a drawing surface, and this is it.
-  function sketchTab(p) {
-    var b = function (tool, icon, he, th, ar) {
-      return '<button class="bp-btn ghost" id="skT_' + tool + '" ' +
-        'style="padding:7px 11px;font-size:.78rem;" onclick="BuildPlan.skTool(\'' + tool + '\')">' +
-        icon + ' ' + BP.tt(he, th, ar) + '</button>';
-    };
-    return '<div class="bp-split">' +
-      '<div class="bp-stick">' +
-        '<div class="bp-card">' +
-          '<div id="bpSketch" style="height:min(52vh,480px);border-radius:12px;overflow:hidden;' +
-            'background:#f4f6f4;"></div>' +
-          '<div style="font-size:.72rem;color:var(--text-muted,#888);margin-top:6px;">' +
-            BP.tt('גרירה = הזזה \u00b7 גלגלת = זום \u00b7 לחיצה כפולה = סיום קו שבור \u00b7 הצמדה לקודקודים ולרשת',
-               'ลาก=เลื่อน ล้อ=ซูม ดับเบิลคลิก=จบเส้น',
-               'سحب=تحريك \u00b7 عجلة=تكبير \u00b7 نقر مزدوج=إنهاء') + '</div>' +
-        '</div>' +
-        '<div class="bp-card"><div class="bp-lbl">' +
-          BP.tt('נתוני השרטוט', 'ข้อมูลแบบ', 'بيانات الرسم') + '</div>' +
-          '<div id="bpSkInfo"></div></div>' +
-      '</div>' +
-      '<div class="bp-pane">' +
-        '<details class="bp-acc" open><summary>' + BP.tt('כלים', 'เครื่องมือ', 'أدوات') + '</summary><div>' +
-          '<div style="display:flex;gap:5px;flex-wrap:wrap;">' +
-            b('select', '\u2196', 'בחירה', 'เลือก', 'تحديد') +
-            b('line',   '\u2571', 'קו', 'เส้น', 'خط') +
-            b('poly',   '\u2b20', 'קו שבור', 'เส้นหลายจุด', 'خط متعدد') +
-            b('rect',   '\u25ad', 'מלבן', 'สี่เหลี่ยม', 'مستطيل') +
-            b('circle', '\u25cb', 'עיגול', 'วงกลม', 'دائرة') +
-            b('pan',    '\u270b', 'הזזה', 'เลื่อน', 'تحريك') +
-          '</div>' +
-          '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:8px;">' +
-            '<label style="display:inline-flex;gap:5px;align-items:center;font-size:.78rem;">' +
-              '<input type="checkbox" onchange="BuildPlan.skOrtho(this.checked)"> ' +
-              BP.tt('ישר בלבד', 'ตั้งฉาก', 'عمودي فقط') + '</label>' +
-          '</div>' +
-          '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:8px;">' +
-            '<button class="bp-btn ghost" style="padding:6px 10px;font-size:.75rem;" ' +
-              'onclick="BuildPlan.skUndo()">\u21b6 ' + BP.tt('בטל', 'เลิกทำ', 'تراجع') + '</button>' +
-            '<button class="bp-btn ghost" style="padding:6px 10px;font-size:.75rem;" ' +
-              'onclick="BuildPlan.skRedo()">\u21b7 ' + BP.tt('בצע שוב', 'ทำซ้ำ', 'إعادة') + '</button>' +
-            '<button class="bp-btn ghost" style="padding:6px 10px;font-size:.75rem;" ' +
-              'onclick="BuildPlan.skFit()">\u2922 ' + BP.tt('התאם', 'พอดี', 'ملاءمة') + '</button>' +
-            '<button class="bp-btn warn" style="padding:6px 10px;font-size:.75rem;" ' +
-              'onclick="BuildPlan.skDel()">\ud83d\uddd1 ' + BP.tt('מחק נבחר', 'ลบ', 'حذف') + '</button>' +
-          '</div>' +
-        '</div></details>' +
-        '<details class="bp-acc" open><summary>' +
-          BP.tt('מידות מדויקות', 'ขนาดที่แน่นอน', 'أبعاد دقيقة') + '</summary>' +
-          '<div id="bpSkEdit"><div class="bp-empty" style="font-size:.8rem;">' +
-            BP.tt('בחר צורה כדי לערוך את המידות שלה', 'เลือกรูปเพื่อแก้ไข', 'اختر شكلاً لتحرير أبعاده') +
-          '</div></div></details>' +
-        '<details class="bp-acc"><summary>' + BP.tt('שינוי גודל', 'ปรับขนาด', 'تغيير الحجم') + '</summary><div>' +
-          '<div style="display:flex;gap:5px;flex-wrap:wrap;">' +
-            '<button class="bp-btn ghost" style="padding:6px 10px;font-size:.75rem;" onclick="BuildPlan.skScale(0.5)">\u00d70.5</button>' +
-            '<button class="bp-btn ghost" style="padding:6px 10px;font-size:.75rem;" onclick="BuildPlan.skScale(0.9)">\u00d70.9</button>' +
-            '<button class="bp-btn ghost" style="padding:6px 10px;font-size:.75rem;" onclick="BuildPlan.skScale(1.1)">\u00d71.1</button>' +
-            '<button class="bp-btn ghost" style="padding:6px 10px;font-size:.75rem;" onclick="BuildPlan.skScale(2)">\u00d72</button>' +
-            '<button class="bp-btn ghost" style="padding:6px 10px;font-size:.75rem;" onclick="BuildPlan.skRotate(-15)">\u21ba15\u00b0</button>' +
-            '<button class="bp-btn ghost" style="padding:6px 10px;font-size:.75rem;" onclick="BuildPlan.skRotate(15)">\u21bb15\u00b0</button>' +
-          '</div></div></details>' +
-      '</div></div>';
-  }
-
-  function mountSketch(p) {
-    var host = document.getElementById('bpSketch');
-    if (!host || typeof Sketch === 'undefined') return;
-    Sketch.mount(host, p.sketch, {
-      onChange: function (model, sum) {
-        p.sketch = model;
-        skInfo(sum);
-        skEdit();
-        if (_skSave) clearTimeout(_skSave);
-        _skSave = setTimeout(function () { BP.saveP(); }, 800);
-      }
-    });
-    BP.skTool('select');
-  }
-  var _skSave = null;
-
-  function skInfo(sum) {
-    var el = document.getElementById('bpSkInfo');
-    if (!el || !sum) return;
-    el.innerHTML =
-      '<div class="bp-read"><span>' + BP.tt('צורות', 'รูปทรง', 'أشكال') + '</span><b>' + sum.shapes + '</b></div>' +
-      '<div class="bp-read"><span>' + BP.tt('שטח כולל', 'พื้นที่รวม', 'المساحة') + '</span><b>' +
-        BP.n1(sum.area) + ' \u05de"\u05e8</b></div>' +
-      '<div class="bp-read"><span>' + BP.tt('אורך קווים', 'ความยาวรวม', 'الطول') + '</span><b>' +
-        BP.n1(sum.perim) + ' m</b></div>';
-  }
-
-  // The numeric side of the sketcher: every segment of the selected shape
-  // gets a length and a bearing you can type into.
-  function skEdit() {
-    var el = document.getElementById('bpSkEdit');
-    if (!el || typeof Sketch === 'undefined') return;
-    var sel = Sketch.selection();
-    if (!sel) {
-      el.innerHTML = '<div class="bp-empty" style="font-size:.8rem;">' +
-        BP.tt('בחר צורה כדי לערוך את המידות שלה', 'เลือกรูปเพื่อแก้ไข', 'اختر شكلاً لتحرير أبعاده') + '</div>';
-      return;
-    }
-    var h = '<div style="padding:0 2px;">';
-    if (sel.kind === 'circle') {
-      h += '<div class="bp-lbl">' + BP.tt('רדיוס (מ\')', 'รัศมี', 'نصف القطر') + '</div>' +
-        '<input class="bp-in" type="number" step="0.05" value="' + BP.n2(sel.r) + '" ' +
-          'onchange="BuildPlan.skRadius(this.value)">';
-    } else {
-      sel.segs.forEach(function (sg) {
-        h += '<div style="display:flex;gap:5px;align-items:center;margin-bottom:5px;">' +
-          '<span style="font-size:.72rem;color:var(--text-muted,#888);width:26px;">' + (sg.i+1) + '</span>' +
-          '<input class="bp-in" type="number" step="0.05" value="' + BP.n2(sg.len) + '" ' +
-            'style="flex:1;" onchange="BuildPlan.skSeg(' + sg.i + ',this.value,null)">' +
-          '<span style="font-size:.72rem;color:var(--text-muted,#888);">m</span>' +
-          '<input class="bp-in" type="number" step="1" value="' + Math.round(sg.ang) + '" ' +
-            'style="width:70px;" onchange="BuildPlan.skSeg(' + sg.i + ',null,this.value)">' +
-          '<span style="font-size:.72rem;color:var(--text-muted,#888);">\u00b0</span>' +
-        '</div>';
-      });
-    }
-    h += '<div class="bp-read" style="margin-top:6px;"><span>' + BP.tt('שטח', 'พื้นที่', 'مساحة') +
-      '</span><b>' + BP.n1(sel.area) + ' \u05de"\u05e8</b></div>' +
-      '<div class="bp-read"><span>' + BP.tt('היקף', 'เส้นรอบรูป', 'محيط') + '</span><b>' +
-      BP.n1(sel.perim) + ' m</b></div></div>';
-    el.innerHTML = h;
-  }
-
-  BP.skTool = function skTool(t) {
-    if (typeof Sketch === 'undefined') return;
-    Sketch.setTool(t);
-    ['select','line','poly','rect','circle','pan'].forEach(function (k) {
-      var b2 = document.getElementById('skT_' + k);
-      if (b2) b2.className = 'bp-btn ' + (k === t ? '' : 'ghost');
-    });
-  };
-  BP.skOrtho = function skOrtho(v) { if (typeof Sketch !== 'undefined') Sketch.setOrtho(v); };
-  BP.skUndo = function skUndo()  { if (typeof Sketch !== 'undefined') { Sketch.undo(); skEdit(); } };
-  BP.skRedo = function skRedo()  { if (typeof Sketch !== 'undefined') { Sketch.redo(); skEdit(); } };
-  BP.skFit = function skFit()   { if (typeof Sketch !== 'undefined') Sketch.fit(); };
-  BP.skDel = function skDel()   { if (typeof Sketch !== 'undefined') { Sketch.del(); skEdit(); } };
-  BP.skScale = function skScale(f){ if (typeof Sketch !== 'undefined') { Sketch.scaleSel(f); skEdit(); } };
-  BP.skRotate = function skRotate(d){ if (typeof Sketch !== 'undefined') { Sketch.rotateSel(d); skEdit(); } };
-  BP.skSeg = function skSeg(i, l, a) {
-    if (typeof Sketch === 'undefined') return;
-    Sketch.setSegment(i, l === null ? null : Number(l), a === null ? null : Number(a));
-    skEdit();
-  };
-  BP.skRadius = function skRadius(r) { if (typeof Sketch !== 'undefined') { Sketch.setCircle(Number(r)); skEdit(); } };
-
   // ── gates ────────────────────────────────────────────────────────────
   function gatesTab(p) {
     var id = p.id;
@@ -2275,7 +2153,15 @@
   };
 
   function matTab(p, rows, tot) {
-    var h = '<div class="bp-card">';
+    var h = '';
+    var warn = BP.boqChecks ? BP.boqChecks(p, rows) : [];
+    if (warn.length) {
+      h += '<div class="bp-card" style="border-inline-start:3px solid var(--warn,#e0a030);">' +
+        '<b>\u26a0\ufe0f ' + BP.tt('בדיקת סבירות', 'ตรวจความสมเหตุสมผล', 'فحص المعقولية') + '</b>' +
+        '<div style="font-size:.8rem;line-height:1.7;margin-top:4px">' +
+        warn.map(function (x) { return BP.esc(x); }).join('<br>') + '</div></div>';
+    }
+    h += '<div class="bp-card">';
     rows.forEach(function (r) {
       var pr = BP.profByName(r.name);
       h += '<div class="bp-tot"><span>' + BP.esc(BP.dsp(r.name)) +
@@ -2284,6 +2170,17 @@
         '<span style="white-space:nowrap;text-align:end;">' + BP.n1(r.qty) + ' ' + BP.esc(r.unit) +
         (r.kg ? '<br><span style="font-size:.7rem;color:var(--text-muted,#888);">' +
           BP.n1(r.kg) + ' kg</span>' : '') +
+        // Cheaper items of the same kind and weight class. A purchasing
+        // suggestion, not an engineering one — hence the wording.
+        (function () {
+          var alt = BP.altProfiles ? BP.altProfiles(r.name, 2) : [];
+          if (!alt.length) return '';
+          return '<br><span style="font-size:.68rem;color:var(--text-muted,#888);">\u21c4 ' +
+            BP.tt('חלופה', 'ทางเลือก', 'بديل') + ': ' +
+            alt.map(function (a) {
+              return BP.esc(BP.dsp(a.name)) + ' (\u2212' + Math.round(a.saveRatio * 100) + '%)';
+            }).join(', ') + '</span>';
+        })() +
         (pr && pr.price ? '<br><span style="font-size:.72rem;">' + BP.money(r.qty * pr.price) +
           '</span>' : '') + '</span></div>';
     });

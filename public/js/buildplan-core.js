@@ -592,6 +592,15 @@ window.BuildPlanInternals = BuildPlanInternals;
       // concrete nobody asked for.
       // Default true so every existing project is unchanged; a new project
       // created from the gate or living tab turns it off.
+      // Where this project's structure comes from. 'preset' is the
+      // parametric shed — one span, one pitch, one profile per role, driven
+      // by the sliders. 'plan' is a structure read from an engineer's
+      // drawing, which the preset cannot express: R-1 alone has three column
+      // lines at different heights, corner columns in a heavier section and
+      // edge beams unlike the main beams.
+      //
+      // Old projects are 'preset', which is what they have always been.
+      source: x.source === 'plan' ? 'plan' : 'preset',
       hasStruct: x.hasStruct === false ? false : true,
       hasSlab: x.hasSlab === false ? false : true,
       client: String(x.client || ''),
