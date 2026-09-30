@@ -819,3 +819,145 @@ exports.planExtract = onCall(
     };
   }
 );
+
+// ── plotDetect ─────────────────────────────────────────────────────────
+// Reads a farm image (satellite screenshot, drawn map, hand sketch) and
+// returns candidate plot outlines in IMAGE PIXELS. It knows nothing about
+// geography: plotimport.js aligns the image on the map and projects the
+// pixels itself, so the model is only ever asked what it can see.
+//
+// The image arrives inline, downscaled in the browser (long side <= 1568 px,
+// which is what the vision models read at native resolution), so nothing is
+// written to Storage. Called only on an explicit press; the browser caches
+// the answer per image, so re-opening the same screenshot costs nothing.
+const PLOT_TOOL = {
+  name: "report_plots",
+  description: "Report every agricultural plot visible in the image as a polygon in image pixel coordinates.",
+  input_schema: {
+    type: "object",
+    properties: {
+      imageKind: { type: "string", enum: ["satellite", "map", "sketch", "photo", "other"] },
+      plots: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            label: { type: "string", description: "Name or number written on or inside the plot, verbatim. Empty string if none." },
+            points: {
+              type: "array",
+              description: "Outer boundary vertices as [x, y] in PIXELS of the image exactly as sent: origin top-left, x to the right, y downward. In order around the boundary, 4 to 40 points, on the real corners. Do not repeat the first point at the end.",
+              items: { type: "array", items: { type: "number" }, minItems: 2, maxItems: 2 }
+            },
+            confidence: { type: "string", enum: ["high", "medium", "low"] },
+            note: { type: "string", description: "Short Hebrew note, only if something about this outline is uncertain." }
+          },
+          required: ["points", "confidence"]
+        }
+      },
+      notes: { type: "string", description: "Short Hebrew remark about the image as a whole, if needed." }
+    },
+    required: ["plots"]
+  }
+};
+
+const PLOT_SYSTEM = [
+  "You map agricultural plots for a farm-management app (date palm orchards, orchards, fields, greenhouses).",
+  "A plot is one contiguous cultivated block. Its edges are roads, dirt tracks, fences, windbreaks, ditches, drawn lines, or a clear change of crop, colour or texture.",
+  "Satellite image: trace each planted block along the outer line of its trees or crop. Two blocks separated by a track are two plots.",
+  "Drawn map or sketch: trace the drawn outlines; read any name or number written in each.",
+  "Do not report roads, buildings, reservoirs, yards or bare land unless the user's hint asks for them.",
+  "Coordinates are pixels of the image exactly as sent; its width and height are given. Put vertices on the real corners; fewer accurate vertices beat many vague ones.",
+  "Never invent a plot you cannot see. An empty list is a correct answer for an image without plots.",
+  "Answer only through the report_plots tool."
+].join(" ");
+
+exports.plotDetect = onCall(
+  { region: "us-central1", secrets: [ANTHROPIC_API_KEY], memory: "512MiB", timeoutSeconds: 180, maxInstances: 3 },
+  async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Sign in required");
+    const tok = request.auth.token || {};
+    const fb = tok.firebase || {};
+    if (fb.sign_in_provider === "phone") throw new HttpsError("permission-denied", "Not for recovery sessions");
+    // Same tier that may write plots (plotMapperSprayData is operator+ in
+    // firestore.rules). Every account carries a role claim now.
+    if (!["admin", "operator"].includes(tok.role)) {
+      throw new HttpsError("permission-denied", "Operator or admin required");
+    }
+
+    const { image, width, height, model, hint } = request.data || {};
+    const W = Math.round(Number(width)), H = Math.round(Number(height));
+    if (!(W >= 32 && W <= 4000 && H >= 32 && H <= 4000)) throw new HttpsError("invalid-argument", "Bad image size");
+    if (typeof image !== "string" || !image || image.length > 3 * 1024 * 1024 ||
+        !/^[A-Za-z0-9+/=]+$/.test(image.slice(0, 200))) {
+      throw new HttpsError("invalid-argument", "Bad image");
+    }
+    const allowed = ["haiku", "sonnet-5", "opus", "opus-5.5"];
+    const key = allowed.includes(model) ? model : "sonnet-5";
+    const modelId = PLAN_MODELS[key];
+    const soft = /^claude-(opus-5-5|fable-|mythos-)/.test(modelId);
+
+    const userText = "Image size: " + W + " x " + H + " pixels. Report every plot through the tool." +
+      (typeof hint === "string" && hint.trim() ? " Context from the farmer: " + hint.trim().slice(0, 400) : "");
+
+    let res, text;
+    try {
+      res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": ANTHROPIC_API_KEY.value(),
+          "anthropic-version": "2023-06-01"
+        },
+        body: JSON.stringify({
+          model: modelId,
+          max_tokens: soft ? 16000 : 8000,
+          system: PLOT_SYSTEM + (soft ? "\n\nAnswer ONLY by calling the report_plots tool. Do not reply with prose." : ""),
+          tools: [PLOT_TOOL],
+          tool_choice: soft ? { type: "auto" } : { type: "tool", name: "report_plots" },
+          messages: [{ role: "user", content: [
+            { type: "image", source: { type: "base64", media_type: "image/jpeg", data: image } },
+            { type: "text", text: userText }
+          ] }]
+        })
+      });
+      text = await res.text();
+    } catch (err) {
+      throw new HttpsError("unavailable", "Model call failed: " + err.message);
+    }
+    if (!res.ok) {
+      let why = text.slice(0, 300);
+      try { const e = JSON.parse(text); if (e && e.error && e.error.message) why = e.error.message; } catch (e) {}
+      throw new HttpsError("internal", modelId + " \u2014 " + res.status + ": " + why);
+    }
+    let body;
+    try { body = JSON.parse(text); } catch (e) { throw new HttpsError("internal", "Bad model response"); }
+    const call = (body.content || []).find((b) => b.type === "tool_use" && b.name === "report_plots");
+    if (!call || !call.input) {
+      const said = (body.content || []).filter((b) => b.type === "text")
+        .map((b) => b.text).join(" ").slice(0, 200);
+      throw new HttpsError("internal", modelId + " \u2014 " +
+        (said ? "answered in text instead of the tool: " + said : "returned no plots"));
+    }
+
+    // Clamp to the image and bound the size of what goes back, so a
+    // confused answer cannot put a vertex off the image or bloat the plot doc.
+    const clamp = (v, hi) => Math.max(0, Math.min(hi, Number(v) || 0));
+    const plots = (Array.isArray(call.input.plots) ? call.input.plots : []).slice(0, 60).map((p) => ({
+      label: typeof p.label === "string" ? p.label.slice(0, 60) : "",
+      confidence: ["high", "medium", "low"].includes(p.confidence) ? p.confidence : "low",
+      note: typeof p.note === "string" ? p.note.slice(0, 200) : "",
+      points: (Array.isArray(p.points) ? p.points : []).slice(0, 80)
+        .filter((q) => Array.isArray(q) && q.length >= 2)
+        .map((q) => [clamp(q[0], W), clamp(q[1], H)])
+    })).filter((p) => p.points.length >= 3);
+
+    return {
+      plots,
+      imageKind: call.input.imageKind || "other",
+      notes: typeof call.input.notes === "string" ? call.input.notes.slice(0, 300) : "",
+      model: modelId,
+      usage: body.usage ? { input: body.usage.input_tokens, output: body.usage.output_tokens } : null,
+      at: Date.now()
+    };
+  }
+);

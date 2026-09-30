@@ -2620,6 +2620,79 @@
       return Math.abs(a * 6378137 * 6378137 / 2);
     },
     isDrawing: function () { return !!drawMode; },
+    // ── plot import, for plotimport.js ──
+    // Farms the current user may put a plot in: the same list the manual
+    // "new plot" modal offers.
+    listUserFarms: function () {
+      if (!currentUser) return [];
+      return (getUserFarms(currentUser) || []).map(function (f) {
+        return { id: f.id, name: locName(f), color: f.color };
+      });
+    },
+    // Create several plots from finished rings in one pass. Builds the same
+    // plot object the naming modal does; spacing and tree count stay empty
+    // and are filled on the plot card as usual. One saveData() per batch.
+    // items: [{ ring: [{lat,lng}...], name, farmId, cropType }]
+    addImportedPlots: function (items) {
+      var u = currentUser || {};
+      if (u.role !== 'admin' && u.role !== 'operator') return { ok: false, err: 'forbidden' };
+      var allowedFarms = (getUserFarms(u) || []).map(function (f) { return f.id; });
+      var escName = function (s) {
+        return String(s).replace(/[&<>"]/g, function (c) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+        });
+      };
+      var base = Date.now(), made = [];
+      (items || []).forEach(function (it, i) {
+        if (!it || !it.ring || it.ring.length < 3) return;
+        var farmId = parseInt(it.farmId, 10);
+        if (!farmId || allowedFarms.indexOf(farmId) === -1) return;
+        var ring = it.ring.map(function (c) { return { lat: +c.lat, lng: +c.lng }; })
+          .filter(function (c) { return isFinite(c.lat) && isFinite(c.lng); });
+        if (ring.length < 3) return;
+        var farm = farms.find(function (f) { return f.id === farmId; });
+        var color = farm ? farm.color : COLORS[colorIdx % COLORS.length];
+        var name = String(it.name || '').trim() || (t('חלקה') + ' ' + (plots.length + 1));
+        var area = ringArea(ring);
+        var layer = L.polygon(ring.map(function (c) { return L.latLng(c.lat, c.lng); }), {
+          color: color, fillColor: color, weight: 3, fillOpacity: 0.25
+        }).addTo(drawnItems);
+        var label = L.divIcon({
+          className: '',
+          html: '<div style="background:' + color + ';color:white;padding:3px 10px;border-radius:8px;' +
+            'font-family:Heebo,sans-serif;font-size:12px;font-weight:700;white-space:nowrap;' +
+            'box-shadow:0 2px 8px rgba(0,0,0,0.3);text-align:center;">' + escName(name) + '</div>',
+          iconAnchor: [0, 0]
+        });
+        var labelMarker = L.marker(layer.getBounds().getCenter(), { icon: label, interactive: false }).addTo(drawnItems);
+        var plot = {
+          id: base + i,
+          name: name,
+          color: color,
+          area: area,
+          areaMeasured: area,
+          farm_id: farmId,
+          tree_count: null,
+          row_spacing: null,
+          tree_spacing: null,
+          crop_type: it.cropType || null,
+          plants_per_dunam: null,
+          layer: layer,
+          labelMarker: labelMarker,
+          vertices: ring.length,
+          latlngs: ring
+        };
+        plots.push(plot);
+        layer.on('click', function () {
+          if (!drawMode) showPlotDetails(plot.id);
+        });
+        made.push(plot.id);
+      });
+      if (!made.length) return { ok: false, err: 'empty' };
+      renderPlotList();
+      saveData();
+      return { ok: true, ids: made };
+    },
     // Bring the map tab to the front and re-measure. Leaflet computes
     // fitBounds against the container's current size, so calling it while
     // the pane is display:none frames nothing — which is why "show on map"
