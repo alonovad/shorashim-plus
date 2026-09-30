@@ -721,10 +721,29 @@ var TimeClock = (function() {
     html += '</div>';
     html += '<div id="menuHours" style="display:none;">';
     html += '<button onclick="Leave.showMyLeave();TimeClock.closeMenu()" style="' + menuBtn + 'background:#fff3e0;">' + tt('🏖️ החופשות שלי', '🏖️ การลาของฉัน', '🏖️ إجازاتي') + '</button>';
-    html += '<button onclick="MonthlyReport.show();TimeClock.closeMenu()" style="' + menuBtn + 'background:#e0f2f1;">' + tt('דוח חודשי 📅', '📅 รายงานรายเดือน', '📅 التقرير الشهري') + '</button>';
     if (isManager) {
       html += '<button onclick="Leave.showApprovalQueue();TimeClock.closeMenu()" style="' + menuBtn + 'background:#fff8e1;">' + tt('✅ תור אישורים', '✅ คิวอนุมัติ', '✅ قائمة الاعتماد') + '</button>';
       html += '<button onclick="Leave.showHolidayAdmin();TimeClock.closeMenu()" style="' + menuBtn + 'background:#fce4ec;">' + tt('🎉 חגים', '🎉 วันหยุด', '🎉 الأعياد') + '</button>';
+    }
+    html += '</div>';
+
+    // ── דוחות (collapsible, open by default) ──
+    // Everything an accountant or manager pulls out of the app, in one
+    // visible place instead of scattered through השעות שלי / הגדרות.
+    html += '<div onclick="var d=document.getElementById(\'menuReports\');var open=d.style.display!==\'block\';d.style.display=open?\'block\':\'none\';this.classList.toggle(\'open\',open);" class="menu-group-head open">';
+    html += '<span class="mg-label">📊 ' + tt('דוחות', 'รายงาน', 'تقارير') + '</span><span class="mg-chev">▸</span>';
+    html += '</div>';
+    html += '<div id="menuReports" style="display:block;">';
+    html += '<button onclick="MonthlyReport.show();TimeClock.closeMenu()" style="' + menuBtn + 'background:#e0f2f1;">' + tt('📅 דוח חודשי', '📅 รายงานรายเดือน', '📅 التقرير الشهري') + '</button>';
+    if (isManager) {
+      html += '<button onclick="HoursReport.show();TimeClock.closeMenu()" style="' + menuBtn + 'background:#e8eaf6;">' + tt('📊 דוח שעות רוחבי', '📊 รายงานชั่วโมงรวม', '📊 تقرير ساعات شامل') + '</button>';
+    }
+    if (isAdmin) {
+      html += '<button onclick="PayslipForm.show();TimeClock.closeMenu()" style="' + menuBtn + 'background:#fff3e0;">' + tt('🧾 טופס שעות לרו"ח', '🧾 แบบฟอร์มชั่วโมงสำหรับนักบัญชี', '🧾 نموذج ساعات للمحاسب') + '</button>';
+      html += '<button onclick="Payroll.show();TimeClock.closeMenu()" style="' + menuBtn + 'background:#fff8e1;">' + tt('💰 שכר ומשרות', '💰 ค่าจ้างและตำแหน่ง', '💰 الأجور والوظائف') + '</button>';
+    }
+    if (isManager) {
+      html += '<button onclick="TimeClock.showExportMenu();TimeClock.closeMenu()" style="' + menuBtn + 'background:#f1f8e9;">' + tt('📥 ייצוא נתונים', '📥 ส่งออกข้อมูล', '📥 تصدير البيانات') + '</button>';
     }
     html += '</div>';
 
@@ -758,11 +777,6 @@ var TimeClock = (function() {
     html += '<button onclick="TimeClock.showProfileEdit();TimeClock.closeMenu()" style="' + menuBtn + 'background:#fce4ec;">' + tt('👤 הפרופיל שלי', '👤 โปรไฟล์ของฉัน', '👤 ملفي الشخصي') + '</button>';
     if (isManager) {
       html += '<button onclick="TimeClock.showAdminDashboard();TimeClock.closeMenu()" style="' + menuBtn + 'background:#e0f7fa;">' + tt('📊 לוח בקרה', '📊 แดชบอร์ด', '📊 لوحة التحكم') + '</button>';
-      html += '<button onclick="TimeClock.showExportMenu();TimeClock.closeMenu()" style="' + menuBtn + 'background:#f1f8e9;">' + tt('📥 ייצוא נתונים', '📥 ส่งออกข้อมูล', '📥 تصدير البيانات') + '</button>';
-      html += '<button onclick="HoursReport.show();TimeClock.closeMenu()" style="' + menuBtn + 'background:#e8eaf6;">' + tt('📊 דוח שעות רוחבי', '📊 รายงานชั่วโมงรวม', '📊 تقرير ساعات شامل') + '</button>';
-      if (window.currentUser && window.currentUser.role === 'admin') {
-        html += '<button onclick="Payroll.show();TimeClock.closeMenu()" style="' + menuBtn + 'background:#fff8e1;">' + tt('💰 שכר ומשרות', '💰 ค่าจ้างและตำแหน่ง', '💰 الأجور والوظائف') + '</button>';
-      }
       html += '<button onclick="TimeClock.showWorkplaceAdmin();TimeClock.closeMenu()" style="' + menuBtn + 'background:#fff3e0;">' + tt('📍 מקומות עבודה', '📍 สถานที่ทำงาน', '📍 أماكن العمل') + '</button>';
       html += '<button onclick="TimeClock.showCropAdmin();TimeClock.closeMenu()" style="' + menuBtn + 'background:#e8f5e9;">' + tt('🌱 סוגי גידולים', '🌱 ประเภทพืช', '🌱 أنواع المحاصيل') + '</button>';
     }

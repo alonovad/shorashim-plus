@@ -68,7 +68,9 @@ service cloud.firestore {
         'shorashim-crop-types',
         'shorashim-maintenance',
         'shorashim-maintenance-access',
-        'shorashim-payroll'
+        'shorashim-payroll',
+        // payslip-form.js — the accountant's monthly hours form (admin only)
+        'shorashim-payslip-form'
       ];
 
       // Operator+: operational data
