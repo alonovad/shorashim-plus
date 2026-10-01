@@ -961,3 +961,152 @@ exports.plotDetect = onCall(
     };
   }
 );
+
+// ── plotDataExtract ────────────────────────────────────────────────────
+// Reads a table of plot data (a photo, a screenshot or a PDF: plot lists,
+// lease schedules, Plant Protection Service forms) into rows for the plot
+// register (plotregister.js). It reads ATTRIBUTES only — names, areas,
+// varieties, tree counts. The outline is still drawn by hand on the map;
+// the row is then applied to the drawn polygon in one press.
+const PLOT_ROWS_TOOL = {
+  name: "report_plot_rows",
+  description: "Report every plot row found in the document.",
+  input_schema: {
+    type: "object",
+    properties: {
+      rows: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            plot_no:          { type: "string",  description: "Plot number / identifier exactly as written (e.g. 12, 7א, B-3). Empty if none." },
+            name:             { type: "string",  description: "Plot name as written. Empty if the row has only a number." },
+            farm:             { type: "string",  description: "Farm / orchard / moshav / block the row belongs to, as written. Empty if none." },
+            area:             { type: "number",  description: "Area in DUNAM. Convert: hectare x10, m2 /1000, acre x4.047. Omit if absent." },
+            variety:          { type: "string",  description: "Cultivar / variety (זן), e.g. מג'הול, ברהי, דקל נור. As written." },
+            crop:             { type: "string",  description: "Crop type (גידול), e.g. תמרים. As written." },
+            tree_count:       { type: "integer", description: "Number of trees / plants. Omit if absent." },
+            row_spacing:      { type: "number",  description: "Spacing between rows, METRES." },
+            tree_spacing:     { type: "number",  description: "Spacing between trees in a row, METRES." },
+            plants_per_dunam: { type: "number" },
+            planting_year:    { type: "integer", description: "Year planted, 4 digits." },
+            notes:            { type: "string",  description: "Free-text remarks in the row, verbatim." },
+            extra:            { type: "array", items: { type: "string" }, description: "Any other column of this row as 'header: value', e.g. 'מס' גוש: 30012'." },
+            confidence:       { type: "string",  enum: ["high", "medium", "low"] }
+          },
+          required: ["confidence"]
+        }
+      },
+      notes: { type: "string", description: "Short Hebrew remark about the document, if needed (e.g. a page was unreadable)." }
+    },
+    required: ["rows"]
+  }
+};
+
+const PLOT_ROWS_SYSTEM = [
+  "You read agricultural plot tables for a farm-management app: plot lists, lease schedules, orchard registers, agronomist reports, handwritten notes.",
+  "Return ONE row per plot. A plot is identified by its number and/or name. Totals, subtotals and header lines are not plots.",
+  "Copy names, numbers and varieties exactly as written, in their original language. Convert areas to dunam and spacings to metres.",
+  "A value that is not on the document is omitted, never guessed. A merged or repeated cell (e.g. a farm name spanning several rows) applies to every row it spans.",
+  "Columns that do not fit a field go into `extra` as 'header: value'.",
+  "Answer only through the report_plot_rows tool."
+].join(" ");
+
+exports.plotDataExtract = onCall(
+  { region: "us-central1", secrets: [ANTHROPIC_API_KEY], memory: "1GiB", timeoutSeconds: 300, maxInstances: 3 },
+  async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Sign in required");
+    const tok = request.auth.token || {};
+    const fb = tok.firebase || {};
+    if (fb.sign_in_provider === "phone") throw new HttpsError("permission-denied", "Not for recovery sessions");
+    if (!["admin", "operator"].includes(tok.role)) {
+      throw new HttpsError("permission-denied", "Operator or admin required");
+    }
+
+    const { image, pdf, model, hint, farms } = request.data || {};
+    const b64ok = (s, max) => typeof s === "string" && s.length > 0 && s.length <= max &&
+      /^[A-Za-z0-9+/=]+$/.test(s.slice(0, 200));
+    let block;
+    if (pdf) {
+      if (!b64ok(pdf, 9 * 1024 * 1024)) throw new HttpsError("invalid-argument", "Bad or oversized PDF (max ~6.5 MB)");
+      block = { type: "document", source: { type: "base64", media_type: "application/pdf", data: pdf } };
+    } else {
+      if (!b64ok(image, 3 * 1024 * 1024)) throw new HttpsError("invalid-argument", "Bad image");
+      block = { type: "image", source: { type: "base64", media_type: "image/jpeg", data: image } };
+    }
+    const allowed = ["haiku", "sonnet-5", "opus", "opus-5.5"];
+    const modelId = PLAN_MODELS[allowed.includes(model) ? model : "sonnet-5"];
+    const soft = /^claude-(opus-5-5|fable-|mythos-)/.test(modelId);
+
+    const farmList = Array.isArray(farms)
+      ? farms.filter((f) => typeof f === "string").map((f) => f.slice(0, 60)).slice(0, 60) : [];
+    const userText = "Report every plot row in this document through the tool." +
+      (farmList.length ? " Farms that exist in the app (use these spellings when a row clearly refers to one): " + farmList.join(", ") + "." : "") +
+      (typeof hint === "string" && hint.trim() ? " Context from the farmer: " + hint.trim().slice(0, 400) : "");
+
+    let res, text;
+    try {
+      res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": ANTHROPIC_API_KEY.value(),
+          "anthropic-version": "2023-06-01"
+        },
+        body: JSON.stringify({
+          model: modelId,
+          max_tokens: soft ? 24000 : 16000,
+          system: PLOT_ROWS_SYSTEM + (soft ? "\n\nAnswer ONLY by calling the report_plot_rows tool. Do not reply with prose." : ""),
+          tools: [PLOT_ROWS_TOOL],
+          tool_choice: soft ? { type: "auto" } : { type: "tool", name: "report_plot_rows" },
+          messages: [{ role: "user", content: [block, { type: "text", text: userText }] }]
+        })
+      });
+      text = await res.text();
+    } catch (err) {
+      throw new HttpsError("unavailable", "Model call failed: " + err.message);
+    }
+    if (!res.ok) {
+      let why = text.slice(0, 300);
+      try { const e = JSON.parse(text); if (e && e.error && e.error.message) why = e.error.message; } catch (e) {}
+      throw new HttpsError("internal", modelId + " \u2014 " + res.status + ": " + why);
+    }
+    let body;
+    try { body = JSON.parse(text); } catch (e) { throw new HttpsError("internal", "Bad model response"); }
+    const call = (body.content || []).find((b) => b.type === "tool_use" && b.name === "report_plot_rows");
+    if (!call || !call.input) {
+      const said = (body.content || []).filter((b) => b.type === "text")
+        .map((b) => b.text).join(" ").slice(0, 200);
+      throw new HttpsError("internal", modelId + " \u2014 " +
+        (said ? "answered in text instead of the tool: " + said : "returned no rows"));
+    }
+
+    // Bounded and typed before it reaches the browser and the register doc.
+    const str = (v, n) => (typeof v === "string" ? v.trim().slice(0, n) : "");
+    const num = (v, lo, hi) => { const x = Number(v); return isFinite(x) && x >= lo && x <= hi ? x : null; };
+    const rows = (Array.isArray(call.input.rows) ? call.input.rows : []).slice(0, 400).map((r) => ({
+      plot_no: str(r.plot_no, 30),
+      name: str(r.name, 80),
+      farm: str(r.farm, 60),
+      area: num(r.area, 0.01, 100000),
+      variety: str(r.variety, 60),
+      crop: str(r.crop, 60),
+      tree_count: num(r.tree_count, 0, 1000000),
+      row_spacing: num(r.row_spacing, 0.5, 30),
+      tree_spacing: num(r.tree_spacing, 0.5, 30),
+      plants_per_dunam: num(r.plants_per_dunam, 1, 100000),
+      planting_year: num(r.planting_year, 1900, 2100),
+      notes: str(r.notes, 300),
+      extra: (Array.isArray(r.extra) ? r.extra : []).filter((x) => typeof x === "string").slice(0, 10).map((x) => x.slice(0, 120)),
+      confidence: ["high", "medium", "low"].includes(r.confidence) ? r.confidence : "low"
+    })).filter((r) => r.plot_no || r.name);
+
+    return {
+      rows,
+      notes: str(call.input.notes, 300),
+      model: modelId,
+      usage: body.usage ? { input: body.usage.input_tokens, output: body.usage.output_tokens } : null,
+      at: Date.now()
+    };
+  }
+);

@@ -1824,6 +1824,10 @@
     'לפי חלקה': { th: 'ตามแปลง', ar: 'حسب القطعة' },
     'שמור כתובת': { th: 'บันทึก URL', ar: 'حفظ العنوان' },
     'פעולה': { th: 'งาน', ar: 'عملية' },
+    // plot variety, notes, plot register (plotregister.js)
+    'זן': { th: 'สายพันธุ์', ar: 'الصنف' },
+    'משוך מהמאגר': { th: 'ดึงจากคลัง', ar: 'اسحب من المخزن' },
+    'הערות לחלקה': { th: 'หมายเหตุแปลง', ar: 'ملاحظات القطعة' },
 
   };
 
@@ -2145,6 +2149,8 @@
           plants_per_dunam: p.plants_per_dunam || 0,
           name_th: p.name_th || '',
           name_ar: p.name_ar || '',
+          variety: p.variety || '',
+          notes: p.notes || '',
           geofenceRadiusM: (p.geofenceRadiusM != null ? p.geofenceRadiusM : null),
           latlngs: ll,
           // Detached parts of the same plot — an orchard split by a wadi or a
@@ -3340,6 +3346,26 @@
   undoBarBtn.addEventListener('click', function(e) { e.stopPropagation(); performUndo(); });
   undoActionBtn.addEventListener('click', function(e) { e.stopPropagation(); performUndo(); });
 
+  // ── Variety + notes helpers (plot fields `variety`, `notes`) ──
+  function escAttrPlot(v) {
+    return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  // Varieties already on plots, in the plot register, and the common date
+  // cultivars, as a <datalist> so the field suggests without restricting.
+  function plotVarietyDatalist(id) {
+    var seen = {};
+    (plots || []).forEach(function (p) { if (p.variety) seen[String(p.variety).trim()] = 1; });
+    if (window.PlotRegister && typeof PlotRegister.varieties === 'function') {
+      PlotRegister.varieties().forEach(function (v) { seen[v] = 1; });
+    }
+    ["מג'הול", 'ברהי', 'דקל נור', 'חיאני', 'זהדי', 'אמרי', 'חלאווי', 'דרי'].forEach(function (v) { seen[v] = 1; });
+    return '<datalist id="' + id + '">' + Object.keys(seen).map(function (v) {
+      return '<option value="' + escAttrPlot(v) + '"></option>';
+    }).join('') + '</datalist>';
+  }
+
   // ── Naming modal ──
   function showNamingModal(layer, vertices) {
     var container = document.getElementById('modalContainer');
@@ -3382,6 +3408,12 @@
         '<div class="modal">' +
           '<h2>🌿 ' + t('חלקה חדשה') + '</h2>' +
           '<p>' + t('תן שם לחלקה שסימנת') + ' — ' + formatArea(area) + '</p>' +
+          (window.PlotRegister
+            ? '<button type="button" class="btn-admin" id="plotRegisterBtn" style="width:100%;margin-bottom:8px;">📋 ' + t('משוך מהמאגר') + '</button>'
+            : '') +
+          '<div id="plotRegisterInfo" style="display:none;"></div>' +
+          '<input type="hidden" id="plotDeclaredArea" value="">' +
+          '<input type="hidden" id="plotRegisterRowId" value="">' +
           '<div class="form-group">' +
             '<label class="form-label">' + t('שם החלקה') + '</label>' +
             '<input type="text" id="plotNameInput" class="form-input" placeholder="">' +
@@ -3393,6 +3425,11 @@
           '<div class="form-group">' +
             '<label class="form-label">' + t('סוג גידול') + '</label>' +
             '<select id="plotCropType" class="form-input">' + cropOptions + '</select>' +
+          '</div>' +
+          '<div class="form-group">' +
+            '<label class="form-label">' + t('זן') + '</label>' +
+            '<input type="text" id="plotVariety" class="form-input" list="plotVarietyList" autocomplete="off">' +
+            plotVarietyDatalist('plotVarietyList') +
           '</div>' +
           
           '<div style="background: var(--g6); border-radius: 12px; padding: 14px; margin-bottom: 14px;">' +
@@ -3430,6 +3467,10 @@
             '</div>' +
           '</div>' +
           
+          '<div class="form-group">' +
+            '<label class="form-label">' + t('הערות לחלקה') + '</label>' +
+            '<textarea id="plotNotes" class="form-input" rows="2" style="resize:vertical;"></textarea>' +
+          '</div>' +
           '<div class="modal-buttons">' +
             '<button class="btn btn-primary" id="modalSave">' + t('שמור') + '</button>' +
             '<button class="btn btn-secondary" id="modalCancel">' + t('ביטול') + '</button>' +
@@ -3442,6 +3483,10 @@
     var treeInput = document.getElementById('plotTreeSpacing');
     var treeCountInput = document.getElementById('plotTreeCount');
     setTimeout(function() { input.focus(); }, 150);
+    var registerBtn = document.getElementById('plotRegisterBtn');
+    if (registerBtn) registerBtn.addEventListener('click', function () {
+      if (window.PlotRegister) PlotRegister.pickFor('naming', area);
+    });
 
     function updateTreeEstimate() {
       var rowS = parseFloat(rowInput.value) || 8;
@@ -3529,6 +3574,12 @@
       var treeSpacing = parseFloat(treeInput.value) || null;
       var cropType = document.getElementById('plotCropType').value || null;
       var plantsPerDunam = parseInt(document.getElementById('plotPlantsPerDunam').value) || null;
+      var variety = (document.getElementById('plotVariety') || { value: '' }).value.trim();
+      var plotNotes = (document.getElementById('plotNotes') || { value: '' }).value.trim();
+      // A row from the plot register carries the REGISTERED area. It becomes
+      // the declared area; the drawn one is kept as the measured area.
+      var declaredArea = parseFloat((document.getElementById('plotDeclaredArea') || { value: '' }).value);
+      var registerRowId = (document.getElementById('plotRegisterRowId') || { value: '' }).value;
 
       var plot = { 
         id: Date.now(), 
@@ -3541,11 +3592,18 @@
         tree_spacing: treeSpacing,
         crop_type: cropType,
         plants_per_dunam: plantsPerDunam,
+        variety: variety,
+        notes: plotNotes,
         layer: layer, 
         labelMarker: labelMarker, 
         vertices: vertices 
       };
+      if (isFinite(declaredArea) && declaredArea > 0) {
+        plot.area = Math.round(declaredArea * 100) / 100;
+        plot.areaMeasured = area;
+      }
       plots.push(plot);
+      if (registerRowId && window.PlotRegister) PlotRegister.markUsed(registerRowId, plot.id);
       
       // Click handler on polygon
       layer.on('click', function() {
@@ -7431,6 +7489,8 @@
             '</div>' +
           '</div>' +
           (plot.crop_type ? '<div style="background:#e8f5e9;border-radius:8px;padding:6px 12px;margin-bottom:14px;font-size:0.85rem;font-weight:600;text-align:center;">🌱 ' + plot.crop_type + '</div>' : '') +
+          (plot.variety ? '<div style="background:#fff8e1;border-radius:8px;padding:6px 12px;margin-bottom:14px;font-size:0.85rem;font-weight:600;text-align:center;">🌴 ' + t('זן') + ': ' + escAttrPlot(plot.variety) + '</div>' : '') +
+          (plot.notes ? '<div style="background:var(--g6);border-radius:8px;padding:8px 12px;margin-bottom:14px;font-size:0.82rem;white-space:pre-wrap;line-height:1.45;">📝 ' + escAttrPlot(plot.notes) + '</div>' : '') +
           
           '<!-- Edit Section -->' +
           '<details class="pd-sec" data-pdsec="edit" open>' +
@@ -7454,6 +7514,11 @@
               'style="width:100%;padding:9px;border:none;border-radius:9px;margin-bottom:10px;' +
               'background:var(--primary,#2d6a4f);color:#fff;font-family:inherit;font-weight:700;' +
               'cursor:pointer;font-size:0.85rem;">\u2b20 ' + t('ערוך גבולות על המפה') + '</button>' +
+            (window.PlotRegister
+              ? '<button type="button" class="btn-admin" id="pdRegisterBtn" style="width:100%;margin-bottom:8px;">📋 ' + t('משוך מהמאגר') + '</button>'
+              : '') +
+            '<div id="pdRegisterInfo" style="display:none;"></div>' +
+            '<input type="hidden" id="pdRegisterRowId" value="">' +
             '<div class="form-group" style="margin-bottom: 10px;">' +
               '<label class="form-label" style="font-size: 0.78rem;">' + t('שם החלקה') + '</label>' +
               '<input type="text" class="form-input" id="pdEditName" value="' + (plot.name || '') + '" style="font-size: 0.9rem;">' +
@@ -7483,6 +7548,15 @@
                 '<option value="">' + t('בחר גידול') + '</option>' +
                 (function() { var cropList = JSON.parse(localStorage.getItem('shorashim-crop-types') || '[]'); return cropList.map(function(c) { return '<option value="' + c + '"' + (plot.crop_type === c ? ' selected' : '') + '>' + c + '</option>'; }).join(''); })() +
               '</select>' +
+            '</div>' +
+            '<div class="form-group" style="margin-bottom: 10px;">' +
+              '<label class="form-label" style="font-size: 0.78rem;">🌴 ' + t('זן') + '</label>' +
+              '<input type="text" class="form-input" id="pdEditVariety" list="pdVarietyList" autocomplete="off" value="' + escAttrPlot(plot.variety || '') + '" style="font-size: 0.9rem;">' +
+              plotVarietyDatalist('pdVarietyList') +
+            '</div>' +
+            '<div class="form-group" style="margin-bottom: 10px;">' +
+              '<label class="form-label" style="font-size: 0.78rem;">📝 ' + t('הערות לחלקה') + '</label>' +
+              '<textarea class="form-input" id="pdEditNotes" rows="3" style="font-size: 0.88rem;resize:vertical;">' + escAttrPlot(plot.notes || '') + '</textarea>' +
             '</div>' +
             '<div style="border-top: 1px solid var(--g5, rgba(255,255,255,0.12)); margin: 12px 0 10px;"></div>' +
             '<div style="font-size: 0.78rem; font-weight: 700; color: var(--g1); margin-bottom: 8px;">🌴 ' + t('צפיפות ומספר עצים') + '</div>' +
@@ -7652,6 +7726,10 @@
     })();
 
     // Save name + farm edit
+    var pdRegisterBtn = document.getElementById('pdRegisterBtn');
+    if (pdRegisterBtn) pdRegisterBtn.addEventListener('click', function () {
+      if (window.PlotRegister) PlotRegister.pickFor('edit', plotArea(plot));
+    });
     document.getElementById('pdSaveEdit').addEventListener('click', function() {
       // Same farm-permission gate as delete: an operator scoped to certain
       // farms must not be able to rename or re-measure someone else's plot.
@@ -7714,6 +7792,14 @@
         plot.crop_type = newCropType;
         changed = true;
       }
+
+      // Variety and notes
+      var newVariety = (document.getElementById('pdEditVariety') || { value: '' }).value.trim();
+      var newNotes = (document.getElementById('pdEditNotes') || { value: '' }).value.trim();
+      if (newVariety !== (plot.variety || '')) { plot.variety = newVariety; changed = true; }
+      if (newNotes !== (plot.notes || '')) { plot.notes = newNotes; changed = true; }
+      var pdRowId = (document.getElementById('pdRegisterRowId') || { value: '' }).value;
+      if (pdRowId && window.PlotRegister) PlotRegister.markUsed(pdRowId, plot.id);
 
       // Retrospective agronomic edits — area, spacing, density, tree count.
       // Validation runs before any assignment so an out-of-range entry aborts

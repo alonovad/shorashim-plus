@@ -91,7 +91,10 @@ service cloud.firestore {
         // timeclock.js saveWorkplaces() writes this; it was never
         // whitelisted, so every workplace edit has been silently denied in
         // production. Same class of failure as the payroll document.
-        'shorashim-workplaces'
+        'shorashim-workplaces',
+        // plotregister.js — plot attributes read from tables/PDFs, applied
+        // to hand-drawn polygons. Same tier as the plots themselves.
+        'shorashim-plot-register'
       ];
 
       // Operator+: one tracking journal per construction project

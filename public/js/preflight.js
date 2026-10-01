@@ -115,7 +115,8 @@ files.forEach(f => {
 head('3. Exported handlers cover every reference');
 const NS = { 'orders.js':'Orders', 'agriplan.js':'AgriPlan',
              'buildplan-link.js':'BuildPlan',
-             'shed3d.js':'Shed3D', 'stickyactions.js':'StickyActions' };
+             'shed3d.js':'Shed3D', 'stickyactions.js':'StickyActions',
+             'plotregister.js':'PlotRegister' };
 const exportsOf = {};
 Object.keys(NS).forEach(f => {
   if (!src[f]) return;
@@ -297,7 +298,7 @@ const HEB = /[\u0590-\u05FF]/;
 const OWN = ['orders.js','agriplan.js',
              'buildplan-core.js', 'buildplan-geom.js', 'buildplan-draw.js', 'buildplan-map.js', 'buildplan-ui.js', 'buildplan-link.js',
              'shed3d.js','rebar.js','buildplan-ledger.js','buildplan-plan.js','stickyactions.js',
-             'plotimport.js'];
+             'plotimport.js', 'plotregister.js'];
 OWN.forEach(f => {
   if (!src[f]) return;
   let m = src[f].replace(/\/\*[\s\S]*?\*\//g, x => x.replace(/[^\n]/g, ' '))
