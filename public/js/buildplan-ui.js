@@ -483,6 +483,7 @@
       BP.esc(p.name || BP.typeLabel(p.type)), bar, body));
     if (BP._tab === 'site') BP.linkPanel(p);
     if (BP._tab === 'gates') mountGates(p);
+    if (BP._tab === 'living' && typeof LivingEdit !== 'undefined') LivingEdit.mount(p);
     if (BP._tab === 'plan' && BP.planMount) BP.planMount(p);
     if (String(BP._tab).indexOf('m:') === 0 && typeof Frame !== 'undefined') Frame.mount(p, String(BP._tab).slice(2));
     if (BP._tab === 'design') {
@@ -844,6 +845,9 @@
       });
     }).catch(function () { return null; });
   }
+
+  // The living unit's 3D view stands on the same imagery (livingedit.js).
+  BP.groundImage = groundImage;
 
   BP.model3d = function model3d(p) {
     var d = p.dims;
@@ -2057,6 +2061,60 @@
           BP.tt('הוסף מתחם מגורים', 'เพิ่มที่พัก', 'إضافة سكن') + '</button></div>';
     }
     var u = p.living, pr = LivingUnit.program(u);
+    var hasEdit = typeof LivingEdit !== 'undefined';
+    var fixedDims = u.dimMode === 'fixed';
+    var num = function (key, label, val, step, min) {
+      return '<div><div class="bp-lbl">' + label + '</div>' +
+        '<input class="bp-in" type="number" step="' + step + '" min="' + (min || 0) + '" value="' + val + '" ' +
+          'onchange="BuildPlan.setLiving(' + id + ',\'' + key + '\',this.value)"></div>';
+    };
+    var site = u.site || { dx: 0, dy: 0, rot: 0 };
+    var dimsAcc = '<details class="bp-acc" open><summary>\ud83d\udccf ' + BP.tt('מידות המבנה', 'ขนาดอาคาร', 'أبعاد المبنى') +
+      '</summary><div>' +
+      '<select class="bp-in" onchange="BuildPlan.setLiving(' + id + ',\'dimMode\',this.value)">' +
+        '<option value="auto"' + (!fixedDims ? ' selected' : '') + '>' +
+          BP.tt('לפי מספר האנשים', 'ตามจำนวนคน', 'حسب عدد الأشخاص') + '</option>' +
+        '<option value="fixed"' + (fixedDims ? ' selected' : '') + '>' +
+          BP.tt('אורך ורוחב שאני קובע', 'กำหนดความยาวและความกว้างเอง', 'طول وعرض أحددهما') + '</option></select>' +
+      (fixedDims
+        ? '<div class="bp-grid" style="margin-top:8px;">' +
+            num('lenM', BP.tt('אורך (מ\')', 'ความยาว (ม.)', 'الطول (م)'), u.lenM, 0.1, 2) +
+            num('widM', BP.tt('רוחב (מ\')', 'ความกว้าง (ม.)', 'العرض (م)'), u.widM, 0.1, 2) +
+          '</div>' +
+          (p.dims && p.dims.length > 0 && p.dims.span > 0 && hasEdit
+            ? '<button class="bp-btn ghost" style="margin-top:8px;" onclick="LivingEdit.useStructDims(' + id + ')">\u2b07 ' +
+              BP.tt('קח מידות מהמבנה', 'ใช้ขนาดจากโครงสร้าง', 'خذ أبعاد الهيكل') + ' (' + BP.n1(p.dims.length) + '\u00d7' + BP.n1(p.dims.span) + ')</button>'
+            : '')
+        : '<div class="bp-read" style="margin-top:8px;"><span>' + BP.tt('מחושב', 'คำนวณ', 'محسوب') + '</span><b>' +
+            BP.n1(pr.length) + ' \u00d7 ' + BP.n1(pr.width) + ' m</b></div>') +
+      '<div class="bp-read"><span>' + BP.tt('נדרש / זמין', 'ต้องการ / มี', 'مطلوب / متاح') + '</span><b style="color:' +
+        (pr.total > pr.area * 1.001 ? '#e0a030' : 'inherit') + ';">' + BP.n1(pr.total) + ' / ' + BP.n1(pr.area) + ' \u05de"\u05e8</b></div>' +
+      (hasEdit && u.layout
+        ? '<button class="bp-btn ghost" style="margin-top:8px;" onclick="LivingEdit.replan(' + id + ')">\u21ba ' +
+          BP.tt('בנה פריסה מחדש לפי האנשים', 'สร้างแผนใหม่', 'أعد بناء المخطط') + '</button>'
+        : '') +
+      '</div></details>';
+    var siteAcc = '<details class="bp-acc"><summary>\ud83e\udded ' + BP.tt('מיקום באתר וכיוון', 'ตำแหน่งและทิศทาง', 'الموقع والاتجاه') +
+      '</summary><div>' +
+      (hasEdit && !LivingEdit.hasSite(p)
+        ? '<div style="font-size:.76rem;color:#e0a030;margin-bottom:6px;">\u26a0\ufe0f ' +
+          BP.tt('הפרויקט עוד לא ממוקם על המפה — מקם אותו בלשונית האתר כדי לראות כיוונים, צפון ותצלום אוויר.',
+                'ยังไม่ได้วางโครงการบนแผนที่', 'المشروع غير موضوع على الخريطة بعد') + '</div>'
+        : '') +
+      '<div class="bp-grid">' +
+        num('site.dx', BP.tt('הזזה לאורך המבנה (מ\')', 'เลื่อนตามยาว (ม.)', 'إزاحة طولية (م)'), site.dx, 0.1, -999) +
+        num('site.dy', BP.tt('הזזה לרוחב המבנה (מ\')', 'เลื่อนตามขวาง (ม.)', 'إزاحة عرضية (م)'), site.dy, 0.1, -999) +
+      '</div>' +
+      '<div class="bp-lbl" style="margin-top:8px;">' + BP.tt('סיבוב ביחס למבנה', 'หมุนเทียบกับโครงสร้าง', 'الدوران بالنسبة للهيكل') + '</div>' +
+      '<select class="bp-in" onchange="BuildPlan.setLiving(' + id + ',\'site.rot\',this.value)">' +
+        [0, 90, 180, 270].map(function (r) {
+          return '<option value="' + r + '"' + ((site.rot || 0) === r ? ' selected' : '') + '>' + r + '\u00b0</option>';
+        }).join('') + '</select>' +
+      (hasEdit && LivingEdit.hasSite(p)
+        ? '<button class="bp-btn ghost" style="margin-top:8px;" onclick="LivingEdit.showOnMap(' + id + ')">\ud83d\uddfa ' +
+          BP.tt('הצג את התוכנית על המפה', 'แสดงแผนบนแผนที่', 'اعرض المخطط على الخريطة') + '</button>'
+        : '') +
+      '</div></details>';
     var lc = function (key, label, val, min, max, step) {
       return '<div><div class="bp-lbl">' + label + ' <b style="color:var(--accent,#ff9f43);">' +
           val + '</b></div>' +
@@ -2066,7 +2124,8 @@
           'onchange="BuildPlan.setLiving(' + id + ',\'' + key + '\',this.value)"></div>';
     };
     return '<div class="bp-split">' +
-      '<div class="bp-stick"><div class="bp-card">' + LivingUnit.svg(u) + '</div>' +
+      '<div class="bp-stick"><div class="bp-card" id="lvHost">' +
+        LivingUnit.svg(u, { north: hasEdit ? LivingEdit.planNorth(p) : null }) + '</div>' +
         '<div class="bp-card"><div class="bp-lbl">' + BP.tt('תוכנית שטחים', 'โปรแกรมพื้นที่', 'برنامج المساحات') +
           '</div>' +
           '<div class="bp-read"><span>' + BP.tt('חדרי שינה', 'ห้องนอน', 'غرف النوم') + '</span><b>' +
@@ -2080,8 +2139,8 @@
           '<div class="bp-read"><span>' + BP.tt('שטח כולל', 'พื้นที่รวม', 'المساحة الكلية') + '</span><b>' +
             BP.n1(pr.total) + ' \u05de"\u05e8</b></div>' +
         '</div></div>' +
-      '<div class="bp-pane">' +
-        '<details class="bp-acc" open><summary>' + BP.tt('בסיס התכנון', 'พื้นฐานการออกแบบ', 'أساس التصميم') +
+      '<div class="bp-pane">' + dimsAcc + siteAcc +
+        '<details class="bp-acc"><summary>' + BP.tt('בסיס התכנון', 'พื้นฐานการออกแบบ', 'أساس التصميم') +
           '</summary><div>' +
           '<div class="bp-lbl">' + BP.tt('אופן הביצוע', 'รูปแบบงาน', 'نوع العمل') + '</div>' +
           '<select class="bp-in" onchange="BuildPlan.setLiving(' + id + ',\'mode\',this.value)">' +
@@ -2101,6 +2160,12 @@
             '<label><input type="checkbox"' + (u.ac ? ' checked' : '') +
               ' onchange="BuildPlan.setLiving(' + id + ',\'ac\',this.checked)"> ' +
               BP.tt('מיזוג', 'แอร์', 'تكييف') + '</label>' +
+            '<label><input type="checkbox"' + (u.laundry !== false ? ' checked' : '') +
+              ' onchange="BuildPlan.setLiving(' + id + ',\'laundry\',this.checked)"> ' +
+              BP.tt('חדר כביסה', 'ห้องซักผ้า', 'غرفة غسيل') + '</label>' +
+          '</div>' +
+          '<div class="bp-grid" style="margin-top:8px;">' +
+            lc('tileH', BP.tt('גובה חיפוי בחדרים רטובים (מ\')', 'ความสูงกระเบื้อง', 'ارتفاع البلاط'), u.tileH || 2.1, 1.2, 3, 0.05) +
           '</div>' +
           '<div class="bp-grid" style="margin-top:8px;">' +
             '<div><div class="bp-lbl">' + BP.tt('חומר מחיצות', 'วัสดุผนัง', 'مادة القواطع') + '</div>' +
@@ -2143,12 +2208,26 @@
     p.living = null;
     BP.saveP(); BP.open(id);
   };
-  var BOOLL = { blockWet: 1, ac: 1 };
-  var TEXTL = { mode: 1, partition: 1, envelope: 1, notes: 1 };
+  var BOOLL = { blockWet: 1, ac: 1, laundry: 1 };
+  var TEXTL = { mode: 1, partition: 1, envelope: 1, notes: 1, dimMode: 1 };
   BP.setLiving = function setLiving(id, k, v) {
     var p = BP.projById(id);
     if (!p || !p.living) return;
-    p.living[k] = BOOLL[k] ? !!v : TEXTL[k] ? String(v) : (Number(v) || 0);
+    if (String(k).indexOf('site.') === 0) {
+      p.living.site = p.living.site || { dx: 0, dy: 0, rot: 0 };
+      p.living.site[String(k).slice(5)] = Number(v) || 0;
+    } else {
+      p.living[k] = BOOLL[k] ? !!v : TEXTL[k] ? String(v) : (Number(v) || 0);
+    }
+    // Switching to typed dimensions starts from the computed ones, so the
+    // plan does not collapse to nothing before the first number is typed.
+    if (k === 'dimMode' && v === 'fixed' && !(p.living.lenM > 0 && p.living.widM > 0)) {
+      var auto = JSON.parse(JSON.stringify(p.living));
+      auto.dimMode = 'auto';
+      var pr0 = LivingUnit.program(auto);
+      p.living.lenM = BP.n1(pr0.length);
+      p.living.widM = BP.n1(pr0.width);
+    }
     BP.saveP(); BP.open(id);
   };
 

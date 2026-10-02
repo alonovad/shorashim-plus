@@ -32,6 +32,7 @@ var PlotRegister = (function () {
   var MAX_PIXELS = 1150000;   // what the vision models read without resampling
   var MAX_SIDE = 1568;
   var FIELDS = ['plot_no', 'name', 'farm', 'farm_id', 'area', 'variety', 'crop', 'tree_count',
+                'missing_trees', 'young_trees',
                 'row_spacing', 'tree_spacing', 'plants_per_dunam', 'planting_year', 'notes', 'extra'];
 
   var reg = null;            // { rows: [], updatedAt }
@@ -345,6 +346,8 @@ var PlotRegister = (function () {
         inp('crop', tt('גידול', 'พืช', 'المحصول'), 'text', r.crop) +
         inp('tree_count', tt('מספר עצים', 'จำนวนต้น', 'عدد الأشجار'), 'number', r.tree_count) +
         inp('planting_year', tt('שנת נטיעה', 'ปีที่ปลูก', 'سنة الزراعة'), 'number', r.planting_year) +
+        inp('young_trees', tt('עצים צעירים', 'ต้นอ่อน', 'أشجار صغيرة'), 'number', r.young_trees) +
+        inp('missing_trees', tt('עצים חסרים', 'ต้นที่ขาด', 'أشجار ناقصة'), 'number', r.missing_trees) +
         inp('row_spacing', tt('בין שורות (מ׳)', 'ระหว่างแถว (ม.)', 'بين الصفوف (م)'), 'number', r.row_spacing) +
         inp('tree_spacing', tt('בין עצים (מ׳)', 'ระหว่างต้น (ม.)', 'بين الأشجار (م)'), 'number', r.tree_spacing) +
         '<div class="pr-full"><label>' + tt('הערות', 'หมายเหตุ', 'ملاحظات') + '</label>' +
@@ -359,6 +362,8 @@ var PlotRegister = (function () {
     if (r.area) bits.push(fmt(r.area, 2) + ' ' + tt('ד׳', 'ดูนัม', 'دونم'));
     if (r.variety) bits.push(r.variety);
     if (r.tree_count) bits.push('🌴 ' + r.tree_count);
+    if (r.young_trees) bits.push('🌱 ' + r.young_trees);
+    if (r.missing_trees) bits.push('⭕ ' + r.missing_trees);
     var used = r.usedBy ? (plotNameById(r.usedBy) || '✓') : '';
     return '<div class="pr-item' + (used ? ' used' : '') + '" ' + actAttr + ' data-i="' + i + '">' +
       '<div class="pr-m"><div class="pr-t">' + esc(displayName(r) || '—') + '</div>' +
@@ -621,6 +626,8 @@ var PlotRegister = (function () {
       var en = el('treeEstimateNum'); if (en) en.textContent = Number(r.tree_count).toLocaleString();
       var em = el('treeEstimateMeta'); if (em) em.textContent = tt('מהמאגר', 'จากคลัง', 'من المخزن');
     }
+    if (r.missing_trees != null) setVal('plotMissingTrees', r.missing_trees);
+    if (r.young_trees != null) setVal('plotYoungTrees', r.young_trees);
     setVal('plotDeclaredArea', r.area);
     setVal('plotRegisterRowId', r.id);
     areaInfo('plotRegisterInfo', r, drawn);
@@ -642,6 +649,8 @@ var PlotRegister = (function () {
     setVal('pdEditPlantsPerDunam', r.plants_per_dunam);
     setVal('pdEditArea', r.area);
     if (r.tree_count != null) setVal('pdEditTreeCount', r.tree_count);
+    if (r.missing_trees != null) setVal('pdEditMissingTrees', r.missing_trees);
+    if (r.young_trees != null) setVal('pdEditYoungTrees', r.young_trees);
     setVal('pdRegisterRowId', r.id);
     areaInfo('pdRegisterInfo', r, measured);
     toast('📋 ' + tt('הנתונים הוחלו — בדוק ולחץ שמור', 'ใช้ข้อมูลแล้ว — ตรวจสอบแล้วกดบันทึก', 'تم تطبيق البيانات — راجع واضغط حفظ'));

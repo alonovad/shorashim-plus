@@ -1828,6 +1828,9 @@
     'זן': { th: 'สายพันธุ์', ar: 'الصنف' },
     'משוך מהמאגר': { th: 'ดึงจากคลัง', ar: 'اسحب من المخزن' },
     'הערות לחלקה': { th: 'หมายเหตุแปลง', ar: 'ملاحظات القطعة' },
+    'עצים חסרים': { th: 'ต้นที่ขาด', ar: 'أشجار ناقصة' },
+    'עצים צעירים': { th: 'ต้นอ่อน', ar: 'أشجار صغيرة' },
+    'מספר לא תקין': { th: 'ตัวเลขไม่ถูกต้อง', ar: 'رقم غير صالح' },
 
   };
 
@@ -2151,6 +2154,8 @@
           name_ar: p.name_ar || '',
           variety: p.variety || '',
           notes: p.notes || '',
+          missing_trees: p.missing_trees || 0,
+          young_trees: p.young_trees || 0,
           geofenceRadiusM: (p.geofenceRadiusM != null ? p.geofenceRadiusM : null),
           latlngs: ll,
           // Detached parts of the same plot — an orchard split by a wadi or a
@@ -3467,6 +3472,16 @@
             '</div>' +
           '</div>' +
           
+          '<div style="display:flex;gap:8px;">' +
+            '<div class="form-group" style="flex:1;">' +
+              '<label class="form-label">' + t('עצים חסרים') + '</label>' +
+              '<input type="number" id="plotMissingTrees" class="form-input" min="0" step="1" style="text-align:center;">' +
+            '</div>' +
+            '<div class="form-group" style="flex:1;">' +
+              '<label class="form-label">' + t('עצים צעירים') + '</label>' +
+              '<input type="number" id="plotYoungTrees" class="form-input" min="0" step="1" style="text-align:center;">' +
+            '</div>' +
+          '</div>' +
           '<div class="form-group">' +
             '<label class="form-label">' + t('הערות לחלקה') + '</label>' +
             '<textarea id="plotNotes" class="form-input" rows="2" style="resize:vertical;"></textarea>' +
@@ -3580,6 +3595,12 @@
       // the declared area; the drawn one is kept as the measured area.
       var declaredArea = parseFloat((document.getElementById('plotDeclaredArea') || { value: '' }).value);
       var registerRowId = (document.getElementById('plotRegisterRowId') || { value: '' }).value;
+      var countField = function (id) {
+        var n = Math.round(parseFloat((document.getElementById(id) || { value: '' }).value));
+        return (isFinite(n) && n >= 0 && n <= 1000000) ? n : 0;
+      };
+      var missingTrees = countField('plotMissingTrees');
+      var youngTrees = countField('plotYoungTrees');
 
       var plot = { 
         id: Date.now(), 
@@ -3594,6 +3615,8 @@
         plants_per_dunam: plantsPerDunam,
         variety: variety,
         notes: plotNotes,
+        missing_trees: missingTrees,
+        young_trees: youngTrees,
         layer: layer, 
         labelMarker: labelMarker, 
         vertices: vertices 
@@ -7291,12 +7314,16 @@
     var treeSp = num('pdEditTreeSpacing');
     var ppd    = num('pdEditPlantsPerDunam');
     var count  = num('pdEditTreeCount');
+    var missing = num('pdEditMissingTrees');
+    var young   = num('pdEditYoungTrees');
 
     if (bad(area,   0.01, 100000)) { showToast('⚠️ ' + t('שטח לא תקין')); return null; }
     if (bad(rowSp,  0.5,  30))     { showToast('⚠️ ' + t('מרווח בין שורות לא תקין')); return null; }
     if (bad(treeSp, 0.5,  30))     { showToast('⚠️ ' + t('מרווח בין עצים לא תקין')); return null; }
     if (bad(ppd,    1,    100000)) { showToast('⚠️ ' + t('צמחים לדונם לא תקין')); return null; }
     if (bad(count,  0,    1000000)){ showToast('⚠️ ' + t('מספר עצים לא תקין')); return null; }
+    if (bad(missing, 0,   1000000)){ showToast('⚠️ ' + t('עצים חסרים') + ': ' + t('מספר לא תקין')); return null; }
+    if (bad(young,   0,   1000000)){ showToast('⚠️ ' + t('עצים צעירים') + ': ' + t('מספר לא תקין')); return null; }
 
     var out = {};
     // Area: the form shows 2dp, so a plot stored as 12.3456 renders "12.35".
@@ -7313,6 +7340,8 @@
     if (treeSp !== undefined) out.tree_spacing     = treeSp;
     if (ppd    !== undefined) out.plants_per_dunam = Math.round(ppd);
     if (count  !== undefined) out.tree_count       = Math.round(count);
+    if (missing !== undefined) out.missing_trees   = Math.round(missing);
+    if (young   !== undefined) out.young_trees     = Math.round(young);
     return out;
   }
 
@@ -7490,6 +7519,12 @@
           '</div>' +
           (plot.crop_type ? '<div style="background:#e8f5e9;border-radius:8px;padding:6px 12px;margin-bottom:14px;font-size:0.85rem;font-weight:600;text-align:center;">🌱 ' + plot.crop_type + '</div>' : '') +
           (plot.variety ? '<div style="background:#fff8e1;border-radius:8px;padding:6px 12px;margin-bottom:14px;font-size:0.85rem;font-weight:600;text-align:center;">🌴 ' + t('זן') + ': ' + escAttrPlot(plot.variety) + '</div>' : '') +
+          ((plot.missing_trees || plot.young_trees)
+            ? '<div style="display:flex;gap:8px;margin-bottom:14px;">' +
+                (plot.young_trees ? '<div style="flex:1;background:#e3f2fd;border-radius:8px;padding:6px 10px;font-size:0.85rem;font-weight:600;text-align:center;">🌱 ' + t('עצים צעירים') + ': ' + plot.young_trees + '</div>' : '') +
+                (plot.missing_trees ? '<div style="flex:1;background:#ffebee;border-radius:8px;padding:6px 10px;font-size:0.85rem;font-weight:600;text-align:center;">⭕ ' + t('עצים חסרים') + ': ' + plot.missing_trees + '</div>' : '') +
+              '</div>'
+            : '') +
           (plot.notes ? '<div style="background:var(--g6);border-radius:8px;padding:8px 12px;margin-bottom:14px;font-size:0.82rem;white-space:pre-wrap;line-height:1.45;">📝 ' + escAttrPlot(plot.notes) + '</div>' : '') +
           
           '<!-- Edit Section -->' +
@@ -7583,6 +7618,16 @@
             '<div class="form-group" style="margin-bottom: 8px;">' +
               '<label class="form-label" style="font-size: 0.72rem;">🌴 ' + t('מספר עצים') + '</label>' +
               '<input type="number" class="form-input" id="pdEditTreeCount" value="' + (plot.tree_count || '') + '" min="0" step="1" style="font-size: 1.05rem; font-weight: 700; text-align: center;">' +
+            '</div>' +
+            '<div style="display: flex; gap: 8px; margin-bottom: 8px;">' +
+              '<div style="flex: 1;">' +
+                '<label class="form-label" style="font-size: 0.72rem;">🌱 ' + t('עצים צעירים') + '</label>' +
+                '<input type="number" class="form-input" id="pdEditYoungTrees" value="' + (plot.young_trees || '') + '" min="0" step="1" style="font-size: 0.95rem; text-align: center;">' +
+              '</div>' +
+              '<div style="flex: 1;">' +
+                '<label class="form-label" style="font-size: 0.72rem;">⭕ ' + t('עצים חסרים') + '</label>' +
+                '<input type="number" class="form-input" id="pdEditMissingTrees" value="' + (plot.missing_trees || '') + '" min="0" step="1" style="font-size: 0.95rem; text-align: center;">' +
+              '</div>' +
             '</div>' +
             '<div style="display: flex; gap: 6px; margin-bottom: 12px;">' +
               '<button class="btn-admin" id="pdCalcFromSpacing" style="flex: 1; font-size: 0.7rem; padding: 7px 4px;">📐 ' + t('חשב לפי מרווחים') + '</button>' +

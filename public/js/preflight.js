@@ -116,7 +116,7 @@ head('3. Exported handlers cover every reference');
 const NS = { 'orders.js':'Orders', 'agriplan.js':'AgriPlan',
              'buildplan-link.js':'BuildPlan',
              'shed3d.js':'Shed3D', 'stickyactions.js':'StickyActions',
-             'plotregister.js':'PlotRegister' };
+             'plotregister.js':'PlotRegister', 'livingedit.js':'LivingEdit' };
 const exportsOf = {};
 Object.keys(NS).forEach(f => {
   if (!src[f]) return;
@@ -191,6 +191,8 @@ const order = (a, b) => tags.indexOf(a) < tags.indexOf(b);
  ['buildplan-core.js','buildplan-ledger.js'], ['buildplan-link.js','buildplan-ledger.js'],
  // the plan tab builds Shed3D faces and Rebar details, and registers onto BuildPlan
  ['buildplan-link.js','buildplan-plan.js'], ['shed3d.js','buildplan-plan.js'], ['rebar.js','buildplan-plan.js'],
+ // the living editor reads BP internals, the model and the 3D viewer
+ ['buildplan-link.js','livingedit.js'], ['livingunit.js','livingedit.js'], ['shed3d.js','livingedit.js'],
  // the six buildplan files share one namespace and MUST keep this order
  ['buildplan-core.js','buildplan-geom.js'], ['buildplan-geom.js','buildplan-draw.js'], ['buildplan-draw.js','buildplan-map.js'], ['buildplan-map.js','buildplan-ui.js'], ['buildplan-ui.js','buildplan-link.js']]
   .forEach(([a, b]) => {
@@ -298,7 +300,7 @@ const HEB = /[\u0590-\u05FF]/;
 const OWN = ['orders.js','agriplan.js',
              'buildplan-core.js', 'buildplan-geom.js', 'buildplan-draw.js', 'buildplan-map.js', 'buildplan-ui.js', 'buildplan-link.js',
              'shed3d.js','rebar.js','buildplan-ledger.js','buildplan-plan.js','stickyactions.js',
-             'plotimport.js', 'plotregister.js'];
+             'plotimport.js', 'plotregister.js', 'livingunit.js', 'livingedit.js'];
 OWN.forEach(f => {
   if (!src[f]) return;
   let m = src[f].replace(/\/\*[\s\S]*?\*\//g, x => x.replace(/[^\n]/g, ' '))
