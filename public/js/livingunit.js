@@ -58,6 +58,20 @@ var LivingUnit = (function () {
 
   // Unit keys, escaped so they read as data and not as UI text.
   var M2 = '\u05de"\u05e8', M1 = "\u05de'", UN = "\u05d9\u05d7'", M3 = '\u05de"\u05e7';
+  var KG = '\u05e7"\u05d2', LT = '\u05dc\u05d9\u05d8\u05e8', HR = '\u05e9\u05e2\u05d5\u05ea';
+
+  // ── floor finishes ──────────────────────────────────────────────────
+  var FLOORS = ['porcelain', 'ceramic', 'concrete', 'epoxy'];
+  function floorLabel(f) {
+    switch (f) {
+      case 'porcelain': return tt('גרניט פורצלן', 'แกรนิตพอร์ซเลน', 'جرانيت بورسلان');
+      case 'ceramic': return tt('קרמיקה', 'เซรามิก', 'سيراميك');
+      case 'concrete': return tt('בטון חשוף / מוחלק', 'คอนกรีตเปลือย', 'خرسانة مكشوفة');
+      case 'epoxy': return tt('ציפוי אפוקסי', 'อีพ็อกซี', 'إيبوكسي');
+    }
+    return f;
+  }
+  var FLOOR_3D = { concrete: '#bdbab2', epoxy: '#9fb4bf' };
 
   // ── room types ──────────────────────────────────────────────────────
   var ROOM_TYPES = ['bed', 'wc', 'shower', 'wash', 'laundry', 'kitchen', 'dining', 'corridor', 'store', 'office'];
@@ -84,8 +98,8 @@ var LivingUnit = (function () {
     dining: ['#c8e6c9', 'rgba(46,204,113,.18)'], corridor: ['#f5f5f5', 'rgba(255,255,255,.03)'],
     store: ['#d7ccc8', 'rgba(161,136,127,.2)'], office: ['#fff9c4', 'rgba(255,235,59,.14)']
   };
-  var ROOM_3D = { bed: '#d9cdb8', wc: '#9fd3ea', shower: '#8fc9e3', wash: '#b5dcec', laundry: '#c3b4dd',
-                  kitchen: '#e9cfa4', dining: '#c9dcc0', corridor: '#d8d4cc', store: '#c4b6ad', office: '#e7e0b5' };
+  var ROOM_3D = { bed: '#e8d9bd', wc: '#bfe3f2', shower: '#a9d8ee', wash: '#d3ecf6', laundry: '#d8cdea',
+                  kitchen: '#f3dcb3', dining: '#dcead2', corridor: '#ecebe6', store: '#d9cdc4', office: '#f1ebc4' };
 
   // ── item catalogue ──────────────────────────────────────────────────
   // w: size along the item's own x, d: depth, h3: height drawn in 3D,
@@ -164,7 +178,28 @@ var LivingUnit = (function () {
              wardrobe: '🚪', table: '🍽', bench: '🪑', sofa: '🛋' }[k] || '•';
   }
 
+  // A bearing (degrees clockwise from north) as one of eight directions.
+  function dirName(deg) {
+    var i = Math.round((((deg % 360) + 360) % 360) / 45) % 8;
+    return [tt('צפון', 'เหนือ', 'شمال'), tt('צפון-מזרח', 'ตะวันออกเฉียงเหนือ', 'شمال شرق'),
+            tt('מזרח', 'ตะวันออก', 'شرق'), tt('דרום-מזרח', 'ตะวันออกเฉียงใต้', 'جنوب شرق'),
+            tt('דרום', 'ใต้', 'جنوب'), tt('דרום-מערב', 'ตะวันตกเฉียงใต้', 'جنوب غرب'),
+            tt('מערב', 'ตะวันตก', 'غرب'), tt('צפון-מערב', 'ตะวันตกเฉียงเหนือ', 'شمال غرب')][i];
+  }
+
   // ── normalise ───────────────────────────────────────────────────────
+  // A free-standing inner wall, drawn on the plan independently of any room.
+  // Kept on the building's axes: the longer component wins, so a wall drawn
+  // slightly off-square still lands on one line and can host a door.
+  function freeWall(w) {
+    if (!w) return null;
+    var x1 = num(w.x1, 0), y1 = num(w.y1, 0), x2 = num(w.x2, 0), y2 = num(w.y2, 0);
+    if (Math.abs(x2 - x1) >= Math.abs(y2 - y1)) y2 = y1; else x2 = x1;
+    if (Math.hypot(x2 - x1, y2 - y1) < 0.2) return null;
+    return { id: String(w.id || uid()), x1: n2(x1), y1: n2(y1), x2: n2(x2), y2: n2(y2),
+             kind: w.kind === 'block' ? 'block' : 'panel' };
+  }
+
   function normLayout(l) {
     if (!l || typeof l !== 'object' || !Array.isArray(l.rooms)) return null;
     return {
@@ -172,8 +207,9 @@ var LivingUnit = (function () {
       rooms: l.rooms.filter(function (r) { return r && num(r.w, 0) > 0.2 && num(r.h, 0) > 0.2; }).map(function (r) {
         return { id: String(r.id || uid()), type: ROOM_TYPES.indexOf(r.type) >= 0 ? r.type : 'store',
                  name: String(r.name || ''), x: num(r.x, 0), y: num(r.y, 0), w: num(r.w, 1), h: num(r.h, 1),
-                 open: !!r.open };
+                 open: !!r.open, floor: FLOORS.indexOf(r.floor) >= 0 ? r.floor : '' };
       }),
+      walls: (Array.isArray(l.walls) ? l.walls : []).map(freeWall).filter(function (w) { return w; }),
       items: (Array.isArray(l.items) ? l.items : []).filter(function (it) { return it && ITEMS[it.kind]; }).map(function (it) {
         var o = { id: String(it.id || uid()), kind: it.kind, x: num(it.x, 0), y: num(it.y, 0),
                   rot: ((Math.round(num(it.rot, 0) / 90) * 90) % 360 + 360) % 360, flip: !!it.flip };
@@ -209,6 +245,12 @@ var LivingUnit = (function () {
       site: { dx: num(site.dx, 0), dy: num(site.dy, 0),
               rot: ((Math.round(num(site.rot, 0) / 90) * 90) % 360 + 360) % 360 },
       layout: normLayout(u.layout),
+      floor: FLOORS.indexOf(u.floor) >= 0 ? u.floor : 'porcelain',
+      tileMethod: u.tileMethod === 'adhesive' ? 'adhesive' : 'traditional',
+      bedCm: Math.max(2, Math.min(15, Number(u.bedCm) || 5)),
+      crew: Math.max(1, Math.round(Number(u.crew) || 4)),
+      hoursDay: Math.max(4, Math.min(14, Number(u.hoursDay) || 9)),
+      pace: Math.max(0.5, Math.min(2, Number(u.pace) || 1)),
       notes: String(u.notes || '')
     };
   }
@@ -251,13 +293,15 @@ var LivingUnit = (function () {
     u = norm(u);
     var pr = program(u);
     var Lm = n2(pr.length), Wm = n2(pr.width);
-    var rooms = [], items = [];
+    var rooms = [], items = [], seq = 0;
+    // Deterministic ids: the generated plan is rebuilt on every redraw
+    // until the first edit, and a selection must survive that.
     function room(type, x, y, w, h, open, name) {
-      var r = { id: uid(), type: type, name: name || '', x: n2(x), y: n2(y), w: n2(w), h: n2(h), open: !!open };
+      var r = { id: 'ar' + (++seq), type: type, name: name || '', x: n2(x), y: n2(y), w: n2(w), h: n2(h), open: !!open };
       rooms.push(r); return r;
     }
     function item(kind, x, y, rot, extra) {
-      var o = { id: uid(), kind: kind, x: n2(x), y: n2(y), rot: rot || 0, flip: false };
+      var o = { id: 'ai' + (++seq), kind: kind, x: n2(x), y: n2(y), rot: rot || 0, flip: false };
       if (extra) Object.keys(extra).forEach(function (k) { o[k] = extra[k]; });
       items.push(o); return o;
     }
@@ -380,7 +424,7 @@ var LivingUnit = (function () {
       item('door_ext', Lm - 0.8, Wm, 0, { w: 1.0 });
       item('panel', Lm - 1.8, Wm - 0.1, 180);
     }
-    return { L: Lm, W: Wm, rooms: rooms, items: items, auto: true };
+    return { L: Lm, W: Wm, rooms: rooms, walls: [], items: items, auto: true };
   }
 
   // The layout in force: the stored one, rescaled if the building has been
@@ -401,6 +445,9 @@ var LivingUnit = (function () {
       rooms: l.rooms.map(function (r) {
         return { id: r.id, type: r.type, name: r.name, open: r.open,
                  x: n2(r.x * kx), y: n2(r.y * ky), w: n2(r.w * kx), h: n2(r.h * ky) };
+      }),
+      walls: (l.walls || []).map(function (w) {
+        return { id: w.id, kind: w.kind, x1: n2(w.x1 * kx), y1: n2(w.y1 * ky), x2: n2(w.x2 * kx), y2: n2(w.y2 * ky) };
       }),
       items: l.items.map(function (it) {
         var o = JSON.parse(JSON.stringify(it));
@@ -449,16 +496,28 @@ var LivingUnit = (function () {
       lines[key] = { o: o, c: Math.round(c * 100) / 100, pcs: [] };
       return key;
     }
-    function add(o, c, a, b, side, r) {
+    function add(o, c, a, b, side, r, fw) {
       a = Math.max(0, a); b = Math.min(o === 'h' ? Lm : Wm, b);
       if (b - a < E) return;
-      lines[keyFor(o, c)].pcs.push({ a: a, b: b, side: side, r: r });
+      lines[keyFor(o, c)].pcs.push({ a: a, b: b, side: side, r: r, fw: fw || null });
+    }
+    // the room a face looks into, for a free wall standing inside one
+    function roomBeside(o, c, m, side) {
+      var px = o === 'h' ? m : c + side * 0.06, py = o === 'h' ? c + side * 0.06 : m, hit = null;
+      lay.rooms.forEach(function (r) {
+        if (px > r.x && px < r.x + r.w && py > r.y && py < r.y + r.h && (!hit || r.w * r.h < hit.w * hit.h)) hit = r;
+      });
+      return hit;
     }
     lay.rooms.forEach(function (r) {
       add('h', r.y, r.x, r.x + r.w, 1, r);
       add('h', r.y + r.h, r.x, r.x + r.w, -1, r);
       add('v', r.x, r.y, r.y + r.h, 1, r);
       add('v', r.x + r.w, r.y, r.y + r.h, -1, r);
+    });
+    (lay.walls || []).forEach(function (w) {
+      if (w.y1 === w.y2) add('h', w.y1, Math.min(w.x1, w.x2), Math.max(w.x1, w.x2), 0, null, w);
+      else add('v', w.x1, Math.min(w.y1, w.y2), Math.max(w.y1, w.y2), 0, null, w);
     });
     // the outline always exists, rooms or not
     [['h', 0], ['h', Wm], ['v', 0], ['v', Lm]].forEach(function (oc) {
@@ -479,14 +538,26 @@ var LivingUnit = (function () {
       var cur = null;
       for (var i = 0; i + 1 < uniq.length; i++) {
         var a = uniq[i], b = uniq[i + 1], m = (a + b) / 2;
-        var plus = [], minus = [];
-        ln.pcs.forEach(function (p) { if (p.a < m && p.b > m) (p.side > 0 ? plus : minus).push(p.r); });
+        var plus = [], minus = [], frees = [];
+        ln.pcs.forEach(function (p) {
+          if (!(p.a < m && p.b > m)) return;
+          if (p.fw) frees.push(p.fw); else (p.side > 0 ? plus : minus).push(p.r);
+        });
         var wall, wetP, wetM;
+        var block = frees.some(function (f) { return f.kind === 'block'; });
         if (isOuter) {
           wall = true;
           var inside = ln.c < E ? plus : minus;
           wetP = inside.some(function (r) { return WET[r.type]; });
           wetM = false;
+        } else if (frees.length) {
+          // a drawn wall stands whatever the rooms around it say; its faces
+          // are wet when the room each one looks into is wet
+          wall = true;
+          var rp = plus.length ? plus : [roomBeside(ln.o, ln.c, m, 1)].filter(Boolean);
+          var rm = minus.length ? minus : [roomBeside(ln.o, ln.c, m, -1)].filter(Boolean);
+          wetP = rp.some(function (r) { return WET[r.type]; });
+          wetM = rm.some(function (r) { return WET[r.type]; });
         } else {
           if (!plus.length && !minus.length) wall = false;
           else if (plus.length && minus.length &&
@@ -496,10 +567,11 @@ var LivingUnit = (function () {
           wetM = minus.some(function (r) { return WET[r.type]; });
         }
         if (!wall) { cur = null; continue; }
-        var sig = (isOuter ? 'o' : 'i') + (wetP ? 1 : 0) + (wetM ? 1 : 0);
+        if (isOuter) block = false;
+        var sig = (isOuter ? 'o' : 'i') + (wetP ? 1 : 0) + (wetM ? 1 : 0) + (block ? 'b' : '') + (frees.length ? 'f' : '');
         if (cur && cur.sig === sig && Math.abs(cur.b - a) < 0.002) { cur.b = b; cur.len = cur.b - cur.a; continue; }
         cur = { o: ln.o, c: ln.c, a: a, b: b, len: b - a, outer: isOuter, wetP: wetP, wetM: wetM,
-                wet: wetP || wetM, sig: sig };
+                wet: wetP || wetM, block: block, free: frees.length > 0, sig: sig };
         segs.push(cur);
       }
     });
@@ -533,14 +605,54 @@ var LivingUnit = (function () {
     });
     return best;
   }
+  // A wall segment's identity: stable for as long as the layout around it
+  // does not change, which is as long as a selection needs to live.
+  function segKey(sg) { return sg.o + ':' + n2(sg.c) + ':' + n2(sg.a) + ':' + n2(sg.b); }
+  function isBlockSeg(sg, u) { return !sg.outer && (sg.block || (u.blockWet && sg.wet)); }
+  // Nominal thickness: block as quoted (20 cm), panel from the partition's
+  // own name ("... 5 ס"מ" is 5 cm), outer wall 20 cm.
+  function wallThick(sg, u) {
+    if (sg.outer) return 0.2;
+    if (isBlockSeg(sg, u)) return 0.2;
+    var m = String(u.partition || '').match(/(\d+(?:\.\d+)?)\s*\u05e1/);
+    var cm = m ? Number(m[1]) : 10;
+    return (cm > 0 && cm < 40) ? cm / 100 : 0.1;
+  }
+  // Everything there is to say about one wall: size, kind, openings, area.
+  function segInfo(u, key) {
+    u = norm(u);
+    var lay = layoutOf(u), segs = walls(lay);
+    var sg = segs.filter(function (x) { return segKey(x) === key; })[0];
+    if (!sg) return null;
+    var H = u.height, ops = [], open = 0;
+    lay.items.forEach(function (it) {
+      var d = ITEMS[it.kind];
+      if (!d || !d.wall || hostSeg(segs, it) !== sg) return;
+      var w = (it.w != null) ? it.w : d.w, h = it.kind === 'window' ? (d.h3 || 1) : 2.1;
+      ops.push({ kind: it.kind, w: w, h: h });
+      open += w * h;
+    });
+    return { seg: sg, len: sg.len, t: wallThick(sg, u), H: H, block: isBlockSeg(sg, u),
+             gross: sg.len * H, net: Math.max(0, sg.len * H - open), openings: ops,
+             faces: sg.outer ? [sg.wetP] : [sg.wetP, sg.wetM] };
+  }
+  // Physical size of an item: footprint along its own axes, height, and
+  // the height it is mounted at.
+  function itemDims(it) {
+    var d = ITEMS[it.kind] || {}, w = (it.w != null) ? it.w : d.w;
+    if (d.wall) return { w: w, d: 0, h: it.kind === 'window' ? (d.h3 || 1) : 2.1, z: it.kind === 'window' ? d.sill : 0 };
+    return { w: w, d: d.d, h: d.h3, z: d.ceil ? null : (d.z || 0), ceil: !!d.ceil };
+  }
   function manhattan(a, b) { return Math.abs(a.x - b.x) + Math.abs(a.y - b.y); }
 
   // ── quantities from the layout ──────────────────────────────────────
   function quantities(u) {
     u = norm(u);
+    // block where drawn as block, or wet and the project builds wet walls in block
+    var isBlock = function (s) { return !s.outer && (s.block || (u.blockWet && s.wet)); };
     var lay = layoutOf(u), segs = walls(lay), H = u.height;
     var q = {
-      innerDry: 0, innerWet: 0, outer: 0, doorsInt: {}, doorsExt: 0, windows: {}, winArea: 0,
+      innerDry: 0, innerWet: 0, innerBlock: 0, innerPanel: 0, blockDoorArea: 0, panelDoorArea: 0, outer: 0, doorsInt: {}, doorsExt: 0, windows: {}, winArea: 0,
       dryDoorArea: 0, wetDoorArea: 0, extOpenArea: 0,
       dryFace: 0, wetFace: 0, dryFaceOpen: 0, wetFaceOpen: 0, doorWidthDry: 0,
       floor: 0, wetFloor: 0, wetPerim: 0, showerPerim: 0, count: {}, counterM: 0,
@@ -550,6 +662,7 @@ var LivingUnit = (function () {
       if (s.outer) { q.outer += s.len; if (s.wetP) q.wetFace += s.len; else q.dryFace += s.len; }
       else {
         if (s.wet) q.innerWet += s.len; else q.innerDry += s.len;
+        if (isBlock(s)) q.innerBlock += s.len; else q.innerPanel += s.len;
         q.wetFace += s.len * ((s.wetP ? 1 : 0) + (s.wetM ? 1 : 0));
         q.dryFace += s.len * ((s.wetP ? 0 : 1) + (s.wetM ? 0 : 1));
       }
@@ -573,10 +686,19 @@ var LivingUnit = (function () {
             if (wetF) q.wetFaceOpen += w * Math.min(h, u.tileH); else { q.dryFaceOpen += area; q.doorWidthDry += it.kind === 'window' ? 0 : w; }
           });
           if (s.outer) q.extOpenArea += area;
-          else if (s.wet) q.wetDoorArea += area; else q.dryDoorArea += area;
+          else {
+            if (s.wet) q.wetDoorArea += area; else q.dryDoorArea += area;
+            if (isBlock(s)) q.blockDoorArea += area; else q.panelDoorArea += area;
+          }
         }
       }
       if (it.kind === 'counter') q.counterM += w;
+    });
+    var byFloor = { porcelain: 0, ceramic: 0, concrete: 0, epoxy: 0 }, dryTiledPerim = 0, dryPerim = 0;
+    lay.rooms.forEach(function (r) {
+      var a = r.w * r.h, f = r.floor || u.floor;
+      byFloor[f] += a;
+      if (!WET[r.type]) { dryPerim += 2 * (r.w + r.h); if (f === 'porcelain' || f === 'ceramic') dryTiledPerim += 2 * (r.w + r.h); }
     });
     lay.rooms.forEach(function (r) {
       var a = r.w * r.h;
@@ -585,7 +707,16 @@ var LivingUnit = (function () {
       if (r.type === 'shower') q.showerPerim += 2 * (r.w + r.h);
     });
     // floor area the rooms do not cover is still floor (circulation)
+    var roomsArea = q.floor;
     q.floor = Math.max(q.floor, lay.L * lay.W - (q.innerDry + q.innerWet) * 0.1);
+    // floor no room covers takes the project's finish
+    byFloor[u.floor] += Math.max(0, q.floor - roomsArea);
+    q.byFloor = byFloor;
+    q.tiledFloor = byFloor.porcelain + byFloor.ceramic;
+    q.wallTile = Math.max(0, q.wetFace * Math.min(u.tileH, H) - q.wetFaceOpen) + q.counterM * 0.6;
+    q.paint = q.dryFace * H - q.dryFaceOpen + Math.max(0, H - u.tileH) * q.wetFace;
+    // skirting only where a dry room is tiled
+    q.skirting = Math.max(0, q.dryFace - q.doorWidthDry) * (dryPerim > 0 ? dryTiledPerim / dryPerim : 1);
 
     // services, measured as right-angle runs (how pipe and cable are laid)
     var panel = lay.items.filter(function (i) { return i.kind === 'panel'; })[0] ||
@@ -624,18 +755,13 @@ var LivingUnit = (function () {
     function c(k) { return q.count[k] || 0; }
     var wallNote = function (len) { return n1(len) + ' ' + tt('מ\' קיר', 'ม. ผนัง', 'م جدار') + ' \u00d7 ' + n2(H) + ' m'; };
 
-    // inner walls, net of openings
-    if (u.blockWet) {
-      var blk = q.innerWet * H - q.wetDoorArea;
-      push('בלוק בטון 20 ס"מ', blk, M2, tt('קירות פנים רטובים', 'ผนังเปียก', 'جدران رطبة') + ' \u00b7 ' + wallNote(q.innerWet));
-      push('טיח פנים', blk * 2, M2, tt('בלוק, שני צדדים', 'สองด้าน', 'وجهان'));
-      push(u.partition, q.innerDry * H - q.dryDoorArea, M2, tt('מחיצות פנים', 'ผนังกั้นภายใน', 'قواطع داخلية') + ' \u00b7 ' + wallNote(q.innerDry));
-      push('פרופיל U לפאנל', q.innerDry * 2, M1, tt('מסילות עליונה ותחתונה', 'รางบนล่าง', 'مجاري علوية وسفلية'));
-    } else {
-      push(u.partition, (q.innerDry + q.innerWet) * H - q.dryDoorArea - q.wetDoorArea, M2,
-        tt('מחיצות פנים', 'ผนังกั้นภายใน', 'قواطع داخلية') + ' \u00b7 ' + wallNote(q.innerDry + q.innerWet));
-      push('פרופיל U לפאנל', (q.innerDry + q.innerWet) * 2, M1, tt('מסילות עליונה ותחתונה', 'รางบนล่าง', 'مجاري علوية وسفلية'));
-    }
+    // inner walls, net of openings: block where drawn as block or wet,
+    // panel everywhere else
+    var blk = q.innerBlock * H - q.blockDoorArea;
+    push('בלוק בטון 20 ס"מ', blk, M2, tt('קירות פנים בבלוק', 'ผนังบล็อก', 'جدران بلوك') + ' \u00b7 ' + wallNote(q.innerBlock));
+    push('טיח פנים', blk * 2, M2, tt('בלוק, שני צדדים', 'สองด้าน', 'وجهان'));
+    push(u.partition, q.innerPanel * H - q.panelDoorArea, M2, tt('מחיצות פנים', 'ผนังกั้นภายใน', 'قواطع داخلية') + ' \u00b7 ' + wallNote(q.innerPanel));
+    push('פרופיל U לפאנל', q.innerPanel * 2, M1, tt('מסילות עליונה ותחתונה', 'รางบนล่าง', 'مجاري علوية وسفلية'));
 
     // openings
     var di = Object.keys(q.doorsInt).sort();
@@ -676,15 +802,33 @@ var LivingUnit = (function () {
     if (c('ac')) push('מזגן עילי 1.5 כ"ס', c('ac'), UN, '');
 
     // finishes
-    push('ריצוף גרניט פורצלן', q.floor * 1.07, M2, tt('כולל פחת', 'รวมเผื่อ', 'شامل الهدر'));
-    var ceramic = q.wetFace * Math.min(u.tileH, H) - q.wetFaceOpen;
-    push('חיפוי קרמיקה', (ceramic + q.counterM * 0.6) * 1.05, M2,
+    var F = q.byFloor, tiled = q.tiledFloor;
+    push('ריצוף גרניט פורצלן', F.porcelain * 1.07, M2, tt('כולל פחת', 'รวมเผื่อ', 'شامل الهدر'));
+    push('ריצוף קרמיקה', F.ceramic * 1.07, M2, tt('כולל פחת', 'รวมเผื่อ', 'شامل الهدر'));
+    if (tiled > 0 && u.tileMethod === 'traditional') {
+      // bed of שומשומית bound with cement, tiles bedded in a cement slurry
+      var bedM3 = tiled * u.bedCm / 100;
+      push('שומשומית', bedM3 * 1.1, M3, tt('מצע', 'ชั้นรอง', 'طبقة أساس') + ' ' + u.bedCm + ' ' + tt('ס"מ', 'ซม.', 'سم') + ' \u00b7 ' + n1(tiled) + ' ' + M2);
+      push('מלט 25 ק"ג', Math.ceil((bedM3 * 200 + tiled * 3) / 25), UN,
+        tt('~200 ק"ג למ"ק מצע + 3 ק"ג/מ"ר חלב מלט', '~200 กก./ลบ.ม.', '~200 كغ/م³'));
+    }
+    var adhKg = (tiled > 0 && u.tileMethod === 'adhesive' ? tiled * 5 : 0) + q.wallTile * 4;
+    push('דבק קרמיקה 25 ק"ג', Math.ceil(adhKg / 25), UN,
+      (tiled > 0 && u.tileMethod === 'adhesive' ? tt('רצפה ~5 ק"ג/מ"ר', 'พื้น ~5 กก./ตร.ม.', 'أرضية ~5 كغ/م²') + ' + ' : '') +
+      tt('קירות ~4 ק"ג/מ"ר', 'ผนัง ~4 กก./ตร.ม.', 'جدران ~4 كغ/م²'));
+    push('רובה', (tiled + q.wallTile) * 0.4, KG, tt('~0.4 ק"ג/מ"ר', '~0.4 กก./ตร.ม.', '~0.4 كغ/م²'));
+    push('חיפוי קרמיקה', q.wallTile * 1.05, M2,
       tt('פנים רטובים לגובה', 'ผนังเปียกสูง', 'الجدران الرطبة بارتفاع') + ' ' + n2(Math.min(u.tileH, H)) + ' m + ' +
       tt('חיפוי מטבח', 'ครัว', 'المطبخ'));
-    push('צבע פנים', q.dryFace * H - q.dryFaceOpen + Math.max(0, H - u.tileH) * q.wetFace, M2,
-      tt('קירות יבשים', 'ผนังแห้ง', 'الجدران الجافة'));
+    if (F.concrete > 0) {
+      if (u.mode === 'full') push('החלקת בטון (הליקופטר)', F.concrete, M2, tt('בזמן היציקה', 'ระหว่างเท', 'أثناء الصب'));
+      push('סילר לבטון', F.concrete * 0.2, LT, tt('2 שכבות', '2 ชั้น', 'طبقتان'));
+    }
+    push('ציפוי אפוקסי', F.epoxy, M2, '');
+    push('צבע פנים', q.paint, M2, tt('קירות יבשים', 'ผนังแห้ง', 'الجدران الجافة'));
+    push('יסוד לקירות', q.paint * 0.1, LT, '');
     push('צבע תקרה', q.floor, M2, '');
-    push('פנל שיפולים', Math.max(0, q.dryFace - q.doorWidthDry), M1, '');
+    push('פנל שיפולים', q.skirting, M1, tt('בחדרים מרוצפים', 'ห้องปูกระเบื้อง', 'الغرف المبلطة'));
 
     // furniture and appliances, for the purchasing list
     ['bed', 'bunk', 'wardrobe', 'table', 'bench', 'sofa', 'fridge', 'stove', 'washer'].forEach(function (k) {
@@ -693,6 +837,10 @@ var LivingUnit = (function () {
                  sofa: 'ספה', fridge: 'מקרר', stove: 'כיריים', washer: 'מכונת כביסה' }[k];                 // CATALOGUE KEY
       push(nm, c(k), UN, tt('ריהוט וציוד', 'เฟอร์นิเจอร์', 'أثاث ومعدات'));
     });
+
+    var lab = labour(u);
+    push('שעות עבודה', lab.total, HR, u.crew + ' ' + tt('עובדים', 'คนงาน', 'عمال') + ' \u00b7 ~' + lab.days + ' ' +
+      tt('ימי עבודה', 'วันทำงาน', 'أيام عمل') + ' (' + tt('הערכה', 'ประมาณการ', 'تقدير') + ')');
 
     // envelope — only when there is nothing to fit out into
     if (u.mode === 'full') {
@@ -708,6 +856,72 @@ var LivingUnit = (function () {
     }
     void pr;
     return out;
+  }
+
+  // ── labour ──────────────────────────────────────────────────────────
+  // Man-hours from the quantities and a productivity rate per trade
+  // (hours per unit, a typical light-construction crew). The pace factor
+  // scales the lot: 0.8 for a practised crew, 1.3 for a new one. Days are
+  // the man-hours spread over the crew; trades that cannot overlap make
+  // the real duration longer, so this is a floor, not a promise.
+  function labour(u) {
+    u = norm(u);
+    var q = quantities(u), H = u.height, c = function (k) { return q.count[k] || 0; };
+    var g = {}, order = [];
+    function row(stage, label, qty, unit, rate) {
+      if (!(qty > 0)) return;
+      if (!g[stage]) { g[stage] = []; order.push(stage); }
+      g[stage].push({ label: label, qty: qty, unit: unit, rate: rate, hours: qty * rate * u.pace });
+    }
+    var S1 = tt('מבנה ומעטפת', 'โครงสร้าง', 'الهيكل'), S2 = tt('מחיצות', 'ผนังกั้น', 'القواطع'),
+        S3 = tt('אינסטלציה', 'ประปา', 'السباكة'), S4 = tt('חשמל ומיזוג', 'ไฟฟ้าและแอร์', 'الكهرباء والتكييف'),
+        S5 = tt('ריצוף, חיפוי ואיטום', 'ปูกระเบื้อง', 'التبليط والعزل'), S6 = tt('גמר', 'งานเก็บ', 'التشطيب');
+    if (u.mode === 'full') {
+      var area = q.lay.L * q.lay.W;
+      row(S1, tt('יציקת רצפה כולל רשת', 'เทพื้น', 'صب الأرضية'), area, M2, 0.6);
+      row(S1, tt('שלד פלדה', 'โครงเหล็ก', 'الهيكل الفولاذي'), (Math.ceil(q.lay.L / 4 + 1) * 2) * (H + 0.6), M1, 0.8);
+      row(S1, tt('מרישים', 'แป', 'المرايش'), Math.ceil(q.lay.W / 1.5) * q.lay.L, M1, 0.25);
+      row(S1, tt('חיפוי מעטפת', 'ผนังภายนอก', 'الغلاف'), 2 * (q.lay.L + q.lay.W) * H, M2, 0.35);
+      row(S1, tt('גג ומרזבים', 'หลังคา', 'السقف'), area, M2, 0.4);
+    }
+    row(S2, tt('מחיצות פאנל כולל מסילות', 'ผนังแผง', 'قواطع ألواح'), q.innerPanel * H, M2, 0.6);
+    row(S2, tt('בניית בלוק', 'ก่อบล็อก', 'بناء بلوك'), q.innerBlock * H, M2, 1.2);
+    row(S2, tt('טיח', 'ฉาบ', 'لياسة'), q.innerBlock * H * 2, M2, 0.5);
+    row(S3, tt('צנרת מים', 'ท่อน้ำ', 'أنابيب ماء'), q.cold + q.hot, M1, 0.25);
+    row(S3, tt('צנרת ביוב', 'ท่อน้ำเสีย', 'أنابيب صرف'), q.drainPipe, M1, 0.3);
+    row(S3, tt('אסלות', 'โถส้วม', 'مراحيض'), c('toilet'), UN, 3);
+    row(S3, tt('מקלחות', 'ฝักบัว', 'دُش'), c('shower'), UN, 4);
+    row(S3, tt('כיורים', 'อ่าง', 'أحواض'), c('basin') + c('sink'), UN, 2.5);
+    row(S3, tt('נקודות כביסה ומחסומים', 'จุดซักผ้า', 'نقاط غسيل ومصارف'), c('washer') + c('drain'), UN, 1.5);
+    row(S3, tt('דודי מים', 'เครื่องทำน้ำร้อน', 'سخانات'), c('heater'), UN, 4);
+    row(S4, tt('נקודות חשמל', 'จุดไฟฟ้า', 'نقاط كهرباء'), c('socket') + c('light') + c('washer') + c('fridge') + c('stove') + c('heater'), UN, 1.2);
+    row(S4, tt('לוח חשמל', 'ตู้ไฟ', 'لوحة'), Math.max(1, c('panel')), UN, 8);
+    row(S4, tt('התקנת מזגנים', 'ติดตั้งแอร์', 'تركيب مكيفات'), c('ac'), UN, 5);
+    row(S5, tt('איטום חדרים רטובים', 'กันซึม', 'العزل'), q.wetFloor + q.wetPerim * 0.3 + q.showerPerim * 1.5, M2, 0.25);
+    row(S5, u.tileMethod === 'traditional' ? tt('ריצוף על מצע', 'ปูบนชั้นรอง', 'تبليط على طبقة') : tt('ריצוף בדבק', 'ปูด้วยกาว', 'تبليط بالغراء'),
+        q.tiledFloor, M2, u.tileMethod === 'traditional' ? 1.1 : 0.8);
+    row(S5, tt('חיפוי קירות', 'บุผนัง', 'تكسية الجدران'), q.wallTile, M2, 1.2);
+    row(S5, tt('בטון: איטום / החלקה', 'คอนกรีต', 'خرسانة'), q.byFloor.concrete, M2, u.mode === 'full' ? 0.13 : 0.05);
+    row(S5, tt('אפוקסי', 'อีพ็อกซี', 'إيبوكسي'), q.byFloor.epoxy, M2, 0.3);
+    row(S6, tt('דלתות', 'ประตู', 'أبواب'), Object.keys(q.doorsInt).reduce(function (a, k) { return a + q.doorsInt[k]; }, 0), UN, 2.5);
+    row(S6, tt('דלת כניסה', 'ประตูทางเข้า', 'باب المدخل'), q.doorsExt, UN, 4);
+    row(S6, tt('חלונות', 'หน้าต่าง', 'نوافذ'), Object.keys(q.windows).reduce(function (a, k) { return a + q.windows[k]; }, 0), UN, 3);
+    row(S6, tt('מטבח: ארונות ומשטח', 'ครัว', 'المطبخ'), q.counterM, M1, 3);
+    row(S6, tt('צבע קירות ותקרה', 'ทาสี', 'الدهان'), q.paint + q.floor, M2, 0.2);
+    row(S6, tt('פנלים', 'บัวพื้น', 'وزرات'), q.skirting, M1, 0.15);
+    row(S6, tt('הרכבת ריהוט', 'ประกอบเฟอร์นิเจอร์', 'تركيب الأثاث'),
+        c('bed') + 2 * c('bunk') + 1.5 * c('wardrobe') + 0.5 * (c('table') + c('bench') + c('sofa')), HR, 1);
+    var total = 0;
+    var stages = order.map(function (k) {
+      var h = g[k].reduce(function (a, r) { return a + r.hours; }, 0);
+      total += h;
+      return { stage: k, rows: g[k], hours: h, days: h / (u.crew * u.hoursDay) };
+    });
+    // cleaning, handover and the trips nobody plans for
+    var extra = total * 0.05;
+    total += extra;
+    return { stages: stages, extra: extra, total: Math.round(total), crew: u.crew, hoursDay: u.hoursDay, pace: u.pace,
+             days: Math.ceil(total / (u.crew * u.hoursDay)) };
   }
 
   // ── checks: what the layout does not deliver ────────────────────────
@@ -732,6 +946,10 @@ var LivingUnit = (function () {
     }
     lay.rooms.forEach(function (r) {
       if (r.type === 'bed' && Math.min(r.w, r.h) < 2.2) out.push((r.name || roomLabel(r.type)) + ': ' + tt('צר מדי', 'แคบเกินไป', 'ضيقة جداً') + ' (' + n2(Math.min(r.w, r.h)) + ' m)');
+    });
+    lay.rooms.forEach(function (r) {
+      if (WET[r.type] && (r.floor || u.floor) === 'concrete')
+        out.push((r.name || roomLabel(r.type)) + ': ' + tt('חדר רטוב עם בטון חשוף — מומלץ ריצוף או אפוקסי', 'ห้องเปียกพื้นคอนกรีต', 'غرفة رطبة بخرسانة مكشوفة'));
     });
     if (!cnt.panel) out.push(tt('אין לוח חשמל בתוכנית', 'ไม่มีตู้ไฟ', 'لا توجد لوحة كهرباء'));
     if (!cnt.sewer_exit && (cnt.toilet || cnt.shower)) out.push(tt('אין יציאת ביוב בתוכנית', 'ไม่มีทางออกน้ำเสีย', 'لا يوجد مخرج صرف'));
@@ -766,7 +984,9 @@ var LivingUnit = (function () {
       sel: '#ffd166'
     };
     var pad = 1.4;
-    var vb = [-pad, -pad - 0.6, Lm + pad * 2, Wm + pad * 2 + 0.6];
+    var facades = opt.north != null && isFinite(opt.north);
+    var vb = facades ? [-pad - 0.7, -pad - 1.1, Lm + pad * 2 + 1.4, Wm + pad * 2 + 1.7]
+                     : [-pad, -pad - 0.6, Lm + pad * 2, Wm + pad * 2 + 0.6];
     var o = [];
     var fs = Math.max(0.22, Math.min(0.36, Math.min(Lm, Wm) / 22));
 
@@ -778,9 +998,25 @@ var LivingUnit = (function () {
     });
     // walls
     segs.forEach(function (s) {
+      var e = segEnds(s), on = opt.sel && opt.sel.t === 'seg' && opt.sel.id === segKey(s);
+      o.push('<line x1="' + e.x1 + '" y1="' + e.y1 + '" x2="' + e.x2 + '" y2="' + e.y2 + '" stroke="' + (on ? col.sel : col.wall) +
+        '" stroke-width="' + Math.max(0.07, wallThick(s, u) * 0.85) + '" stroke-linecap="square"/>');
+    });
+    // a wide invisible line over each wall to tap; drawn walls go on top
+    // of these below, so tapping one of those still selects the drawn wall
+    if (opt.interactive) segs.forEach(function (s) {
+      if (s.free) return;
       var e = segEnds(s);
-      o.push('<line x1="' + e.x1 + '" y1="' + e.y1 + '" x2="' + e.x2 + '" y2="' + e.y2 + '" stroke="' + col.wall +
-        '" stroke-width="' + (s.outer ? 0.2 : (s.wet && u.blockWet ? 0.16 : 0.09)) + '" stroke-linecap="square"/>');
+      o.push('<line data-seg="' + segKey(s) + '" x1="' + e.x1 + '" y1="' + e.y1 + '" x2="' + e.x2 + '" y2="' + e.y2 +
+        '" stroke="rgba(0,0,0,0)" stroke-width="0.3"/>');
+    });
+    // drawn walls: a wide transparent line to grab, highlighted when selected
+    (lay.walls || []).forEach(function (fw) {
+      var on = opt.sel && opt.sel.t === 'wall' && opt.sel.id === fw.id;
+      if (on) o.push('<line x1="' + fw.x1 + '" y1="' + fw.y1 + '" x2="' + fw.x2 + '" y2="' + fw.y2 +
+        '" stroke="' + col.sel + '" stroke-width="0.14" stroke-linecap="square" pointer-events="none"/>');
+      if (opt.interactive) o.push('<line data-wall="' + fw.id + '" x1="' + fw.x1 + '" y1="' + fw.y1 + '" x2="' + fw.x2 + '" y2="' + fw.y2 +
+        '" stroke="rgba(0,0,0,0)" stroke-width="0.4" style="cursor:move"/>');
     });
     // service runs
     var panel = lay.items.filter(function (i) { return i.kind === 'panel'; })[0];
@@ -806,7 +1042,7 @@ var LivingUnit = (function () {
         esc(r.name || roomLabel(r.type)) + '</text>');
       o.push('<text x="' + (r.x + r.w / 2) + '" y="' + (r.y + r.h / 2 + fs * 0.9) + '" fill="' + col.txt +
         '" font-size="' + (fs * 0.75) + '" text-anchor="middle" opacity=".6" pointer-events="none">' +
-        n1(r.w * r.h) + ' m\u00b2</text>');
+        n1(r.w * r.h) + ' m\u00b2 \u00b7 ' + n2(r.w) + '\u00d7' + n2(r.h) + '</text>');
     });
     // items
     lay.items.forEach(function (it) {
@@ -872,8 +1108,19 @@ var LivingUnit = (function () {
         '<line x1="' + (2 * ax - tx) + '" y1="' + (2 * ay - ty) + '" x2="' + tx + '" y2="' + ty + '" stroke="#e53935" stroke-width="0.07"/>' +
         '<text x="' + (ax + Math.sin(rad) * 0.85) + '" y="' + (ay - Math.cos(rad) * 0.85 + 0.12) + '" fill="#e53935" font-size="0.32" font-weight="800" text-anchor="middle">N</text></g>');
     }
+    if (facades) {
+      // outward normal of each side, clockwise from "up" on the drawing,
+      // turned into a compass bearing through the drawing's north
+      var fsz = fs * 0.95, fc = print ? '#1565c0' : '#64b5f6';
+      [[0, Lm / 2, -0.45, 0], [90, Lm + 0.55, Wm / 2, 90], [180, Lm / 2, Wm + 1.5, 0], [270, -1.25, Wm / 2, -90]].forEach(function (f) {
+        var brg = Math.round(((f[0] - opt.north) % 360 + 360) % 360);
+        o.push('<text x="' + f[1] + '" y="' + f[2] + '" fill="' + fc + '" font-size="' + fsz + '" font-weight="800" text-anchor="middle"' +
+          (f[3] ? ' transform="rotate(' + f[3] + ' ' + f[1] + ' ' + f[2] + ')"' : '') + '>' +
+          esc(tt('חזית', 'ด้าน', 'واجهة') + ' ' + dirName(brg)) + ' \u00b7 ' + brg + '\u00b0</text>');
+      });
+    }
     var pr = program(u);
-    o.push('<text x="' + (Lm / 2) + '" y="' + (-pad + 0.1) + '" fill="' + col.txt + '" font-size="' + (fs * 1.05) +
+    o.push('<text x="' + (Lm / 2) + '" y="' + (-pad + (facades ? -0.5 : 0.1)) + '" fill="' + col.txt + '" font-size="' + (fs * 1.05) +
       '" font-weight="800" text-anchor="middle">' + u.people + ' ' + tt('אנשים', 'คน', 'أشخاص') + ' \u00b7 ' +
       n1(Lm * Wm) + ' ' + M2 + ' \u00b7 ' + (u.mode === 'full' ? tt('מבנה חדש', 'อาคารใหม่', 'مبنى جديد')
                                                                : tt('התאמת מבנה קיים', 'ปรับปรุงอาคารเดิม', 'تجهيز مبنى قائم')) +
@@ -906,33 +1153,36 @@ var LivingUnit = (function () {
     var F = [];
     function face(pts, color, group, alpha) { F.push({ pts: pts, color: color, group: group, alpha: alpha }); }
     // An axis-aligned box in PLAN space, carried through the rotation.
-    function bx(x1, y1, x2, y2, z1, z2, color, group, alpha) {
+    function bx(x1, y1, x2, y2, z1, z2, color, group, alpha, topColor) {
       var ya = Math.max(y1, y2), yb = Math.min(y1, y2), xa = Math.min(x1, x2), xb = Math.max(x1, x2);
       // corners ordered as Shed3D's box(): (u1,v1),(u2,v1),(u2,v2),(u1,v2) with v = -y
       var p = [W3(xa, ya, z1), W3(xb, ya, z1), W3(xb, yb, z1), W3(xa, yb, z1),
                W3(xa, ya, z2), W3(xb, ya, z2), W3(xb, yb, z2), W3(xa, yb, z2)];
-      [[0, 1, 2, 3], [4, 5, 6, 7], [0, 1, 5, 4], [2, 3, 7, 6], [1, 2, 6, 5], [0, 3, 7, 4]].forEach(function (ix) {
-        face(ix.map(function (i) { return p[i]; }), color, group, alpha);
+      [[0, 1, 2, 3], [4, 5, 6, 7], [0, 1, 5, 4], [2, 3, 7, 6], [1, 2, 6, 5], [0, 3, 7, 4]].forEach(function (ix, k) {
+        face(ix.map(function (i) { return p[i]; }), (k === 1 && topColor) ? topColor : color, group, alpha);
       });
     }
     // ground + slab
     var corners = [W3(0, 0, 0), W3(Lm, 0, 0), W3(Lm, Wm, 0), W3(0, Wm, 0)];
     var ex = corners.map(function (c) { return c[0]; }), ny = corners.map(function (c) { return c[1]; });
-    var gpad = Math.max(Lm, Wm) * 0.9;
+    // Kept modest: a ground plane reaching past the camera breaks the
+    // tiled texture (cells behind the eye cannot be projected).
+    var gpad = Math.max(4, Math.max(Lm, Wm) * 0.3);
     var ext = { x0: Math.min.apply(null, ex) - gpad, x1: Math.max.apply(null, ex) + gpad,
                 y0: Math.min.apply(null, ny) - gpad, y1: Math.max.apply(null, ny) + gpad };
     F.push({ pts: [[ext.x0, ext.y0, -0.02], [ext.x1, ext.y0, -0.02], [ext.x1, ext.y1, -0.02], [ext.x0, ext.y1, -0.02]],
-             color: '#b9ae92', group: 'ground', alpha: 1, extent: ext });
-    bx(-0.15, -0.15, Lm + 0.15, Wm + 0.15, -0.12, 0, '#b9b6ae', 'slab');
+             color: '#b9ae92', group: 'ground', alpha: 1, extent: ext, subdiv: 16 });
+    bx(-0.15, -0.15, Lm + 0.15, Wm + 0.15, -0.12, 0, '#cfccc4', 'slab');
     lay.rooms.forEach(function (r) {
       face([W3(r.x, r.y + r.h, 0.012), W3(r.x + r.w, r.y + r.h, 0.012), W3(r.x + r.w, r.y, 0.012), W3(r.x, r.y, 0.012)],
-           ROOM_3D[r.type] || '#d8d4cc', 'room:' + r.id);
+           FLOOR_3D[r.floor || u.floor] || ROOM_3D[r.type] || '#d8d4cc', 'room:' + r.id);
     });
     // walls with their openings cut out
     var openings = lay.items.filter(function (it) { return it.kind === 'door' || it.kind === 'door_ext' || it.kind === 'window'; });
     segs.forEach(function (s) {
-      var t = s.outer ? 0.2 : (s.wet && u.blockWet ? 0.15 : 0.09);
-      var col = s.outer ? '#c9c2b3' : (s.wet ? '#d7e3ea' : '#e6e1d6');
+      var t = wallThick(s, u), wg = 'seg:' + segKey(s);
+      var col = s.outer ? '#d6cfbf' : (s.wet ? '#dfe9ee' : '#efebe2');
+      var cap = s.outer ? '#4e4a44' : '#6b6760';
       var cuts = [];
       openings.forEach(function (it) {
         if (hostSeg([s], it) !== s) return;
@@ -946,8 +1196,11 @@ var LivingUnit = (function () {
       var pos = s.a;
       function piece(a, bb, z1, z2) {
         if (bb - a < 0.01 || z2 - z1 < 0.01) return;
-        if (s.o === 'h') bx(a, s.c - t / 2, bb, s.c + t / 2, z1, z2, col, 'wall');
-        else bx(s.c - t / 2, a, s.c + t / 2, bb, z1, z2, col, 'wall');
+        // the top of a full-height piece is the cut: drawn dark so the
+        // plan reads from above the way a drawing's poché does
+        var top = (z2 >= Hc - 0.001) ? cap : null;
+        if (s.o === 'h') bx(a, s.c - t / 2, bb, s.c + t / 2, z1, z2, col, wg, undefined, top);
+        else bx(s.c - t / 2, a, s.c + t / 2, bb, z1, z2, col, wg, undefined, top);
       }
       cuts.forEach(function (cu) {
         piece(pos, cu.a, 0, Hc);
@@ -979,18 +1232,50 @@ var LivingUnit = (function () {
       }
       var z1 = d.ceil ? H - d.h3 : (d.z || 0);
       if (z1 >= Hc && !opt.showHigh) return;
+      if (it.kind === 'bed' || it.kind === 'bunk') {
+        // frame and mattress, and for a bunk the upper berth on posts
+        bx(it.x - sz.w / 2, it.y - sz.h / 2, it.x + sz.w / 2, it.y + sz.h / 2, 0, 0.3, '#8d6e63', g);
+        bx(it.x - sz.w / 2 + 0.04, it.y - sz.h / 2 + 0.04, it.x + sz.w / 2 - 0.04, it.y + sz.h / 2 - 0.04, 0.3, 0.46, '#f4f1ea', g);
+        if (it.kind === 'bunk' && Hc > 1.4) {
+          bx(it.x - sz.w / 2, it.y - sz.h / 2, it.x + sz.w / 2, it.y + sz.h / 2, 1.25, 1.4, '#8d6e63', g);
+          bx(it.x - sz.w / 2 + 0.04, it.y - sz.h / 2 + 0.04, it.x + sz.w / 2 - 0.04, it.y + sz.h / 2 - 0.04, 1.4, 1.55, '#f4f1ea', g);
+          [[-1, -1], [1, -1], [1, 1], [-1, 1]].forEach(function (c) {
+            var px = it.x + c[0] * (sz.w / 2 - 0.04), py = it.y + c[1] * (sz.h / 2 - 0.04);
+            bx(px - 0.04, py - 0.04, px + 0.04, py + 0.04, 0, 1.4, '#6d4c41', g);
+          });
+        }
+        return;
+      }
       bx(it.x - sz.w / 2, it.y - sz.h / 2, it.x + sz.w / 2, it.y + sz.h / 2, z1, Math.min(z1 + d.h3, Math.max(Hc, z1 + d.h3)), d.col || '#90a4ae', g);
     });
-    // north arrow on the ground beside the building
-    var nx = ext.x0 + gpad * 0.45, nyy = ext.y1 - gpad * 0.45, al = Math.max(1.5, Math.min(Lm, Wm) * 0.35);
-    face([[nx - 0.12, nyy - al / 2, 0.02], [nx + 0.12, nyy - al / 2, 0.02], [nx + 0.12, nyy + al / 2 - 0.5, 0.02], [nx - 0.12, nyy + al / 2 - 0.5, 0.02]], '#e53935', 'north');
-    face([[nx - 0.45, nyy + al / 2 - 0.5, 0.02], [nx + 0.45, nyy + al / 2 - 0.5, 0.02], [nx, nyy + al / 2, 0.02], [nx, nyy + al / 2, 0.02]], '#e53935', 'north');
+    // Compass: a red arrow pointing true north from the building's centre
+    // out past its north side, and the four directions written on the
+    // ground. The scene is east/north/up, so north is +y whatever the
+    // building's bearing.
+    var ctr = W3(Lm / 2, Wm / 2, 0);
+    var R = Math.hypot(Lm, Wm) / 2 + gpad * 0.55;
+    var ay0 = ctr[1] + Math.hypot(Lm, Wm) / 2 + 0.6, ay1 = ctr[1] + R - 0.8, aw = Math.max(0.18, R * 0.012);
+    if (ay1 - ay0 > 1) {
+      face([[ctr[0] - aw, ay0, 0.03], [ctr[0] + aw, ay0, 0.03], [ctr[0] + aw, ay1 - 0.9, 0.03], [ctr[0] - aw, ay1 - 0.9, 0.03]], '#e53935', 'north');
+      face([[ctr[0] - aw * 3.5, ay1 - 0.9, 0.03], [ctr[0] + aw * 3.5, ay1 - 0.9, 0.03], [ctr[0], ay1, 0.03], [ctr[0], ay1, 0.03]], '#e53935', 'north');
+    }
+    var tags = [
+      { p: [ctr[0], ctr[1] + R, 0], t: '\u2191 ' + tt('צפון', 'เหนือ', 'شمال') + ' N' },
+      { p: [ctr[0] + R, ctr[1], 0], t: tt('מזרח', 'ตะวันออก', 'شرق') + ' E' },
+      { p: [ctr[0], ctr[1] - R, 0], t: tt('דרום', 'ใต้', 'جنوب') + ' S' },
+      { p: [ctr[0] - R, ctr[1], 0], t: tt('מערב', 'ตะวันตก', 'غرب') + ' W' },
+      { p: W3(Lm / 2, Wm + 1.1, 0), t: n2(Lm) + ' m' },
+      { p: W3(-1.1, Wm / 2, 0), t: n2(Wm) + ' m' },
+      { p: W3(0, Wm, Hc / 2), t: '\u2195 ' + n2(H) + ' m' }
+    ];
+    lay.rooms.forEach(function (r) {
+      if (r.w * r.h >= 5) tags.push({ p: W3(r.x + r.w / 2, r.y + r.h / 2, 0.05), t: r.name || roomLabel(r.type) });
+    });
 
-    var spanX = ext.x1 - ext.x0 - 2 * gpad, spanY = ext.y1 - ext.y0 - 2 * gpad;
     return {
       faces: F,
-      meta: { span: Math.max(spanY, 1), length: Math.max(spanX, 1), eaves: H, bay: 3, frames: 0 },
-      cx: (ext.x0 + ext.x1) / 2, cy: (ext.y0 + ext.y1) / 2
+      meta: { span: Wm, length: Lm, eaves: H, bay: 3, frames: 0, tags: tags },
+      cx: (ext.x0 + ext.x1) / 2, cy: (ext.y0 + ext.y1) / 2, ext: ext
     };
   }
 
@@ -1043,6 +1328,8 @@ var LivingUnit = (function () {
     norm: norm, program: program, takeoff: takeoff, svg: svg, stages: stages,
     autoLayout: autoLayout, layoutOf: layoutOf, walls: walls, quantities: quantities, analyze: analyze,
     model3d: model3d, snapToWall: snapToWall, roomAt: roomAt, itemSize: itemSize, segEnds: segEnds,
+    segKey: segKey, segInfo: segInfo, wallThick: wallThick, itemDims: itemDims,
+    labour: labour, FLOORS: FLOORS, floorLabel: floorLabel,
     ITEMS: ITEMS, ROOM_TYPES: ROOM_TYPES, WET: WET, roomLabel: roomLabel, itemLabel: itemLabel, itemSym: itemSym,
     uid: uid
   };

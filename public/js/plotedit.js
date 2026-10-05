@@ -7,8 +7,14 @@
  *      to require opening it.
  *
  *   2. EDITING. Drag a vertex, add one by dragging the midpoint handle
- *      between two others, delete one with a click, and add a whole
- *      DETACHED part that belongs to the same plot.
+ *      between two others, delete one with a click, move the whole plot
+ *      with the centre handle, and add a whole DETACHED part that belongs
+ *      to the same plot.
+ *
+ *      Handles are Leaflet's own draggable markers, so a finger works as
+ *      well as a mouse: a phone sends no mouse events while dragging, and
+ *      the earlier map-level mousedown/mousemove editing could not be
+ *      used there at all — the map simply panned.
  *
  * WHY DETACHED PARTS MATTER
  *   An orchard split by a wadi or a service track is one חלקה with one tree
@@ -26,7 +32,6 @@
 var PlotEdit = (function () {
   'use strict';
 
-  var HANDLE_PX = 16;
   var S = null;          // edit session
   var H = null;          // hover state
 
@@ -227,9 +232,6 @@ var PlotEdit = (function () {
           }),
           gfx: [], drag: null, adding: null };
     setTimeout(function () { m.invalidateSize(); redraw(); banner(); }, 80);
-    m.on('mousedown', onDown);
-    m.on('mousemove', onMove);
-    m.on('mouseup', onUp);
     m.on('click', onClick);
   }
 
@@ -239,24 +241,55 @@ var PlotEdit = (function () {
     S.gfx = [];
   }
 
+  // A dot drawn small inside a larger transparent box: the box is what a
+  // fingertip has to hit, the dot is what the eye needs to see.
+  function handleIcon(hit, dot, bg, border, cursor) {
+    return L.divIcon({ className: '', iconSize: [hit, hit], iconAnchor: [hit / 2, hit / 2],
+      html: '<div style="width:' + hit + 'px;height:' + hit + 'px;display:flex;align-items:center;justify-content:center;cursor:' + cursor + ';">' +
+            '<div style="width:' + dot + 'px;height:' + dot + 'px;border-radius:50%;background:' + bg + ';border:' + border + ';' +
+            'box-shadow:0 1px 4px rgba(0,0,0,.45);"></div></div>' });
+  }
+  var bannerQueued = false;
+  function bannerSoon() {
+    if (bannerQueued) return;
+    bannerQueued = true;
+    (window.requestAnimationFrame || setTimeout)(function () { bannerQueued = false; banner(); });
+  }
+  function hideMidpoints(on) {
+    (S.gfx || []).forEach(function (g) { if (g._kind === 'm' && g.setOpacity) g.setOpacity(on ? 0 : 1); });
+  }
+  function centreOf() {
+    var la = 0, lo = 0, n = 0;
+    S.rings.forEach(function (r) { r.forEach(function (c) { la += c.lat; lo += c.lng; n++; }); });
+    return L.latLng(la / n, lo / n);
+  }
+
   function redraw() {
     var m = map();
     if (!m || !S) return;
     clearGfx();
+    S.polys = [];
 
     S.rings.forEach(function (ring, ri) {
       var poly = L.polygon(ring, {
         color: S.color, fillColor: S.color, weight: ri === 0 ? 3 : 2,
-        fillOpacity: 0.18, dashArray: ri === 0 ? null : '7,5'
+        fillOpacity: 0.18, dashArray: ri === 0 ? null : '7,5', interactive: false
       }).addTo(m);
       S.gfx.push(poly);
+      S.polys[ri] = poly;
 
       ring.forEach(function (pt, i) {
-        var vm = L.marker(pt, { interactive: true, icon: L.divIcon({ className: '',
-          iconSize: [13,13], iconAnchor: [6.5,6.5],
-          html: '<div style="width:13px;height:13px;border-radius:50%;background:#ff9f43;' +
-                'border:2px solid #06120b;cursor:move;"></div>' }) }).addTo(m);
+        var vm = L.marker(pt, { draggable: !S.adding, autoPan: true, zIndexOffset: 1000,
+          icon: handleIcon(30, 14, '#ff9f43', '2px solid #06120b', 'move') }).addTo(m);
         vm._ri = ri; vm._vi = i; vm._kind = 'v';
+        vm.on('dragstart', function () { S.drag = { ri: ri, vi: vm._vi }; hideMidpoints(true); });
+        vm.on('drag', function (e) {
+          S.rings[ri][vm._vi] = e.target.getLatLng();
+          poly.setLatLngs(S.rings[ri]);
+          bannerSoon();
+        });
+        vm.on('dragend', function () { S.drag = null; redraw(); });
+        vm.on('click', function () { if (S && S.delMode) delVertex(vm._ri, vm._vi); });
         S.gfx.push(vm);
       });
 
@@ -264,63 +297,59 @@ var PlotEdit = (function () {
       // point by clicking an edge is guesswork about which edge; a visible
       // handle between two vertices is not.
       ring.forEach(function (pt, i) {
-        var nxt = ring[(i+1) % ring.length];
-        var mm = L.marker(mid(pt, nxt), { interactive: true, icon: L.divIcon({ className: '',
-          iconSize: [10,10], iconAnchor: [5,5],
-          html: '<div style="width:10px;height:10px;border-radius:50%;background:rgba(255,255,255,.85);' +
-                'border:1.5px solid #2d6a4f;cursor:copy;"></div>' }) }).addTo(m);
+        var nxt = ring[(i + 1) % ring.length];
+        var mm = L.marker(mid(pt, nxt), { draggable: !S.adding, autoPan: true, zIndexOffset: 900,
+          icon: handleIcon(26, 10, 'rgba(255,255,255,.9)', '1.5px solid #2d6a4f', 'copy') }).addTo(m);
         mm._ri = ri; mm._vi = i; mm._kind = 'm';
+        mm.on('dragstart', function () {
+          S.rings[ri].splice(i + 1, 0, mm.getLatLng());
+          S.drag = { ri: ri, vi: i + 1 };
+          hideMidpoints(true);
+          mm.setOpacity(1);
+        });
+        mm.on('drag', function (e) {
+          S.rings[ri][i + 1] = e.target.getLatLng();
+          poly.setLatLngs(S.rings[ri]);
+          bannerSoon();
+        });
+        mm.on('dragend', function () { S.drag = null; redraw(); });
         S.gfx.push(mm);
       });
     });
 
+    // The whole plot, every part together: for a boundary drawn in the
+    // right shape but the wrong place.
+    if (!S.adding) {
+      var cm = L.marker(centreOf(), { draggable: true, autoPan: true, zIndexOffset: 1100,
+        icon: L.divIcon({ className: '', iconSize: [40, 40], iconAnchor: [20, 20],
+          html: '<div style="width:40px;height:40px;display:flex;align-items:center;justify-content:center;cursor:move;">' +
+                '<div style="width:30px;height:30px;border-radius:50%;background:#06120b;color:#fff;border:2px solid #ff9f43;' +
+                'display:flex;align-items:center;justify-content:center;font-size:17px;box-shadow:0 2px 6px rgba(0,0,0,.5);">\u2725</div></div>' }) }).addTo(m);
+      cm._kind = 'c';
+      cm.on('dragstart', function () {
+        S.move = { from: cm.getLatLng(), rings: S.rings.map(function (r) { return r.map(function (c) { return L.latLng(c.lat, c.lng); }); }) };
+        (S.gfx || []).forEach(function (g) { if ((g._kind === 'm' || g._kind === 'v') && g.setOpacity) g.setOpacity(0); });
+      });
+      cm.on('drag', function (e) {
+        var to = e.target.getLatLng(), dLa = to.lat - S.move.from.lat, dLo = to.lng - S.move.from.lng;
+        S.rings = S.move.rings.map(function (r) { return r.map(function (c) { return L.latLng(c.lat + dLa, c.lng + dLo); }); });
+        S.rings.forEach(function (r, ri) { if (S.polys[ri]) S.polys[ri].setLatLngs(r); });
+        bannerSoon();
+      });
+      cm.on('dragend', function () { S.move = null; redraw(); });
+      S.gfx.push(cm);
+    }
+
     if (S.adding && S.adding.length) {
       S.adding.forEach(function (pt) {
-        S.gfx.push(L.circleMarker(pt, { radius: 5, color: '#2ecc71', fillOpacity: 1 }).addTo(m));
+        S.gfx.push(L.circleMarker(pt, { radius: 6, color: '#2ecc71', fillOpacity: 1 }).addTo(m));
       });
       if (S.adding.length > 1) {
         S.gfx.push(L.polygon(S.adding, { color: '#2ecc71', weight: 2,
-          fillOpacity: 0.15, dashArray: '5,4' }).addTo(m));
+          fillOpacity: 0.15, dashArray: '5,4', interactive: false }).addTo(m));
       }
     }
     banner();
-  }
-
-  function nearHandle(latlng) {
-    var m = map(), best = null, bd = HANDLE_PX;
-    var p0 = m.latLngToContainerPoint(latlng);
-    S.gfx.forEach(function (g) {
-      if (!g._kind) return;
-      var d = p0.distanceTo(m.latLngToContainerPoint(g.getLatLng()));
-      if (d < bd) { bd = d; best = g; }
-    });
-    return best;
-  }
-
-  function onDown(e) {
-    if (!S || S.adding) return;
-    var h = nearHandle(e.latlng);
-    if (!h) return;
-    if (h._kind === 'v') { S.drag = { ri: h._ri, vi: h._vi }; }
-    else {
-      // Insert at the midpoint, then drag the new vertex straight away.
-      S.rings[h._ri].splice(h._vi + 1, 0, L.latLng(h.getLatLng().lat, h.getLatLng().lng));
-      S.drag = { ri: h._ri, vi: h._vi + 1 };
-      redraw();
-    }
-    if (map().dragging) map().dragging.disable();
-  }
-
-  function onMove(e) {
-    if (!S || !S.drag) return;
-    S.rings[S.drag.ri][S.drag.vi] = e.latlng;
-    redraw();
-  }
-
-  function onUp() {
-    if (!S) return;
-    S.drag = null;
-    if (map().dragging) map().dragging.enable();
   }
 
   function onClick(e) {
@@ -344,15 +373,6 @@ var PlotEdit = (function () {
   function armDelete() {
     if (!S) return;
     S.delMode = !S.delMode;
-    var m = map();
-    S.gfx.forEach(function (g) {
-      if (g._kind !== 'v') return;
-      g.off('click');
-      if (S.delMode) {
-        g.on('click', function () { delVertex(g._ri, g._vi); });
-      }
-    });
-    void m;
     banner();
   }
 
@@ -409,6 +429,10 @@ var PlotEdit = (function () {
         'background:rgba(8,18,12,.96);color:#fff;display:flex;gap:8px;align-items:center;' +
         'justify-content:center;flex-wrap:wrap;font-weight:700;font-size:.85rem;">' +
         '<span>\u270f\ufe0f ' + esc(S.name) + '</span>' +
+        '<span style="font-weight:400;opacity:.75;font-size:.75rem;">' +
+          tt('גרור נקודה \u00b7 גרור \u25cb לנקודה חדשה \u00b7 גרור \u2725 להזזת כל החלקה',
+             'ลากจุด \u00b7 ลาก \u25cb เพิ่มจุด \u00b7 ลาก \u2725 ย้ายทั้งแปลง',
+             'اسحب نقطة \u00b7 اسحب \u25cb لنقطة جديدة \u00b7 اسحب \u2725 لنقل القطعة') + '</span>' +
         // Live comparison while dragging: the number you are trying to hit is
       // the one on the card, so it is on screen next to the one you are
       // changing rather than a screen away.
@@ -452,9 +476,6 @@ var PlotEdit = (function () {
     var m = map();
     if (S && m) {
       clearGfx();
-      m.off('mousedown', onDown);
-      m.off('mousemove', onMove);
-      m.off('mouseup', onUp);
       m.off('click', onClick);
       if (m.dragging) m.dragging.enable();
     }

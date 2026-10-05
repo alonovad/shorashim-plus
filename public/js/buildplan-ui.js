@@ -2094,6 +2094,57 @@
           BP.tt('בנה פריסה מחדש לפי האנשים', 'สร้างแผนใหม่', 'أعد بناء المخطط') + '</button>'
         : '') +
       '</div></details>';
+    var lu = LivingUnit.norm(u);
+    var sel = function (key, val, opts) {
+      return '<select class="bp-in" onchange="BuildPlan.setLiving(' + id + ',\'' + key + '\',this.value)">' +
+        opts.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === val ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') +
+        '</select>';
+    };
+    var floorAcc = '<details class="bp-acc"><summary>\ud83e\uddf1 ' + BP.tt('רצפה וריצוף', 'พื้นและกระเบื้อง', 'الأرضية والتبليط') +
+      '</summary><div>' +
+      '<div class="bp-lbl">' + BP.tt('גמר רצפה (ברירת מחדל לכל החדרים)', 'พื้นเริ่มต้น', 'تشطيب الأرضية الافتراضي') + '</div>' +
+      sel('floor', lu.floor, LivingUnit.FLOORS.map(function (f) { return [f, LivingUnit.floorLabel(f)]; })) +
+      '<div style="font-size:.72rem;opacity:.7;margin-top:4px;">' +
+        BP.tt('אפשר לשנות לכל חדר בנפרד: הקש על החדר בתוכנית \u2190 \u270e', 'เปลี่ยนรายห้องได้', 'يمكن التغيير لكل غرفة') + '</div>' +
+      (LivingUnit.quantities(u).tiledFloor > 0
+        ? '<div class="bp-lbl" style="margin-top:8px;">' + BP.tt('שיטת הנחת אריחים', 'วิธีปูกระเบื้อง', 'طريقة التبليط') + '</div>' +
+          sel('tileMethod', lu.tileMethod, [['traditional', BP.tt('מסורתית: מצע שומשומית + מלט', 'แบบดั้งเดิม', 'تقليدية: طبقة + إسمنت')],
+                                            ['adhesive', BP.tt('דבק על משטח מיושר', 'กาวบนพื้นเรียบ', 'غراء على سطح مستوٍ')]]) +
+          (lu.tileMethod === 'traditional'
+            ? '<div class="bp-grid" style="margin-top:8px;">' + num('bedCm', BP.tt('עובי מצע (ס"מ)', 'ความหนาชั้นรอง (ซม.)', 'سماكة الطبقة (سم)'), lu.bedCm, 0.5, 2) + '</div>'
+            : '')
+        : '') +
+      '</div></details>';
+    var lab = LivingUnit.labour(u);
+    var labourAcc = '<details class="bp-acc"><summary>\u23f1 ' + BP.tt('שעות עבודה', 'ชั่วโมงทำงาน', 'ساعات العمل') +
+      ' <span style="opacity:.7;font-weight:400;">\u00b7 ~' + lab.days + ' ' + BP.tt('ימים', 'วัน', 'أيام') + '</span></summary><div>' +
+      '<div class="bp-grid">' +
+        num('crew', BP.tt('עובדים בפרויקט', 'จำนวนคนงาน', 'عدد العمال'), lu.crew, 1, 1) +
+        num('hoursDay', BP.tt('שעות ביום', 'ชั่วโมงต่อวัน', 'ساعات يومياً'), lu.hoursDay, 0.5, 4) +
+      '</div>' +
+      '<div class="bp-lbl" style="margin-top:8px;">' + BP.tt('קצב הצוות', 'ความเร็วทีม', 'وتيرة الفريق') + '</div>' +
+      sel('pace', String(lu.pace), [['0.8', BP.tt('מנוסה ומהיר (\u00d70.8)', 'ชำนาญ (\u00d70.8)', 'متمرس (\u00d70.8)')],
+                                    ['1', BP.tt('רגיל (\u00d71)', 'ปกติ (\u00d71)', 'عادي (\u00d71)')],
+                                    ['1.3', BP.tt('חדש / לא מנוסה (\u00d71.3)', 'ใหม่ (\u00d71.3)', 'جديد (\u00d71.3)')]]) +
+      '<div style="margin-top:10px;font-size:.78rem;line-height:1.55;">' +
+        lab.stages.map(function (st) {
+          return '<div style="display:flex;justify-content:space-between;font-weight:700;margin-top:6px;">' +
+              '<span>' + BP.esc(st.stage) + '</span><span>' + Math.round(st.hours) + ' ' + BP.tt('ש"ע', 'ชม.', 'س') +
+              ' \u00b7 ' + BP.n1(st.days) + ' ' + BP.tt('ימים', 'วัน', 'أيام') + '</span></div>' +
+            st.rows.map(function (r) {
+              return '<div style="display:flex;justify-content:space-between;opacity:.75;padding-inline-start:10px;">' +
+                '<span>' + BP.esc(r.label) + ' \u00b7 ' + BP.n1(r.qty) + ' ' + BP.esc(r.unit) + '</span><span>' + Math.round(r.hours) + '</span></div>';
+            }).join('');
+        }).join('') +
+        '<div style="display:flex;justify-content:space-between;opacity:.75;margin-top:6px;"><span>' +
+          BP.tt('ניקיון, מסירה ובלתי צפוי (5%)', 'เก็บงานและส่งมอบ (5%)', 'تنظيف وتسليم (5%)') + '</span><span>' + Math.round(lab.extra) + '</span></div>' +
+        '<div class="bp-read" style="margin-top:8px;"><span>' + BP.tt('סה"כ', 'รวม', 'المجموع') + '</span><b>' + lab.total + ' ' +
+          BP.tt('שעות עבודה', 'ชั่วโมงทำงาน', 'ساعات عمل') + ' \u00b7 ~' + lab.days + ' ' + BP.tt('ימי עבודה ל-', 'วันสำหรับ ', 'أيام عمل لـ') +
+          lu.crew + ' ' + BP.tt('עובדים', 'คนงาน', 'عمال') + '</b></div>' +
+        '<div style="font-size:.7rem;opacity:.6;margin-top:4px;">' +
+          BP.tt('הערכה לפי תפוקות מקובלות. מקצועות שאינם יכולים לעבוד במקביל יאריכו את משך הביצוע בפועל.',
+                'ประมาณการตามอัตรามาตรฐาน', 'تقدير حسب معدلات الإنتاج المعتادة') + '</div>' +
+      '</div></div></details>';
     var siteAcc = '<details class="bp-acc"><summary>\ud83e\udded ' + BP.tt('מיקום באתר וכיוון', 'ตำแหน่งและทิศทาง', 'الموقع والاتجاه') +
       '</summary><div>' +
       (hasEdit && !LivingEdit.hasSite(p)
@@ -2139,7 +2190,7 @@
           '<div class="bp-read"><span>' + BP.tt('שטח כולל', 'พื้นที่รวม', 'المساحة الكلية') + '</span><b>' +
             BP.n1(pr.total) + ' \u05de"\u05e8</b></div>' +
         '</div></div>' +
-      '<div class="bp-pane">' + dimsAcc + siteAcc +
+      '<div class="bp-pane">' + dimsAcc + siteAcc + floorAcc + labourAcc +
         '<details class="bp-acc"><summary>' + BP.tt('בסיס התכנון', 'พื้นฐานการออกแบบ', 'أساس التصميم') +
           '</summary><div>' +
           '<div class="bp-lbl">' + BP.tt('אופן הביצוע', 'รูปแบบงาน', 'نوع العمل') + '</div>' +
@@ -2209,7 +2260,7 @@
     BP.saveP(); BP.open(id);
   };
   var BOOLL = { blockWet: 1, ac: 1, laundry: 1 };
-  var TEXTL = { mode: 1, partition: 1, envelope: 1, notes: 1, dimMode: 1 };
+  var TEXTL = { mode: 1, partition: 1, envelope: 1, notes: 1, dimMode: 1, floor: 1, tileMethod: 1 };
   BP.setLiving = function setLiving(id, k, v) {
     var p = BP.projById(id);
     if (!p || !p.living) return;

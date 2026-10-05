@@ -719,6 +719,9 @@ var Shed3D = (function () {
 
     function drawGround(fc, P) {
       var e = fc.extent, N = busy ? 4 : (isPhone || autoLod ? 8 : 14);
+      // A large plane may ask for finer cells: the affine error per cell
+      // grows with the cell, and shows as steps in the imagery.
+      if (fc.subdiv && !busy) N = Math.max(N, Math.min(24, fc.subdiv));
       var iw = groundImg.width, ih = groundImg.height;
       // The texture covers groundExtent metres; the quad covers e metres.
       // Mapping through metres keeps the imagery pinned to the site when
@@ -737,10 +740,21 @@ var Shed3D = (function () {
           var sx0 = u0*iw, sy0 = Math.min(v0,v1)*ih;
           var sw = (u1-u0)*iw, sh = Math.abs(v1-v0)*ih;
           if (sw <= 0 || sh <= 0) continue;
+          var D = P([mx1,my1,-0.02]);
+          // A cell at or behind the eye projects to nonsense (the depth is
+          // clamped), and drew as shards of imagery folding into the sky.
+          if (A[2] < 0.6 || B[2] < 0.6 || C[2] < 0.6 || D[2] < 0.6) continue;
+          // Clip each cell a little larger than itself so neighbours
+          // overlap: anti-aliased clip edges otherwise leave hairline seams.
+          var gcx = (A[0]+B[0]+C[0]+D[0])/4, gcy = (A[1]+B[1]+C[1]+D[1])/4;
+          var grow = function (Q) {
+            var dx = Q[0]-gcx, dy = Q[1]-gcy, dl = Math.hypot(dx, dy) || 1;
+            return [Q[0] + dx/dl*0.8, Q[1] + dy/dl*0.8];
+          };
+          var A2 = grow(A), B2 = grow(B), C2 = grow(C), D2 = grow(D);
           ctx.save();
           ctx.beginPath();
-          var D = P([mx1,my1,-0.02]);
-          ctx.moveTo(A[0],A[1]); ctx.lineTo(B[0],B[1]); ctx.lineTo(D[0],D[1]); ctx.lineTo(C[0],C[1]);
+          ctx.moveTo(A2[0],A2[1]); ctx.lineTo(B2[0],B2[1]); ctx.lineTo(D2[0],D2[1]); ctx.lineTo(C2[0],C2[1]);
           ctx.closePath(); ctx.clip();
           ctx.transform((B[0]-A[0])/sw, (B[1]-A[1])/sw,
                         (C[0]-A[0])/sh, (C[1]-A[1])/sh, A[0], A[1]);
