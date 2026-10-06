@@ -346,6 +346,23 @@ window.BuildPlanInternals = BuildPlanInternals;
   // Starting points, not templates to be printed as-is. Each is a shape the
   // maintenance team actually builds, so a project starts one click from
   // something recognisable instead of from a blank 10×20 box.
+  // Models of our own, made from a frame read off a scanned plan. They sit
+  // beside the built-in starting points and are applied the same way.
+  var MODEL_KEYS = ['span', 'length', 'eaves', 'bay', 'pitch', 'roofType', 'wallMode', 'roofClad', 'walls',
+                    'colProfile', 'rafterProfile', 'purlinProfile', 'purlinSp'];
+  BP.MODEL_KEYS = MODEL_KEYS;
+  BP.normMyModels = function normMyModels(list) {
+    return (Array.isArray(list) ? list : []).filter(function (m) { return m && m.id && m.dims; }).map(function (m) {
+      var dm = {};
+      MODEL_KEYS.forEach(function (k) {
+        var v = m.dims[k];
+        if (v === undefined || v === null || v === '') return;
+        dm[k] = (k === 'roofType' || k === 'wallMode' || k === 'roofClad' || /Profile$/.test(k)) ? String(v) : (k === 'walls' ? !!v : Number(v) || 0);
+      });
+      return { id: String(m.id), name: String(m.name || '').slice(0, 80), from: String(m.from || '').slice(0, 120), createdAt: Number(m.createdAt) || 0, dims: dm };
+    });
+  };
+
   BP.MODELS = {
     canopy:   { label: ['סככת צל פתוחה', 'โรงเรือนเปิด', 'مظلة مفتوحة'],
                 span: 10, length: 20, eaves: 4, bay: 5, pitch: 8,
@@ -579,6 +596,33 @@ window.BuildPlanInternals = BuildPlanInternals;
     };
   }
 
+  // Normalised BOQ edits. Arrays of plain objects only: line keys hold any
+  // character (quotes, dots), so they are values, never Firestore map keys.
+  BP.normBoq = function normBoq(b) {
+    b = b || {};
+    var str = function (v, n) { return String(v == null ? '' : v).slice(0, n || 200); };
+    var numOrNull = function (v) { var x = Number(v); return (v === '' || v == null || !isFinite(x)) ? null : x; };
+    return {
+      ex: (Array.isArray(b.ex) ? b.ex : []).map(function (k) { return str(k, 400); }).filter(Boolean),
+      exG: (Array.isArray(b.exG) ? b.exG : []).map(function (k) { return str(k, 120); }).filter(Boolean),
+      ov: (Array.isArray(b.ov) ? b.ov : []).filter(function (o) { return o && o.k; }).map(function (o) {
+        var r = { k: str(o.k, 400) };
+        var q = numOrNull(o.qty), pr = numOrNull(o.price);
+        if (q != null && q >= 0) r.qty = q;
+        if (pr != null && pr >= 0) r.price = pr;
+        return r;
+      }).filter(function (o) { return o.qty != null || o.price != null; }),
+      add: (Array.isArray(b.add) ? b.add : []).filter(function (a) { return a && a.name; }).map(function (a) {
+        var r = { id: str(a.id || ('b' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)), 40),
+                  name: str(a.name, 160), qty: Math.max(0, Number(a.qty) || 0), unit: str(a.unit || "\u05d9\u05d7'", 20),
+                  grp: str(a.grp, 120), note: str(a.note, 200), off: !!a.off };
+        var pr = numOrNull(a.price);
+        if (pr != null && pr >= 0) r.price = pr;
+        return r;
+      })
+    };
+  };
+
   BP.normProject = function normProject(x) {
     x = x || {};
     return {
@@ -603,6 +647,10 @@ window.BuildPlanInternals = BuildPlanInternals;
       source: x.source === 'plan' ? 'plan' : 'preset',
       hasStruct: x.hasStruct === false ? false : true,
       hasSlab: x.hasSlab === false ? false : true,
+      // A concrete slab in a project whose frame comes from a scanned plan.
+      // Separate from hasSlab (which defaults ON for our own models) so that
+      // no existing plan project suddenly grows a slab on load.
+      planSlab: !!x.planSlab,
       client: String(x.client || ''),
       status: String(x.status || 'planning'),
       notes: String(x.notes || ''),
@@ -642,6 +690,10 @@ window.BuildPlanInternals = BuildPlanInternals;
         ? { lat: Number(x.rect.lat) || 0, lng: Number(x.rect.lng) || 0,
             w: Number(x.rect.w) || 0, h: Number(x.rect.h) || 0, rot: Number(x.rect.rot) || 0 }
         : null,
+      // Your edits to the bill of quantities (BP.takeoffAll): lines left
+      // out, whole topics left out, quantities or prices you set, and lines
+      // of your own. Null until first used.
+      boq: x.boq ? BP.normBoq(x.boq) : null,
       extras: Array.isArray(x.extras) ? x.extras.map(function (e) {
         // `plan` marks a line pushed from the engineer's-plan tab, so a
         // re-push replaces those lines and leaves hand-typed extras alone.
@@ -742,7 +794,7 @@ window.BuildPlanInternals = BuildPlanInternals;
   BP.loadAll = function loadAll() {
     return Promise.all([DB.loadAsync(PROJ_KEY), DB.loadAsync(CAT_KEY)]).then(function (r) {
       var d = r[0] || {};
-      BP.P = { projects: Array.isArray(d.projects) ? d.projects.map(BP.normProject) : [] };
+      BP.P = { projects: Array.isArray(d.projects) ? d.projects.map(BP.normProject) : [], myModels: BP.normMyModels(d.myModels) };
       BP.C = normCat(r[1]);
       return true;
     });
@@ -754,7 +806,7 @@ window.BuildPlanInternals = BuildPlanInternals;
     DB.listen(PROJ_KEY, function (d) {
       if (JSON.stringify(d) === _lastP) return;
       if (Date.now() - _selfWriteAt < SELF_WRITE_MS) return;   // our own echo
-      BP.P = { projects: (d && Array.isArray(d.projects)) ? d.projects.map(BP.normProject) : [] };
+      BP.P = { projects: (d && Array.isArray(d.projects)) ? d.projects.map(BP.normProject) : [], myModels: BP.normMyModels(d && d.myModels) };
       BP.drawFootprints();
       if (BP.isOpen()) BP.repaint();
     });

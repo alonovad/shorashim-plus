@@ -204,6 +204,20 @@
           '</div></div>';
       });
 
+    // our own models (from scanned plans), with a way to retire one
+    if ((BP.P.myModels || []).length) {
+      body += '<details class="bp-card"><summary style="cursor:pointer;font-weight:700;">\ud83d\udce6 ' +
+        BP.tt('המודלים שלנו', 'โมเดลของเรา', 'نماذجنا') + ' (' + BP.P.myModels.length + ')</summary>' +
+        BP.P.myModels.map(function (m) {
+          var d = m.dims || {};
+          return '<div style="display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid rgba(0,0,0,.06);font-size:.82rem;">' +
+            '<span style="flex:1;"><b>' + BP.esc(m.name) + '</b> <span style="color:var(--text-muted,#888);">' +
+              BP.n1(d.span) + '\u00d7' + BP.n1(d.length) + ' m \u00b7 ' + BP.n1(d.eaves) + ' m' + (m.from ? ' \u00b7 ' + BP.esc(m.from) : '') + '</span></span>' +
+            '<button class="bp-btn ghost" style="padding:3px 9px;font-size:.74rem;" onclick="BuildPlan.delMyModel(\'' + BP.esc(m.id) + '\')">\ud83d\uddd1</button></div>';
+        }).join('') +
+        '<div style="font-size:.74rem;color:var(--text-muted,#888);margin-top:6px;">' +
+          BP.tt('בוחרים אותם כמו כל דגם התחלתי, בלשונית השלד של פרויקט.', 'เลือกได้ในแท็บโครงสร้าง', 'تُختار كأي نموذج في تبويب الهيكل') + '</div></details>';
+    }
     BP.paint(BP.shell('\ud83c\udfd7 ' + BP.tt('פרויקטי בנייה', 'โครงการก่อสร้าง', 'مشاريع البناء'), bar, body));
   };
 
@@ -403,15 +417,16 @@
       '<div class="bp-lbl" style="margin-bottom:6px;">' +
         BP.tt('מה כולל הפרויקט', 'โครงการนี้ประกอบด้วย', 'مكوّنات المشروع') + '</div>' +
       BP.srcPick(p) +
-      '<div style="display:flex;gap:14px;flex-wrap:wrap;font-size:.84rem;' +
-        (p.source === 'plan' ? 'opacity:.5;pointer-events:none;' : '') + '">' +
-        '<label style="display:inline-flex;gap:6px;align-items:center;">' +
-          '<input type="checkbox"' + (p.hasStruct !== false ? ' checked' : '') +
+      '<div style="display:flex;gap:14px;flex-wrap:wrap;font-size:.84rem;">' +
+        // the frame of a plan project is the scanned model, so only the
+        // slab can be switched here
+        '<label style="display:inline-flex;gap:6px;align-items:center;' + (fromPlan ? 'opacity:.5;pointer-events:none;' : '') + '">' +
+          '<input type="checkbox"' + ((fromPlan ? (p.models || []).length > 0 : p.hasStruct !== false) ? ' checked' : '') +
           ' onchange="BuildPlan._comp(' + id + ',\'hasStruct\',this.checked)"> \ud83c\udfd7 ' +
-          BP.tt('סככה / שלד', 'โครงสร้าง', 'هيكل') + '</label>' +
+          (fromPlan ? BP.tt('שלד מהתוכנית', 'โครงจากแบบ', 'هيكل من المخطط') : BP.tt('סככה / שלד', 'โครงสร้าง', 'هيكل')) + '</label>' +
         '<label style="display:inline-flex;gap:6px;align-items:center;">' +
-          '<input type="checkbox"' + (p.hasSlab !== false ? ' checked' : '') +
-          ' onchange="BuildPlan._comp(' + id + ',\'hasSlab\',this.checked)"> \ud83e\uddf1 ' +
+          '<input type="checkbox"' + ((fromPlan ? p.planSlab : p.hasSlab !== false) ? ' checked' : '') +
+          ' onchange="BuildPlan._comp(' + id + ',\'' + (fromPlan ? 'planSlab' : 'hasSlab') + '\',this.checked)"> \ud83e\uddf1 ' +
           BP.tt('משטח בטון', 'พื้นคอนกรีต', 'سطح خرساني') + '</label>' +
         '<span style="display:inline-flex;gap:6px;align-items:center;opacity:.75;">\ud83d\udea7 ' +
           BP.tt('שערים', 'ประตู', 'بوابات') + ': ' + ((p.gates || []).length) + '</span>' +
@@ -429,7 +444,7 @@
             BP.tt('הוסף לפרויקט…', 'เพิ่มในโครงการ…', 'إضافة للمشروع…') + '</option>' +
           (p.hasStruct === false ? '<option value="struct">\ud83c\udfd7 ' +
             BP.tt('סככה / שלד', 'โครงสร้าง', 'هيكل') + '</option>' : '') +
-          (p.hasSlab === false ? '<option value="slab">\ud83e\uddf1 ' +
+          ((fromPlan ? !p.planSlab : p.hasSlab === false) ? '<option value="slab">\ud83e\uddf1 ' +
             BP.tt('משטח בטון', 'พื้นคอนกรีต', 'سطح خرساني') + '</option>' : '') +
           '<option value="gate">\ud83d\udea7 ' +
             BP.tt('שער', 'ประตู', 'بوابة') + '</option>' +
@@ -437,11 +452,13 @@
             BP.tt('יחידת מגורים', 'ที่พัก', 'وحدة سكن') + '</option>' : '') +
         '</select>' +
       '</div>' +
-      (p.hasStruct === false
+      (p.hasStruct === false && !fromPlan
         ? '<div style="font-size:.75rem;color:var(--accent,#ff9f43);margin-top:8px;">\u26a0\ufe0f ' +
           BP.tt('ללא שלד — כתב הכמויות לא כולל פלדה, חיפוי או יסודות.',
              'ไม่มีโครงสร้าง', 'بدون هيكل') + '</div>'
         : '') +
+      (fromPlan && p.planSlab ? planSlabPanel(p) : '') +
+      (fromPlan ? toModelPanel(p) : '') +
     '</div>';
 
     var body = comps + '<div class="bp-card">' +
@@ -663,6 +680,10 @@
 
   BP.applyModel = function applyModel(id, key) {
     var p = BP.projById(id), src = BP.MODELS[key];
+    if (key && String(key).indexOf('my:') === 0) {
+      var mine = (BP.P.myModels || []).filter(function (m) { return 'my:' + m.id === key; })[0];
+      src = mine ? mine.dims : null;
+    }
     if (!p || !src) return;
     Object.keys(src).forEach(function (k) {
       if (k !== 'label') p.dims[k] = src[k];
@@ -1419,7 +1440,13 @@
       Object.keys(BP.MODELS).map(function (k) {
         return '<option value="' + k + '"' + (d._model === k ? ' selected' : '') + '>' +
           BP.esc(BP.pick(BP.MODELS[k].label)) + '</option>';
-      }).join('') + '</select>';
+      }).join('') +
+      ((BP.P.myModels || []).length
+        ? '<optgroup label="' + BP.esc(BP.tt('המודלים שלנו', 'โมเดลของเรา', 'نماذجنا')) + '">' +
+            BP.P.myModels.map(function (m) {
+              return '<option value="my:' + BP.esc(m.id) + '"' + (d._model === 'my:' + m.id ? ' selected' : '') + '>\ud83d\udce6 ' + BP.esc(m.name) + '</option>';
+            }).join('') + '</optgroup>'
+        : '') + '</select>';
 
     // Left column holds the model and the derived numbers and stays put;
     // the right column scrolls. Previously every panel was stacked in one
@@ -1731,6 +1758,153 @@
       '</select></div>';
   }
 
+  // ── a scanned plan's frame, as one of our parametric models ─────────
+  // Span and length are the extent of the two grid directions (lettered
+  // lines run across the span, numbered ones along the length); the bay is
+  // the typical spacing of the numbered lines. The roof follows the
+  // column heights read per lettered line: unequal outer lines are a mono
+  // pitch, a taller interior line a gable. What was not read is said, not
+  // guessed silently.
+  BP.frameToDims = function frameToDims(f, base) {
+    base = base || {};
+    var notes = [], dm = {};
+    var sortP = function (a) { return (a || []).filter(function (q) { return q.p != null && isFinite(q.p); }).slice().sort(function (u, v) { return u.p - v.p; }); };
+    var xs = sortP(f && f.x), ys = sortP(f && f.y);
+    if (xs.length < 2 || ys.length < 2) return { ok: false, notes: [BP.tt('בתוכנית אין מספיק קווי רשת עם מיקום כדי לגזור מידות', 'ไม่มีเส้นกริดพอ', 'لا خطوط شبكة كافية')] };
+    dm.length = Math.round((xs[xs.length - 1].p - xs[0].p) * 100) / 100;
+    dm.span = Math.round((ys[ys.length - 1].p - ys[0].p) * 100) / 100;
+    var gaps = []; for (var i = 1; i < xs.length; i++) gaps.push(xs[i].p - xs[i - 1].p);
+    gaps.sort(function (a, b) { return a - b; });
+    dm.bay = Math.round(gaps[Math.floor(gaps.length / 2)] * 100) / 100;
+    var h = (f && f.h) || {}, hv = function (a) { var v = h[a.n]; return (v != null && isFinite(v)) ? Number(v) : null; };
+    var h0 = hv(ys[0]), h1 = hv(ys[ys.length - 1]);
+    var inner = ys.slice(1, -1).map(function (a) { return { a: a, h: hv(a) }; }).filter(function (q) { return q.h != null; });
+    var deg = function (rise, run) { return Math.round(Math.atan2(rise, run) * 180 / Math.PI * 10) / 10; };
+    if (h0 == null && h1 == null) {
+      dm.eaves = Number(base.eaves) || 4; dm.roofType = 'gable'; dm.pitch = Number(base.pitch) || 8;
+      notes.push(BP.tt('גובה העמודים לא נקרא — הוגדר', 'ไม่พบความสูง', 'لم يُقرأ الارتفاع') + ' ' + dm.eaves + ' m');
+      notes.push(BP.tt('שיפוע הגג לא נקרא — הוגדר', 'ไม่พบความลาด', 'لم يُقرأ الميل') + ' ' + dm.pitch + '\u00b0');
+    } else if (h0 != null && h1 != null && Math.abs(h0 - h1) > 0.05) {
+      dm.roofType = 'mono'; dm.eaves = Math.min(h0, h1); dm.pitch = deg(Math.abs(h1 - h0), dm.span);
+    } else {
+      var hh = h0 != null ? h0 : h1; dm.eaves = hh; dm.roofType = 'gable';
+      var top = inner.filter(function (q) { return q.h > hh + 0.05; }).sort(function (u, v) { return v.h - u.h; })[0];
+      if (top) dm.pitch = deg(top.h - hh, Math.min(top.a.p - ys[0].p, ys[ys.length - 1].p - top.a.p) || dm.span / 2);
+      else { dm.pitch = Number(base.pitch) || 8; notes.push(BP.tt('שיפוע הגג לא נקרא — הוגדר', 'ไม่พบความลาด', 'لم يُقرأ الميل') + ' ' + dm.pitch + '\u00b0'); }
+      if (h0 == null || h1 == null) notes.push(BP.tt('נקרא גובה לצד אחד בלבד — הצד השני הונח שווה', 'อ่านความสูงได้ด้านเดียว', 'قُرئ ارتفاع جانب واحد'));
+    }
+    var sec = (f && f.sec) || {};
+    if (sec.column) dm.colProfile = sec.column; else notes.push(BP.tt('פרופיל עמוד לא נקרא — נשאר הקיים', 'ไม่พบโปรไฟล์เสา', 'لم يُقرأ مقطع العمود'));
+    if (sec.beam) dm.rafterProfile = sec.beam; else notes.push(BP.tt('פרופיל קורה לא נקרא — נשאר הקיים', 'ไม่พบโปรไฟล์คาน', 'لم يُقرأ مقطع الرافدة'));
+    if (sec.purlin) dm.purlinProfile = sec.purlin;
+    if (f && f.purlinSp > 0) dm.purlinSp = f.purlinSp;
+    // the scan says nothing about cladding: an open canopy until set
+    dm.walls = !!base.walls; dm.wallMode = base.wallMode || 'open'; dm.roofClad = base.roofClad || 'iskurit';
+    notes.push(BP.tt('חיפוי לא נקרא מהתוכנית — אפשר לשנות בלשונית השלד', 'วัสดุปิดผิวไม่ได้อ่าน', 'التغطية لم تُقرأ'));
+    if (dm.span > 40 || dm.length > 120 || dm.eaves > 15 || dm.span < 2) notes.push('\u26a0\ufe0f ' + BP.tt('מידה חריגה — בדוק את קריאת התוכנית', 'ขนาดผิดปกติ', 'قياس غير معتاد'));
+    return { ok: true, dims: dm, notes: notes };
+  };
+  BP._toModel = null;
+  function toModelPanel(p) {
+    var id = p.id, models = p.models || [];
+    if (!models.length) return '';
+    var st = BP._toModel && BP._toModel.pid === id ? BP._toModel : null;
+    var h = '<div style="margin-top:10px;padding-top:8px;border-top:1px solid rgba(0,0,0,.08);">';
+    if (!st) {
+      h += '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:.8rem;">\ud83d\udce6 ' +
+        BP.tt('הפוך את השלד מהתוכנית למודל שלנו:', 'ทำเป็นโมเดลของเรา:', 'حوّل الهيكل إلى نموذجنا:') +
+        models.map(function (m) {
+          return '<button class="bp-btn ghost" style="padding:4px 10px;font-size:.76rem;" onclick="BuildPlan.toModelStart(' + id + ',\'' + BP.esc(m.id) + '\')">' +
+            BP.esc(String(m.name || '').replace(/\.[a-z0-9]{2,4}$/i, '').slice(0, 30) || BP.tt('מודל', 'โมเดล', 'نموذج')) + '</button>';
+        }).join('') + '</div>';
+      return h + '</div>';
+    }
+    var m = models.filter(function (x) { return x.id === st.mid; })[0];
+    var r = m ? BP.frameToDims(m.frame, p.dims) : { ok: false, notes: [] };
+    var row = function (k, label, unit) {
+      return r.dims[k] == null ? '' : '<div class="bp-read"><span>' + label + '</span><b>' + BP.esc(r.dims[k]) + (unit ? ' ' + unit : '') + '</b></div>';
+    };
+    h += '<div class="bp-lbl">\ud83d\udce6 ' + BP.tt('מודל חדש מהתוכנית', 'โมเดลใหม่จากแบบ', 'نموذج جديد من المخطط') + (m ? ' \u00b7 ' + BP.esc(m.name) : '') + '</div>';
+    if (!r.ok) {
+      h += '<div style="font-size:.8rem;color:#c62828;">' + r.notes.map(BP.esc).join('<br>') + '</div>' +
+        '<button class="bp-btn ghost" style="margin-top:6px;" onclick="BuildPlan.toModelCancel(' + id + ')">' + BP.tt('סגור', 'ปิด', 'إغلاق') + '</button>';
+      return h + '</div>';
+    }
+    h += row('span', BP.tt('מפתח', 'ช่วงกว้าง', 'البحر'), 'm') + row('length', BP.tt('אורך', 'ความยาว', 'الطول'), 'm') +
+      row('bay', BP.tt('מרווח מסגרות', 'ระยะโครง', 'تباعد الإطارات'), 'm') + row('eaves', BP.tt('גובה עמודים', 'ความสูงเสา', 'ارتفاع الأعمدة'), 'm') +
+      '<div class="bp-read"><span>' + BP.tt('גג', 'หลังคา', 'السقف') + '</span><b>' + (r.dims.roofType === 'mono' ? BP.tt('חד-שיפועי', 'ลาดเดียว', 'ميل واحد') : BP.tt('דו-שיפועי', 'จั่ว', 'جملوني')) +
+        ' \u00b7 ' + r.dims.pitch + '\u00b0</b></div>' +
+      row('colProfile', BP.tt('עמודים', 'เสา', 'الأعمدة')) + row('rafterProfile', BP.tt('קורות', 'คาน', 'الروافد')) +
+      row('purlinProfile', BP.tt('מרישים', 'แป', 'المرايش')) + row('purlinSp', BP.tt('מרווח מרישים', 'ระยะแป', 'تباعد المرايش'), 'm') +
+      (r.notes.length ? '<div style="font-size:.75rem;color:var(--text-muted,#888);margin-top:6px;line-height:1.6;">' + r.notes.map(function (x) { return '\u2022 ' + BP.esc(x); }).join('<br>') + '</div>' : '') +
+      '<div class="bp-grid" style="margin-top:8px;"><div><div class="bp-lbl">' + BP.tt('שם המודל', 'ชื่อโมเดล', 'اسم النموذج') + '</div>' +
+        '<input class="bp-in" id="bpToModelName" value="' + BP.esc(p.name || '') + '"></div></div>' +
+      '<label style="display:flex;gap:6px;align-items:center;font-size:.8rem;margin-top:8px;"><input type="checkbox" id="bpToModelSwitch"> ' +
+        BP.tt('העבר גם את הפרויקט הזה לניהול כמודל פרמטרי (התוכנית נשמרת ואפשר לחזור אליה)', 'สลับโครงการนี้เป็นโมเดล', 'حوّل هذا المشروع أيضاً إلى نموذج') + '</label>' +
+      '<div style="display:flex;gap:6px;margin-top:8px;">' +
+        '<button class="bp-btn" onclick="BuildPlan.toModelSave(' + id + ')">\ud83d\udce6 ' + BP.tt('הוסף לרשימת המודלים שלנו', 'เพิ่มในโมเดลของเรา', 'أضف إلى نماذجنا') + '</button>' +
+        '<button class="bp-btn ghost" onclick="BuildPlan.toModelCancel(' + id + ')">' + BP.tt('ביטול', 'ยกเลิก', 'إلغاء') + '</button>' +
+      '</div>';
+    return h + '</div>';
+  }
+  BP.toModelStart = function toModelStart(id, mid) { BP._toModel = { pid: id, mid: String(mid) }; BP.open(id); };
+  BP.toModelCancel = function toModelCancel(id) { BP._toModel = null; BP.open(id); };
+  BP.toModelSave = function toModelSave(id) {
+    var p = BP.projById(id), st = BP._toModel;
+    if (!p || !st || st.pid !== id) return;
+    var m = (p.models || []).filter(function (x) { return x.id === st.mid; })[0];
+    var r = m ? BP.frameToDims(m.frame, p.dims) : null;
+    if (!r || !r.ok) return;
+    var nameEl = document.getElementById('bpToModelName'), swEl = document.getElementById('bpToModelSwitch');
+    var name = (nameEl && String(nameEl.value).trim()) || p.name || BP.tt('מודל מתוכנית', 'โมเดลจากแบบ', 'نموذج من مخطط');
+    var mm = BP.normMyModels([{ id: 'm' + Date.now().toString(36), name: name, from: (p.name || '') + ' \u00b7 ' + (m.name || ''), createdAt: Date.now(), dims: r.dims }])[0];
+    BP.P.myModels = (BP.P.myModels || []).concat([mm]);
+    if (swEl && swEl.checked) {
+      Object.keys(mm.dims).forEach(function (k) { p.dims[k] = mm.dims[k]; });
+      p.dims._model = 'my:' + mm.id;
+      p.source = 'preset';
+      p.hasStruct = true;
+      // the slab chosen for the plan project carries over to the model's own
+      if (p.planSlab) p.hasSlab = true;
+      BP._tab = 'design';
+    }
+    BP._toModel = null;
+    BP.saveP();
+    BP.toast('\u2705 ' + BP.tt('נוסף לרשימת המודלים שלנו', 'เพิ่มแล้ว', 'أُضيف إلى نماذجنا') + ': ' + name);
+    BP.open(id);
+  };
+  BP.delMyModel = function delMyModel(mid) {
+    if (!window.confirm(BP.tt('למחוק את המודל מהרשימה? פרויקטים שכבר נבנו ממנו לא ישתנו.', 'ลบโมเดล?', 'حذف النموذج؟'))) return;
+    BP.P.myModels = (BP.P.myModels || []).filter(function (m) { return m.id !== mid; });
+    BP.saveP();
+    BP.render();
+  };
+
+  // A slab under a frame that came from a scanned plan: the same settings
+  // our own models use (thickness, waste, reinforcement), with the area
+  // taken from the map polygon, else the scanned model's outline, else typed.
+  function planSlabPanel(p) {
+    var id = p.id, d = p.dims, e = BP.planExtent(p), a = BP.slabArea(p);
+    var srcTxt = p.footprintArea > 0 ? '\ud83d\uddfa ' + BP.tt('מהמצולע במפה', 'จากแผนที่', 'من المضلع على الخريطة')
+      : d.slabArea > 0 ? '\u270e ' + BP.tt('שטח שהוקלד', 'พิมพ์เอง', 'مساحة مدخلة')
+      : e ? '\ud83d\udcd0 ' + BP.tt('מגבולות המודל מהתוכנית', 'จากขอบแบบ', 'من حدود النموذج') + ' (' + BP.n1(e.L) + '\u00d7' + BP.n1(e.W) + ')'
+      : BP.tt('ברירת מחדל — הקלד שטח או סמן במפה', 'ค่าเริ่มต้น', 'افتراضي — أدخل المساحة');
+    var num = function (key, label, val, step) {
+      return '<div><div class="bp-lbl">' + label + '</div><input class="bp-in" type="number" step="' + step + '" value="' + val + '" ' +
+        'onchange="BuildPlan._dim(' + id + ',\'' + key + '\',this.value)"></div>';
+    };
+    return '<div style="margin-top:10px;padding-top:8px;border-top:1px solid rgba(0,0,0,.08);">' +
+      '<div class="bp-lbl">\ud83e\uddf1 ' + BP.tt('משטח בטון', 'พื้นคอนกรีต', 'سطح خرساني') + ' \u00b7 <b>' + BP.n1(a) + ' \u05de"\u05e8</b> \u00b7 ' +
+        BP.n2(a * d.slabTh) + ' \u05de"\u05e7 <span style="opacity:.7;">\u00b7 ' + srcTxt + '</span></div>' +
+      '<div class="bp-grid" style="margin-top:6px;">' +
+        num('slabArea', BP.tt('שטח (מ"ר, 0 = אוטומטי)', 'พื้นที่ (0=อัตโนมัติ)', 'المساحة (0 = تلقائي)'), d.slabArea || 0, 1) +
+        num('slabTh', BP.tt('עובי (מ\')', 'หนา', 'السماكة'), d.slabTh, 0.01) +
+        num('waste', BP.tt('פחת %', 'เผื่อ %', 'هدر %'), d.waste, 1) +
+      '</div>' +
+      rebarFields(d.rebar, BP._rebarBind(id), { slab: true }) +
+    '</div>';
+  }
+
   function rebarFields(r, setter, opt) {
     opt = opt || {};
     r = (typeof Rebar !== 'undefined') ? Rebar.norm(r) : (r || {});
@@ -2008,6 +2182,7 @@
     var p = BP.projById(id);
     if (!p) return;
     if (what === 'struct')      { p.hasStruct = true;  BP._tab = 'design'; }
+    else if (what === 'slab' && p.source === 'plan') { p.planSlab = true; }
     else if (what === 'slab')   { p.hasSlab = true;    BP._tab = 'design'; }
     else if (what === 'gate')   { BP._tab = 'gates';   BP.addGate(id); return; }
     else if (what === 'living') { BP._tab = 'living';  BP.addLiving(id); return; }
@@ -2174,9 +2349,11 @@
         '<input class="bp-in" type="number" step="' + step + '" value="' + val + '" ' +
           'onchange="BuildPlan.setLiving(' + id + ',\'' + key + '\',this.value)"></div>';
     };
-    return '<div class="bp-split">' +
-      '<div class="bp-stick"><div class="bp-card" id="lvHost">' +
+    // the editor gets the tab's full width; programme and settings below it
+    return '<div class="bp-card" id="lvHost" style="margin-bottom:12px;">' +
         LivingUnit.svg(u, { north: hasEdit ? LivingEdit.planNorth(p) : null }) + '</div>' +
+      '<div class="bp-split">' +
+      '<div class="bp-stick">' +
         '<div class="bp-card"><div class="bp-lbl">' + BP.tt('תוכנית שטחים', 'โปรแกรมพื้นที่', 'برنامج المساحات') +
           '</div>' +
           '<div class="bp-read"><span>' + BP.tt('חדרי שינה', 'ห้องนอน', 'غرف النوم') + '</span><b>' +
@@ -2282,6 +2459,11 @@
     BP.saveP(); BP.open(id);
   };
 
+  // ── bill of quantities: read it, or edit it ──────────────────────────
+  // View mode is the bill as it will be sent: lines grouped by topic, with
+  // subtotals. Edit mode shows every line, including those left out, with
+  // a box to include it, its quantity and unit price editable, and a form
+  // for lines of your own under any topic, new or existing.
   function matTab(p, rows, tot) {
     var h = '';
     var warn = BP.boqChecks ? BP.boqChecks(p, rows) : [];
@@ -2291,39 +2473,204 @@
         '<div style="font-size:.8rem;line-height:1.7;margin-top:4px">' +
         warn.map(function (x) { return BP.esc(x); }).join('<br>') + '</div></div>';
     }
-    h += '<div class="bp-card">';
-    rows.forEach(function (r) {
-      var pr = BP.profByName(r.name);
-      h += '<div class="bp-tot"><span>' + BP.esc(BP.dsp(r.name)) +
-        (r.note ? '<br><span style="font-size:.7rem;color:var(--text-muted,#888);">' +
-          BP.esc(BP.dsp(r.note)) + '</span>' : '') + '</span>' +
-        '<span style="white-space:nowrap;text-align:end;">' + BP.n1(r.qty) + ' ' + BP.esc(r.unit) +
-        (r.kg ? '<br><span style="font-size:.7rem;color:var(--text-muted,#888);">' +
-          BP.n1(r.kg) + ' kg</span>' : '') +
-        // Cheaper items of the same kind and weight class. A purchasing
-        // suggestion, not an engineering one — hence the wording.
-        (function () {
-          var alt = BP.altProfiles ? BP.altProfiles(r.name, 2) : [];
-          if (!alt.length) return '';
-          return '<br><span style="font-size:.68rem;color:var(--text-muted,#888);">\u21c4 ' +
-            BP.tt('חלופה', 'ทางเลือก', 'بديل') + ': ' +
-            alt.map(function (a) {
-              return BP.esc(BP.dsp(a.name)) + ' (\u2212' + Math.round(a.saveRatio * 100) + '%)';
-            }).join(', ') + '</span>';
-        })() +
-        (pr && pr.price ? '<br><span style="font-size:.72rem;">' + BP.money(r.qty * pr.price) +
-          '</span>' : '') + '</span></div>';
+    var all = BP.takeoffAll(p), edit = !!BP._boqEdit, id = p.id;
+    var nEx = all.filter(function (r) { return r.excluded; }).length;
+    var nOwn = all.filter(function (r) { return r.src === 'add'; }).length;
+    var nSet = all.filter(function (r) { return r.qtySet || r.price != null; }).length;
+    var B = p.boq || { exG: [] };
+    // topics in the order they first appear
+    var groups = [], byG = {};
+    all.forEach(function (r) {
+      if (!byG[r.grp]) { byG[r.grp] = []; groups.push(r.grp); }
+      byG[r.grp].push(r);
     });
-    h += '<div class="bp-tot" style="border:none;font-weight:800;margin-top:6px;"><span>' +
+    var lineTotal = function (r) { var lp = BP.linePrice(r); return lp > 0 ? r.qty * lp : 0; };
+    var muted = 'font-size:.7rem;color:var(--text-muted,#888);';
+
+    h += '<div class="bp-card bp-boq">' +
+      '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">' +
+        '<button class="bp-btn' + (edit ? '' : ' ghost') + '" onclick="BuildPlan.boqMode(' + id + ')">' +
+          (edit ? '\u2713 ' + BP.tt('סיום עריכה', 'เสร็จ', 'إنهاء التحرير') : '\u270e ' + BP.tt('ערוך כתב כמויות', 'แก้ไขรายการ', 'حرّر الكميات')) + '</button>' +
+        '<span style="font-size:.76rem;color:var(--text-muted,#888);">' +
+          (all.length - nEx) + ' ' + BP.tt('שורות', 'รายการ', 'بنود') +
+          (nEx ? ' \u00b7 ' + nEx + ' ' + BP.tt('לא נכללות', 'ไม่รวม', 'مستبعدة') : '') +
+          (nSet ? ' \u00b7 ' + nSet + ' ' + BP.tt('עם ערך ידני', 'แก้ไขเอง', 'معدلة يدوياً') : '') +
+          (nOwn ? ' \u00b7 ' + nOwn + ' ' + BP.tt('שלך', 'ของคุณ', 'خاصة بك') : '') + '</span>' +
+      '</div>';
+
+    groups.forEach(function (g) {
+      var list = byG[g];
+      var gOff = (B.exG || []).indexOf(g) >= 0;
+      var vis = edit ? list : list.filter(function (r) { return !r.excluded; });
+      if (!vis.length && !edit) return;
+      var sub = list.reduce(function (a, r) { return a + (r.excluded ? 0 : lineTotal(r)); }, 0);
+      h += '<div class="bp-boq-g" data-g="' + BP.esc(g) + '" style="margin-top:10px;' + (gOff ? 'opacity:.55;' : '') + '">' +
+        '<div style="display:flex;gap:8px;align-items:center;font-weight:800;padding:6px 0;border-bottom:2px solid var(--g5,#81c784);">' +
+          (edit ? '<input type="checkbox"' + (gOff ? '' : ' checked') + ' onchange="BuildPlan.boqExG(' + id + ',this)" title="' +
+                  BP.esc(BP.tt('כלול את כל הנושא', 'รวมทั้งหมวด', 'تضمين الموضوع كله')) + '">' : '') +
+          '<span style="flex:1;">' + BP.esc(g) + '</span>' +
+          '<span style="font-size:.8rem;">' + (sub > 0 ? BP.money(sub) : '') + '</span>' +
+        '</div>';
+      vis.forEach(function (r) {
+        var lp = BP.linePrice(r), cat = BP.profByName(r.name), catP = cat && cat.price > 0 ? cat.price : 0;
+        var off = r.excluded;
+        if (!edit) {
+          h += '<div class="bp-tot"><span>' + BP.esc(BP.dsp(r.name)) +
+            (r.qtySet ? ' <span title="' + BP.esc(BP.tt('כמות שנקבעה ידנית', 'ปริมาณที่ตั้งเอง', 'كمية يدوية')) + '">\u270e</span>' : '') +
+            (r.note ? '<br><span style="' + muted + '">' + BP.esc(BP.dsp(r.note)) + '</span>' : '') + '</span>' +
+            '<span style="white-space:nowrap;text-align:end;">' + BP.n1(r.qty) + ' ' + BP.esc(BP.dsp(r.unit)) +
+            (r.kg ? '<br><span style="' + muted + '">' + BP.n1(r.kg) + ' kg</span>' : '') +
+            (function () {
+              var alt = (r.src === 'calc' && BP.altProfiles) ? BP.altProfiles(r.name, 2) : [];
+              if (!alt.length) return '';
+              return '<br><span style="font-size:.68rem;color:var(--text-muted,#888);">\u21c4 ' +
+                BP.tt('חלופה', 'ทางเลือก', 'بديل') + ': ' +
+                alt.map(function (a) { return BP.esc(BP.dsp(a.name)) + ' (\u2212' + Math.round(a.saveRatio * 100) + '%)'; }).join(', ') + '</span>';
+            })() +
+            (lp > 0 ? '<br><span style="font-size:.72rem;">' + BP.money(r.qty * lp) + (r.price != null ? ' \u270e' : '') + '</span>' : '') +
+            '</span></div>';
+          return;
+        }
+        // edit mode: one compact row per line
+        var own = r.src === 'add';
+        h += '<div class="bp-boq-r" data-k="' + BP.esc(r.key) + '" style="display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap;padding:7px 0;' +
+          'border-bottom:1px solid rgba(0,0,0,.07);' + (off ? 'opacity:.5;' : '') + '">' +
+          '<input type="checkbox" style="margin-top:6px"' + (off ? '' : ' checked') + ' onchange="BuildPlan.boqEx(' + id + ',this)">' +
+          '<div style="flex:1 1 180px;min-width:150px;">' +
+            (own ? '<input class="bp-in" style="width:100%" data-f="name" value="' + BP.esc(r.name) + '" onchange="BuildPlan.boqSet(' + id + ',this)">'
+                 : '<span style="' + (off ? 'text-decoration:line-through;' : '') + '">' + BP.esc(BP.dsp(r.name)) + '</span>') +
+            (r.note ? '<div style="' + muted + '">' + BP.esc(BP.dsp(r.note)) + '</div>' : '') +
+          '</div>' +
+          '<div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;">' +
+            '<input class="bp-in" type="number" step="any" min="0" data-f="qty" style="width:86px" value="' + BP.n2(r.qty) + '" onchange="BuildPlan.boqSet(' + id + ',this)">' +
+            (own ? '<input class="bp-in" data-f="unit" style="width:58px" value="' + BP.esc(r.unit) + '" onchange="BuildPlan.boqSet(' + id + ',this)">'
+                 : '<span style="font-size:.8rem;">' + BP.esc(BP.dsp(r.unit)) + '</span>') +
+            '<span style="font-size:.75rem;opacity:.6;">\u00d7</span>' +
+            '<input class="bp-in" type="number" step="any" min="0" data-f="price" style="width:86px" value="' + (r.price != null ? BP.n2(r.price) : '') +
+              '" placeholder="' + (catP ? BP.n2(catP) : BP.esc(BP.tt('מחיר', 'ราคา', 'السعر'))) + '" onchange="BuildPlan.boqSet(' + id + ',this)">' +
+            '<span style="font-size:.78rem;min-width:74px;text-align:end;">' + (lp > 0 && !off ? BP.money(r.qty * lp) : '') + '</span>' +
+            (own ? '<button class="bp-btn ghost" style="padding:4px 8px" onclick="BuildPlan.boqDel(' + id + ',this)">\ud83d\uddd1</button>' : '') +
+          '</div>' +
+          (!own && (r.qtySet || r.price != null)
+            ? '<div style="flex-basis:100%;' + muted + '">' +
+                (r.qtySet ? BP.tt('מחושב', 'คำนวณ', 'محسوب') + ': ' + BP.n2(r.calcQty) + ' ' + BP.esc(BP.dsp(r.unit)) + ' ' : '') +
+                (r.price != null && catP ? BP.tt('מחיר קטלוג', 'ราคาแคตตาล็อก', 'سعر الكتالوج') + ': ' + BP.money(catP) + ' ' : '') +
+                '<button class="bp-btn ghost" style="padding:2px 8px;font-size:.72rem" onclick="BuildPlan.boqReset(' + id + ',this)">\u21ba ' +
+                  BP.tt('חזור לחישוב', 'กลับค่าคำนวณ', 'عد للمحسوب') + '</button></div>'
+            : '') +
+        '</div>';
+      });
+      h += '</div>';
+    });
+
+    // a line of your own, under any topic
+    var gl = groups.map(function (g) { return '<option value="' + BP.esc(g) + '"></option>'; }).join('');
+    var units = ["\u05d9\u05d7'", '\u05de"\u05e8', "\u05de'", '\u05de"\u05e7', '\u05e7"\u05d2', '\u05dc\u05d9\u05d8\u05e8', '\u05e9\u05e2\u05d5\u05ea', '\u05e7\u05d5\u05de\u05e4\u05dc\u05d8'];
+    h += '<div style="margin-top:14px;padding:10px;border:1px dashed var(--g5,#81c784);border-radius:10px;">' +
+      '<b style="font-size:.85rem;">\u2795 ' + BP.tt('שורה חדשה', 'เพิ่มรายการ', 'بند جديد') + '</b>' +
+      '<div style="font-size:.72rem;color:var(--text-muted,#888);margin:2px 0 8px;">' +
+        BP.tt('כל דבר שאינו בתוכנית: עבודות פיתוח, הובלה, מנוף, היתרים, ציוד. נושא חדש או קיים.',
+              'งานใดๆ ที่ไม่อยู่ในแผน', 'أي بند ليس في المخطط') + '</div>' +
+      '<div class="bp-grid">' +
+        '<div><div class="bp-lbl">' + BP.tt('נושא', 'หมวด', 'الموضوع') + '</div>' +
+          '<input class="bp-in" id="bqG" list="bqGl" placeholder="' + BP.esc(BP.tt('תוספות', 'รายการเพิ่ม', 'إضافات')) + '"><datalist id="bqGl">' + gl + '</datalist></div>' +
+        '<div><div class="bp-lbl">' + BP.tt('תיאור', 'รายละเอียด', 'الوصف') + '</div><input class="bp-in" id="bqN"></div>' +
+        '<div><div class="bp-lbl">' + BP.tt('כמות', 'จำนวน', 'الكمية') + '</div><input class="bp-in" id="bqQ" type="number" step="any" min="0" value="1"></div>' +
+        '<div><div class="bp-lbl">' + BP.tt('יחידה', 'หน่วย', 'الوحدة') + '</div><input class="bp-in" id="bqU" list="bqUl" value="' + units[0] + '"><datalist id="bqUl">' +
+          units.map(function (u) { return '<option value="' + BP.esc(u) + '"></option>'; }).join('') + '</datalist></div>' +
+        '<div><div class="bp-lbl">' + BP.tt('מחיר ליחידה (לא חובה)', 'ราคาต่อหน่วย', 'سعر الوحدة') + '</div><input class="bp-in" id="bqP" type="number" step="any" min="0"></div>' +
+        '<div><div class="bp-lbl">' + BP.tt('הערה', 'หมายเหตุ', 'ملاحظة') + '</div><input class="bp-in" id="bqNote"></div>' +
+      '</div>' +
+      '<button class="bp-btn" style="margin-top:8px;" onclick="BuildPlan.boqAdd(' + id + ')">\u2795 ' + BP.tt('הוסף לכתב הכמויות', 'เพิ่ม', 'أضف') + '</button>' +
+    '</div>';
+
+    h += '<div class="bp-tot" style="border:none;font-weight:800;margin-top:10px;"><span>' +
       BP.tt('משקל פלדה', 'น้ำหนักเหล็ก', 'وزن الحديد') + '</span><span>' +
       BP.n1(tot.kg) + ' kg \u00b7 ' + BP.n2(tot.kg / 1000) + ' ' + BP.tt('טון', 'ตัน', 'طن') + '</span></div>' +
       '<div class="bp-tot" style="border:none;font-weight:800;font-size:1rem;"><span>' +
       BP.tt('עלות חומרים', 'ต้นทุนวัสดุ', 'تكلفة المواد') + '</span><span>' + BP.money(tot.cost) + '</span></div>' +
       (tot.unpriced ? '<div style="font-size:.75rem;color:#e65100;">\u26a0\ufe0f ' + tot.unpriced +
-        ' ' + BP.tt('פריטים ללא מחיר בקטלוג', 'ไม่มีราคา', 'بدون سعر') + '</div>' : '') +
+        ' ' + BP.tt('פריטים ללא מחיר', 'ไม่มีราคา', 'بدون سعر') + '</div>' : '') +
       '</div>';
     return h;
   }
+
+  // ── BOQ edit handlers ──
+  // A control carries its line in data-k on its row and its topic in data-g
+  // on its section, so names full of quotes never travel through onclick.
+  function boqOf(p) { if (!p.boq) p.boq = BP.normBoq({}); return p.boq; }
+  function boqReopen(id) {
+    var bk = document.querySelector('.bp-back'), y = bk ? bk.scrollTop : 0;
+    BP.saveP(); BP.open(id);
+    var bk2 = document.querySelector('.bp-back'); if (bk2) bk2.scrollTop = y;
+  }
+  function rowKey(el) { var r = el && el.closest('[data-k]'); return r ? r.getAttribute('data-k') : ''; }
+  BP.boqMode = function boqMode(id) { BP._boqEdit = !BP._boqEdit; boqReopen(id); };
+  BP.boqEx = function boqEx(id, el) {
+    var p = BP.projById(id); if (!p) return;
+    var B = boqOf(p), k = rowKey(el);
+    if (k.indexOf('add:') === 0) {
+      B.add.forEach(function (a) { if ('add:' + a.id === k) a.off = !el.checked; });
+    } else {
+      B.ex = B.ex.filter(function (x) { return x !== k; });
+      if (!el.checked) B.ex.push(k);
+    }
+    boqReopen(id);
+  };
+  BP.boqExG = function boqExG(id, el) {
+    var p = BP.projById(id); if (!p) return;
+    var B = boqOf(p), g = el.closest('[data-g]').getAttribute('data-g');
+    B.exG = B.exG.filter(function (x) { return x !== g; });
+    if (!el.checked) B.exG.push(g);
+    boqReopen(id);
+  };
+  BP.boqSet = function boqSet(id, el) {
+    var p = BP.projById(id); if (!p) return;
+    var B = boqOf(p), k = rowKey(el), f = el.getAttribute('data-f'), v = el.value;
+    if (k.indexOf('add:') === 0) {
+      B.add.forEach(function (a) {
+        if ('add:' + a.id !== k) return;
+        if (f === 'qty') a.qty = Math.max(0, Number(v) || 0);
+        else if (f === 'price') { if (v === '') delete a.price; else a.price = Math.max(0, Number(v) || 0); }
+        else if (f === 'name' && String(v).trim()) a.name = String(v).trim().slice(0, 160);
+        else if (f === 'unit') a.unit = String(v || '').slice(0, 20);
+      });
+    } else {
+      var o = null;
+      B.ov.forEach(function (x) { if (x.k === k) o = x; });
+      if (!o) { o = { k: k }; B.ov.push(o); }
+      if (f === 'qty') { if (v === '') delete o.qty; else o.qty = Math.max(0, Number(v) || 0); }
+      if (f === 'price') { if (v === '') delete o.price; else o.price = Math.max(0, Number(v) || 0); }
+      B.ov = B.ov.filter(function (x) { return x.qty != null || x.price != null; });
+    }
+    boqReopen(id);
+  };
+  BP.boqReset = function boqReset(id, el) {
+    var p = BP.projById(id); if (!p) return;
+    var B = boqOf(p), k = rowKey(el);
+    B.ov = B.ov.filter(function (x) { return x.k !== k; });
+    boqReopen(id);
+  };
+  BP.boqDel = function boqDel(id, el) {
+    var p = BP.projById(id); if (!p) return;
+    var B = boqOf(p), k = rowKey(el);
+    B.add = B.add.filter(function (a) { return 'add:' + a.id !== k; });
+    boqReopen(id);
+  };
+  BP.boqAdd = function boqAdd(id) {
+    var p = BP.projById(id); if (!p) return;
+    var v = function (i) { var e = document.getElementById(i); return e ? String(e.value || '').trim() : ''; };
+    var name = v('bqN');
+    if (!name) { if (BP.toast) BP.toast('\u26a0\ufe0f ' + BP.tt('חסר תיאור', 'ไม่มีรายละเอียด', 'الوصف مفقود')); return; }
+    var B = boqOf(p);
+    var a = { id: 'b' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), name: name.slice(0, 160),
+              qty: Math.max(0, Number(v('bqQ')) || 0), unit: v('bqU') || "\u05d9\u05d7'", grp: v('bqG').slice(0, 120),
+              note: v('bqNote').slice(0, 200), off: false };
+    if (v('bqP') !== '') a.price = Math.max(0, Number(v('bqP')) || 0);
+    B.add.push(a);
+    BP._boqEdit = true;
+    boqReopen(id);
+  };
 
   function siteTab(p) {
     var has = p.footprint && p.footprint.length >= 3;

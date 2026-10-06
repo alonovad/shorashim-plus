@@ -87,9 +87,8 @@
 
   function takeoffLines(p) {
     return BP.takeoff(p).map(function (r) {
-      var pr = BP.profByName(r.name);
       return { name: r.name, qty: BP.n1(r.qty), unit: r.unit,
-               price: pr ? pr.price : 0, note: r.note };
+               price: BP.linePrice(r), note: r.note };
     });
   }
 
@@ -652,11 +651,11 @@
     var g = (p.type === 'slab' || p.hasStruct === false) ? null : BP.geom(p.dims);
     var body = '';
     rows.forEach(function (r, i) {
-      var pr = BP.profByName(r.name);
+      var lp = BP.linePrice(r);
       body += '<tr><td>' + (i + 1) + '</td><td>' + BP.esc(BP.dsp(r.name)) + '</td><td>' + BP.n1(r.qty) +
         '</td><td>' + BP.esc(BP.dsp(r.unit)) + '</td><td>' + (r.kg ? BP.n1(r.kg) : '\u2014') + '</td>' +
-        '<td>' + (pr && pr.price ? BP.money(pr.price) : '\u2014') + '</td>' +
-        '<td>' + (pr && pr.price ? BP.money(r.qty * pr.price) : '\u2014') + '</td>' +
+        '<td>' + (lp ? BP.money(lp) : '\u2014') + '</td>' +
+        '<td>' + (lp ? BP.money(r.qty * lp) : '\u2014') + '</td>' +
         '<td>' + BP.esc(r.note) + '</td></tr>';
     });
     // Component drawings, printed at the size they are read at. A bill of
@@ -795,12 +794,15 @@
     gateView: BP.gateView, gate3dView: BP.gate3dView, gate3dReset: BP.gate3dReset,
     _rebar: BP._rebar, _rebarBind: BP._rebarBind, _gateRebarBind: BP._gateRebarBind,
     addLiving: BP.addLiving, delLiving: BP.delLiving, setLiving: BP.setLiving,
+    boqMode: BP.boqMode, boqEx: BP.boqEx, boqExG: BP.boqExG, boqSet: BP.boqSet,
+    boqReset: BP.boqReset, boqDel: BP.boqDel, boqAdd: BP.boqAdd,
     swapTo: BP.swapTo,
     closeSwap: BP.closeSwap,
     checkMember: BP.checkMember,
     layersAll: BP.layersAll,
     layersFrame: BP.layersFrame,
     applyModel: BP.applyModel,
+    toModelStart: BP.toModelStart, toModelSave: BP.toModelSave, toModelCancel: BP.toModelCancel, delMyModel: BP.delMyModel,
     view3d: BP.view3d,
     resetView: BP.resetView,
     tool3d: BP.tool3d,

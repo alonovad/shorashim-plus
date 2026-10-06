@@ -102,12 +102,30 @@
     return { area: a, slab: slab, footings: f.volAll, pads: f.n, total: slab + f.volAll };
   };
 
+  // The outline of a model read from a scanned plan: the extent of its grid
+  // lines in both directions (the largest, when a project holds several).
+  BP.planExtent = function planExtent(p) {
+    var best = null;
+    (p.models || []).forEach(function (m) {
+      var f = m && m.frame; if (!f) return;
+      var xs = (f.x || []).map(function (a) { return a.p; }).filter(function (v) { return v != null && isFinite(v); });
+      var ys = (f.y || []).map(function (a) { return a.p; }).filter(function (v) { return v != null && isFinite(v); });
+      if (xs.length < 2 || ys.length < 2) return;
+      var L = Math.max.apply(null, xs) - Math.min.apply(null, xs), W = Math.max.apply(null, ys) - Math.min.apply(null, ys);
+      if (!(L > 0 && W > 0)) return;
+      if (!best || L * W > best.area) best = { L: L, W: W, area: L * W, name: m.name || '' };
+    });
+    return best;
+  };
   BP.slabArea = function slabArea(p) {
     var d = p.dims;
     // A footprint traced on the map beats a typed rectangle — it is the
     // actual ground being poured.
     if (p.footprintArea > 0) return p.footprintArea;
     if (d.slabArea > 0) return d.slabArea;
+    // A project built from a scanned plan pours under the frame it drew,
+    // not under the sliders' default box.
+    if (p.source === 'plan') { var e = BP.planExtent(p); if (e) return e.area; }
     return d.span * d.length;
   };
 
@@ -122,14 +140,33 @@
   // the totals and the ledger need no knowledge of where it came from.
   function takeoffFromPlan(p) {
     var out = [];
-    if (typeof Frame === 'undefined' || !Frame.takeoff) return out;
     var w = 1 + ((p.dims && p.dims.waste || 0) / 100);
-    function push(name, qty, unit, note) {
+    function push(name, qty, unit, note, grp) {
       if (!name || !(qty > 0)) return;
       var pr = BP.profByName(name);
       var kg = (pr && pr.kgPerM && unit === "מ'") ? qty * pr.kgPerM : 0;
-      out.push({ name: name, qty: qty, unit: unit, kg: kg, note: note || '' });
+      var row = { name: name, qty: qty, unit: unit, kg: kg, note: note || '' };
+      if (grp) row.grp = grp;
+      out.push(row);
     }
+    // Everything a plan project holds besides its frame: a slab poured under
+    // it, gates, a living unit, free elements, hand-typed extras. These were
+    // missing from a plan project's bill altogether.
+    function rest() {
+      if (p.planSlab) {
+        var d = p.dims, a = BP.slabArea(p), g = BP.tt('משטח בטון', 'พื้นคอนกรีต', 'سطح خرساني');
+        push('בטון ב-30', a * d.slabTh * w, 'מ"ק', BP.n1(a) + ' ' + BP.dsp('מ"ר') + ' \u00d7 ' + d.slabTh + ' ' + BP.dsp("מ'"), g);
+        if (typeof Rebar !== 'undefined') {
+          Rebar.slabTakeoff(d.rebar, a, w).forEach(function (r) { push(r.name, r.qty, r.unit, r.note, g); });
+        } else {
+          push('רשת פלדה Q188', Math.ceil(a / (6 * 2.35) * 1.1), "יח'", '', g);
+        }
+      }
+      (p.extras || []).forEach(function (e) { if (!e.plan) push(e.name, e.qty, e.unit, ''); });
+      componentLines(p).forEach(function (l) { push(l.name, l.qty, l.unit, l.note, l.grp); });
+      return out;
+    }
+    if (typeof Frame === 'undefined' || !Frame.takeoff) return rest();
     (p.models || []).forEach(function (m) {
       if (!m || !m.frame) return;
       var T = Frame.takeoff(m.frame);
@@ -145,7 +182,7 @@
       if (T.blindArea > 0) push(BP.tt('בטון רזה', 'คอนกรีตหยาบ', 'خرسانة نظافة'),
         T.blindArea, 'מ"ר', tag);
     });
-    return out;
+    return rest();
   }
 
   BP.takeoff = function takeoff(p) {
@@ -155,11 +192,13 @@
     var wantStruct = p.hasStruct !== false;
     var wantSlab = p.hasSlab !== false;
 
-    function push(name, qty, unit, note) {
+    function push(name, qty, unit, note, grp) {
       if (!(qty > 0)) return;
       var pr = BP.profByName(name);
       var kg = (pr && pr.kgPerM && unit === "מ'") ? qty * pr.kgPerM : 0;
-      out.push({ name: name, qty: qty, unit: unit, kg: kg, note: note || '' });
+      var row = { name: name, qty: qty, unit: unit, kg: kg, note: note || '' };
+      if (grp) row.grp = grp;          // the topic the line belongs to (gates, living, free elements)
+      out.push(row);
     }
 
     // ── reinforcement ──
@@ -200,7 +239,7 @@
       push('ברזל זיון ' + edgeD + ' מ"מ', Math.sqrt(a) * 4 * 2 * w, "מ'",
         BP.tt('היקף וחיזוקים', 'ขอบและเสริม', 'محيط وتقوية'));
       (p.extras || []).forEach(function (e) { push(e.name, e.qty, e.unit, ''); });
-      componentLines(p).forEach(function (l) { push(l.name, l.qty, l.unit, l.note); });
+      componentLines(p).forEach(function (l) { push(l.name, l.qty, l.unit, l.note, l.grp); });
       return out;
     }
 
@@ -215,7 +254,7 @@
         pushSlabSteel(sa, BP.tt('רצפה', 'พื้น', 'أرضية'));
       }
       (p.extras || []).forEach(function (e) { push(e.name, e.qty, e.unit, ''); });
-      componentLines(p).forEach(function (l) { push(l.name, l.qty, l.unit, l.note); });
+      componentLines(p).forEach(function (l) { push(l.name, l.qty, l.unit, l.note, l.grp); });
       return out;
     }
     // Columns are billed per line at that line's own height. On a mono the
@@ -328,7 +367,7 @@
     }
     if (wantSlab) pushSlabSteel(fa, BP.tt('רצפה', 'พื้น', 'أرضية'));
     (p.extras || []).forEach(function (e) { push(e.name, e.qty, e.unit, ''); });
-    componentLines(p).forEach(function (l) { push(l.name, l.qty, l.unit, l.note); });
+    componentLines(p).forEach(function (l) { push(l.name, l.qty, l.unit, l.note, l.grp); });
     return out;
   };
 
@@ -340,15 +379,15 @@
     if (typeof Gates !== 'undefined') {
       (p.gates || []).forEach(function (g, i) {
         Gates.takeoff(g).forEach(function (l) {
-          out.push({ name: l.name, qty: l.qty, unit: l.unit,
-                     note: (g.name || (BP.tt('שער','ประตู','بوابة') + ' ' + (i+1))) +
-                           (l.note ? ' \u00b7 ' + l.note : '') });
+          var gname = g.name || (BP.tt('שער','ประตู','بوابة') + ' ' + (i+1));
+          out.push({ name: l.name, qty: l.qty, unit: l.unit, grp: gname,
+                     note: gname + (l.note ? ' \u00b7 ' + l.note : '') });
         });
       });
     }
     if (typeof LivingUnit !== 'undefined' && p.living && p.living.people) {
       LivingUnit.takeoff(p.living).forEach(function (l) {
-        out.push({ name: l.name, qty: l.qty, unit: l.unit,
+        out.push({ name: l.name, qty: l.qty, unit: l.unit, grp: BP.tt('מגורים','ที่พัก','سكن'),
                    note: BP.tt('מגורים','ที่พัก','سكن') + (l.note ? ' \u00b7 ' + l.note : '') });
       });
     }
@@ -358,12 +397,13 @@
     var w = 1 + (p.dims.waste || 0) / 100;
     (p.free || []).forEach(function (f) {
       var tag = f.name || BP.tt('אלמנט חופשי', 'ชิ้นส่วนอิสระ', 'عنصر حر');
+      var fg = BP.tt('אלמנטים חופשיים', 'ชิ้นส่วนอิสระ', 'عناصر حرة');
       if (f.kind === 'member') {
-        if (f.profile) out.push({ name: f.profile, qty: f.l * w, unit: "מ'", note: tag });
+        if (f.profile) out.push({ name: f.profile, qty: f.l * w, unit: "מ'", note: tag, grp: fg });
       } else if (f.material === 'concrete') {
-        out.push({ name: 'בטון ב-30', qty: f.l * f.w * f.h, unit: 'מ"ק', note: tag });   // CATALOGUE KEY
+        out.push({ name: 'בטון ב-30', qty: f.l * f.w * f.h, unit: 'מ"ק', note: tag, grp: fg });   // CATALOGUE KEY
       } else if (f.material === 'block') {
-        out.push({ name: 'בלוק בטון 20 ס"מ', qty: f.l * f.h * w, unit: 'מ"ר', note: tag });   // CATALOGUE KEY
+        out.push({ name: 'בלוק בטון 20 ס"מ', qty: f.l * f.h * w, unit: 'מ"ר', note: tag, grp: fg });   // CATALOGUE KEY
       }
     });
     return out;
@@ -388,8 +428,7 @@
     var kg = 0, priced = 0, unpriced = [];
     rows.forEach(function (r) {
       kg += r.kg || 0;
-      var pr = BP.profByName(r.name);
-      if (pr && pr.price > 0) priced++; else unpriced.push(r.name);
+      if (BP.linePrice(r) > 0) priced++; else unpriced.push(r.name);
     });
 
     // A light steel shed runs roughly 10-40 kg of steel per square metre of
@@ -442,12 +481,72 @@
       });
   };
 
+  // ── your edits on top of the computed bill ──────────────────────────
+  // BP.takeoff stays what every reader calls — the tab, the totals, print,
+  // the transfer to orders — and now returns the bill AS EDITED: lines you
+  // left out are gone, quantities and prices you set are used, your own
+  // lines are in. BP.takeoffAll returns every line with its status, for the
+  // editor. A computed line is known by a key that survives the numbers in
+  // its note changing (a wall growing from 35.8 to 36.1 m must not undo the
+  // decision to leave it out).
+  var takeoffCalc = BP.takeoff;
+  BP.takeoffCalc = takeoffCalc;
+  BP.boqKey = function boqKey(r) {
+    var head = String(r.note || '').split(' \u00b7 ').slice(0, 2).join(' \u00b7 ');
+    return r.name + '|' + head.replace(/[0-9.,\u00d7]+/g, '#').replace(/\s+/g, ' ').trim();
+  };
+  BP.takeoffAll = function takeoffAll(p) {
+    var raw = takeoffCalc(p), B = p.boq || { ex: [], exG: [], ov: [], add: [] };
+    var main = p.source === 'plan' ? BP.tt('לפי תוכנית', 'ตามแบบ', 'حسب المخطط') : BP.tt('מבנה', 'โครงสร้าง', 'الهيكل');
+    var extraG = BP.tt('תוספות מהתוכנית', 'เพิ่มจากแบบ', 'إضافات من المخطط');
+    var planNames = {};
+    (p.extras || []).forEach(function (e) { if (e.plan) planNames[e.name] = 1; });
+    var seen = {}, out = [];
+    raw.forEach(function (r) {
+      var k = BP.boqKey(r);
+      seen[k] = (seen[k] || 0) + 1;
+      if (seen[k] > 1) k += '#' + seen[k];
+      var grp = r.grp || (planNames[r.name] && !r.note ? extraG : main);
+      var ov = null;
+      (B.ov || []).forEach(function (o) { if (o.k === k) ov = o; });
+      var qty = (ov && ov.qty != null) ? ov.qty : r.qty;
+      out.push({ key: k, src: 'calc', name: r.name, unit: r.unit, note: r.note || '', grp: grp,
+                 calcQty: r.qty, qty: qty, qtySet: !!(ov && ov.qty != null),
+                 kg: r.qty > 0 ? (r.kg || 0) * qty / r.qty : 0,
+                 price: (ov && ov.price != null) ? ov.price : null,
+                 excluded: B.ex.indexOf(k) >= 0 || B.exG.indexOf(grp) >= 0 });
+    });
+    var own = BP.tt('תוספות', 'รายการเพิ่ม', 'إضافات');
+    (B.add || []).forEach(function (a) {
+      var grp = a.grp || own;
+      out.push({ key: 'add:' + a.id, id: a.id, src: 'add', name: a.name, unit: a.unit, note: a.note || '', grp: grp,
+                 calcQty: null, qty: a.qty, qtySet: false, kg: 0,
+                 price: a.price != null ? a.price : null,
+                 excluded: !!a.off || B.exG.indexOf(grp) >= 0 });
+    });
+    return out;
+  };
+  BP.takeoff = function takeoff(p) {
+    return BP.takeoffAll(p).filter(function (r) { return !r.excluded && r.qty > 0; }).map(function (r) {
+      var o = { name: r.name, qty: r.qty, unit: r.unit, kg: r.kg, note: r.note };
+      if (r.price != null) o.price = r.price;
+      return o;
+    });
+  };
+
+  // A price set on the line wins over the catalogue's — the catalogue is not
+  // changed by it.
+  BP.linePrice = function linePrice(r) {
+    if (r && r.price != null && r.price >= 0) return r.price;
+    var pr = BP.profByName(r.name);
+    return (pr && pr.price > 0) ? pr.price : 0;
+  };
   BP.takeoffTotals = function takeoffTotals(rows) {
     var cost = 0, kg = 0, unpriced = 0;
     rows.forEach(function (r) {
-      var pr = BP.profByName(r.name);
-      if (pr && pr.price > 0) cost += r.qty * pr.price; else unpriced++;
-      kg += r.kg;
+      var pr = BP.linePrice(r);
+      if (pr > 0) cost += r.qty * pr; else unpriced++;
+      kg += r.kg || 0;
     });
     return { cost: cost, kg: kg, unpriced: unpriced };
   };

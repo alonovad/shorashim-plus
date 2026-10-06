@@ -278,7 +278,9 @@
       '</span><b' + (colour ? ' style="color:' + colour + ';"' : '') + '>' + val + '</b></div>';
   }
 
-  BP.ledgerTab = function ledgerTab(p) {
+  // The journal used to live here. It now lives on the maintenance board
+  // (maintjournal.js); this renderer stays for an app without that module.
+  var ledgerTabOld = function ledgerTab(p) {
     var id = p.id;
     var led = _led[id];
     if (!led) {
@@ -649,5 +651,92 @@
   BuildPlan.ledFromTakeoff = BP.ledFromTakeoff;
   BuildPlan.ledCsv         = BP.ledCsv;
   BuildPlan.ledPrint       = BP.ledPrint;
+
+
+  // ── the journal moved to the maintenance board ──────────────────────
+  // A construction project is a design and an estimate; tracking belongs to
+  // the job once it is approved, which is a maintenance project. This tab
+  // now shows that job's state and opens its journal, and keeps the old
+  // entries visible (read-only) until they are moved there.
+  var _mj = {};
+  var MSTAT = {
+    draft: function () { return BP.tt('טיוטה', 'แบบร่าง', 'مسودة'); },
+    sent: function () { return BP.tt('נשלח ללקוח', 'ส่งแล้ว', 'أُرسل'); },
+    approved: function () { return BP.tt('מאושר', 'อนุมัติ', 'موافق عليه'); },
+    in_progress: function () { return BP.tt('בביצוע', 'กำลังทำ', 'قيد التنفيذ'); },
+    completed: function () { return BP.tt('הושלם', 'เสร็จ', 'مكتمل'); }
+  };
+  BP.ledgerTab = function ledgerTab(p) {
+    if (typeof MaintJournal === 'undefined' || typeof Maintenance === 'undefined') return ledgerTabOld(p);
+    var id = p.id, st = _mj[id];
+    // re-read when the tab is come back to (the job's state changes on the
+    // board), but not on every repaint — a summary younger than a few
+    // seconds is the one this repaint was triggered to show
+    if (!st || st.maintId !== (p.maintId || null) || (!st.loading && Date.now() - st.at > 4000)) {
+      st = _mj[id] = { maintId: p.maintId || null, loading: !st || st.maintId !== (p.maintId || null), sum: st && st.sum, old: st && st.old, at: Date.now() };
+      Promise.all([p.maintId ? MaintJournal.summary(p.maintId).catch(function () { return null; }) : Promise.resolve(null),
+                   MaintJournal.oldLedger(id)]).then(function (r) {
+        st.sum = r[0]; st.old = r[1]; st.loading = false; st.at = Date.now();
+        if (BP._tab === 'ledger' && BP.projById(id)) BP.open(id);
+      });
+    }
+    var h = '<div class="bp-card" style="border-inline-start:3px solid var(--accent,#ff9f43);"><b>\ud83d\udcd3 ' +
+      BP.tt('יומן המעקב עבר ללוח התחזוקה', 'บันทึกติดตามย้ายไปบอร์ดซ่อมบำรุง', 'انتقل سجل المتابعة إلى لوحة الصيانة') + '</b>' +
+      '<div style="font-size:.8rem;color:var(--text-muted,#888);margin-top:4px;line-height:1.5;">' +
+      BP.tt('המעקב מתנהל בפרויקט התחזוקה המקושר, ונפתח כשהפרויקט מאושר: סעיפי הצעת המחיר עם תוכנית מול ביצוע, תקבולים מהלקוח, עבודה וציוד — יחד עם החשבוניות והמשלוחים של אותו פרויקט.',
+            'การติดตามอยู่ในโครงการซ่อมบำรุงที่เชื่อมโยง', 'تتم المتابعة في مشروع الصيانة المرتبط') + '</div></div>';
+    if (st.loading) return h + '<div class="bp-card" style="text-align:center;color:var(--text-muted,#888);">\u23f3</div>';
+    if (!p.maintId) {
+      h += '<div class="bp-card">' + BP.tt('הפרויקט עוד לא מקושר לפרויקט תחזוקה.', 'ยังไม่ได้เชื่อมโยง', 'المشروع غير مرتبط بعد') +
+        '<div style="margin-top:8px;"><button class="bp-btn" onclick="BuildPlan.ledLink(' + id + ')">\ud83d\udd17 ' +
+        BP.tt('קשר לפרויקט תחזוקה', 'เชื่อมโยง', 'اربط بمشروع صيانة') + '</button></div></div>';
+    } else if (!st.sum) {
+      h += '<div class="bp-card">' + BP.tt('פרויקט התחזוקה המקושר לא נמצא או שאין הרשאה לצפות בו.', 'ไม่พบโครงการ', 'لم يُعثر على المشروع') + '</div>';
+    } else {
+      var s = st.sum;
+      var read = function (label, val, col) {
+        return '<div class="bp-read"><span>' + label + '</span><b' + (col ? ' style="color:' + col + ';"' : '') + '>' + val + '</b></div>';
+      };
+      h += '<div class="bp-card"><div class="bp-lbl">\ud83d\udd27 ' + BP.esc(s.name) + ' \u00b7 ' + (MSTAT[s.status] ? MSTAT[s.status]() : BP.esc(s.status)) + '</div>' +
+        (s.open
+          ? read(BP.tt('בוצע לפי סעיפים', 'ความคืบหน้า', 'المنجز'), Math.round(s.pct * 100) + '% \u00b7 ' + s.done + '/' + s.items) +
+            read(BP.tt('חוזה / הצעה', 'สัญญา', 'العقد'), BP.money(s.contract)) +
+            read(BP.tt('התקבל מהלקוח', 'รับแล้ว', 'المقبوض'), BP.money(s.received), 'var(--ok,#41c47f)') +
+            read(BP.tt('יתרה לגבייה', 'ค้างรับ', 'المتبقي'), BP.money(s.due)) +
+            read(BP.tt('שולם לספקים', 'จ่ายแล้ว', 'المدفوع'), BP.money(s.paid), 'var(--warn,#e2624b)') +
+            (s.hasTerms ? read(BP.tt('לגבייה עכשיו לפי החוזה', 'ถึงกำหนดตามสัญญา', 'المستحق الآن حسب العقد'), BP.money(s.dueNow), s.dueNow > 0 ? 'var(--accent,#ff9f43)' : '') : '') +
+            (s.last ? read(BP.tt('רישום אחרון', 'ล่าสุด', 'آخر تسجيل'), BP.esc(s.last)) : '')
+          : '<div style="font-size:.82rem;margin-top:6px;">' + BP.tt('היומן ייפתח כשהפרויקט יסומן כמאושר בלוח התחזוקה.', 'จะเปิดเมื่ออนุมัติ', 'يُفتح عند الموافقة') + '</div>') +
+        '<div style="margin-top:10px;"><button class="bp-btn" onclick="BuildPlan.ledOpenMaint(' + id + ')">\ud83d\udcd3 ' +
+          (s.open ? BP.tt('פתח את יומן המעקב', 'เปิดบันทึก', 'افتح السجل') : BP.tt('פתח בלוח התחזוקה', 'เปิดในบอร์ด', 'افتح في اللوحة')) + '</button></div></div>';
+    }
+    var old = st.old;
+    if (old && Array.isArray(old.entries) && old.entries.length) {
+      var moved = !!old.migratedTo;
+      h += '<details class="bp-card"><summary style="cursor:pointer;font-weight:700;">\ud83d\udcdc ' +
+        BP.tt('היומן הישן של הפרויקט', 'บันทึกเก่า', 'السجل القديم') + ' (' + old.entries.length + ')' +
+        (moved ? ' \u00b7 ' + BP.tt('הועבר ליומן התחזוקה', 'ย้ายแล้ว', 'نُقل') : '') + '</summary>' +
+        (!moved ? '<div style="font-size:.78rem;color:var(--text-muted,#888);margin:6px 0;">' +
+          BP.tt('להעברה: פתח את יומן המעקב בפרויקט התחזוקה המקושר — יופיע שם כפתור "העבר אותם ליומן הזה".',
+                'เปิดบันทึกในโครงการซ่อมบำรุงเพื่อย้าย', 'افتح السجل في مشروع الصيانة للنقل') + '</div>' : '') +
+        old.entries.slice().sort(function (a, b) { return String(b.date).localeCompare(String(a.date)); }).map(function (e) {
+          return '<div style="font-size:.78rem;padding:4px 0;border-bottom:1px solid rgba(0,0,0,.06);">' + BP.esc(e.date || '') + ' \u00b7 ' +
+            BP.esc(e.kind || '') + (e.title ? ' \u00b7 ' + BP.esc(e.title) : '') + (e.amount ? ' \u00b7 ' + BP.money(e.amount) : '') +
+            (e.equip ? ' \u00b7 ' + BP.esc(e.equip) : '') + '</div>';
+        }).join('') + '</details>';
+    }
+    return h;
+  };
+  BP.ledOpenMaint = function ledOpenMaint(id) {
+    var p = BP.projById(id);
+    if (!p || !p.maintId || typeof Maintenance === 'undefined') return;
+    var st = _mj[id], open = st && st.sum && st.sum.open;
+    if (BP.close) BP.close();
+    Maintenance.showDetail(p.maintId, open ? 'journal' : 'overview');
+  };
+  BP.ledLink = function ledLink(id) { BP._tab = 'site'; BP.open(id); };
+
+  BuildPlan.ledOpenMaint   = BP.ledOpenMaint;
+  BuildPlan.ledLink        = BP.ledLink;
 
 })(BuildPlanInternals);

@@ -51,7 +51,7 @@ var LivingEdit = (function () {
     var u = p.living;
     var cur = LivingUnit.layoutOf(u);
     if (!u.layout || cur.scaledFrom) {
-      u.layout = JSON.parse(JSON.stringify({ L: cur.L, W: cur.W, rooms: cur.rooms, walls: cur.walls || [], items: cur.items }));
+      u.layout = JSON.parse(JSON.stringify({ L: cur.L, W: cur.W, rooms: cur.rooms, walls: cur.walls || [], edits: cur.edits || [], items: cur.items }));
     }
     return u.layout;
   }
@@ -136,53 +136,67 @@ var LivingEdit = (function () {
     if (document.getElementById('lvStyles')) return;
     var s = document.createElement('style');
     s.id = 'lvStyles';
+    // Solid surfaces only: the theme's --card is translucent glass, and a
+    // panel the drawing shows through is a panel nobody can read.
+    var SOLID = 'var(--card-solid,var(--card,#fff))', LINE = 'rgba(0,0,0,.1)';
     s.textContent =
       '.lv-bar{display:flex;gap:6px;flex-wrap:wrap;align-items:center}' +
-      '.lv-b{border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.05);color:inherit;border-radius:9px;padding:5px 9px;font:inherit;font-size:.76rem;cursor:pointer;white-space:nowrap}' +
-      '.lv-b.on{background:var(--accent,#ff9f43);color:#1b1b1b;border-color:transparent;font-weight:700}' +
+      '.lv-b{border:1px solid ' + LINE + ';background:var(--g6,#eef6f1);color:var(--text,#1b2e1b);border-radius:9px;padding:6px 10px;font:inherit;font-size:.8rem;cursor:pointer;white-space:nowrap}' +
+      '.lv-b.on{background:var(--accent,#ff9f43);color:#fff;border-color:transparent;font-weight:700}' +
       '.lv-b:disabled{opacity:.4}' +
-      // the editing surface: canvas with its tools floating on it
-      '.lv-wrap{position:relative;border-radius:12px;overflow:hidden;background:rgba(0,0,0,.14)}' +
-      '.lv-cv{position:relative;overflow:hidden;padding:48px 50px 58px 8px;touch-action:none}' +
-      '.lv-cv.lv-3d{height:420px;padding:0}' +
-      '.lv-full{position:fixed;inset:0;z-index:2400;border-radius:0;background:var(--bg,#0f1a14)}' +
-      '.lv-full .lv-cv{position:absolute;inset:0;height:auto}' +
+      '.lv-b.dang{color:#c62828}' +
+      // the editor: toolbar on top, drawing and panel side by side
+      '.lv-wrap{display:flex;flex-direction:column;gap:8px}' +
+      '.lv-tb{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:6px;background:' + SOLID + ';border:1px solid ' + LINE + ';border-radius:12px}' +
+      '.lv-tb .sep{width:1px;align-self:stretch;background:' + LINE + ';margin:0 2px}' +
+      '.lv-tb .grow{flex:1}' +
+      '.lv-o{min-height:34px;min-width:34px;border:1px solid ' + LINE + ';border-radius:9px;padding:5px 10px;background:var(--g6,#eef6f1);' +
+        'color:var(--text,#1b2e1b);font:600 .8rem Heebo,sans-serif;cursor:pointer;white-space:nowrap}' +
+      '.lv-o.on{background:var(--accent,#ff9f43);color:#fff;border-color:transparent}' +
+      '.lv-o:disabled{opacity:.4}' +
+      '.lv-zpct{font:600 .74rem Heebo,sans-serif;min-width:40px;text-align:center;opacity:.75}' +
+      '.lv-body{display:flex;gap:10px;align-items:flex-start}' +
+      '.lv-stage{flex:1 1 auto;min-width:0;background:' + SOLID + ';border:1px solid ' + LINE + ';border-radius:12px;overflow:hidden;position:relative}' +
+      '.lv-cv{position:relative;overflow:hidden;padding:8px;touch-action:none}' +
+      '.lv-cv.lv-3d{height:460px;padding:0}' +
+      '.lv-side{flex:0 0 300px;max-height:72vh;overflow:auto;background:' + SOLID + ';border:1px solid ' + LINE + ';border-radius:12px;padding:10px 12px;font-size:.84rem;color:var(--text,#1b2e1b)}' +
+      '.lv-narrow .lv-body{flex-direction:column;align-items:stretch}' +
+      '.lv-narrow .lv-tb .tx{display:none}' +
+      '.lv-narrow .lv-tb{gap:4px;padding:5px}' +
+      '.lv-narrow .lv-o{padding:5px 8px}' +
+      '.lv-narrow .lv-side{flex:none;max-height:none}' +
+      '.lv-tabs{display:flex;gap:4px;margin-bottom:10px;border-bottom:1px solid ' + LINE + ';padding-bottom:8px}' +
+      '.lv-tabs .lv-b{flex:1;text-align:center}' +
+      '.lv-full{position:fixed;inset:0;z-index:2400;background:var(--bg,#f2f7f4);padding:8px;overflow:hidden}' +
+      '.lv-full .lv-body{flex:1;min-height:0;align-items:stretch}' +
+      '.lv-full .lv-stage{display:flex;flex-direction:column}' +
+      '.lv-full .lv-cv{flex:1;min-height:0}' +
       '.lv-full .lv-cv svg{height:100%!important}' +
-      '.lv-full .lv-cv.lv-3d{padding:0}' +
-      '.lv-top{position:absolute;top:6px;left:6px;right:6px;display:flex;gap:4px;overflow-x:auto;z-index:5;pointer-events:none;scrollbar-width:none}' +
-      '.lv-top::-webkit-scrollbar{display:none}' +
-      '.lv-o{pointer-events:auto;flex:0 0 auto;min-height:36px;min-width:36px;border:0;border-radius:10px;padding:6px 10px;' +
-        'background:rgba(16,26,20,.84);color:#fff;font:600 .78rem Heebo,sans-serif;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.3);white-space:nowrap}' +
-      '.lv-o.on{background:var(--accent,#ff9f43);color:#1b1b1b}' +
-      '.lv-o:disabled{opacity:.45}' +
-      '.lv-o.dang{background:rgba(160,40,40,.88)}' +
-      '.lv-seg{display:flex;pointer-events:auto;border-radius:10px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.3);flex:0 0 auto}' +
-      '.lv-seg .lv-o{border-radius:0;box-shadow:none}' +
-      '.lv-zoom{position:absolute;right:6px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:4px;z-index:5}' +
-      '.lv-zoom .lv-o{font-size:1.05rem;padding:4px 0;width:40px}' +
-      '.lv-zoom span{font:600 .66rem Heebo,sans-serif;color:#fff;text-align:center;background:rgba(16,26,20,.7);border-radius:6px;padding:1px 0}' +
-      '.lv-ctx{position:absolute;left:6px;right:6px;bottom:6px;z-index:5;display:flex;gap:4px;align-items:center;overflow-x:auto;scrollbar-width:none}' +
-      '.lv-ctx::-webkit-scrollbar{display:none}' +
-      '.lv-ctx .lv-info{flex:1 1 auto;min-width:120px;background:rgba(16,26,20,.84);color:#fff;border-radius:10px;padding:5px 10px;font:.74rem Heebo,sans-serif;line-height:1.35;box-shadow:0 2px 8px rgba(0,0,0,.3)}' +
-      '.lv-ctx .lv-info b{color:#ffd166}' +
-      '.lv-sheet{position:absolute;left:6px;right:6px;bottom:6px;max-height:72%;overflow:auto;z-index:6;display:none;' +
-        'background:var(--card,#16211b);border-radius:14px;padding:10px 12px;box-shadow:0 -4px 24px rgba(0,0,0,.45);font-size:.82rem}' +
-      '.lv-sheet.on{display:block}' +
-      '.lv-sheet-h{display:flex;align-items:center;gap:8px;margin-bottom:6px}.lv-sheet-h b{flex:1}' +
-      '.lv-ins .lv-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px}' +
-      '.lv-ins input,.lv-ins select{width:72px;padding:3px 5px;font-size:.8rem}' +
-      '.lv-ins input.wide{width:150px}' +
-      '.lv-q{margin-top:8px;font-size:.76rem;line-height:1.7}' +
+      '.lv-full .lv-cv.lv-3d{height:auto}' +
+      '.lv-full .lv-side{max-height:none}' +
+      '.lv-full.lv-narrow .lv-side{max-height:38vh}' +
+      '.lv-ins .lv-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px}' +
+      // compact fields: the app's form inputs are page-wide by default
+      '.lv-side input[type=number],.lv-side input[type=text],.lv-side input:not([type]),.lv-side select{width:76px!important;min-height:0!important;padding:5px 7px!important;' +
+        'font-size:.84rem!important;border-radius:8px!important;border:1px solid ' + LINE + '!important;background:var(--bg,#f6faf7)!important;color:inherit!important;box-sizing:border-box}' +
+      '.lv-side input.wide,.lv-side select.wide{width:100%!important}' +
+      '.lv-side select{width:auto!important;max-width:100%}' +
+      '.lv-dims{display:grid;grid-template-columns:auto auto;justify-content:start;gap:3px 14px;margin-top:8px;font-size:.84rem}' +
+      '.lv-dims span{opacity:.7}.lv-dims b{direction:ltr;unicode-bidi:isolate;text-align:start}' +
+      '.lv-acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid ' + LINE + '}' +
+      '.lv-title{font-weight:800;font-size:.95rem}' +
+      '.lv-q{margin-top:8px;font-size:.78rem;line-height:1.7}' +
       '.lv-q b{color:var(--accent,#ff9f43)}' +
-      '.lv-warn{margin-top:6px;font-size:.76rem;color:#e0a030;line-height:1.6}' +
-      '.lv-hint{font-size:.72rem;opacity:.7;margin-top:4px}' +
-      '.lv-menu{position:absolute;z-index:8;min-width:170px;background:var(--card,#16211b);border-radius:12px;padding:5px;' +
-        'box-shadow:0 8px 28px rgba(0,0,0,.5);border:1px solid rgba(255,255,255,.1);font:600 .82rem Heebo,sans-serif}' +
-      '.lv-menu .lv-mh{padding:5px 9px 6px;font-size:.74rem;opacity:.7;border-bottom:1px solid rgba(255,255,255,.08);margin-bottom:3px}' +
+      '.lv-warn{margin-top:6px;font-size:.78rem;color:#b26a00;line-height:1.6}' +
+      '.lv-hint{font-size:.76rem;opacity:.7;margin-top:6px;line-height:1.5}' +
+      '.lv-load{display:flex;align-items:center;justify-content:center;height:100%;font-size:.9rem;opacity:.8}' +
+      '.lv-menu{position:absolute;z-index:8;min-width:180px;background:' + SOLID + ';color:var(--text,#1b2e1b);border-radius:12px;padding:5px;' +
+        'box-shadow:0 8px 28px rgba(0,0,0,.28);border:1px solid ' + LINE + ';font:600 .84rem Heebo,sans-serif}' +
+      '.lv-menu .lv-mh{padding:5px 9px 6px;font-size:.76rem;opacity:.7;border-bottom:1px solid ' + LINE + ';margin-bottom:3px}' +
       '.lv-menu button{display:flex;gap:9px;align-items:center;width:100%;border:0;background:none;color:inherit;font:inherit;' +
         'padding:9px 10px;border-radius:8px;cursor:pointer;text-align:start}' +
-      '.lv-menu button:hover{background:rgba(255,255,255,.08)}' +
-      '.lv-menu button.dang{color:#ff8a80}' +
+      '.lv-menu button:hover{background:var(--g6,#eef6f1)}' +
+      '.lv-menu button.dang{color:#c62828}' +
       '.lv-pill{position:fixed;left:50%;transform:translateX(-50%);bottom:80px;z-index:1600;display:flex;gap:6px;' +
       'background:#263238;color:#fff;border-radius:22px;padding:6px 8px;box-shadow:0 4px 16px rgba(0,0,0,.35);font:600 13px Heebo,sans-serif}' +
       '.lv-pill button{border:0;border-radius:16px;padding:6px 11px;font:inherit;cursor:pointer;background:rgba(255,255,255,.12);color:#fff}';
@@ -198,13 +212,16 @@ var LivingEdit = (function () {
     var s = st(p.id);
     host.innerHTML =
       '<div class="lv-wrap' + (s.full ? ' lv-full' : '') + '" id="lvWrap">' +
-        '<div class="lv-cv" id="lvCanvas"></div>' +
-        '<div class="lv-top" id="lvTop"></div>' +
-        '<div class="lv-zoom" id="lvZoom"></div>' +
-        '<div class="lv-ctx" id="lvCtx"></div>' +
-        '<div class="lv-sheet" id="lvSheet"><div class="lv-sheet-h"><b id="lvSheetT"></b>' +
-          '<button class="lv-o" onclick="LivingEdit.pop(' + p.id + ',\'\')">\u2715</button></div>' +
-          '<div id="lvSheetB"></div><div id="lvIns"></div></div>' +
+        '<div class="lv-tb" id="lvTop"></div>' +
+        '<div class="lv-body">' +
+          '<div class="lv-stage"><div class="lv-cv" id="lvCanvas"></div></div>' +
+          '<div class="lv-side" id="lvSide">' +
+            '<div class="lv-tabs" id="lvTabs"></div>' +
+            '<div id="lvIns" class="lv-ins"></div>' +
+            '<div id="lvCtx"></div>' +
+            '<div id="lvSheetB"></div>' +
+          '</div>' +
+        '</div>' +
       '</div>' +
       '<div id="lvQty"></div>';
     var cv = document.getElementById('lvCanvas');
@@ -216,6 +233,11 @@ var LivingEdit = (function () {
     cv.addEventListener('contextmenu', onContext);
     bindKeys();
     cv._pid = p.id;
+    var wrap = document.getElementById('lvWrap');
+    // side by side when there is room for both, stacked when there is not
+    var fitWidth = function () { if (wrap) wrap.classList.toggle('lv-narrow', (wrap.clientWidth || 0) < 760); };
+    fitWidth();
+    if (typeof ResizeObserver !== 'undefined') { var ro = new ResizeObserver(fitWidth); ro.observe(wrap); }
     redraw(p);
   }
 
@@ -226,28 +248,30 @@ var LivingEdit = (function () {
     var f = frameFor(p);
     var lay = LivingUnit.layoutOf(p.living);
     var wrap = document.getElementById('lvWrap');
-    if (wrap) wrap.className = 'lv-wrap' + (s.full ? ' lv-full' : '');
+    if (wrap) {
+      wrap.classList.toggle('lv-full', !!s.full);
+      wrap.classList.toggle('lv-narrow', (wrap.clientWidth || 0) < 760);
+    }
     var plan = s.view === 'plan';
     var b = function (on, act, label, extra) {
       return '<button class="lv-o' + (on ? ' on' : '') + '" onclick="LivingEdit.' + act + '"' + (extra || '') + '>' + label + '</button>';
     };
+    var sep = '<span class="sep"></span>';
     top.innerHTML =
-      '<div class="lv-seg">' +
-        b(plan, 'view(' + p.id + ',\'plan\')', '\ud83d\udcd0 ' + tt('תוכנית', 'แผนผัง', 'مخطط')) +
-        b(!plan, 'view(' + p.id + ',\'3d\')', '\ud83e\uddca 3D') +
-      '</div>' +
-      b(false, 'undo(' + p.id + ')', '\u21b6', s.undo.length ? ' title="' + esc(tt('בטל', 'เลิกทำ', 'تراجع')) + '"' : ' disabled') +
-      (plan ? b(s.tool === 'wall', 'tool(' + p.id + ')', '\u270f\ufe0f ' + tt('קיר', 'ผนัง', 'جدار')) : '') +
-      (plan ? b(s.pop === 'add', 'pop(' + p.id + ',\'add\')', '\u2795 ' + tt('הוסף', 'เพิ่ม', 'أضف')) : '') +
-      b(s.pop === 'layers', 'pop(' + p.id + ',\'layers\')', '\ud83d\uddc2 ' + tt('שכבות', 'เลเยอร์', 'طبقات')) +
-      (f.has ? b(false, 'showOnMap(' + p.id + ')', '\ud83d\uddfa') : '') +
-      b(s.full, 'full(' + p.id + ')', s.full ? '\u2715 ' + tt('סגור', 'ปิด', 'إغلاق') : '\u26f6');
-
-    var zm = document.getElementById('lvZoom');
-    if (zm) zm.innerHTML = plan
-      ? b(false, 'zoom(' + p.id + ',1)', '+') + b(false, 'zoom(' + p.id + ',-1)', '\u2212') +
-        b(false, 'zoom(' + p.id + ',0)', '\u2922') + '<span>' + Math.round(((s.z && s.z.k) || 1) * 100) + '%</span>'
-      : b(false, 'top(' + p.id + ')', '\u2b07') + b(false, 'zoom(' + p.id + ',0)', '\u2922');
+      b(plan, 'view(' + p.id + ',\'plan\')', '\ud83d\udcd0 ' + tt('תוכנית', 'แผนผัง', 'مخطط')) +
+      b(!plan, 'view(' + p.id + ',\'3d\')', '\ud83e\uddca 3D') + sep +
+      b(false, 'undo(' + p.id + ')', '\u21b6<span class="tx"> ' + tt('בטל', 'เลิกทำ', 'تراجع') + '</span>', s.undo.length ? '' : ' disabled') +
+      (plan ? b(s.tool === 'wall', 'tool(' + p.id + ')', '\u270f\ufe0f<span class="tx"> ' + tt('שרטט קיר', 'วาดผนัง', 'ارسم جداراً') + '</span>') : '') +
+      (plan ? b(s.tool === 'cut', 'cutTool(' + p.id + ')', '\u2702\ufe0f<span class="tx"> ' + tt('חתוך קיר', 'ตัดผนัง', 'اقطع جداراً') + '</span>') : '') + sep +
+      (plan
+        ? b(false, 'zoom(' + p.id + ',-1)', '\u2212') + '<span class="lv-zpct" id="lvZoom">' + Math.round(((s.z && s.z.k) || 1) * 100) + '%</span>' +
+          b(false, 'zoom(' + p.id + ',1)', '+') + b(false, 'zoom(' + p.id + ',0)', '\u2922<span class="tx"> ' + tt('הכל', 'ทั้งหมด', 'الكل') + '</span>')
+        : b(false, 'top(' + p.id + ')', '\u2b07<span class="tx"> ' + tt('מבט על', 'มุมบน', 'منظر علوي') + '</span>') +
+          b(false, 'zoom(' + p.id + ',0)', '\u2922<span class="tx"> ' + tt('איפוס', 'รีเซ็ต', 'إعادة') + '</span>')) +
+      '<span class="grow"></span>' +
+      (f.has ? b(false, 'showOnMap(' + p.id + ')', '\ud83d\uddfa<span class="tx"> ' + tt('מפה', 'แผนที่', 'خريطة') + '</span>') : '') +
+      b(s.full, 'full(' + p.id + ')', s.full ? '\u2715<span class="tx"> ' + tt('סגור מסך מלא', 'ปิด', 'إغلاق') + '</span>'
+                                             : '\u26f6<span class="tx"> ' + tt('מסך מלא', 'เต็มจอ', 'ملء الشاشة') + '</span>');
 
     if (s.view === '3d') draw3d(p);
     else {
@@ -297,7 +321,7 @@ var LivingEdit = (function () {
     var ox = rc.left + (rc.width - w * sc) / 2, oy = rc.top + (rc.height - h * sc) / 2;
     s.z = { k: k, x: P.x - (sx - ox) / sc, y: P.y - (sy - oy) / sc };
     applyZoom(svg, s);
-    var lbl = document.querySelector('#lvZoom span');
+    var lbl = document.getElementById('lvZoom');
     if (lbl) lbl.textContent = Math.round(k * 100) + '%';
   }
   function onWheel(ev) {
@@ -316,6 +340,7 @@ var LivingEdit = (function () {
     if ((g = el.closest('[data-handle]'))) return null;
     if ((g = el.closest('[data-item]'))) return { t: 'item', id: g.getAttribute('data-item') };
     if ((g = el.closest('[data-wall]'))) return { t: 'wall', id: g.getAttribute('data-wall') };
+    if ((g = el.closest('[data-cut]'))) return { t: 'cut', id: g.getAttribute('data-cut') };
     if ((g = el.closest('[data-seg]'))) return { t: 'seg', id: g.getAttribute('data-seg') };
     if ((g = el.closest('[data-room]'))) return { t: 'room', id: g.getAttribute('data-room') };
     return null;
@@ -348,12 +373,15 @@ var LivingEdit = (function () {
       row('rotR', '\u27f3', tt('סובב 90° ימינה', 'หมุนขวา 90°', 'تدوير 90° يميناً'));
       row('rotL', '\u27f2', tt('סובב 90° שמאלה', 'หมุนซ้าย 90°', 'تدوير 90° يساراً'));
       if (it.kind === 'door' || it.kind === 'door_ext') row('flip', '\u21c4', tt('הפוך כיוון פתיחה', 'กลับทิศเปิด', 'اعكس اتجاه الفتح'));
+      if (it.kind === 'door_slide') row('flip', '\u21c4', tt('הפוך כיוון הזזה', 'กลับทิศเลื่อน', 'اعكس اتجاه الانزلاق'));
       row('dup', '\u29c9', tt('שכפל', 'ทำซ้ำ', 'نسخ'));
       edit();
       row('del', '\ud83d\uddd1', tt('מחק', 'ลบ', 'حذف'), 'dang');
     } else if (tg.t === 'room') {
       var r = findRoom(lay, tg.id); if (!r) return;
       title = '\u25ad ' + esc(r.name || LivingUnit.roomLabel(r.type));
+      row('rotRoomR', '\u27f3', tt('סובב את החדר 90° ימינה', 'หมุนห้องขวา 90°', 'تدوير الغرفة 90° يميناً'));
+      row('rotRoomL', '\u27f2', tt('סובב את החדר 90° שמאלה', 'หมุนห้องซ้าย 90°', 'تدوير الغرفة 90° يساراً'));
       row('splitL', '\u2af4', tt('חלק לאורך', 'แบ่งตามยาว', 'قسّم طولياً'));
       row('splitW', '\u2550', tt('חלק לרוחב', 'แบ่งตามขวาง', 'قسّم عرضياً'));
       row('dupRoom', '\u29c9', tt('שכפל חדר', 'ทำซ้ำห้อง', 'نسخ الغرفة'));
@@ -365,9 +393,13 @@ var LivingEdit = (function () {
       row('dupWall', '\u29c9', tt('שכפל', 'ทำซ้ำ', 'نسخ'));
       edit();
       row('delWall', '\ud83d\uddd1', tt('מחק קיר', 'ลบผนัง', 'حذف الجدار'), 'dang');
+    } else if (tg.t === 'cut') {
+      title = '\u2702 ' + tt('קטע קיר שהוסר', 'ส่วนผนังที่ตัดออก', 'جزء جدار محذوف');
+      row('restore', '\u21ba', tt('החזר את הקיר', 'คืนผนัง', 'أعد الجدار'));
     } else {
       title = '\u2501 ' + tt('קיר', 'ผนัง', 'جدار');
-      row('edit', '\u2139', tt('פרטי הקיר', 'รายละเอียดผนัง', 'تفاصيل الجدار'));
+      row('edit', '\u2139', tt('פרטי הקיר וחומר', 'รายละเอียดและวัสดุ', 'التفاصيل والمادة'));
+      row('cutWhole', '\ud83d\uddd1', tt('הסר את הקטע הזה', 'ตัดส่วนนี้', 'احذف هذا المقطع'), 'dang');
     }
     var m = document.createElement('div');
     m.id = 'lvMenu';
@@ -405,103 +437,93 @@ var LivingEdit = (function () {
       if (e.key === 'Delete' || e.key === 'Backspace') {
         e.preventDefault();
         if (s.sel.t === 'item') API.del(id); else if (s.sel.t === 'room') API.delRoom(id); else if (s.sel.t === 'wall') API.delWall(id);
+        else if (s.sel.t === 'cut') API.restoreCut(id);
+        else if (s.sel.t === 'seg') API.menu(id, 'cutWhole');
       } else if (e.key === 'r' || e.key === 'R') {
-        if (s.sel.t === 'item') API.rot(id, e.shiftKey ? -90 : 90); else if (s.sel.t === 'wall') API.rotWall(id);
+        if (s.sel.t === 'item') API.rot(id, e.shiftKey ? 90 : -90);
+        else if (s.sel.t === 'room') API.rotRoom(id, e.shiftKey ? 0 : 1);
+        else if (s.sel.t === 'wall') API.rotWall(id);
       }
     });
   }
 
-  // ── floating context bar: what is selected, and what to do with it ──
+  // ── side panel, "selected" tab: what it is, and what to do with it ──
   function ctxBar(p, lay) {
     var box = document.getElementById('lvCtx'); if (!box) return;
     var s = st(p.id), id = p.id;
     if (s.pop) { box.innerHTML = ''; return; }
-    var o = function (act, label, cls) { return '<button class="lv-o' + (cls ? ' ' + cls : '') + '" onclick="LivingEdit.' + act + '">' + label + '</button>'; };
-    var info = function (t, sub) { return '<div class="lv-info"><b>' + t + '</b>' + (sub ? '<br>' + sub : '') + '</div>'; };
-    var edit = o('pop(' + id + ',\'ins\')', '\u270e');
+    var o = function (act, label, cls) { return '<button class="lv-b' + (cls ? ' ' + cls : '') + '" onclick="LivingEdit.' + act + '">' + label + '</button>'; };
+    if (s.tool === 'cut') {
+      box.innerHTML = '<div class="lv-acts"' + (s.sel && s.sel.t === 'cut' ? '' : ' style="border:0;padding:0;margin:0"') + '>' +
+        (s.sel && s.sel.t === 'cut' ? o('restoreCut(' + id + ')', '\u21ba ' + tt('החזר את הקיר', 'คืนผนัง', 'أعد الجدار')) : '') +
+        o('cutTool(' + id + ')', '\u2713 ' + tt('סיום חיתוך', 'เสร็จ', 'إنهاء')) + '</div>';
+      return;
+    }
     if (s.tool === 'wall') {
-      box.innerHTML = info('\u270f\ufe0f ' + tt('שרטוט קיר', 'วาดผนัง', 'رسم جدار'),
-          esc(tt('גרור, או הקש התחלה ואז סוף', 'ลาก หรือแตะจุดเริ่มแล้วจุดจบ', 'اسحب أو اضغط البداية ثم النهاية'))) +
-        ['panel', 'block'].map(function (k) {
-          return o('wallKind(' + id + ',\'' + k + '\')', k === 'block' ? tt('בלוק', 'บล็อก', 'بلوك') : tt('פאנל', 'แผง', 'لوح'), s.wallKind === k ? 'on' : '');
-        }).join('') + o('tool(' + id + ')', '\u2713 ' + tt('סיום', 'เสร็จ', 'إنهاء'));
+      box.innerHTML = '<div class="lv-acts" style="border:0;padding:0;margin:0">' +
+        LivingUnit.WALL_MATS.map(function (k) {
+          return o('wallKind(' + id + ',\'' + k + '\')', esc(LivingUnit.matLabel(k)), s.wallKind === k ? 'on' : '');
+        }).join('') + o('tool(' + id + ')', '\u2713 ' + tt('סיום שרטוט', 'เสร็จ', 'إنهاء')) + '</div>';
       return;
     }
-    if (!s.sel) {
-      box.innerHTML = s.view === 'plan'
-        ? info(tt('הקש על קיר, חדר או פריט', 'แตะผนัง ห้อง หรือรายการ', 'اضغط جداراً أو غرفة أو عنصراً'),
-               esc(tt('צביטה להגדלה · גרירה בשטח ריק להזזת התצוגה', 'บีบเพื่อซูม · ลากพื้นที่ว่างเพื่อเลื่อน', 'قرّب بإصبعين · اسحب الفراغ للتحريك')))
-        : '';
-      return;
-    }
+    if (!s.sel) { box.innerHTML = ''; return; }
+    var acts = '';
     if (s.sel.t === 'item') {
       var it = findItem(lay, s.sel.id); if (!it) { box.innerHTML = ''; return; }
-      var dd = LivingUnit.itemDims(it), wallIt = LivingUnit.ITEMS[it.kind].wall;
-      box.innerHTML = info(LivingUnit.itemSym(it.kind) + ' ' + esc(LivingUnit.itemLabel(it.kind)),
-          wallIt ? n2(dd.w) + ' \u00d7 ' + n2(dd.h) + ' m' : n2(Math.max(dd.w, dd.d)) + ' \u00d7 ' + n2(Math.min(dd.w, dd.d)) + ' \u00d7 ' + n2(dd.h) + ' m') +
-        o('rot(' + id + ',90)', '\u27f3') +
-        ((it.kind === 'door' || it.kind === 'door_ext') ? o('flip(' + id + ')', '\u21c4') : '') +
-        o('dup(' + id + ')', '\u29c9') + o('del(' + id + ')', '\ud83d\uddd1', 'dang') + edit;
-      return;
+      acts = o('rot(' + id + ',-90)', '\u27f3 90\u00b0') + o('rot(' + id + ',90)', '\u27f2 90\u00b0') +
+        ((it.kind === 'door' || it.kind === 'door_ext' || it.kind === 'door_slide') ? o('flip(' + id + ')', '\u21c4 ' + (it.kind === 'door_slide'
+          ? tt('כיוון הזזה', 'ทิศเลื่อน', 'اتجاه الانزلاق') : tt('כיוון פתיחה', 'ทิศเปิด', 'اتجاه الفتح'))) : '') +
+        o('dup(' + id + ')', '\u29c9 ' + tt('שכפל', 'ทำซ้ำ', 'نسخ')) + o('del(' + id + ')', '\ud83d\uddd1 ' + tt('מחק', 'ลบ', 'حذف'), 'dang');
+    } else if (s.sel.t === 'room') {
+      acts = o('rotRoom(' + id + ',1)', '\u27f3 90\u00b0') + o('rotRoom(' + id + ',0)', '\u27f2 90\u00b0') +
+        o('split(' + id + ',0)', '\u2af4 ' + tt('חלק לאורך', 'แบ่งตามยาว', 'قسّم طولياً')) +
+        o('split(' + id + ',1)', '\u2550 ' + tt('חלק לרוחב', 'แบ่งตามขวาง', 'قسّم عرضياً')) +
+        o('dupRoom(' + id + ')', '\u29c9 ' + tt('שכפל', 'ทำซ้ำ', 'نسخ')) + o('delRoom(' + id + ')', '\ud83d\uddd1 ' + tt('מחק חדר', 'ลบห้อง', 'حذف الغرفة'), 'dang');
+    } else if (s.sel.t === 'cut') {
+      acts = o('restoreCut(' + id + ')', '\u21ba ' + tt('החזר את הקיר', 'คืนผนัง', 'أعد الجدار'));
+    } else if (s.sel.t === 'wall') {
+      acts = o('rotWall(' + id + ')', '\u27f3 90\u00b0') + o('dupWall(' + id + ')', '\u29c9 ' + tt('שכפל', 'ทำซ้ำ', 'نسخ')) +
+        o('delWall(' + id + ')', '\ud83d\uddd1 ' + tt('מחק קיר', 'ลบผนัง', 'حذف الجدار'), 'dang');
     }
-    if (s.sel.t === 'room') {
-      var r = findRoom(lay, s.sel.id); if (!r) { box.innerHTML = ''; return; }
-      box.innerHTML = info('\u25ad ' + esc(r.name || LivingUnit.roomLabel(r.type)),
-          n2(Math.max(r.w, r.h)) + ' \u00d7 ' + n2(Math.min(r.w, r.h)) + ' m \u00b7 ' + n1(r.w * r.h) + ' m\u00b2') +
-        o('split(' + id + ',0)', '\u2af4') + o('split(' + id + ',1)', '\u2550') +
-        o('dupRoom(' + id + ')', '\u29c9') + o('delRoom(' + id + ')', '\ud83d\uddd1', 'dang') + edit;
-      return;
-    }
-    if (s.sel.t === 'wall') {
-      var w = findWall(lay, s.sel.id); if (!w) { box.innerHTML = ''; return; }
-      box.innerHTML = info('\u2501 ' + tt('קיר מחיצה', 'ผนังกั้น', 'جدار فاصل'),
-          n2(Math.hypot(w.x2 - w.x1, w.y2 - w.y1)) + ' m \u00b7 ' + (w.kind === 'block' ? tt('בלוק', 'บล็อก', 'بلوك') : tt('פאנל', 'แผง', 'لوح'))) +
-        o('rotWall(' + id + ')', '\u27f3') + o('dupWall(' + id + ')', '\u29c9') + o('delWall(' + id + ')', '\ud83d\uddd1', 'dang') + edit;
-      return;
-    }
-    if (s.sel.t === 'seg') {
-      var si = LivingUnit.segInfo(p.living, s.sel.id); if (!si) { box.innerHTML = ''; return; }
-      box.innerHTML = info('\u2501 ' + (si.seg.outer ? tt('קיר חוץ', 'ผนังภายนอก', 'جدار خارجي') : tt('קיר פנים', 'ผนังภายใน', 'جدار داخلي')),
-          n2(si.len) + ' m \u00b7 ' + Math.round(si.t * 100) + ' cm \u00b7 ' + n2(si.H) + ' m \u00b7 ' + n2(si.net) + ' m\u00b2') + edit;
-    }
+    box.innerHTML = acts ? '<div class="lv-acts">' + acts + '</div>' : '';
   }
 
-  // ── sheet: palette, layers, or the exact-values editor ──────────────
+  // ── side panel tabs: selected / add / layers ────────────────────────
   function sheet(p) {
-    var el = document.getElementById('lvSheet'); if (!el) return;
-    var s = st(p.id);
-    if (s.pop === 'ins' && !s.sel) s.pop = '';
-    el.className = 'lv-sheet' + (s.pop ? ' on' : '');
-    var t = document.getElementById('lvSheetT'), body = document.getElementById('lvSheetB'), ins = document.getElementById('lvIns');
-    ins.style.display = s.pop === 'ins' ? '' : 'none';
-    if (s.pop === 'ins') { t.textContent = tt('ערכים מדויקים', 'ค่าที่แม่นยำ', 'قيم دقيقة'); body.innerHTML = ''; inspector(p); return; }
+    var s = st(p.id), tabs = document.getElementById('lvTabs'), body = document.getElementById('lvSheetB'), ins = document.getElementById('lvIns');
+    if (!tabs || !body || !ins) return;
+    if (s.pop === 'ins') s.pop = '';
+    if (s.view !== 'plan' && s.pop === 'add') s.pop = '';
+    var tab = function (k, label) {
+      return '<button class="lv-b' + ((s.pop || '') === k ? ' on' : '') + '" onclick="LivingEdit.pop(' + p.id + ',\'' + k + '\')">' + label + '</button>';
+    };
+    tabs.innerHTML = tab('', '\u270e ' + tt('נבחר', 'ที่เลือก', 'المحدد')) +
+      (s.view === 'plan' ? tab('add', '\u2795 ' + tt('הוסף', 'เพิ่ม', 'أضف')) : '') +
+      tab('layers', '\ud83d\uddc2 ' + tt('שכבות', 'เลเยอร์', 'طبقات'));
+    ins.style.display = s.pop ? 'none' : '';
+    if (!s.pop) { body.innerHTML = ''; inspector(p); return; }
     ins.innerHTML = '';
-    if (s.pop === 'add') { t.textContent = tt('הוסף לתוכנית', 'เพิ่มลงในแผน', 'أضف إلى المخطط'); body.innerHTML = palette(p); return; }
-    if (s.pop === 'layers') {
-      t.textContent = tt('שכבות ותצוגה', 'เลเยอร์และมุมมอง', 'الطبقات والعرض');
-      var chip = function (k, label) {
-        return '<button class="lv-b' + (s.show[k] ? ' on' : '') + '" onclick="LivingEdit.layer(' + p.id + ',\'' + k + '\')">' + label + '</button>';
-      };
-      body.innerHTML = '<div class="lv-bar">' +
-        chip('furn', '\ud83d\udecf ' + tt('ריהוט', 'เฟอร์นิเจอร์', 'أثاث')) +
-        chip('elec', '\u26a1 ' + tt('חשמל', 'ไฟฟ้า', 'كهرباء')) +
-        chip('plumb', '\ud83d\udeb0 ' + tt('אינסטלציה', 'ประปา', 'سباكة')) +
-        chip('kitchen', '\ud83c\udf73 ' + tt('מטבח', 'ครัว', 'مطبخ')) +
-        chip('open', '\ud83d\udeaa ' + tt('פתחים', 'ช่องเปิด', 'فتحات')) + '</div>' +
-        (s.view === 'plan'
-          ? '<div class="lv-bar" style="margin-top:6px">' +
-              chip('wires', '\u3030 ' + tt('תוואי כבלים', 'แนวสายไฟ', 'مسار الكابلات')) +
-              chip('pipes', '\u3030 ' + tt('תוואי צנרת', 'แนวท่อ', 'مسار الأنابيب')) + '</div>'
-          : '<div class="lv-bar" style="margin-top:6px">' +
-              '<button class="lv-b' + (s.cut ? ' on' : '') + '" onclick="LivingEdit.cut(' + p.id + ')">\u2702 ' + tt('חתך קירות', 'ตัดผนัง', 'قطع الجدران') + '</button>' +
-              ['morning', 'noon', 'evening'].map(function (k) {
-                return '<button class="lv-b' + (s.sun === k ? ' on' : '') + '" onclick="LivingEdit.sun(' + p.id + ',\'' + k + '\')">' +
-                  { morning: '\ud83c\udf05 ' + tt('בוקר', 'เช้า', 'صباح'), noon: '\u2600 ' + tt('צהריים', 'เที่ยง', 'ظهر'),
-                    evening: '\ud83c\udf07 ' + tt('אחה"צ', 'บ่าย', 'عصر') }[k] + '</button>';
-              }).join('') + '</div>');
-      return;
-    }
-    t.textContent = ''; body.innerHTML = '';
+    if (s.pop === 'add') { body.innerHTML = palette(p); return; }
+    var chip = function (k, label) {
+      return '<button class="lv-b' + (s.show[k] ? ' on' : '') + '" onclick="LivingEdit.layer(' + p.id + ',\'' + k + '\')">' + label + '</button>';
+    };
+    body.innerHTML = '<div class="lv-bar">' +
+      chip('furn', '\ud83d\udecf ' + tt('ריהוט', 'เฟอร์นิเจอร์', 'أثاث')) +
+      chip('elec', '\u26a1 ' + tt('חשמל', 'ไฟฟ้า', 'كهرباء')) +
+      chip('plumb', '\ud83d\udeb0 ' + tt('אינסטלציה', 'ประปา', 'سباكة')) +
+      chip('kitchen', '\ud83c\udf73 ' + tt('מטבח', 'ครัว', 'مطبخ')) +
+      chip('open', '\ud83d\udeaa ' + tt('פתחים', 'ช่องเปิด', 'فتحات')) + '</div>' +
+      (s.view === 'plan'
+        ? '<div class="lv-bar" style="margin-top:8px">' +
+            chip('wires', '\u3030 ' + tt('תוואי כבלים', 'แนวสายไฟ', 'مسار الكابلات')) +
+            chip('pipes', '\u3030 ' + tt('תוואי צנרת', 'แนวท่อ', 'مسار الأنابيب')) + '</div>'
+        : '<div class="lv-bar" style="margin-top:8px">' +
+            '<button class="lv-b' + (s.cut ? ' on' : '') + '" onclick="LivingEdit.cut(' + p.id + ')">\u2702 ' + tt('חתך קירות', 'ตัดผนัง', 'قطع الجدران') + '</button>' +
+            ['morning', 'noon', 'evening'].map(function (k) {
+              return '<button class="lv-b' + (s.sun === k ? ' on' : '') + '" onclick="LivingEdit.sun(' + p.id + ',\'' + k + '\')">' +
+                { morning: '\ud83c\udf05 ' + tt('בוקר', 'เช้า', 'صباح'), noon: '\u2600 ' + tt('צהריים', 'เที่ยง', 'ظهر'),
+                  evening: '\ud83c\udf07 ' + tt('אחה"צ', 'บ่าย', 'عصر') }[k] + '</button>';
+            }).join('') + '</div>');
   }
 
   // ── room resize ─────────────────────────────────────────────────────
@@ -537,6 +559,23 @@ var LivingEdit = (function () {
       el.setAttribute('data-handle', e[0]); el.setAttribute('style', 'cursor:crosshair');
       svg.appendChild(el);
     });
+  }
+  // The wall a point is on (or nearest, within 0.6 m), and the stretch of
+  // that wall's line between two points, for the cut tool.
+  function nearestSeg(lay, x, y) {
+    var best = null, bd = 0.6;
+    LivingUnit.walls(lay).forEach(function (sg) {
+      var along = sg.o === 'h' ? x : y, across = sg.o === 'h' ? y : x;
+      var cl = Math.max(sg.a, Math.min(sg.b, along));
+      var d = Math.hypot(along - cl, across - sg.c);
+      if (d < bd) { bd = d; best = sg; }
+    });
+    return best;
+  }
+  function cutSpan(lay, sg, a, b) {
+    var end = sg.o === 'h' ? lay.L : lay.W;
+    a = Math.max(0, Math.min(end, snap(a, 0.05))); b = Math.max(0, Math.min(end, snap(b, 0.05)));
+    return a <= b ? { a: a, b: b } : { a: b, b: a };
   }
   function previewLine(svg, x1, y1, x2, y2) {
     var ln = svg.querySelector('#lvPrev');
@@ -581,6 +620,66 @@ var LivingEdit = (function () {
     }
     r.x = n2(x1); r.y = n2(y1); r.w = n2(x2 - x1); r.h = n2(y2 - y1);
   }
+  // Turn a room a quarter turn about its centre, with everything that
+  // belongs to it: furniture and fittings inside it, the doors and windows
+  // in its own walls, and walls drawn inside it. On screen (y down) a
+  // clockwise quarter turn takes (dx, dy) to (-dy, dx). An item's `rot`
+  // runs the other way (a door at 0 opens toward +y, at 90 toward +x), so
+  // the same turn is rot - 90. If the turned room sticks out of the
+  // building it is pushed back in; if it cannot fit at all, nothing moves.
+  function rotateRoom(lay, r, cw) {
+    var cx = r.x + r.w / 2, cy = r.y + r.h / 2, E = 0.15;
+    var nw = r.h, nh = r.w;
+    if (nw > lay.L + 0.001 || nh > lay.W + 0.001) return { ok: false, why: 'fit' };
+    var turn = function (x, y) {
+      var dx = x - cx, dy = y - cy;
+      return cw ? { x: cx - dy, y: cy + dx } : { x: cx + dy, y: cy - dx };
+    };
+    var inside = function (x, y, tol) { return x >= r.x - tol && x <= r.x + r.w + tol && y >= r.y - tol && y <= r.y + r.h + tol; };
+    var items = lay.items.filter(function (it) {
+      var d = LivingUnit.ITEMS[it.kind] || {};
+      if (!d.wall) return inside(it.x, it.y, 0.001);
+      // a door or window belongs to the room when it sits in one of its walls
+      var onH = (it.rot === 0 || it.rot === 180) && (Math.abs(it.y - r.y) < E || Math.abs(it.y - r.y - r.h) < E) && it.x > r.x - 0.01 && it.x < r.x + r.w + 0.01;
+      var onV = (it.rot === 90 || it.rot === 270) && (Math.abs(it.x - r.x) < E || Math.abs(it.x - r.x - r.w) < E) && it.y > r.y - 0.01 && it.y < r.y + r.h + 0.01;
+      return onH || onV;
+    });
+    var walls = (lay.walls || []).filter(function (w) {
+      return inside(w.x1, w.y1, 0.02) && inside(w.x2, w.y2, 0.02);
+    });
+    // cuts and material choices on the room's own walls turn with it
+    var edits = (lay.edits || []).filter(function (e) {
+      var p1 = e.o === 'h' ? [e.a, e.c] : [e.c, e.a], p2 = e.o === 'h' ? [e.b, e.c] : [e.c, e.b];
+      return inside(p1[0], p1[1], 0.02) && inside(p2[0], p2[1], 0.02);
+    });
+    // where it lands, and how far it must slide to stay in the building
+    var nx = cx - nw / 2, ny = cy - nh / 2;
+    var sx = Math.max(0, Math.min(lay.L - nw, nx)) - nx, sy = Math.max(0, Math.min(lay.W - nh, ny)) - ny;
+    items.forEach(function (it) {
+      var q = turn(it.x, it.y);
+      it.x = n2(q.x + sx); it.y = n2(q.y + sy);
+      it.rot = ((it.rot + (cw ? 270 : 90)) % 360 + 360) % 360;
+    });
+    walls.forEach(function (w) {
+      var a = turn(w.x1, w.y1), b = turn(w.x2, w.y2);
+      w.x1 = n2(a.x + sx); w.y1 = n2(a.y + sy); w.x2 = n2(b.x + sx); w.y2 = n2(b.y + sy);
+    });
+    edits.forEach(function (e) {
+      var p1 = e.o === 'h' ? [e.a, e.c] : [e.c, e.a], p2 = e.o === 'h' ? [e.b, e.c] : [e.c, e.b];
+      var a = turn(p1[0], p1[1]), b = turn(p2[0], p2[1]);
+      a.x += sx; a.y += sy; b.x += sx; b.y += sy;
+      if (Math.abs(a.y - b.y) < 0.001) { e.o = 'h'; e.c = n2(a.y); e.a = n2(Math.min(a.x, b.x)); e.b = n2(Math.max(a.x, b.x)); }
+      else { e.o = 'v'; e.c = n2(a.x); e.a = n2(Math.min(a.y, b.y)); e.b = n2(Math.max(a.y, b.y)); }
+    });
+    r.x = n2(nx + sx); r.y = n2(ny + sy); r.w = n2(nw); r.h = n2(nh);
+    var hits = lay.rooms.filter(function (o) {
+      if (o.id === r.id) return false;
+      var ox = Math.min(r.x + r.w, o.x + o.w) - Math.max(r.x, o.x), oy = Math.min(r.y + r.h, o.y + o.h) - Math.max(r.y, o.y);
+      return ox > 0.05 && oy > 0.05;
+    });
+    return { ok: true, moved: items.length, walls: walls.length, slid: Math.abs(sx) + Math.abs(sy) > 0.001, overlaps: hits };
+  }
+
   // Two rooms where there was one, along its longer or shorter side.
   function splitRoom(lay, r, across) {
     var c = JSON.parse(JSON.stringify(r));
@@ -635,6 +734,14 @@ var LivingEdit = (function () {
     drag = null;                               // a gesture that ended off-canvas leaves nothing behind
     if (gh && s0.sel && s0.sel.t === 'wall') {
       drag = { t: 'wend', end: gh.getAttribute('data-handle'), id: s0.sel.id, x0: pos.x, y0: pos.y, moved: 0, svg: svg, p: p };
+    }
+    else if (s0.tool === 'cut') {
+      var layC = LivingUnit.layoutOf(p.living), sgC = nearestSeg(layC, pos.x, pos.y);
+      drag = sgC ? { t: 'cutdraw', seg: sgC, a0: sgC.o === 'h' ? pos.x : pos.y, x0: pos.x, y0: pos.y, moved: 0, svg: svg, p: p }
+                 : { t: 'none', x0: pos.x, y0: pos.y, cx0: ev.clientX, cy0: ev.clientY, z0: s0.z || { k: 1, x: 0, y: 0 }, moved: 0, svg: svg, p: p };
+    }
+    else if (ev.target.closest('[data-cut]')) {
+      drag = { t: 'cutsel', id: ev.target.closest('[data-cut]').getAttribute('data-cut'), x0: pos.x, y0: pos.y, moved: 0, svg: svg, p: p };
     }
     else if (s0.tool === 'wall') {
       var lay0 = LivingUnit.layoutOf(p.living), sp = snapPoint(lay0, pos.x, pos.y);
@@ -694,6 +801,13 @@ var LivingEdit = (function () {
     var dx = pos.x - drag.x0, dy = pos.y - drag.y0;
     if (Math.hypot(dx, dy) > 0.04) { drag.moved = 1; if (drag.lp) { clearTimeout(drag.lp); drag.lp = null; } }
     if (!drag.moved) return;
+    if (drag.t === 'cutdraw') {
+      var sgM = drag.seg, cs = cutSpan(LivingUnit.layoutOf(drag.p.living), sgM, drag.a0, sgM.o === 'h' ? pos.x : pos.y);
+      var pl = drag.svg.querySelector('#lvPrev');
+      if (sgM.o === 'h') previewLine(drag.svg, cs.a, sgM.c, cs.b, sgM.c); else previewLine(drag.svg, sgM.c, cs.a, sgM.c, cs.b);
+      pl = drag.svg.querySelector('#lvPrev'); if (pl) pl.setAttribute('stroke', '#e53935');
+      return;
+    }
     if (drag.t === 'draw' || drag.t === 'wend') {
       var layD = LivingUnit.layoutOf(drag.p.living);
       if (drag.t === 'draw') {
@@ -752,6 +866,24 @@ var LivingEdit = (function () {
     // A cancelled gesture (scroll took over, call came in) moves nothing.
     if (ev.type === 'pointercancel') { redraw(p); return; }
     var pos = svgPt(d.svg, ev);
+    if (d.t === 'cutsel') { s.sel = { t: 'cut', id: d.id }; s.pop = ''; redraw(p); return; }
+    if (d.t === 'cutdraw') {
+      var layK = LivingUnit.layoutOf(p.living), sgK = d.seg, at = sgK.o === 'h' ? pos.x : pos.y;
+      var span;
+      if (d.moved) span = cutSpan(layK, sgK, d.a0, at);
+      else if (s.cutStart && s.cutStart.o === sgK.o && Math.abs(s.cutStart.c - sgK.c) < 0.03) { span = cutSpan(layK, sgK, s.cutStart.at, at); s.cutStart = null; }
+      else { s.cutStart = { o: sgK.o, c: sgK.c, at: at }; s.drawStart = sgK.o === 'h' ? { x: at, y: sgK.c } : { x: sgK.c, y: at }; redraw(p); return; }
+      s.drawStart = null;
+      if (span.b - span.a < 0.1) { redraw(p); return; }
+      pushUndo(p);
+      var layE2 = editable(p);
+      layE2.edits = layE2.edits || [];
+      var ce = { id: LivingUnit.uid(), o: sgK.o, c: sgK.c, a: n2(span.a), b: n2(span.b), cut: true };
+      layE2.edits.push(ce);
+      s.sel = { t: 'cut', id: ce.id };
+      commit(p);
+      return;
+    }
     if (d.t === 'draw') {
       var layU = LivingUnit.layoutOf(p.living);
       var a = d.moved ? { x: d.sx, y: d.sy } : (s.drawStart || null);
@@ -863,6 +995,12 @@ var LivingEdit = (function () {
   function inspector(p) {
     var box = document.getElementById('lvIns'); if (!box) return;
     var s = st(p.id), lay = LivingUnit.layoutOf(p.living);
+    if (!s.sel && s.tool === 'cut') {
+      box.innerHTML = '<div class="lv-hint" style="opacity:.9">\u2702\ufe0f ' +
+        tt('גרור לאורך קיר כדי להסיר את הקטע הזה (מעבר פתוח, בלי דלת), או הקש בנקודת ההתחלה ואז בנקודת הסיום. קטע שהוסר מסומן באדום מקווקו — הקש עליו כדי להחזיר.',
+           'ลากตามผนังเพื่อตัดออก', 'اسحب على الجدار لحذف المقطع') + '</div>';
+      return;
+    }
     if (!s.sel && s.tool === 'wall') {
       box.innerHTML = '<div class="lv-hint" style="opacity:.9">\u270f\ufe0f ' +
         tt('גרור לאורך הקו כדי לשרטט קיר, או לחץ בנקודת ההתחלה ואז בנקודת הסיום. הקיר נצמד לקירות, לחדרים ולמסגרת. לחץ שוב על "שרטט קיר" לסיום.',
@@ -885,27 +1023,43 @@ var LivingEdit = (function () {
       if (!it) { s.sel = null; box.innerHTML = ''; return; }
       var d = LivingUnit.ITEMS[it.kind], w = (it.w != null) ? it.w : d.w;
       var room = LivingUnit.roomAt(lay, it.x, it.y);
-      box.innerHTML = '<div class="lv-ins"><b>' + LivingUnit.itemSym(it.kind) + ' ' + esc(LivingUnit.itemLabel(it.kind)) + '</b>' +
+      box.innerHTML = '<div><b class="lv-title">' + LivingUnit.itemSym(it.kind) + ' ' + esc(LivingUnit.itemLabel(it.kind)) + '</b>' +
         (room ? ' <span style="opacity:.7">\u00b7 ' + esc(room.name || LivingUnit.roomLabel(room.type)) + '</span>' : '') +
         itemDimsTable(it) +
         '<div class="lv-row">' + lab('X') + inp('x', it.x) + lab('Y') + inp('y', it.y) +
           ((d.resize || d.wall) ? lab(tt('רוחב', 'กว้าง', 'عرض')) + inp('w', w) : '') + '</div>' +
-        '<div class="lv-row">' +
-          '<button class="lv-b" onclick="LivingEdit.rot(' + id + ',-90)">\u27f2 90\u00b0</button>' +
-          '<button class="lv-b" onclick="LivingEdit.rot(' + id + ',90)">\u27f3 90\u00b0</button>' +
-          ((it.kind === 'door' || it.kind === 'door_ext') ? '<button class="lv-b" onclick="LivingEdit.flip(' + id + ')">\u21c4 ' + tt('כיוון פתיחה', 'ทิศเปิด', 'اتجاه الفتح') + '</button>' : '') +
-          '<button class="lv-b" onclick="LivingEdit.dup(' + id + ')">\u29c9 ' + tt('שכפל', 'ทำซ้ำ', 'نسخ') + '</button>' +
-          '<button class="lv-b" onclick="LivingEdit.del(' + id + ')">\ud83d\uddd1 ' + tt('מחק', 'ลบ', 'حذف') + '</button>' +
-        '</div></div>';
+        '</div>';
+      return;
+    }
+    if (s.sel.t === 'cut') {
+      var ce = (lay.edits || []).filter(function (e) { return e.id === s.sel.id; })[0];
+      if (!ce) { s.sel = null; box.innerHTML = ''; return; }
+      box.innerHTML = '<div><b class="lv-title">\u2702 ' + tt('קטע קיר שהוסר', 'ส่วนผนังที่ตัดออก', 'جزء جدار محذوف') + '</b>' +
+        dimsTable([[tt('אורך', 'ความยาว', 'الطول'), m(ce.b - ce.a)]]) +
+        '<div class="lv-hint">' + tt('המעבר פתוח, בלי דלת. הכמויות כבר מחושבות בלעדיו.', 'ช่องเปิดไม่มีประตู', 'فتحة بلا باب') + '</div></div>';
       return;
     }
     if (s.sel.t === 'seg') {
       var si = LivingUnit.segInfo(p.living, s.sel.id);
       if (!si) { s.sel = null; box.innerHTML = ''; return; }
-      box.innerHTML = '<div class="lv-ins"><b>\u2501 ' + (si.seg.outer ? tt('קיר חוץ', 'ผนังภายนอก', 'جدار خارجي') : tt('קיר פנים', 'ผนังภายใน', 'جدار داخلي')) +
+      var uN = LivingUnit.norm(p.living);
+      var matSel = si.seg.outer ? '' :
+        '<div class="lv-row">' + lab(tt('חומר', 'วัสดุ', 'المادة')) +
+          '<select onchange="LivingEdit.segMat(' + id + ',this.value)">' +
+          LivingUnit.WALL_MATS.map(function (mt) {
+            return '<option value="' + mt + '"' + (si.mat === mt ? ' selected' : '') + '>' + esc(LivingUnit.matLabel(mt, uN)) + '</option>';
+          }).join('') + '</select></div>';
+      var cutRow = '<div class="lv-row">' + lab(tt('הסר קטע: מ-', 'ตัดจาก', 'احذف من')) +
+          '<input type="number" step="0.05" min="0" id="lvCutFrom" value="' + n2(Math.max(0, si.len / 2 - 0.5)) + '">' +
+          lab(tt('אורך', 'ยาว', 'طول')) + '<input type="number" step="0.05" min="0.1" id="lvCutLen" value="' + n2(Math.min(1, si.len)) + '">' +
+          '<button class="lv-b" onclick="LivingEdit.cutSeg(' + id + ',document.getElementById(\'lvCutFrom\').value,document.getElementById(\'lvCutLen\').value)">\u2702 ' +
+            tt('הסר', 'ตัด', 'احذف') + '</button></div>' +
+        '<div class="lv-row"><button class="lv-b dang" onclick="LivingEdit.cutSeg(' + id + ',0,' + n2(si.len) + ')">\ud83d\uddd1 ' +
+          tt('הסר את כל הקטע', 'ตัดทั้งส่วน', 'احذف المقطع كله') + ' (' + n2(si.len) + ' m)</button></div>';
+      box.innerHTML = '<div><b class="lv-title">\u2501 ' + (si.seg.outer ? tt('קיר חוץ', 'ผนังภายนอก', 'جدار خارجي') : tt('קיר פנים', 'ผนังภายใน', 'جدار داخلي')) +
         '</b> <span style="opacity:.7">\u00b7 ' + (si.seg.outer ? tt('מעטפת', 'เปลือก', 'غلاف')
           : si.block ? tt('בלוק', 'บล็อก', 'بلوك') : tt('פאנל', 'แผง', 'لوح')) +
-          (si.faces.some(Boolean) ? ' \u00b7 ' + tt('צד רטוב', 'ด้านเปียก', 'وجه رطب') : '') + '</span>' +
+          (si.faces.some(Boolean) ? ' \u00b7 ' + tt('צד רטוב', 'ด้านเปียก', 'وجه رطب') : '') + '</span>' + matSel +
         dimsTable([[tt('אורך', 'ความยาว', 'الطول'), m(si.len)], [tt('עובי', 'ความหนา', 'السماكة'), cm(si.t)],
                    [tt('גובה', 'ความสูง', 'الارتفاع'), m(si.H)],
                    [tt('שטח ברוטו', 'พื้นที่รวม', 'المساحة الإجمالية'), m2(si.gross)],
@@ -913,8 +1067,9 @@ var LivingEdit = (function () {
         (si.openings.length ? '<div class="lv-hint">' + si.openings.map(function (o) {
           return LivingUnit.itemSym(o.kind) + ' ' + esc(LivingUnit.itemLabel(o.kind)) + ' ' + n2(o.w) + '\u00d7' + n2(o.h);
         }).join(' \u00b7 ') + '</div>' : '') +
-        '<div class="lv-hint">' + tt('קיר זה נוצר מגבולות החדרים — כדי לשנות אותו הזז או שנה את החדרים, או שרטט קיר חופשי.',
-          'ผนังนี้มาจากขอบห้อง', 'هذا الجدار ناتج عن حدود الغرف') + '</div></div>';
+        cutRow +
+        '<div class="lv-hint">' + tt('המיקום והאורך של קיר זה נקבעים לפי החדרים. "מ-" נמדד מתחילת הקטע.',
+          'ตำแหน่งผนังกำหนดโดยห้อง', 'موضع الجدار تحدده الغرف') + '</div></div>';
       return;
     }
     if (s.sel.t === 'wall') {
@@ -932,7 +1087,7 @@ var LivingEdit = (function () {
         if (on) fsi = LivingUnit.segInfo(p.living, LivingUnit.segKey(sg));
       });
       var fH = LivingUnit.norm(p.living).height;
-      box.innerHTML = '<div class="lv-ins"><b>\u2501 ' + tt('קיר מחיצה', 'ผนังกั้น', 'جدار فاصل') + '</b> <span style="opacity:.7">\u00b7 ' +
+      box.innerHTML = '<div><b class="lv-title">\u2501 ' + tt('קיר מחיצה', 'ผนังกั้น', 'جدار فاصل') + '</b> <span style="opacity:.7">\u00b7 ' +
         (fw.y1 === fw.y2 ? '\u2194' : '\u2195') + '</span>' +
         dimsTable([[tt('אורך', 'ความยาว', 'الطول'), m(len)],
                    [tt('עובי', 'ความหนา', 'السماكة'), cm(fsi ? fsi.t : LivingUnit.wallThick({ block: fw.kind === 'block' }, LivingUnit.norm(p.living)))],
@@ -943,26 +1098,23 @@ var LivingEdit = (function () {
           : '') +
         '<div class="lv-row">' + lab(tt('סוג', 'ชนิด', 'النوع')) +
           '<select class="bp-in" style="width:auto" onchange="LivingEdit.setWall(' + id + ',\'kind\',this.value)">' +
-            '<option value="panel"' + (fw.kind !== 'block' ? ' selected' : '') + '>' + tt('פאנל / גבס', 'แผง', 'لوح') + '</option>' +
-            '<option value="block"' + (fw.kind === 'block' ? ' selected' : '') + '>' + tt('בלוק', 'บล็อก', 'بلوك') + '</option>' +
+            LivingUnit.WALL_MATS.map(function (mt) {
+              return '<option value="' + mt + '"' + ((fw.kind || 'panel') === mt ? ' selected' : '') + '>' + esc(LivingUnit.matLabel(mt, LivingUnit.norm(p.living))) + '</option>';
+            }).join('') +
           '</select>' + lab(tt('אורך', 'ยาว', 'طول')) + winp('len', n2(len)) + '</div>' +
         '<div class="lv-row">' + lab(tt('התחלה', 'จุดเริ่ม', 'البداية') + ' X') + winp('x1', fw.x1) + lab('Y') + winp('y1', fw.y1) + '</div>' +
         '<div class="lv-hint">' + tt('גרור את הקיר להזזה · גרור נקודת קצה כדי להאריך, לקצר או לסובב',
           'ลากผนังเพื่อย้าย · ลากปลายเพื่อปรับ', 'اسحب الجدار للنقل · اسحب الطرف للتعديل') + '</div>' +
-        '<div class="lv-row">' +
-          '<button class="lv-b" onclick="LivingEdit.rotWall(' + id + ')">\u27f3 90\u00b0</button>' +
-          '<button class="lv-b" onclick="LivingEdit.dupWall(' + id + ')">\u29c9 ' + tt('שכפל', 'ทำซ้ำ', 'نسخ') + '</button>' +
-          '<button class="lv-b" onclick="LivingEdit.delWall(' + id + ')">\ud83d\uddd1 ' + tt('מחק', 'ลบ', 'حذف') + '</button>' +
-        '</div></div>';
+        '</div>';
       return;
     }
     var r = findRoom(lay, s.sel.id);
     if (!r) { s.sel = null; box.innerHTML = ''; return; }
-    box.innerHTML = '<div class="lv-ins"><b>\u25ad ' + esc(r.name || LivingUnit.roomLabel(r.type)) + '</b>' +
+    box.innerHTML = '<div><b class="lv-title">\u25ad ' + esc(r.name || LivingUnit.roomLabel(r.type)) + '</b>' +
       dimsTable([[tt('אורך', 'ความยาว', 'الطول'), m(Math.max(r.w, r.h))], [tt('רוחב', 'ความกว้าง', 'العرض'), m(Math.min(r.w, r.h))],
                  [tt('שטח', 'พื้นที่', 'المساحة'), m2(r.w * r.h)], [tt('היקף', 'เส้นรอบรูป', 'المحيط'), m(2 * (r.w + r.h))]]) +
       '<div class="lv-row">' + lab(tt('שם', 'ชื่อ', 'الاسم')) +
-        '<input class="bp-in wide" value="' + esc(r.name) + '" onchange="LivingEdit.setRoom(' + id + ',\'name\',this.value)">' +
+        '<input class="wide" value="' + esc(r.name) + '" onchange="LivingEdit.setRoom(' + id + ',\'name\',this.value)">' +
         '<select class="bp-in" style="width:auto" onchange="LivingEdit.setRoom(' + id + ',\'type\',this.value)">' +
         LivingUnit.ROOM_TYPES.map(function (t) {
           return '<option value="' + t + '"' + (t === r.type ? ' selected' : '') + '>' + esc(LivingUnit.roomLabel(t)) + '</option>';
@@ -982,20 +1134,15 @@ var LivingEdit = (function () {
         tt('גרירת קצה מזיזה גם את החדר הצמוד (קיר משותף)', 'ลากขอบแล้วห้องข้างเคียงขยับตาม', 'سحب الحافة يحرك الغرفة المجاورة أيضاً') + '</label></div>' +
       '<div class="lv-hint">' + tt('גרור את הידיות הכתומות כדי לשנות גודל · גרור את החדר כדי להזיז אותו עם התכולה',
         'ลากที่จับสีส้มเพื่อปรับขนาด · ลากห้องเพื่อย้าย', 'اسحب المقابض البرتقالية لتغيير الحجم · اسحب الغرفة لنقلها') + '</div>' +
-      '<div class="lv-row">' +
-        '<button class="lv-b" onclick="LivingEdit.split(' + id + ',0)">\u2af4 ' + tt('חלק לאורך', 'แบ่งตามยาว', 'قسّم طولياً') + '</button>' +
-        '<button class="lv-b" onclick="LivingEdit.split(' + id + ',1)">\u2550 ' + tt('חלק לרוחב', 'แบ่งตามขวาง', 'قسّم عرضياً') + '</button>' +
-        '<button class="lv-b" onclick="LivingEdit.dupRoom(' + id + ')">\u29c9 ' + tt('שכפל', 'ทำซ้ำ', 'نسخ') + '</button>' +
-        '<button class="lv-b" onclick="LivingEdit.delRoom(' + id + ')">\ud83d\uddd1 ' + tt('מחק חדר', 'ลบห้อง', 'حذف الغرفة') + '</button>' +
-      '</div></div>';
+      '</div>';
   }
 
   function m(v) { return n2(v).toFixed(2) + ' m'; }
   function cm(v) { return Math.round(v * 100) + ' cm'; }
   function m2(v) { return n2(v).toFixed(2) + ' m\u00b2'; }
   function dimsTable(rows) {
-    return '<div style="display:grid;grid-template-columns:auto auto;gap:2px 14px;margin-top:6px;font-size:.84rem;">' +
-      rows.map(function (r) { return '<span style="opacity:.7">' + r[0] + '</span><b>' + r[1] + '</b>'; }).join('') + '</div>';
+    return '<div class="lv-dims">' +
+      rows.map(function (r) { return '<span>' + r[0] + '</span><b>' + r[1] + '</b>'; }).join('') + '</div>';
   }
   function itemDimsTable(it) {
     var dd = LivingUnit.itemDims(it), rows;
@@ -1012,7 +1159,7 @@ var LivingEdit = (function () {
   }
   function palette(p) {
     var groups = [
-      ['\ud83d\udeaa ' + tt('פתחים', 'ช่องเปิด', 'فتحات'), ['door', 'door_ext', 'window']],
+      ['\ud83d\udeaa ' + tt('פתחים', 'ช่องเปิด', 'فتحات'), ['door', 'door_slide', 'door_ext', 'window']],
       ['\u26a1 ' + tt('חשמל', 'ไฟฟ้า', 'كهرباء'), ['socket', 'light', 'switch', 'ac', 'panel']],
       ['\ud83d\udeb0 ' + tt('אינסטלציה וניקוז', 'ประปาและระบายน้ำ', 'سباكة وصرف'), ['toilet', 'shower', 'basin', 'drain', 'washer', 'heater', 'water_in', 'sewer_exit']],
       ['\ud83c\udf73 ' + tt('מטבח', 'ครัว', 'مطبخ'), ['counter', 'sink', 'stove', 'fridge']],
@@ -1085,15 +1232,39 @@ var LivingEdit = (function () {
     out.north = { title: tt('צפון', 'ทิศเหนือ', 'الشمال'), sub: '' };
     return out;
   }
+  // The selection, as the group name the 3D model uses for it.
+  function selGroup(s) {
+    if (!s.sel) return null;
+    return { item: 'it:', room: 'room:', seg: 'seg:' }[s.sel.t] ? { item: 'it:', room: 'room:', seg: 'seg:' }[s.sel.t] + s.sel.id : null;
+  }
   function draw3d(p) {
     var cv = document.getElementById('lvCanvas');
-    if (!cv || typeof Shed3D === 'undefined') return;
+    if (!cv) return;
     var s = st(p.id);
-    if (viewer && viewerFor === p.id) { viewer.update(model(p)); return; }
+    if (viewer && viewerFor === p.id) {
+      viewer.update(model(p));
+      if (viewer.setLabels) viewer.setLabels(labelsFor(p));
+      if (viewer.select) viewer.select(selGroup(s));
+      return;
+    }
     destroy3d();
     cv.className = 'lv-cv lv-3d';
+    // WebGL when the device has it and three.js can be fetched; the canvas
+    // painter otherwise, so the view never just goes blank
+    var gl = window.LivingView3D && LivingView3D.supported() && !s.painter;
+    if (gl && !(window.THREE && window.THREE.WebGLRenderer)) {
+      cv.innerHTML = '<div class="lv-load">\u23f3 ' + tt('טוען תצוגת תלת-מימד…', 'กำลังโหลด 3 มิติ…', 'جارٍ تحميل العرض الثلاثي…') + '</div>';
+      LivingView3D.ready().then(function (ok) {
+        if (!ok) s.painter = true;
+        if (st(p.id).view === '3d' && document.getElementById('lvCanvas') === cv) { cv.innerHTML = ''; draw3d(p); }
+      });
+      return;
+    }
+    if (!gl && typeof Shed3D === 'undefined') return;
+    cv.innerHTML = '';
+    var Eng = gl ? LivingView3D : Shed3D;
     var sun = sunOf(s.sun);
-    viewer = Shed3D.mount(cv, model(p), {
+    viewer = Eng.mount(cv, model(p), {
       state: camState[p.id] || { sunAz: sun[0], sunEl: sun[1] },
       labels: labelsFor(p),
       onSelect: function (g) {
@@ -1102,10 +1273,12 @@ var LivingEdit = (function () {
         else if (g.indexOf('seg:') === 0) s.sel = { t: 'seg', id: g.slice(4) };
         else if (g.indexOf('room:') === 0) s.sel = { t: 'room', id: g.slice(5) };
         else s.sel = null;
-        inspector(p);
+        ctxBar(p, LivingUnit.layoutOf(p.living));
+        sheet(p);
       }
     });
     viewerFor = p.id;
+    if (viewer.select) viewer.select(selGroup(s));
     var f = frameFor(p);
     if (f.has && BP.groundImage) {
       // imagery for the whole ground plane, which is centred on the
@@ -1267,8 +1440,11 @@ var LivingEdit = (function () {
         var s = st(id); if (!s.sel || s.sel.t !== 'item') return;
         pushUndo(p);
         var lay = editable(p), it = findItem(lay, s.sel.id); if (!it) return;
-        it.rot = ((it.rot + deg) % 360 + 360) % 360;
-        if (LivingUnit.ITEMS[it.kind].wall) placeItem(lay, it, it.x, it.y);
+        // A door or window cannot stand across its wall: a turn of one swaps
+        // the side it opens to (a half-turn in the wall) instead.
+        var inWall = LivingUnit.ITEMS[it.kind].wall;
+        it.rot = ((it.rot + (inWall ? 180 : deg)) % 360 + 360) % 360;
+        if (inWall) placeItem(lay, it, it.x, it.y);
         commit(p);
       });
     },
@@ -1336,15 +1512,44 @@ var LivingEdit = (function () {
       });
     },
     link: function (id, on) { st(id).link = !!on; },
+    rotRoom: function (id, cw) {
+      withP(id, function (p) {
+        var s = st(id); if (!s.sel || s.sel.t !== 'room') return;
+        var lay = editable(p), r = findRoom(lay, s.sel.id); if (!r) return;
+        var before = JSON.stringify(p.living.layout);
+        var res = rotateRoom(lay, r, cw !== false && cw !== 0);
+        if (!res.ok) {
+          p.living.layout = JSON.parse(before);
+          if (BP.toast) BP.toast('\u26a0\ufe0f ' + tt('החדר לא נכנס במבנה אחרי סיבוב', 'ห้องไม่พอดีหลังหมุน', 'الغرفة لا تتسع بعد التدوير'));
+          return;
+        }
+        var s2 = st(id); s2.undo.push(before); if (s2.undo.length > 40) s2.undo.shift();
+        if (res.overlaps.length && BP.toast) {
+          BP.toast('\u26a0\ufe0f ' + tt('החדר חופף ל', 'ทับซ้อนกับ ', 'تتداخل مع ') +
+            res.overlaps.map(function (o) { return o.name || LivingUnit.roomLabel(o.type); }).join(', ') +
+            ' \u2014 ' + tt('הזז או שנה גודל', 'ย้ายหรือปรับขนาด', 'انقل أو غيّر الحجم'));
+        } else if (res.slid && BP.toast) {
+          BP.toast('\u2194 ' + tt('החדר הוזז פנימה כדי להישאר בתוך המבנה', 'เลื่อนเข้าในอาคาร', 'نُقلت الغرفة لتبقى داخل المبنى'));
+        }
+        commit(p);
+      });
+    },
+    _rotRoom: rotateRoom,
     menu: function (id, act) {
       closeMenu();
       var go = {
-        rotR: function () { API.rot(id, 90); }, rotL: function () { API.rot(id, -90); },
+        rotR: function () { API.rot(id, -90); }, rotL: function () { API.rot(id, 90); },
+        rotRoomR: function () { API.rotRoom(id, 1); }, rotRoomL: function () { API.rotRoom(id, 0); },
         flip: function () { API.flip(id); }, dup: function () { API.dup(id); }, del: function () { API.del(id); },
         splitL: function () { API.split(id, 0); }, splitW: function () { API.split(id, 1); },
         dupRoom: function () { API.dupRoom(id); }, delRoom: function () { API.delRoom(id); },
         rotWall: function () { API.rotWall(id); }, dupWall: function () { API.dupWall(id); }, delWall: function () { API.delWall(id); },
-        edit: function () { var s = st(id); s.pop = ''; API.pop(id, 'ins'); }
+        edit: function () { var s = st(id); s.pop = ''; API.pop(id, 'ins'); },
+        restore: function () { API.restoreCut(id); },
+        cutWhole: function () {
+          var s = st(id), pp = proj(id); if (!pp || !s.sel || s.sel.t !== 'seg') return;
+          var si = LivingUnit.segInfo(pp.living, s.sel.id); if (si) API.cutSeg(id, 0, si.len);
+        }
       }[act];
       if (go) go();
     },
@@ -1393,13 +1598,63 @@ var LivingEdit = (function () {
         redraw(p);
       });
     },
-    wallKind: function (id, k) { withP(id, function (p) { st(id).wallKind = k === 'block' ? 'block' : 'panel'; redraw(p); }); },
+    wallKind: function (id, k) { withP(id, function (p) { st(id).wallKind = LivingUnit.WALL_MATS.indexOf(k) >= 0 ? k : 'panel'; redraw(p); }); },
+    cutTool: function (id) {
+      withP(id, function (p) {
+        var s = st(id);
+        s.tool = s.tool === 'cut' ? null : 'cut';
+        s.drawStart = null; s.cutStart = null;
+        if (s.tool) { s.view = 'plan'; s.sel = null; s.pop = ''; }
+        redraw(p);
+      });
+    },
+    segMat: function (id, mt) {
+      withP(id, function (p) {
+        var s = st(id); if (!s.sel || s.sel.t !== 'seg') return;
+        var si = LivingUnit.segInfo(p.living, s.sel.id); if (!si || si.seg.outer) return;
+        pushUndo(p);
+        var lay = editable(p), sg = si.seg;
+        lay.edits = (lay.edits || []).filter(function (e) {
+          // a new choice for exactly this stretch replaces an older one
+          return e.cut || !(e.o === sg.o && Math.abs(e.c - sg.c) < 0.03 && e.a >= sg.a - 0.01 && e.b <= sg.b + 0.01);
+        });
+        lay.edits.push({ id: LivingUnit.uid(), o: sg.o, c: sg.c, a: n2(sg.a), b: n2(sg.b), mat: mt });
+        s.sel = { t: 'seg', id: LivingUnit.segKey(sg) };
+        commit(p);
+      });
+    },
+    cutSeg: function (id, from, len) {
+      withP(id, function (p) {
+        var s = st(id); if (!s.sel || s.sel.t !== 'seg') return;
+        var si = LivingUnit.segInfo(p.living, s.sel.id); if (!si) return;
+        var f = Math.max(0, Number(from) || 0), l = Math.max(0.1, Number(len) || 0);
+        var a = si.seg.a + f, b = Math.min(si.seg.b, a + l);
+        if (b - a < 0.1) return;
+        pushUndo(p);
+        var lay = editable(p);
+        lay.edits = lay.edits || [];
+        var ce = { id: LivingUnit.uid(), o: si.seg.o, c: si.seg.c, a: n2(a), b: n2(b), cut: true };
+        lay.edits.push(ce);
+        s.sel = { t: 'cut', id: ce.id };
+        commit(p);
+      });
+    },
+    restoreCut: function (id) {
+      withP(id, function (p) {
+        var s = st(id); if (!s.sel || s.sel.t !== 'cut') return;
+        pushUndo(p);
+        var lay = editable(p);
+        lay.edits = (lay.edits || []).filter(function (e) { return e.id !== s.sel.id; });
+        s.sel = null;
+        commit(p);
+      });
+    },
     setWall: function (id, k, v) {
       withP(id, function (p) {
         var s = st(id); if (!s.sel || s.sel.t !== 'wall') return;
         pushUndo(p);
         var lay = editable(p), w = findWall(lay, s.sel.id); if (!w) return;
-        if (k === 'kind') w.kind = v === 'block' ? 'block' : 'panel';
+        if (k === 'kind') w.kind = LivingUnit.WALL_MATS.indexOf(v) >= 0 ? v : 'panel';
         else {
           var x = Number(v); if (!isFinite(x)) return;
           var horiz = w.y1 === w.y2;

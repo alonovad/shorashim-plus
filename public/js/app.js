@@ -1282,6 +1282,7 @@
     'שינוי שם חלקה': { th: 'เปลี่ยนชื่อแปลง', ar: 'تغيير اسم القطعة' },
     'נמצאו רשומות היסטוריות עם השם הישן': { th: 'พบบันทึกเก่าที่ใช้ชื่อเดิม', ar: 'تم العثور على سجلات قديمة بالاسم السابق' },
     'רשומות ביומן עבודה': { th: 'บันทึกในสมุดงาน', ar: 'سجلات دفتر العمل' },
+    'כל ההיסטוריה ועריכה': { th: 'ประวัติทั้งหมดและแก้ไข', ar: 'كل السجل والتعديل' },
     'דוחות שדה': { th: 'รายงานภาคสนาม', ar: 'تقارير حقلية' },
     'עדכן את כל ההיסטוריה': { th: 'อัปเดตประวัติทั้งหมด', ar: 'حدّث كل السجل' },
     'השאר את השם הישן בהיסטוריה': { th: 'เก็บชื่อเดิมไว้ในประวัติ', ar: 'أبقِ الاسم القديم في السجل' },
@@ -6217,8 +6218,16 @@
         '</div>' +
         (entry.trees_completed && entry.hours ? '<div style="font-size: 0.72rem; color: var(--g2); margin-top: 4px; font-weight: 600;">⚡ ' + (entry.trees_completed / entry.hours).toFixed(1) + ' ' + t('עצים/שעה') + (entry.worker_count > 1 ? ' • ' + (entry.trees_completed / (entry.hours * entry.worker_count)).toFixed(1) + ' ' + t('עצים/עובד×שעה') : '') + '</div>' : '') +
         (entry.notes ? '<div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px; font-style: italic;">📝 ' + entry.notes + '</div>' : '') +
+        (window.WorklogEdit ? WorklogEdit.actions(entry) : '') +
       '</div>';
     });
+    // the list shows the latest 20; the whole log, with filters, edit and
+    // delete, opens from here (worklogedit.js)
+    if (window.WorklogEdit) {
+      html += '<button onclick="WorklogEdit.browse()" style="width:100%;margin-top:4px;padding:10px;border-radius:10px;border:none;' +
+        'background:var(--g6);font-family:inherit;font-size:0.85rem;font-weight:600;color:var(--g2);cursor:pointer;">📚 ' +
+        t('כל ההיסטוריה ועריכה') + (filtered.length > 20 ? ' (' + filtered.length + ')' : '') + '</button>';
+    }
     container.innerHTML = html;
   }
   
@@ -6339,6 +6348,7 @@
           html += '</div>';
         }
         if (entry.notes) html += '<div style="font-size:0.75rem;color:var(--text-muted);margin-top:4px;font-style:italic;">📝 ' + entry.notes + '</div>';
+        if (window.WorklogEdit) html += WorklogEdit.actions(entry, { plot: plotId, name: plotName });
         html += '</div>';
       });
     }

@@ -43,6 +43,7 @@ var Maintenance = (function() {
     { value: 'other', label: null, icon: '📎' },
   ];
   var VAT_RATE = 0.18;
+  var JOURNAL_STATUSES = ['approved', 'in_progress', 'completed'];
 
   // Init labels lazily (tt depends on currentLang which may not be set at parse time)
   var _labelsInit = false;
@@ -796,6 +797,11 @@ var Maintenance = (function() {
         if (canInternal) tabs.push({ id: 'internal', icon: '🔒', label: tt('אומדן פנימי','ประมาณการภายใน','تقدير داخلي') });
         if (canContract) tabs.push({ id: 'contract', icon: '📋', label: tt('חוזה','สัญญา','عقد') });
         if (canInvoice) tabs.push({ id: 'invoices', icon: '🧾', label: tt('חשבוניות','ใบแจ้งหนี้','فواتير') });
+        // The tracking journal opens once the job is approved: before that
+        // there is nothing being executed to track (maintjournal.js).
+        if (window.MaintJournal && JOURNAL_STATUSES.indexOf(p.status) >= 0) {
+          tabs.push({ id: 'journal', icon: '📓', label: tt('יומן מעקב','บันทึกติดตาม','سجل المتابعة') });
+        }
 
         if (!tabs.find(function(t) { return t.id === _activeTab; })) _activeTab = 'overview';
 
@@ -1059,6 +1065,9 @@ var Maintenance = (function() {
         // ──────────────────────
         //  TAB: INVOICES
         // ──────────────────────
+        else if (_activeTab === 'journal' && window.MaintJournal) {
+          bodyH += MaintJournal.tab(p, { canEdit: canEdit && p.status !== 'completed', completed: p.status === 'completed' });
+        }
         else if (_activeTab === 'invoices') {
           var invs = p.invoices || [];
           var invTot = calcInvoiceTotals(p);
@@ -1219,6 +1228,46 @@ var Maintenance = (function() {
       _audit('edit', maintId, { after: { imported: added.length, from: buildName },
                                 reason: 'takeoff import · ' + (p.name || '') });
       return true;
+    });
+  }
+
+  // Everything the tracking journal (maintjournal.js) reads about a project,
+  // priced by this module's own primitives so the journal's planned values
+  // are the quote's values to the shekel. Each line carries its stable id;
+  // the client value is the line's own (groups are a print decision).
+  function journalSource(pid) {
+    return loadProjects().then(function (projects) {
+      var p = projects.find(function (x) { return x.id === pid; });
+      if (!p) return null;
+      ensureLineIds(p);
+      var f = upliftFactor(p), lines = [];
+      (p.materials || []).forEach(function (m) {
+        lines.push({ ref: 'materials:' + m._id, kind: 'materials', name: m.name || '', unit: m.unit || '',
+                     qty: Number(m.quantity) || 0, client: clientLine(rawMat(m), f), cost: round2(costMat(m)) });
+      });
+      (p.labor || []).forEach(function (l) {
+        var fixed = isFixedLab(l);
+        lines.push({ ref: 'labor:' + l._id, kind: 'labor', name: l.description || '',
+                     unit: fixed ? tt('קומפלט','ชุด','مقطوعية') : tt('שעות','ชั่วโมง','ساعات'),
+                     qty: fixed ? 1 : (Number(l.hours) || 0), client: clientLine(rawLab(l), f), cost: round2(costLab(l)) });
+      });
+      var tot = calcProject(p), inv = calcInvoiceTotals(p);
+      return {
+        id: p.id, name: p.name || '', client: p.client || '', status: p.status || 'draft',
+        buildProjectId: p.buildProjectId || null, buildProjectName: p.buildProjectName || '',
+        lines: lines, beforeVat: tot.beforeVat, vatIncluded: !!p.includeVat,
+        contractValue: (p.contract && Number(p.contract.totalValue)) || 0,
+        contract: p.contract ? { number: p.contract.contractNumber || '', signedDate: p.contract.signedDate || '',
+                                 paymentTerms: p.contract.paymentTerms || '', status: p.contract.status || '' } : null,
+        invoices: (p.invoices || []).map(function (x) {
+          return { date: x.date || '', supplier: x.supplier || '', amount: (Number(x.amount) || 0), vat: (Number(x.vatAmount) || 0),
+                   status: x.status || 'pending', category: x.category || 'other', number: x.invoiceNumber || '', notes: x.notes || '' };
+        }),
+        invoicePaid: inv.paid,
+        shipments: (p.shipments || []).map(function (x) {
+          return { date: x.date || '', material: x.materialName || '', qty: Number(x.quantity) || 0, supplier: x.supplier || '', notes: x.notes || '' };
+        })
+      };
     });
   }
 
@@ -2319,6 +2368,7 @@ var Maintenance = (function() {
     _updateCostPrice: _updateCostPrice, _updateCostRate: _updateCostRate,
     showAccessControl: showAccessControl, _addAccess: _addAccess, _editAccess: _editAccess, _saveAccess: _saveAccess, _delAccess: _delAccess,
     importTakeoff: importTakeoff, createFromBuild: createFromBuild,
+    journalSource: journalSource, JOURNAL_STATUSES: JOURNAL_STATUSES,
     projectsLoaded: projectsLoaded, retryLoad: retryLoad,
     projectsForBuild: projectsForBuild,
     importFromBuild: importFromBuild, _doImport: _doImport,

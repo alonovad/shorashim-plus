@@ -244,7 +244,7 @@ var PlotEdit = (function () {
   // A dot drawn small inside a larger transparent box: the box is what a
   // fingertip has to hit, the dot is what the eye needs to see.
   function handleIcon(hit, dot, bg, border, cursor) {
-    return L.divIcon({ className: '', iconSize: [hit, hit], iconAnchor: [hit / 2, hit / 2],
+    return L.divIcon({ className: 'pe-h', iconSize: [hit, hit], iconAnchor: [hit / 2, hit / 2],
       html: '<div style="width:' + hit + 'px;height:' + hit + 'px;display:flex;align-items:center;justify-content:center;cursor:' + cursor + ';">' +
             '<div style="width:' + dot + 'px;height:' + dot + 'px;border-radius:50%;background:' + bg + ';border:' + border + ';' +
             'box-shadow:0 1px 4px rgba(0,0,0,.45);"></div></div>' });
@@ -264,9 +264,24 @@ var PlotEdit = (function () {
     return L.latLng(la / n, lo / n);
   }
 
+  // While any map tool is active the map carries `.drawing`, and the
+  // stylesheet turns pointer events off for everything interactive on it
+  // (so tracing a new plot never opens the plots underneath). These handles
+  // are the exception — without this rule a mouse or a finger lands on the
+  // map beneath them and the map pans instead of the point moving.
+  function ensureHandleCss() {
+    if (document.getElementById('peStyles')) return;
+    var st = document.createElement('style');
+    st.id = 'peStyles';
+    st.textContent = '#map.drawing .leaflet-interactive.pe-h, .leaflet-container .leaflet-interactive.pe-h' +
+      '{pointer-events:auto!important;cursor:move;}';
+    document.head.appendChild(st);
+  }
+
   function redraw() {
     var m = map();
     if (!m || !S) return;
+    ensureHandleCss();
     clearGfx();
     S.polys = [];
 
@@ -321,7 +336,7 @@ var PlotEdit = (function () {
     // right shape but the wrong place.
     if (!S.adding) {
       var cm = L.marker(centreOf(), { draggable: true, autoPan: true, zIndexOffset: 1100,
-        icon: L.divIcon({ className: '', iconSize: [40, 40], iconAnchor: [20, 20],
+        icon: L.divIcon({ className: 'pe-h', iconSize: [40, 40], iconAnchor: [20, 20],
           html: '<div style="width:40px;height:40px;display:flex;align-items:center;justify-content:center;cursor:move;">' +
                 '<div style="width:30px;height:30px;border-radius:50%;background:#06120b;color:#fff;border:2px solid #ff9f43;' +
                 'display:flex;align-items:center;justify-content:center;font-size:17px;box-shadow:0 2px 6px rgba(0,0,0,.5);">\u2725</div></div>' }) }).addTo(m);

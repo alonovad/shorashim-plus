@@ -1,4 +1,4 @@
-var CACHE_NAME = 'shorashim-v125';
+var CACHE_NAME = 'shorashim-v126';
 // CDN libs — these never change, safe to cache-first
 var CDN_URLS = [
   'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js',
@@ -37,10 +37,12 @@ var APP_URLS = [
   '/js/geoedit.js',
   '/js/plotimport.js',
   '/js/plotregister.js',
+  '/js/worklogedit.js',
   '/js/rebar.js',
   '/js/shed3d.js',
   '/js/gates.js',
   '/js/livingunit.js',
+  '/js/livingview3d.js',
   '/js/livingedit.js',
   '/js/buildplan-core.js',
   '/js/buildplan-geom.js',
@@ -54,6 +56,7 @@ var APP_URLS = [
   '/js/display-settings.js',
   '/js/stickyactions.js',
   '/js/maintenance.js',
+  '/js/maintjournal.js',
   '/js/maintenance-schedule.js',
   '/js/spray-pest-link.js',
   '/js/spray-reconstruct.js',

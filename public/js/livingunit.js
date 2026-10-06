@@ -108,6 +108,7 @@ var LivingUnit = (function () {
   var ITEMS = {
     door:       { cat: 'open',    w: 0.8,  d: 0.1,  wall: 1, h3: 2.1 },
     door_ext:   { cat: 'open',    w: 1.0,  d: 0.1,  wall: 1, h3: 2.1 },
+    door_slide: { cat: 'open',    w: 0.9,  d: 0.1,  wall: 1, h3: 2.1 },
     window:     { cat: 'open',    w: 1.2,  d: 0.1,  wall: 1, sill: 1.0, h3: 1.0 },
     socket:     { cat: 'elec',    w: 0.15, d: 0.08, z: 0.3,  h3: 0.1,  col: '#f5f5f5' },
     light:      { cat: 'elec',    w: 0.3,  d: 0.3,  ceil: 1, h3: 0.06, col: '#ffe082' },
@@ -144,6 +145,7 @@ var LivingUnit = (function () {
     switch (k) {
       case 'door': return tt('דלת', 'ประตู', 'باب');
       case 'door_ext': return tt('דלת כניסה', 'ประตูทางเข้า', 'باب المدخل');
+      case 'door_slide': return tt('דלת הזזה', 'ประตูบานเลื่อน', 'باب منزلق');
       case 'window': return tt('חלון', 'หน้าต่าง', 'نافذة');
       case 'socket': return tt('שקע', 'เต้ารับ', 'مقبس');
       case 'light': return tt('נקודת מאור', 'จุดไฟ', 'نقطة إنارة');
@@ -172,7 +174,7 @@ var LivingUnit = (function () {
     return k;
   }
   function itemSym(k) {
-    return { door: '🚪', door_ext: '🚪', window: '🪟', socket: '🔌', light: '💡', 'switch': '⏻', ac: '❄️',
+    return { door: '🚪', door_ext: '🚪', door_slide: '\u21d4', window: '🪟', socket: '🔌', light: '💡', 'switch': '⏻', ac: '❄️',
              panel: '⚡', heater: '♨️', water_in: '💧', sewer_exit: '⤓', toilet: '🚽', shower: '🚿', basin: '🚰',
              drain: '◉', washer: '🧺', counter: '▭', sink: '🚰', stove: '🍳', fridge: '🧊', bed: '🛏', bunk: '🛏',
              wardrobe: '🚪', table: '🍽', bench: '🪑', sofa: '🛋' }[k] || '•';
@@ -187,6 +189,19 @@ var LivingUnit = (function () {
             tt('מערב', 'ตะวันตก', 'غرب'), tt('צפון-מערב', 'ตะวันตกเฉียงเหนือ', 'شمال غرب')][i];
   }
 
+  // ── wall materials ──────────────────────────────────────────────────
+  var WALL_MATS = ['panel', 'gypsum', 'block10', 'block'];
+  function matLabel(m, u) {
+    switch (m) {
+      case 'panel': return tt('פאנל', 'แผง', 'لوح') + (u && u.partition ? ' (' + u.partition + ')' : '');
+      case 'gypsum': return tt('גבס', 'ยิปซัม', 'جبس');
+      case 'block10': return tt('בלוק 10 ס"מ', 'บล็อก 10 ซม.', 'بلوك 10 سم');
+      case 'block': return tt('בלוק 20 ס"מ', 'บล็อก 20 ซม.', 'بلوك 20 سم');
+      case 'outer': return tt('מעטפת', 'เปลือก', 'غلاف');
+    }
+    return m;
+  }
+
   // ── normalise ───────────────────────────────────────────────────────
   // A free-standing inner wall, drawn on the plan independently of any room.
   // Kept on the building's axes: the longer component wins, so a wall drawn
@@ -197,7 +212,21 @@ var LivingUnit = (function () {
     if (Math.abs(x2 - x1) >= Math.abs(y2 - y1)) y2 = y1; else x2 = x1;
     if (Math.hypot(x2 - x1, y2 - y1) < 0.2) return null;
     return { id: String(w.id || uid()), x1: n2(x1), y1: n2(y1), x2: n2(x2), y2: n2(y2),
-             kind: w.kind === 'block' ? 'block' : 'panel' };
+             kind: WALL_MATS.indexOf(w.kind) >= 0 ? w.kind : 'panel' };
+  }
+  // A change to a stretch of wall that the rooms produce: a material other
+  // than the default, or the stretch removed altogether (an opening with
+  // no door). Positional: it applies to whatever wall lies on that line.
+  function wallEdit(e) {
+    if (!e || (e.o !== 'h' && e.o !== 'v')) return null;
+    var a = num(e.a, 0), b = num(e.b, 0);
+    if (b < a) { var t = a; a = b; b = t; }
+    if (b - a < 0.05) return null;
+    var o = { id: String(e.id || uid()), o: e.o, c: n2(num(e.c, 0)), a: n2(a), b: n2(b) };
+    if (e.cut) o.cut = true;
+    else if (WALL_MATS.indexOf(e.mat) >= 0) o.mat = e.mat;
+    else return null;
+    return o;
   }
 
   function normLayout(l) {
@@ -210,6 +239,7 @@ var LivingUnit = (function () {
                  open: !!r.open, floor: FLOORS.indexOf(r.floor) >= 0 ? r.floor : '' };
       }),
       walls: (Array.isArray(l.walls) ? l.walls : []).map(freeWall).filter(function (w) { return w; }),
+      edits: (Array.isArray(l.edits) ? l.edits : []).map(wallEdit).filter(function (e) { return e; }),
       items: (Array.isArray(l.items) ? l.items : []).filter(function (it) { return it && ITEMS[it.kind]; }).map(function (it) {
         var o = { id: String(it.id || uid()), kind: it.kind, x: num(it.x, 0), y: num(it.y, 0),
                   rot: ((Math.round(num(it.rot, 0) / 90) * 90) % 360 + 360) % 360, flip: !!it.flip };
@@ -424,7 +454,7 @@ var LivingUnit = (function () {
       item('door_ext', Lm - 0.8, Wm, 0, { w: 1.0 });
       item('panel', Lm - 1.8, Wm - 0.1, 180);
     }
-    return { L: Lm, W: Wm, rooms: rooms, walls: [], items: items, auto: true };
+    return { L: Lm, W: Wm, rooms: rooms, walls: [], edits: [], items: items, auto: true };
   }
 
   // The layout in force: the stored one, rescaled if the building has been
@@ -448,6 +478,11 @@ var LivingUnit = (function () {
       }),
       walls: (l.walls || []).map(function (w) {
         return { id: w.id, kind: w.kind, x1: n2(w.x1 * kx), y1: n2(w.y1 * ky), x2: n2(w.x2 * kx), y2: n2(w.y2 * ky) };
+      }),
+      edits: (l.edits || []).map(function (e) {
+        var o = JSON.parse(JSON.stringify(e)), ka = e.o === 'h' ? kx : ky, kc = e.o === 'h' ? ky : kx;
+        o.c = n2(e.c * kc); o.a = n2(e.a * ka); o.b = n2(e.b * ka);
+        return o;
       }),
       items: l.items.map(function (it) {
         var o = JSON.parse(JSON.stringify(it));
@@ -545,6 +580,9 @@ var LivingUnit = (function () {
         });
         var wall, wetP, wetM;
         var block = frees.some(function (f) { return f.kind === 'block'; });
+        var fmat = ['block', 'block10', 'gypsum', 'panel'].filter(function (k) {
+          return frees.some(function (f) { return f.kind === k; });
+        })[0] || '';
         if (isOuter) {
           wall = true;
           var inside = ln.c < E ? plus : minus;
@@ -568,13 +606,39 @@ var LivingUnit = (function () {
         }
         if (!wall) { cur = null; continue; }
         if (isOuter) block = false;
-        var sig = (isOuter ? 'o' : 'i') + (wetP ? 1 : 0) + (wetM ? 1 : 0) + (block ? 'b' : '') + (frees.length ? 'f' : '');
+        var sig = (isOuter ? 'o' : 'i') + (wetP ? 1 : 0) + (wetM ? 1 : 0) + (block ? 'b' : '') + (frees.length ? 'f' + fmat : '');
         if (cur && cur.sig === sig && Math.abs(cur.b - a) < 0.002) { cur.b = b; cur.len = cur.b - cur.a; continue; }
         cur = { o: ln.o, c: ln.c, a: a, b: b, len: b - a, outer: isOuter, wetP: wetP, wetM: wetM,
-                wet: wetP || wetM, block: block, free: frees.length > 0, sig: sig };
+                wet: wetP || wetM, block: block, free: frees.length > 0, fmat: isOuter ? '' : fmat, sig: sig };
         segs.push(cur);
       }
     });
+    var edits = lay.edits || [];
+    if (edits.length) {
+      var out = [];
+      segs.forEach(function (sg) {
+        var mine = edits.filter(function (e) {
+          return e.o === sg.o && Math.abs(e.c - sg.c) < 0.03 && e.b > sg.a + 0.005 && e.a < sg.b - 0.005;
+        });
+        if (!mine.length) { out.push(sg); return; }
+        var cuts = [sg.a, sg.b];
+        mine.forEach(function (e) { cuts.push(clamp(e.a, sg.a, sg.b), clamp(e.b, sg.a, sg.b)); });
+        cuts.sort(function (p, q) { return p - q; });
+        for (var i = 0; i + 1 < cuts.length; i++) {
+          var p = cuts[i], q = cuts[i + 1];
+          if (q - p < 0.005) continue;
+          var m = (p + q) / 2, cover = null;
+          mine.forEach(function (e) { if (e.a < m && e.b > m) cover = e; });
+          if (cover && cover.cut) continue;
+          var piece = {};
+          Object.keys(sg).forEach(function (k) { piece[k] = sg[k]; });
+          piece.a = p; piece.b = q; piece.len = q - p;
+          if (cover && cover.mat && !sg.outer) piece.mat = cover.mat;
+          out.push(piece);
+        }
+      });
+      segs = out;
+    }
     return segs;
   }
   function segEnds(s) {
@@ -608,12 +672,24 @@ var LivingUnit = (function () {
   // A wall segment's identity: stable for as long as the layout around it
   // does not change, which is as long as a selection needs to live.
   function segKey(sg) { return sg.o + ':' + n2(sg.c) + ':' + n2(sg.a) + ':' + n2(sg.b); }
-  function isBlockSeg(sg, u) { return !sg.outer && (sg.block || (u.blockWet && sg.wet)); }
-  // Nominal thickness: block as quoted (20 cm), panel from the partition's
-  // own name ("... 5 ס"מ" is 5 cm), outer wall 20 cm.
+  // What a wall is built of: an explicit choice on that stretch, else the
+  // material of a wall drawn there, else block where wet (if the project
+  // builds wet walls in block), else the project's partition panel.
+  function segMat(sg, u) {
+    if (sg.outer) return 'outer';
+    if (sg.mat) return sg.mat;
+    if (sg.fmat && sg.fmat !== 'panel') return sg.fmat;
+    if (sg.block) return 'block';
+    if (u.blockWet && sg.wet) return 'block';
+    return 'panel';
+  }
+  function isBlockSeg(sg, u) { var m = segMat(sg, u); return m === 'block' || m === 'block10'; }
+  // Nominal thickness: block as quoted (20 / 10 cm), gypsum 10 cm, panel
+  // from the partition's own name ("... 5 ס"מ" is 5 cm), outer wall 20 cm.
   function wallThick(sg, u) {
-    if (sg.outer) return 0.2;
-    if (isBlockSeg(sg, u)) return 0.2;
+    var mt = segMat(sg, u);
+    if (mt === 'outer' || mt === 'block') return 0.2;
+    if (mt === 'block10' || mt === 'gypsum') return 0.1;
     var m = String(u.partition || '').match(/(\d+(?:\.\d+)?)\s*\u05e1/);
     var cm = m ? Number(m[1]) : 10;
     return (cm > 0 && cm < 40) ? cm / 100 : 0.1;
@@ -632,7 +708,7 @@ var LivingUnit = (function () {
       ops.push({ kind: it.kind, w: w, h: h });
       open += w * h;
     });
-    return { seg: sg, len: sg.len, t: wallThick(sg, u), H: H, block: isBlockSeg(sg, u),
+    return { seg: sg, len: sg.len, t: wallThick(sg, u), H: H, block: isBlockSeg(sg, u), mat: segMat(sg, u),
              gross: sg.len * H, net: Math.max(0, sg.len * H - open), openings: ops,
              faces: sg.outer ? [sg.wetP] : [sg.wetP, sg.wetM] };
   }
@@ -649,10 +725,11 @@ var LivingUnit = (function () {
   function quantities(u) {
     u = norm(u);
     // block where drawn as block, or wet and the project builds wet walls in block
-    var isBlock = function (s) { return !s.outer && (s.block || (u.blockWet && s.wet)); };
+    var isBlock = function (s) { return isBlockSeg(s, u); };
     var lay = layoutOf(u), segs = walls(lay), H = u.height;
     var q = {
-      innerDry: 0, innerWet: 0, innerBlock: 0, innerPanel: 0, blockDoorArea: 0, panelDoorArea: 0, outer: 0, doorsInt: {}, doorsExt: 0, windows: {}, winArea: 0,
+      innerDry: 0, innerWet: 0, innerBlock: 0, innerPanel: 0, blockDoorArea: 0, panelDoorArea: 0, outer: 0, doorsInt: {}, doorsExt: 0, doorsSlide: {}, windows: {}, winArea: 0,
+      matLen: { panel: 0, gypsum: 0, block10: 0, block: 0 }, matOpen: { panel: 0, gypsum: 0, block10: 0, block: 0 }, gypStuds: 0,
       dryDoorArea: 0, wetDoorArea: 0, extOpenArea: 0,
       dryFace: 0, wetFace: 0, dryFaceOpen: 0, wetFaceOpen: 0, doorWidthDry: 0,
       floor: 0, wetFloor: 0, wetPerim: 0, showerPerim: 0, count: {}, counterM: 0,
@@ -663,6 +740,9 @@ var LivingUnit = (function () {
       else {
         if (s.wet) q.innerWet += s.len; else q.innerDry += s.len;
         if (isBlock(s)) q.innerBlock += s.len; else q.innerPanel += s.len;
+        var mt = segMat(s, u);
+        q.matLen[mt] += s.len;
+        if (mt === 'gypsum') q.gypStuds += (Math.ceil(s.len / 0.6) + 1) * H;
         q.wetFace += s.len * ((s.wetP ? 1 : 0) + (s.wetM ? 1 : 0));
         q.dryFace += s.len * ((s.wetP ? 0 : 1) + (s.wetM ? 0 : 1));
       }
@@ -670,7 +750,7 @@ var LivingUnit = (function () {
     lay.items.forEach(function (it) {
       q.count[it.kind] = (q.count[it.kind] || 0) + 1;
       var d = ITEMS[it.kind], w = (it.w != null) ? it.w : d.w;
-      if (it.kind === 'door' || it.kind === 'door_ext' || it.kind === 'window') {
+      if (it.kind === 'door' || it.kind === 'door_ext' || it.kind === 'door_slide' || it.kind === 'window') {
         var s = hostSeg(segs, it);
         var h = it.kind === 'window' ? (d.h3 || 1) : 2.1;
         var area = w * h;
@@ -679,6 +759,7 @@ var LivingUnit = (function () {
           q.windows[key] = (q.windows[key] || 0) + 1;
           q.winArea += area;
         } else if (it.kind === 'door_ext') q.doorsExt++;
+        else if (it.kind === 'door_slide') { var sk = Math.round(w * 100); q.doorsSlide[sk] = (q.doorsSlide[sk] || 0) + 1; }
         else { var dk = Math.round(w * 100); q.doorsInt[dk] = (q.doorsInt[dk] || 0) + 1; }
         if (s) {
           var faces = s.outer ? [s.wetP] : [s.wetP, s.wetM];
@@ -689,6 +770,7 @@ var LivingUnit = (function () {
           else {
             if (s.wet) q.wetDoorArea += area; else q.dryDoorArea += area;
             if (isBlock(s)) q.blockDoorArea += area; else q.panelDoorArea += area;
+            q.matOpen[segMat(s, u)] += area;
           }
         }
       }
@@ -757,17 +839,24 @@ var LivingUnit = (function () {
 
     // inner walls, net of openings: block where drawn as block or wet,
     // panel everywhere else
-    var blk = q.innerBlock * H - q.blockDoorArea;
-    push('בלוק בטון 20 ס"מ', blk, M2, tt('קירות פנים בבלוק', 'ผนังบล็อก', 'جدران بلوك') + ' \u00b7 ' + wallNote(q.innerBlock));
-    push('טיח פנים', blk * 2, M2, tt('בלוק, שני צדדים', 'สองด้าน', 'وجهان'));
-    push(u.partition, q.innerPanel * H - q.panelDoorArea, M2, tt('מחיצות פנים', 'ผนังกั้นภายใน', 'قواطع داخلية') + ' \u00b7 ' + wallNote(q.innerPanel));
-    push('פרופיל U לפאנל', q.innerPanel * 2, M1, tt('מסילות עליונה ותחתונה', 'รางบนล่าง', 'مجاري علوية وسفلية'));
+    var net = function (k) { return Math.max(0, q.matLen[k] * H - q.matOpen[k]); };
+    push('בלוק בטון 20 ס"מ', net('block'), M2, tt('קירות פנים בבלוק', 'ผนังบล็อก', 'جدران بلوك') + ' \u00b7 ' + wallNote(q.matLen.block));
+    push('בלוק בטון 10 ס"מ', net('block10'), M2, tt('קירות פנים בבלוק', 'ผนังบล็อก', 'جدران بلوك') + ' \u00b7 ' + wallNote(q.matLen.block10));
+    push('טיח פנים', (net('block') + net('block10')) * 2, M2, tt('בלוק, שני צדדים', 'สองด้าน', 'وجهان'));
+    push(u.partition, net('panel'), M2, tt('מחיצות פנים', 'ผนังกั้นภายใน', 'قواطع داخلية') + ' \u00b7 ' + wallNote(q.matLen.panel));
+    push('פרופיל U לפאנל', q.matLen.panel * 2, M1, tt('מסילות עליונה ותחתונה', 'รางบนล่าง', 'مجاري علوية وسفلية'));
+    push('לוח גבס', net('gypsum') * 2 * 1.05, M2, tt('שני צדדים, כולל פחת', 'สองด้าน', 'وجهان مع الهدر') + ' \u00b7 ' + wallNote(q.matLen.gypsum));
+    push('פרופיל גבס', q.gypStuds + q.matLen.gypsum * 2, M1, tt('ניצבים כל 60 ס"מ + מסילות', 'เสาทุก 60 ซม.', 'قوائم كل 60 سم'));
+    push('צמר סלעים', net('gypsum'), M2, tt('בידוד במחיצות גבס', 'ฉนวน', 'عزل'));
 
     // openings
     var di = Object.keys(q.doorsInt).sort();
     push('דלת פנים', di.reduce(function (s, k) { return s + q.doorsInt[k]; }, 0), UN,
       di.map(function (k) { return k + ' \u00d7' + q.doorsInt[k]; }).join(' \u00b7 ') + ' ' + tt('ס"מ', 'ซม.', 'سم'));
     push('דלת כניסה', q.doorsExt, UN, '');
+    var dsl = Object.keys(q.doorsSlide).sort();
+    push('דלת הזזה', dsl.reduce(function (a, k) { return a + q.doorsSlide[k]; }, 0), UN,
+      dsl.map(function (k) { return k + ' \u00d7' + q.doorsSlide[k]; }).join(' \u00b7 ') + ' ' + tt('ס"מ', 'ซม.', 'سم'));
     var wk = Object.keys(q.windows).sort();
     push('חלון אלומיניום', wk.reduce(function (s, k) { return s + q.windows[k]; }, 0), UN,
       wk.map(function (k) { return k.replace('x', '\u00d7') + ' \u00d7' + q.windows[k]; }).join(' \u00b7 ') + ' ' + tt('ס"מ', 'ซม.', 'سم'));
@@ -884,9 +973,11 @@ var LivingUnit = (function () {
       row(S1, tt('חיפוי מעטפת', 'ผนังภายนอก', 'الغلاف'), 2 * (q.lay.L + q.lay.W) * H, M2, 0.35);
       row(S1, tt('גג ומרזבים', 'หลังคา', 'السقف'), area, M2, 0.4);
     }
-    row(S2, tt('מחיצות פאנל כולל מסילות', 'ผนังแผง', 'قواطع ألواح'), q.innerPanel * H, M2, 0.6);
-    row(S2, tt('בניית בלוק', 'ก่อบล็อก', 'بناء بلوك'), q.innerBlock * H, M2, 1.2);
-    row(S2, tt('טיח', 'ฉาบ', 'لياسة'), q.innerBlock * H * 2, M2, 0.5);
+    row(S2, tt('מחיצות פאנל כולל מסילות', 'ผนังแผง', 'قواطع ألواح'), q.matLen.panel * H, M2, 0.6);
+    row(S2, tt('מחיצות גבס כולל בידוד', 'ผนังยิปซัม', 'قواطع جبس'), q.matLen.gypsum * H, M2, 0.8);
+    row(S2, tt('בניית בלוק 20', 'ก่อบล็อก 20', 'بناء بلوك 20'), q.matLen.block * H, M2, 1.2);
+    row(S2, tt('בניית בלוק 10', 'ก่อบล็อก 10', 'بناء بلوك 10'), q.matLen.block10 * H, M2, 1.0);
+    row(S2, tt('טיח', 'ฉาบ', 'لياسة'), (q.matLen.block + q.matLen.block10) * H * 2, M2, 0.5);
     row(S3, tt('צנרת מים', 'ท่อน้ำ', 'أنابيب ماء'), q.cold + q.hot, M1, 0.25);
     row(S3, tt('צנרת ביוב', 'ท่อน้ำเสีย', 'أنابيب صرف'), q.drainPipe, M1, 0.3);
     row(S3, tt('אסלות', 'โถส้วม', 'مراحيض'), c('toilet'), UN, 3);
@@ -905,6 +996,7 @@ var LivingUnit = (function () {
     row(S5, tt('אפוקסי', 'อีพ็อกซี', 'إيبوكسي'), q.byFloor.epoxy, M2, 0.3);
     row(S6, tt('דלתות', 'ประตู', 'أبواب'), Object.keys(q.doorsInt).reduce(function (a, k) { return a + q.doorsInt[k]; }, 0), UN, 2.5);
     row(S6, tt('דלת כניסה', 'ประตูทางเข้า', 'باب المدخل'), q.doorsExt, UN, 4);
+    row(S6, tt('דלתות הזזה', 'ประตูบานเลื่อน', 'أبواب منزلقة'), Object.keys(q.doorsSlide).reduce(function (a, k) { return a + q.doorsSlide[k]; }, 0), UN, 3);
     row(S6, tt('חלונות', 'หน้าต่าง', 'نوافذ'), Object.keys(q.windows).reduce(function (a, k) { return a + q.windows[k]; }, 0), UN, 3);
     row(S6, tt('מטבח: ארונות ומשטח', 'ครัว', 'المطبخ'), q.counterM, M1, 3);
     row(S6, tt('צבע קירות ותקרה', 'ทาสี', 'الدهان'), q.paint + q.floor, M2, 0.2);
@@ -951,13 +1043,22 @@ var LivingUnit = (function () {
       if (WET[r.type] && (r.floor || u.floor) === 'concrete')
         out.push((r.name || roomLabel(r.type)) + ': ' + tt('חדר רטוב עם בטון חשוף — מומלץ ריצוף או אפוקסי', 'ห้องเปียกพื้นคอนกรีต', 'غرفة رطبة بخرسانة مكشوفة'));
     });
+    // overlapping rooms distort every quantity read off the layout
+    for (var oi = 0; oi < lay.rooms.length; oi++) {
+      for (var oj = oi + 1; oj < lay.rooms.length; oj++) {
+        var ra = lay.rooms[oi], rb = lay.rooms[oj];
+        var ox = Math.min(ra.x + ra.w, rb.x + rb.w) - Math.max(ra.x, rb.x), oy = Math.min(ra.y + ra.h, rb.y + rb.h) - Math.max(ra.y, rb.y);
+        if (ox > 0.05 && oy > 0.05) out.push((ra.name || roomLabel(ra.type)) + ' / ' + (rb.name || roomLabel(rb.type)) + ': ' +
+          tt('חדרים חופפים', 'ห้องทับซ้อนกัน', 'غرف متداخلة') + ' (' + n1(ox * oy) + ' ' + M2 + ')');
+      }
+    }
     if (!cnt.panel) out.push(tt('אין לוח חשמל בתוכנית', 'ไม่มีตู้ไฟ', 'لا توجد لوحة كهرباء'));
     if (!cnt.sewer_exit && (cnt.toilet || cnt.shower)) out.push(tt('אין יציאת ביוב בתוכנית', 'ไม่มีทางออกน้ำเสีย', 'لا يوجد مخرج صرف'));
     var segs = walls(lay);
     lay.rooms.forEach(function (r) {
       if (r.open) return;
       var hasDoor = lay.items.some(function (it) {
-        if (it.kind !== 'door' && it.kind !== 'door_ext') return false;
+        if (it.kind !== 'door' && it.kind !== 'door_ext' && it.kind !== 'door_slide') return false;
         var onH = (it.rot === 0 || it.rot === 180) && (Math.abs(it.y - r.y) < 0.2 || Math.abs(it.y - r.y - r.h) < 0.2) && it.x > r.x - 0.05 && it.x < r.x + r.w + 0.05;
         var onV = (it.rot === 90 || it.rot === 270) && (Math.abs(it.x - r.x) < 0.2 || Math.abs(it.x - r.x - r.w) < 0.2) && it.y > r.y - 0.05 && it.y < r.y + r.h + 0.05;
         return onH || onV;
@@ -1010,6 +1111,16 @@ var LivingUnit = (function () {
       o.push('<line data-seg="' + segKey(s) + '" x1="' + e.x1 + '" y1="' + e.y1 + '" x2="' + e.x2 + '" y2="' + e.y2 +
         '" stroke="rgba(0,0,0,0)" stroke-width="0.3"/>');
     });
+    // removed stretches of wall: dashed red, and tappable to restore
+    (lay.edits || []).forEach(function (e) {
+      if (!e.cut) return;
+      var on = opt.sel && opt.sel.t === 'cut' && opt.sel.id === e.id;
+      var p1 = e.o === 'h' ? [e.a, e.c] : [e.c, e.a], p2 = e.o === 'h' ? [e.b, e.c] : [e.c, e.b];
+      o.push('<line x1="' + p1[0] + '" y1="' + p1[1] + '" x2="' + p2[0] + '" y2="' + p2[1] + '" stroke="' + (on ? col.sel : '#e53935') +
+        '" stroke-width="' + (on ? 0.09 : 0.05) + '" stroke-dasharray="0.18 0.1" pointer-events="none"/>');
+      if (opt.interactive) o.push('<line data-cut="' + e.id + '" x1="' + p1[0] + '" y1="' + p1[1] + '" x2="' + p2[0] + '" y2="' + p2[1] +
+        '" stroke="rgba(0,0,0,0)" stroke-width="0.35"/>');
+    });
     // drawn walls: a wide transparent line to grab, highlighted when selected
     (lay.walls || []).forEach(function (fw) {
       var on = opt.sel && opt.sel.t === 'wall' && opt.sel.id === fw.id;
@@ -1034,16 +1145,6 @@ var LivingUnit = (function () {
       if (nd.cold && wIn) run(wIn, it, '#1e88e5', '0.15 0.06');
       if (nd.drain && exitP) run(exitP, it, '#6d4c41', '0.25 0.08');
     });
-    // room labels
-    lay.rooms.forEach(function (r) {
-      if (r.w < 0.9 || r.h < 0.7) return;
-      o.push('<text x="' + (r.x + r.w / 2) + '" y="' + (r.y + r.h / 2 - fs * 0.2) + '" fill="' + col.txt +
-        '" font-size="' + fs + '" font-weight="700" text-anchor="middle" opacity=".85" pointer-events="none">' +
-        esc(r.name || roomLabel(r.type)) + '</text>');
-      o.push('<text x="' + (r.x + r.w / 2) + '" y="' + (r.y + r.h / 2 + fs * 0.9) + '" fill="' + col.txt +
-        '" font-size="' + (fs * 0.75) + '" text-anchor="middle" opacity=".6" pointer-events="none">' +
-        n1(r.w * r.h) + ' m\u00b2 \u00b7 ' + n2(r.w) + '\u00d7' + n2(r.h) + '</text>');
-    });
     // items
     lay.items.forEach(function (it) {
       var d = ITEMS[it.kind]; if (!d) return;
@@ -1067,6 +1168,26 @@ var LivingUnit = (function () {
                '" fill="none" stroke="' + (on ? col.sel : col.wall) + '" stroke-width="0.03"/>';
         }
         g += '<rect x="' + (it.x - sz.w / 2 - 0.1) + '" y="' + (it.y - sz.h / 2 - 0.1) + '" width="' + (sz.w + 0.2) + '" height="' + (sz.h + 0.2) + '" fill="transparent"/>';
+      } else if (it.kind === 'door_slide') {
+        var vs = it.rot === 90 || it.rot === 270;
+        var side = (it.rot === 180 || it.rot === 270) ? -1 : 1, dir = it.flip ? -1 : 1;
+        var gap2 = vs
+          ? '<line x1="' + it.x + '" y1="' + (it.y - w / 2) + '" x2="' + it.x + '" y2="' + (it.y + w / 2) + '"'
+          : '<line x1="' + (it.x - w / 2) + '" y1="' + it.y + '" x2="' + (it.x + w / 2) + '" y2="' + it.y + '"';
+        g += gap2 + ' stroke="' + (print ? '#fff' : 'var(--card,#1b2620)') + '" stroke-width="0.24"/>';
+        var off = side * 0.13, sl = dir * w * 0.45;
+        if (vs) {
+          g += '<rect x="' + (it.x + off - 0.025) + '" y="' + (it.y - w / 2 + sl) + '" width="0.05" height="' + w + '" fill="' + (on ? col.sel : col.wall) + '"/>' +
+               '<path d="M' + (it.x + off * 2) + ' ' + (it.y - dir * w * 0.3) + ' L' + (it.x + off * 2) + ' ' + (it.y + dir * w * 0.3) +
+               ' M' + (it.x + off * 2 - 0.08) + ' ' + (it.y + dir * (w * 0.3 - 0.1)) + ' L' + (it.x + off * 2) + ' ' + (it.y + dir * w * 0.3) +
+               ' L' + (it.x + off * 2 + 0.08) + ' ' + (it.y + dir * (w * 0.3 - 0.1)) + '" fill="none" stroke="' + (on ? col.sel : col.wall) + '" stroke-width="0.025"/>';
+        } else {
+          g += '<rect x="' + (it.x - w / 2 + sl) + '" y="' + (it.y + off - 0.025) + '" width="' + w + '" height="0.05" fill="' + (on ? col.sel : col.wall) + '"/>' +
+               '<path d="M' + (it.x - dir * w * 0.3) + ' ' + (it.y + off * 2) + ' L' + (it.x + dir * w * 0.3) + ' ' + (it.y + off * 2) +
+               ' M' + (it.x + dir * (w * 0.3 - 0.1)) + ' ' + (it.y + off * 2 - 0.08) + ' L' + (it.x + dir * w * 0.3) + ' ' + (it.y + off * 2) +
+               ' L' + (it.x + dir * (w * 0.3 - 0.1)) + ' ' + (it.y + off * 2 + 0.08) + '" fill="none" stroke="' + (on ? col.sel : col.wall) + '" stroke-width="0.025"/>';
+        }
+        g += '<rect x="' + (it.x - sz.w / 2 - 0.15) + '" y="' + (it.y - sz.h / 2 - 0.15) + '" width="' + (sz.w + 0.3) + '" height="' + (sz.h + 0.3) + '" fill="transparent"/>';
       } else if (it.kind === 'window') {
         var vw = it.rot === 90 || it.rot === 270;
         var rx = vw ? it.x - 0.1 : it.x - w / 2, ry = vw ? it.y - w / 2 : it.y - 0.1;
@@ -1090,6 +1211,17 @@ var LivingUnit = (function () {
       }
       g += '</g>';
       o.push(g);
+    });
+    // room labels — after the items, with a halo, so furniture never covers a name
+    var halo = 'paint-order="stroke" stroke-linejoin="round" style="stroke:' + (print ? '#ffffff' : 'var(--card-solid,var(--card,#fff))') + ';stroke-width:' + (fs * 0.28) + 'px"';
+    lay.rooms.forEach(function (r) {
+      if (r.w < 0.9 || r.h < 0.7) return;
+      o.push('<text x="' + (r.x + r.w / 2) + '" y="' + (r.y + r.h / 2 - fs * 0.2) + '" fill="' + col.txt +
+        '" font-size="' + fs + '" font-weight="700" text-anchor="middle" pointer-events="none" ' + halo + '>' +
+        esc(r.name || roomLabel(r.type)) + '</text>');
+      o.push('<text x="' + (r.x + r.w / 2) + '" y="' + (r.y + r.h / 2 + fs * 0.9) + '" fill="' + col.txt +
+        '" font-size="' + (fs * 0.75) + '" text-anchor="middle" opacity=".8" pointer-events="none" ' + halo + '>' +
+        n1(r.w * r.h) + ' m\u00b2 \u00b7 ' + n2(r.w) + '\u00d7' + n2(r.h) + '</text>');
     });
     // dimensions
     if (show.dims !== 0) {
@@ -1178,7 +1310,7 @@ var LivingUnit = (function () {
            FLOOR_3D[r.floor || u.floor] || ROOM_3D[r.type] || '#d8d4cc', 'room:' + r.id);
     });
     // walls with their openings cut out
-    var openings = lay.items.filter(function (it) { return it.kind === 'door' || it.kind === 'door_ext' || it.kind === 'window'; });
+    var openings = lay.items.filter(function (it) { return it.kind === 'door' || it.kind === 'door_ext' || it.kind === 'door_slide' || it.kind === 'window'; });
     segs.forEach(function (s) {
       var t = wallThick(s, u), wg = 'seg:' + segKey(s);
       var col = s.outer ? '#d6cfbf' : (s.wet ? '#dfe9ee' : '#efebe2');
@@ -1222,6 +1354,18 @@ var LivingUnit = (function () {
         else face([W3(it.x - w / 2, it.y, d.sill), W3(it.x + w / 2, it.y, d.sill), W3(it.x + w / 2, it.y, zt), W3(it.x - w / 2, it.y, zt)], '#bfe6ff', g, 0.45);
         return;
       }
+      if (it.kind === 'door_slide') {
+        // the leaf on its face of the wall, slid half open, and its track
+        var sd = (it.rot === 180 || it.rot === 270) ? -1 : 1, dr = it.flip ? -1 : 1, tp = Math.min(2.05, Hc), ofs = sd * 0.13;
+        if (vert) {
+          bx(it.x + ofs - 0.02, it.y - w / 2 + dr * w * 0.45, it.x + ofs + 0.02, it.y + w / 2 + dr * w * 0.45, 0.01, tp, '#8d6e63', g);
+          if (Hc > 2.1) bx(it.x + ofs - 0.03, it.y - w / 2, it.x + ofs + 0.03, it.y + w * 1.5, 2.1, 2.16, '#5d5d5d', g);
+        } else {
+          bx(it.x - w / 2 + dr * w * 0.45, it.y + ofs - 0.02, it.x + w / 2 + dr * w * 0.45, it.y + ofs + 0.02, 0.01, tp, '#8d6e63', g);
+          if (Hc > 2.1) bx(it.x - w / 2, it.y + ofs - 0.03, it.x + w * 1.5, it.y + ofs + 0.03, 2.1, 2.16, '#5d5d5d', g);
+        }
+        return;
+      }
       if (it.kind === 'door' || it.kind === 'door_ext') {
         // the leaf, swung open 90 degrees into the room
         var sgn = (it.flip ? -1 : 1) * ((it.rot === 180 || it.rot === 270) ? -1 : 1);
@@ -1260,16 +1404,16 @@ var LivingUnit = (function () {
       face([[ctr[0] - aw * 3.5, ay1 - 0.9, 0.03], [ctr[0] + aw * 3.5, ay1 - 0.9, 0.03], [ctr[0], ay1, 0.03], [ctr[0], ay1, 0.03]], '#e53935', 'north');
     }
     var tags = [
-      { p: [ctr[0], ctr[1] + R, 0], t: '\u2191 ' + tt('צפון', 'เหนือ', 'شمال') + ' N' },
-      { p: [ctr[0] + R, ctr[1], 0], t: tt('מזרח', 'ตะวันออก', 'شرق') + ' E' },
-      { p: [ctr[0], ctr[1] - R, 0], t: tt('דרום', 'ใต้', 'جنوب') + ' S' },
-      { p: [ctr[0] - R, ctr[1], 0], t: tt('מערב', 'ตะวันตก', 'غرب') + ' W' },
-      { p: W3(Lm / 2, Wm + 1.1, 0), t: n2(Lm) + ' m' },
-      { p: W3(-1.1, Wm / 2, 0), t: n2(Wm) + ' m' },
-      { p: W3(0, Wm, Hc / 2), t: '\u2195 ' + n2(H) + ' m' }
+      { p: [ctr[0], ctr[1] + R, 0], t: '\u2191 ' + tt('צפון', 'เหนือ', 'شمال') + ' N', k: 'north' },
+      { p: [ctr[0] + R, ctr[1], 0], t: tt('מזרח', 'ตะวันออก', 'شرق') + ' E', k: 'compass' },
+      { p: [ctr[0], ctr[1] - R, 0], t: tt('דרום', 'ใต้', 'جنوب') + ' S', k: 'compass' },
+      { p: [ctr[0] - R, ctr[1], 0], t: tt('מערב', 'ตะวันตก', 'غرب') + ' W', k: 'compass' },
+      { p: W3(Lm / 2, Wm + 1.1, 0), t: n2(Lm) + ' m', k: 'dim' },
+      { p: W3(-1.1, Wm / 2, 0), t: n2(Wm) + ' m', k: 'dim' },
+      { p: W3(0, Wm, Hc / 2), t: '\u2195 ' + n2(H) + ' m', k: 'dim' }
     ];
     lay.rooms.forEach(function (r) {
-      if (r.w * r.h >= 5) tags.push({ p: W3(r.x + r.w / 2, r.y + r.h / 2, 0.05), t: r.name || roomLabel(r.type) });
+      if (r.w * r.h >= 5) tags.push({ p: W3(r.x + r.w / 2, r.y + r.h / 2, 0.05), t: r.name || roomLabel(r.type), k: 'room', a: r.w * r.h });
     });
 
     return {
@@ -1328,7 +1472,8 @@ var LivingUnit = (function () {
     norm: norm, program: program, takeoff: takeoff, svg: svg, stages: stages,
     autoLayout: autoLayout, layoutOf: layoutOf, walls: walls, quantities: quantities, analyze: analyze,
     model3d: model3d, snapToWall: snapToWall, roomAt: roomAt, itemSize: itemSize, segEnds: segEnds,
-    segKey: segKey, segInfo: segInfo, wallThick: wallThick, itemDims: itemDims,
+    segKey: segKey, segInfo: segInfo, wallThick: wallThick, itemDims: itemDims, segMat: segMat,
+    WALL_MATS: WALL_MATS, matLabel: matLabel,
     labour: labour, FLOORS: FLOORS, floorLabel: floorLabel,
     ITEMS: ITEMS, ROOM_TYPES: ROOM_TYPES, WET: WET, roomLabel: roomLabel, itemLabel: itemLabel, itemSym: itemSym,
     uid: uid
