@@ -286,6 +286,11 @@
     currentUser = user;
     // Make currentUser available globally
     window.currentUser = user;
+    // map-region.js (and anything else role-dependent) listens for this.
+    // Deferred so it fires after showApp has finished laying out the tabs.
+    setTimeout(function () {
+      try { document.dispatchEvent(new CustomEvent('shorashim:user-ready')); } catch (e) {}
+    }, 0);
     document.getElementById('loginScreen').style.display = 'none';
     document.getElementById('mainApp').style.display = 'flex';
     
@@ -1879,6 +1884,10 @@
   // Israel and the immediate surroundings. Panning past this used to leave
   // the imagery entirely and land the user in grey void with no way back.
   var MAP_BOUNDS = L.latLngBounds(L.latLng(29.2, 33.8), L.latLng(33.5, 36.4));
+  // map-region.js can move or widen this lock (admin, org-wide). This is the
+  // default it returns to.
+  var DEFAULT_BOUNDS = MAP_BOUNDS;
+  var regionCustom = false;   // false = default Israel lock, MIN_ZOOM applies
 
   var map = L.map('map', {
     center: [31.8, 35.2], zoom: 13, zoomControl: false,
@@ -1916,6 +1925,35 @@
     });
     satelliteLayer.on('load', function () { fails = 0; });
   })();
+
+  // ── Map region (driven by map-region.js) ──
+  // Swaps the lock on the map AND on both tile layers — the layers carry
+  // their own `bounds`, and leaving them on the old box would paint grey
+  // over the new region. A custom region's zoom floor is "the whole region
+  // fits on screen, one level out", recomputed when the map changes size
+  // (it is 0x0 while another tab is showing).
+  function regionMinZoom() {
+    if (!regionCustom) return MIN_ZOOM;
+    var sz = map.getSize();
+    if (sz.x < 50 || sz.y < 50) return 2;
+    return Math.max(2, Math.min(MAX_NATIVE, map.getBoundsZoom(MAP_BOUNDS, false) - 1));
+  }
+  function setRegion(box, opts) {
+    opts = opts || {};
+    var b = box ? L.latLngBounds(L.latLng(box.south, box.west), L.latLng(box.north, box.east)) : DEFAULT_BOUNDS;
+    if (!b.isValid()) return false;
+    MAP_BOUNDS = b;
+    regionCustom = !!box;
+    satelliteLayer.options.bounds = b;
+    streetLayer.options.bounds = b;
+    map.setMinZoom(regionMinZoom());
+    map.setMaxBounds(b);
+    if (!opts.keepView && !b.contains(map.getCenter())) map.fitBounds(b);
+    satelliteLayer.redraw();
+    streetLayer.redraw();
+    return true;
+  }
+  map.on('resize', function () { map.setMinZoom(regionMinZoom()); });
 
   var drawnItems = new L.FeatureGroup();
   map.addLayer(drawnItems);
@@ -2546,6 +2584,9 @@
   window.MapAccess = {
     getMap: function () { return map; },
     maxZoom: function () { return MAX_ZOOM; },
+    // ── region lock, for map-region.js ──
+    // box = { south, west, north, east } or null for the default (Israel).
+    setRegion: function (box, opts) { return setRegion(box, opts); },
     // ── plot geometry, for plotedit.js ──
     // Rings out, rings in. The editor never touches the plots array, the
     // layer cache or saveData directly — those stay app.js's business, so a

@@ -300,7 +300,7 @@ const HEB = /[\u0590-\u05FF]/;
 const OWN = ['orders.js','agriplan.js',
              'buildplan-core.js', 'buildplan-geom.js', 'buildplan-draw.js', 'buildplan-map.js', 'buildplan-ui.js', 'buildplan-link.js',
              'shed3d.js','rebar.js','buildplan-ledger.js','buildplan-plan.js','stickyactions.js',
-             'plotimport.js', 'plotregister.js', 'livingunit.js', 'livingedit.js', 'livingview3d.js', 'worklogedit.js', 'maintjournal.js'];
+             'plotimport.js', 'plotregister.js', 'livingunit.js', 'livingedit.js', 'livingview3d.js', 'worklogedit.js', 'maintjournal.js', 'map-region.js'];
 OWN.forEach(f => {
   if (!src[f]) return;
   let m = src[f].replace(/\/\*[\s\S]*?\*\//g, x => x.replace(/[^\n]/g, ' '))

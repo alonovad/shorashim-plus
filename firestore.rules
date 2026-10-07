@@ -70,7 +70,9 @@ service cloud.firestore {
         'shorashim-maintenance-access',
         'shorashim-payroll',
         // payslip-form.js — the accountant's monthly hours form (admin only)
-        'shorashim-payslip-form'
+        'shorashim-payslip-form',
+        // map-region.js — which part of the world the map is locked to
+        'shorashim-map-region'
       ];
 
       // Operator+: operational data
