@@ -1968,7 +1968,6 @@
   var undoBar = document.getElementById('undoBar');
   var undoBarText = document.getElementById('undoBarText');
   var undoBarBtn = document.getElementById('undoBarBtn');
-  var undoActionBtn = document.getElementById('undoActionBtn');
   var undoTimer;
 
   function getUserFarms(user) {
@@ -2055,6 +2054,75 @@
     }
   }
 
+  // Leaflet polygons for one plot, built from its stored rings but not yet
+  // added to the map. Shared by load and by undo-of-delete so a restored
+  // plot is drawn exactly as a loaded one.
+  function _buildPlotLayers(p) {
+    if (!p.latlngs || p.latlngs.length === 0) return;
+    var latlngs = p.latlngs.map(function(c) { return L.latLng(c.lat !== undefined ? c.lat : c[0], c.lng !== undefined ? c.lng : c[1]); });
+    p.layer = L.polygon(latlngs, {
+      color: p.color, fillColor: p.color, weight: 3, fillOpacity: 0.25
+    });
+    // Extra parts render as their own polygons in the plot's colour,
+    // dashed so it reads as "same plot, separate piece" rather than as
+    // a second plot that happens to match.
+    if (p.partLayers) {
+      p.partLayers.forEach(function (l) { try { drawnItems.removeLayer(l); } catch (e) {} });
+    }
+    p.partLayers = (p.parts || []).map(function (ring) {
+      return L.polygon(ring.map(function (c) { return L.latLng(c.lat, c.lng); }), {
+        color: p.color, fillColor: p.color, weight: 2,
+        fillOpacity: 0.20, dashArray: '7,5'
+      });
+    });
+  }
+
+  // Puts a built plot on the map with its label and click handlers.
+  function _mountPlotLayers(p) {
+    if (!p.layer) return;
+    p.layer.addTo(drawnItems);
+    (p.partLayers || []).forEach(function (l) { l.addTo(drawnItems); });
+    var center = p.layer.getBounds().getCenter();
+    var label = L.divIcon({
+      className: '',
+      html: '<div style="background:' + p.color + ';color:white;padding:3px 10px;border-radius:8px;' +
+        'font-family:Heebo,sans-serif;font-size:12px;font-weight:700;white-space:nowrap;' +
+        'box-shadow:0 2px 8px rgba(0,0,0,0.3);text-align:center;">' + locName(p) + '</div>',
+      iconAnchor: [0, 0]
+    });
+    p.labelMarker = L.marker(center, { icon: label, interactive: false }).addTo(drawnItems);
+    p.layer.on('click', function() {
+      if (!drawMode) showPlotDetails(p.id);
+    });
+    // A detached part is the plot. Clicking it opened nothing, which
+    // made it look like scenery rather than land you own.
+    (p.partLayers || []).forEach(function (l) {
+      l.on('click', function () { if (!drawMode) showPlotDetails(p.id); });
+      l.bindTooltip(p.name, { direction: 'center', className: 'plot-part-tip' });
+    });
+  }
+
+  // Removes every map layer a plot owns — main polygon, label, and parts.
+  function _unmountPlotLayers(p) {
+    [p.layer, p.labelMarker].concat(p.partLayers || []).forEach(function (l) {
+      if (l) { try { drawnItems.removeLayer(l); } catch (e) {} }
+    });
+  }
+
+  // Everything about a plot except its live Leaflet objects, so undoing a
+  // delete brings back variety, trees, notes, parts — not just the outline.
+  function _plotSnapshot(p) {
+    var snap = {};
+    Object.keys(p).forEach(function (k) {
+      if (k === 'layer' || k === 'labelMarker' || k === 'partLayers') return;
+      snap[k] = p[k];
+    });
+    if (p.layer && typeof p.layer.getLatLngs === 'function') {
+      snap.latlngs = p.layer.getLatLngs()[0].map(function(ll) { return { lat: ll.lat, lng: ll.lng }; });
+    }
+    return JSON.parse(JSON.stringify(snap));
+  }
+
   function _applyPlotData(data) {
       plots = data.plots || [];
       sprayEvents = data.sprayEvents || [];
@@ -2066,53 +2134,11 @@
       drawnItems.clearLayers();
 
       // Build layers for ALL plots (so saveData can read latlngs from any)
-      plots.forEach(function(p) {
-        if (!p.latlngs || p.latlngs.length === 0) return;
-        var latlngs = p.latlngs.map(function(c) { return L.latLng(c.lat !== undefined ? c.lat : c[0], c.lng !== undefined ? c.lng : c[1]); });
-        var layer = L.polygon(latlngs, {
-          color: p.color, fillColor: p.color, weight: 3, fillOpacity: 0.25
-        });
-        p.layer = layer;
-        // Extra parts render as their own polygons in the plot's colour,
-        // dashed so it reads as "same plot, separate piece" rather than as
-        // a second plot that happens to match.
-        if (p.partLayers) {
-          p.partLayers.forEach(function (l) { try { drawnItems.removeLayer(l); } catch (e) {} });
-        }
-        p.partLayers = (p.parts || []).map(function (ring) {
-          return L.polygon(ring.map(function (c) { return L.latLng(c.lat, c.lng); }), {
-            color: p.color, fillColor: p.color, weight: 2,
-            fillOpacity: 0.20, dashArray: '7,5'
-          });
-        });
-      });
+      plots.forEach(_buildPlotLayers);
 
       // Only display accessible plots on map
       var accessiblePlots = getAccessiblePlots();
-      accessiblePlots.forEach(function(p) {
-        if (!p.layer) return;
-        p.layer.addTo(drawnItems);
-        (p.partLayers || []).forEach(function (l) { l.addTo(drawnItems); });
-        var center = p.layer.getBounds().getCenter();
-        var label = L.divIcon({
-          className: '',
-          html: '<div style="background:' + p.color + ';color:white;padding:3px 10px;border-radius:8px;' +
-            'font-family:Heebo,sans-serif;font-size:12px;font-weight:700;white-space:nowrap;' +
-            'box-shadow:0 2px 8px rgba(0,0,0,0.3);text-align:center;">' + locName(p) + '</div>',
-          iconAnchor: [0, 0]
-        });
-        var labelMarker = L.marker(center, { icon: label, interactive: false }).addTo(drawnItems);
-        p.labelMarker = labelMarker;
-        p.layer.on('click', function() {
-          if (!drawMode) showPlotDetails(p.id);
-        });
-        // A detached part is the plot. Clicking it opened nothing, which
-        // made it look like scenery rather than land you own.
-        (p.partLayers || []).forEach(function (l) {
-          l.on('click', function () { if (!drawMode) showPlotDetails(p.id); });
-          l.bindTooltip(p.name, { direction: 'center', className: 'plot-part-tip' });
-        });
-      });
+      accessiblePlots.forEach(_mountPlotLayers);
       colorIdx = plots.length;
       renderPlotList();
       renderPesticideList();
@@ -3335,9 +3361,10 @@
   }
 
   // ── Undo ──
+  // Single-level: the snackbar is the only way to undo, and it only ever
+  // names the latest action, so an older one must not be reachable from it.
   function pushUndo(type, data) {
-    undoStack.push({ type: type, data: data });
-    undoActionBtn.style.display = 'flex';
+    undoStack = [{ type: type, data: data }];
     clearTimeout(undoTimer);
     var msg = type === 'add' ? t('נוספה חלקה') + ' "' + data.name + '"' : t('נמחקה חלקה') + ' "' + data.name + '"';
     undoBarText.textContent = msg;
@@ -3352,46 +3379,25 @@
     if (action.type === 'add') {
       var idx = plots.findIndex(function(p) { return p.id === action.data.id; });
       if (idx >= 0) {
-        var p = plots[idx];
-        drawnItems.removeLayer(p.layer);
-        drawnItems.removeLayer(p.labelMarker);
+        _unmountPlotLayers(plots[idx]);
         plots.splice(idx, 1);
         showToast('↩ "' + action.data.name + '" ' + t('הוסר'));
       }
     } else if (action.type === 'delete') {
       var d = action.data;
-      var latlngs = d.latlngs.map(function(c) { return L.latLng(c.lat !== undefined ? c.lat : c[0], c.lng !== undefined ? c.lng : c[1]); });
-      var layer = L.polygon(latlngs, { color: d.color, fillColor: d.color, weight: 3, fillOpacity: 0.25 }).addTo(drawnItems);
-      var center = layer.getBounds().getCenter();
-      var label = L.divIcon({
-        className: '',
-        html: '<div style="background:' + d.color + ';color:white;padding:3px 10px;border-radius:8px;' +
-          'font-family:Heebo,sans-serif;font-size:12px;font-weight:700;white-space:nowrap;' +
-          'box-shadow:0 2px 8px rgba(0,0,0,0.3);text-align:center;">' + d.name + '</div>',
-        iconAnchor: [0, 0]
-      });
-      var labelMarker = L.marker(center, { icon: label, interactive: false }).addTo(drawnItems);
-      plots.push({ 
-        id: d.id, 
-        name: d.name, 
-        color: d.color, 
-        area: d.area, 
-        farm_id: d.farm_id,
-        layer: layer, 
-        labelMarker: labelMarker, 
-        vertices: d.vertices 
-      });
+      if (plots.some(function (p) { return p.id === d.id; })) return;
+      _buildPlotLayers(d);
+      plots.push(d);
+      _mountPlotLayers(d);
       showToast('↩ "' + d.name + '" ' + t('שוחזר'));
     }
 
     renderPlotList();
     saveData();
     undoBar.classList.remove('show');
-    if (undoStack.length === 0) undoActionBtn.style.display = 'none';
   }
 
   undoBarBtn.addEventListener('click', function(e) { e.stopPropagation(); performUndo(); });
-  undoActionBtn.addEventListener('click', function(e) { e.stopPropagation(); performUndo(); });
 
   // ── Variety + notes helpers (plot fields `variety`, `notes`) ──
   function escAttrPlot(v) {
@@ -3759,15 +3765,8 @@
           }
         }
         
-        var latlngs = [];
-        if (plot.layer && typeof plot.layer.getLatLngs === 'function') {
-          latlngs = plot.layer.getLatLngs()[0].map(function(ll) { return [ll.lat, ll.lng]; });
-        } else if (plot.latlngs) {
-          latlngs = plot.latlngs;
-        }
-        pushUndo('delete', { id: plot.id, name: plot.name, color: plot.color, area: plot.area, vertices: plot.vertices, farm_id: plot.farm_id, latlngs: latlngs });
-        if (plot.layer) drawnItems.removeLayer(plot.layer);
-        if (plot.labelMarker) drawnItems.removeLayer(plot.labelMarker);
+        pushUndo('delete', _plotSnapshot(plot));
+        _unmountPlotLayers(plot);
         var plotIdx = plots.indexOf(plot);
         if (plotIdx !== -1) plots.splice(plotIdx, 1);
         renderPlotList();
