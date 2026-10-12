@@ -87,6 +87,7 @@ var AgriPlan = (function () {
   var _listening = {};
   var _lastSaved = '';
   var _openPlan = null;          // plan id being edited
+  var _rowFilter = { pid: null, q: '' };   // name filter for the open plan's rows (display only)
 
   // ── helpers ──
   function tt(he, th, ar) {
@@ -333,6 +334,26 @@ var AgriPlan = (function () {
   // Repainting replaces innerHTML wholesale, which resets the scroll box to
   // the top — so adding a material on row 20 threw the user back to row 1.
   // Carry scrollTop (and the focused field) across the repaint instead.
+  // ── Name filter ──
+  // "תמרים, ייטב" shows both: comma-separated terms, any one may match.
+  // Spaces, quote marks (" ' ״ ׳) and niqqud are ignored, so 'תמרים 23',
+  // 'תמרים23' and 'תמרים-23' all find the same plot.
+  function normName(v) {
+    return String(v == null ? '' : v).toLowerCase()
+      .replace(/[\u0591-\u05C7]/g, '')
+      .replace(/["'`\u05f3\u05f4\u2019\u201d\s\-_.]/g, '');
+  }
+  function filterTerms(q) {
+    return String(q || '').split(/[,\u060c]/).map(normName).filter(function (t) { return t; });
+  }
+  function matchesAny(terms, texts) {
+    if (!terms.length) return true;
+    var hay = texts.map(normName);
+    return terms.some(function (t) {
+      return hay.some(function (h) { return h.indexOf(t) >= 0; });
+    });
+  }
+
   function paint(html) {
     var m = document.getElementById('modalContainer');
     if (!m) return;
@@ -497,6 +518,7 @@ var AgriPlan = (function () {
     var p = planById(id);
     if (!p) { renderList(); return; }
     _openPlan = id;
+    if (_rowFilter.pid !== id) _rowFilter = { pid: id, q: '' };
     var ro = !canEdit(p);
     var t = totals(p);
 
@@ -504,8 +526,39 @@ var AgriPlan = (function () {
       return '<option value="' + esc(m) + '">';
     }).join('');
 
-    var rows = '';
-    (p.rows || []).forEach(function (r, i) { rows += rowHtml(p, r, i, ro); });
+    // Rows keep their real index i, so edits on a filtered view still land
+    // on the right row; the filter only decides what is drawn.
+    var rows = '', shown = 0, allRows = (p.rows || []).length;
+    var terms = filterTerms(_rowFilter.q);
+    (p.rows || []).forEach(function (r, i) {
+      var pl = r.plotId ? plotById(r.plotId) : null;
+      if (!matchesAny(terms, [r.farmId ? farmName(r.farmId) : '', pl ? pl.name : '', r.cohort || ''])) return;
+      rows += rowHtml(p, r, i, ro);
+      shown++;
+    });
+    if (terms.length && !shown) {
+      rows = '<div class="ap-empty">' +
+        tt('אין שורות שמתאימות לסינון', 'ไม่มีแถวที่ตรงกับตัวกรอง', 'لا صفوف مطابقة للتصفية') + '</div>';
+    }
+    // Lives outside the read-only fieldset below, so a view-only plan can
+    // be filtered too.
+    var filterBar = allRows < 2 ? '' :
+      '<div class="ap-card" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:9px 12px;">' +
+        '<input class="ap-in" data-k="apRowFlt" type="search" style="flex:1;min-width:180px;" ' +
+          'placeholder="\ud83d\udd0d ' + tt('סינון לפי שם מטע / חלקה (אפשר כמה, מופרדים בפסיק)',
+            'กรองตามชื่อสวน/แปลง (คั่นด้วยจุลภาค)', 'تصفية حسب اسم البستان/القطعة (افصل بفاصلة)') + '" ' +
+          'value="' + esc(_rowFilter.q) + '" oninput="AgriPlan._setRowFilter(' + id + ',this.value)">' +
+        (terms.length ?
+          '<span style="font-size:.78rem;color:var(--text-muted,#888);white-space:nowrap;">' +
+            shown + ' / ' + allRows + ' ' + tt('שורות', 'แถว', 'صفوف') + '</span>' +
+          '<button class="ap-btn ghost" data-no-sticky data-no-back style="padding:5px 10px;" ' +
+            'title="' + tt('נקה סינון', 'ล้างตัวกรอง', 'مسح التصفية') + '" ' +
+            'onclick="AgriPlan._setRowFilter(' + id + ',\'\')">\u2715</button>' : '') +
+      '</div>' +
+      (terms.length ? '<div style="font-size:.74rem;color:var(--text-muted,#888);margin:-4px 2px 8px;">' +
+        tt('הסינון משנה רק את התצוגה — הסיכומים, ההדפסה וההזמנה כוללים את כל התוכנית',
+           'ตัวกรองมีผลกับการแสดงผลเท่านั้น — ยอดรวม การพิมพ์ และใบสั่งซื้อรวมทั้งแผน',
+           'التصفية للعرض فقط — المجاميع والطباعة والطلب تشمل الخطة كاملة') + '</div>' : '');
 
     var totHtml = '';
     Object.keys(t.byMat).sort().forEach(function (nm) {
@@ -580,6 +633,7 @@ var AgriPlan = (function () {
       body = '<fieldset disabled style="border:none;padding:0;margin:0;min-width:0;">' +
              body + '</fieldset>';
     }
+    body = filterBar + body;
 
     var bar = ro ?
       ('<button class="ap-btn ghost" onclick="AgriPlan.printPlan(' + id + ')">\ud83d\udda8 ' +
@@ -790,7 +844,7 @@ var AgriPlan = (function () {
       var n = all.filter(function (pl) { return pl.farm_id === f.id; }).length;
       var trees = 0;
       all.forEach(function (pl) { if (pl.farm_id === f.id) trees += Number(pl.tree_count) || 0; });
-      return '<option value="' + f.id + '">' + esc(f.name) + '  \u00b7  ' + n + ' ' +
+      return '<option value="' + f.id + '" data-name="' + esc(f.name) + '">' + esc(f.name) + '  \u00b7  ' + n + ' ' +
         tt('חלקות', 'แปลง', 'قطع') + '  \u00b7  ' + trees.toLocaleString() + ' ' +
         tt('עצים', 'ต้น', 'شجرة') + '</option>';
     }).join('');
@@ -800,9 +854,13 @@ var AgriPlan = (function () {
     host.innerHTML =
       '<div class="ap-card" style="border:1.5px solid var(--primary,#2d6a4f);">' +
         '<div class="ap-lbl">' + tt('בחר מטע להוספה', 'เลือกสวน', 'اختر البستان') + '</div>' +
+        (fs.length > 5 ?
+          '<input class="ap-in" type="search" style="width:100%;margin-bottom:6px;" ' +
+            'placeholder="\ud83d\udd0d ' + tt('סינון לפי שם מטע', 'กรองตามชื่อสวน', 'تصفية حسب اسم البستان') + '" ' +
+            'oninput="AgriPlan._filterFarmPick(this.value)">' : '') +
         '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">' +
           '<select class="ap-in" id="apFarmPick" style="flex:1;min-width:200px;">' + opts + '</select>' +
-          '<button class="ap-btn" onclick="AgriPlan._doSeed(' + pid + ')">\u2795 ' +
+          '<button class="ap-btn" id="apFarmPickAdd" onclick="AgriPlan._doSeed(' + pid + ')">\u2795 ' +
             tt('הוסף', 'เพิ่ม', 'إضافة') + '</button>' +
           '<button class="ap-btn ghost" onclick="AgriPlan._cancelSeed()">' +
             tt('ביטול', 'ยกเลิก', 'إلغاء') + '</button>' +
@@ -816,10 +874,53 @@ var AgriPlan = (function () {
     if (host) host.innerHTML = '';
   }
 
+  function _setRowFilter(pid, v) {
+    _rowFilter = { pid: pid, q: String(v || '') };
+    showPlan(pid);
+  }
+
+  // Pickers filter in place — no repaint, so ticked boxes survive typing.
+  function _filterFarmPick(v) {
+    var sel = document.getElementById('apFarmPick');
+    if (!sel) return;
+    var terms = filterTerms(v), first = null;
+    Array.prototype.forEach.call(sel.options, function (o) {
+      var ok = matchesAny(terms, [o.getAttribute('data-name') || '']);
+      o.hidden = !ok; o.disabled = !ok;   // iOS ignores hidden on <option>
+      if (ok && first === null) first = o.value;
+    });
+    if (sel.selectedOptions[0] && sel.selectedOptions[0].disabled) sel.value = first === null ? '' : first;
+    var add = document.getElementById('apFarmPickAdd');
+    if (add) add.disabled = first === null;
+  }
+  function _filterPlotPick(v) {
+    var terms = filterTerms(v), shown = 0;
+    Array.prototype.forEach.call(document.querySelectorAll('.apPickGrp'), function (g) {
+      var farmHit = terms.length && matchesAny(terms, [g.getAttribute('data-name') || '']);
+      var any = false;
+      Array.prototype.forEach.call(g.querySelectorAll('.apPickLbl'), function (l) {
+        var ok = farmHit || matchesAny(terms, [l.getAttribute('data-name') || '']);
+        l.style.display = ok ? 'inline-flex' : 'none';
+        if (ok) { any = true; shown++; }
+      });
+      g.style.display = any ? '' : 'none';
+    });
+    var none = document.getElementById('apPickNone');
+    if (none) none.style.display = shown ? 'none' : '';
+  }
+  function _pickShown() {
+    Array.prototype.forEach.call(document.querySelectorAll('.apPickLbl'), function (l) {
+      if (l.style.display === 'none' || l.closest('.apPickGrp').style.display === 'none') return;
+      var c = l.querySelector('.apPickPlot');
+      if (c && !c.disabled) c.checked = true;
+    });
+  }
+
   function _doSeed(pid) {
     var p = editable(pid);
     var sel = document.getElementById('apFarmPick');
     if (!p || !sel) return;
+    if (sel.value === '') return;
     var fid = Number(sel.value);
     var prev = p.rows[p.rows.length - 1];
     var added = 0;
@@ -995,14 +1096,14 @@ var AgriPlan = (function () {
     var html = '';
     Object.keys(byFarm).forEach(function (fid) {
       var list = byFarm[fid].map(function (pl) {
-        return '<label style="display:inline-flex;gap:5px;align-items:center;margin:3px 10px 3px 0;font-size:.8rem;' +
+        return '<label class="apPickLbl" data-name="' + esc(pl.name) + '" style="display:inline-flex;gap:5px;align-items:center;margin:3px 10px 3px 0;font-size:.8rem;' +
           (have[pl.id] ? 'opacity:.5;' : '') + '">' +
           '<input type="checkbox" class="apPickPlot" value="' + pl.id + '"' +
           (have[pl.id] ? ' disabled' : '') + '> ' + esc(pl.name) +
           ' <span style="color:var(--text-muted,#888);">' +
           (Number(pl.tree_count) || 0).toLocaleString() + '</span></label>';
       }).join('');
-      html += '<div style="margin-bottom:8px;">' +
+      html += '<div class="apPickGrp" data-name="' + esc(farmName(Number(fid))) + '" style="margin-bottom:8px;">' +
         '<div style="font-weight:700;font-size:.84rem;margin-bottom:2px;">' +
           '\ud83c\udf33 ' + esc(farmName(Number(fid))) +
           ' <button class="ap-btn ghost" style="padding:3px 8px;font-size:.7rem;" ' +
@@ -1015,7 +1116,18 @@ var AgriPlan = (function () {
       '<div class="ap-card" style="border:1.5px solid var(--primary,#2d6a4f);">' +
         '<div style="font-weight:800;margin-bottom:6px;">\ud83c\udf33 ' +
           tt('בחירת חלקות לתוכנית', 'เลือกแปลง', 'اختيار القطع') + '</div>' +
-        '<div style="max-height:46vh;overflow:auto;">' + html + '</div>' +
+        '<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap;">' +
+          '<input class="ap-in" type="search" style="flex:1;min-width:180px;" ' +
+            'placeholder="\ud83d\udd0d ' + tt('סינון לפי שם מטע / חלקה (אפשר כמה, מופרדים בפסיק)',
+              'กรองตามชื่อสวน/แปลง (คั่นด้วยจุลภาค)', 'تصفية حسب اسم البستان/القطعة (افصل بفاصلة)') + '" ' +
+            'oninput="AgriPlan._filterPlotPick(this.value)">' +
+          '<button class="ap-btn ghost" style="padding:5px 10px;font-size:.76rem;" onclick="AgriPlan._pickShown()">\u2611 ' +
+            tt('סמן את המוצגים', 'เลือกที่แสดง', 'تحديد المعروض') + '</button>' +
+        '</div>' +
+        '<div style="max-height:46vh;overflow:auto;">' + html +
+          '<div id="apPickNone" class="ap-empty" style="display:none;">' +
+            tt('אין חלקות שמתאימות לסינון', 'ไม่มีแปลงที่ตรงกับตัวกรอง', 'لا قطع مطابقة للتصفية') + '</div>' +
+        '</div>' +
         '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">' +
           '<button class="ap-btn" onclick="AgriPlan._addPicked(' + pid + ')">\u2795 ' +
             tt('הוסף לתוכנית', 'เพิ่ม', 'إضافة') + '</button>' +
@@ -1032,6 +1144,8 @@ var AgriPlan = (function () {
       if ((pl.farm_id == null ? 0 : pl.farm_id) === fid) ids[pl.id] = true;
     });
     Array.prototype.forEach.call(document.querySelectorAll('.apPickPlot'), function (c) {
+      var lbl = c.closest('.apPickLbl');
+      if (lbl && lbl.style.display === 'none') return;   // filtered out
       if (ids[Number(c.value)] && !c.disabled) c.checked = true;
     });
   }
@@ -1321,6 +1435,10 @@ var AgriPlan = (function () {
     _theme: _theme,
     _doSeed: _doSeed,
     _cancelSeed: _cancelSeed,
+    _setRowFilter: _setRowFilter,
+    _filterFarmPick: _filterFarmPick,
+    _filterPlotPick: _filterPlotPick,
+    _pickShown: _pickShown,
     printPlan: printPlan,
     toOrder: toOrder,
     save: save,
