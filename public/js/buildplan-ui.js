@@ -24,6 +24,12 @@
     var m = document.getElementById('modalContainer');
     if (m) m.innerHTML = '';
   };
+  // The sheet's ✕ button. BP.close() stays a plain close because the map
+  // and living-unit hand-offs call it on purpose; only the button returns
+  // to the maintenance list when that is where construction was opened.
+  BP.dismiss = function dismiss() {
+    if (window.ModalReturn) ModalReturn.dismiss('buildplan'); else BP.close();
+  };
   // Same cure as agriplan: _dim() repaints on every slider tick, and a
   // wholesale innerHTML swap resets scrollTop, so dragging a slider halfway
   // down the sheet would fling the view back to the top mid-drag.
@@ -136,7 +142,7 @@
     ensureCss();
     return '<div class="bp-back" id="bpRoot"><div class="bp-sheet">' +
       '<div class="bp-head"><div><h3>' + title + '</h3></div>' +
-      '<button class="bp-btn ghost" onclick="BuildPlan.close()">\u2715 ' +
+      '<button class="bp-btn ghost" onclick="BuildPlan.dismiss()">\u2715 ' +
         BP.tt('סגור', 'ปิด', 'إغلاق') + '</button></div>' +
       '<div class="bp-bar">' + bar + '</div>' + body + '</div></div>';
   };
@@ -353,6 +359,7 @@
   };
 
   BP.open = function open(id) {
+    if (window.ModalReturn) ModalReturn.enter('buildplan');
     var p = BP.projById(id);
     if (!p) { BP.render(); return; }
     // Grab the view before paint() destroys the canvas. Switching to a

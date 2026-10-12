@@ -55,6 +55,7 @@ var APP_URLS = [
   '/js/frame.js',
   '/js/display-settings.js',
   '/js/stickyactions.js',
+  '/js/exitguard.js',
   '/js/maintenance.js',
   '/js/maintjournal.js',
   '/js/maintenance-schedule.js',

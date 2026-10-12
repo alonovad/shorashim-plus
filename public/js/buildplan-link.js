@@ -779,6 +779,7 @@
     openMaint: openMaint,
     backToMaint: function () { BP.close(); if (typeof Maintenance !== 'undefined') Maintenance.showProjectsList(); },
     close: BP.close,
+    dismiss: function () { BP.dismiss(); },
     render: BP.render,
     newProject: BP.newProject,
     delProject: BP.delProject,

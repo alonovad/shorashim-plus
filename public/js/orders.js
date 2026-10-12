@@ -275,12 +275,20 @@ var Orders = (function () {
     if (m) m.innerHTML = '';
   }
 
+  // The ✕ button. Opened from the maintenance list or the crop plan, it
+  // goes back there instead of emptying the screen out from under it.
+  function dismiss() {
+    if (window.ModalReturn) ModalReturn.dismiss('orders'); else close();
+  }
+
   function open() {
     if (!isManager()) { toast('\u26d4 ' + tt('אין הרשאה', 'ไม่มีสิทธิ์', 'لا صلاحية')); return; }
+    if (window.ModalReturn) ModalReturn.enter('orders');
     loadAll().then(function () { listen(); render(); });
   }
   function openSuppliers() {
     if (!isManager()) { toast('\u26d4 ' + tt('אין הרשאה', 'ไม่มีสิทธิ์', 'لا صلاحية')); return; }
+    if (window.ModalReturn) ModalReturn.enter('orders');
     loadAll().then(function () { listen(); renderSuppliers(); });
   }
 
@@ -322,7 +330,7 @@ var Orders = (function () {
     ensureCss();
     return '<div class="ord-back" id="ordRoot"><div class="ord-sheet">' +
       '<div class="ord-head"><div><h3>' + title + '</h3></div>' +
-      '<button class="ord-btn ghost" onclick="Orders.close()">\u2715 ' +
+      '<button class="ord-btn ghost" onclick="Orders.dismiss()">\u2715 ' +
         tt('סגור', 'ปิด', 'إغلاق') + '</button></div>' +
       '<div class="ord-bar">' + bar + '</div>' + body + '</div></div>';
   }
@@ -637,6 +645,7 @@ var Orders = (function () {
     var o = ordById(id);
     if (!o) return;
     var sup = supById(o.supplierId);
+    if (window.ExitGuard) ExitGuard.allowLeave();
     window.location.href = 'mailto:' + encodeURIComponent((sup && sup.email) || '') +
       '?subject=' + encodeURIComponent(o.no + ' \u2014 ' + o.title) +
       '&body=' + encodeURIComponent(orderText(o));
@@ -799,6 +808,7 @@ var Orders = (function () {
   return {
     open: open,
     close: close,
+    dismiss: dismiss,
     render: render,
     openSuppliers: openSuppliers,
     renderSuppliers: renderSuppliers,

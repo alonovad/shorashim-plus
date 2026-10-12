@@ -765,6 +765,7 @@
     }
     _viewAsAdmin = null;
     window.__viewAsAdmin = null;
+    if (window.ExitGuard) ExitGuard.allowLeave();
     location.reload();
   }
   window.__exitViewAs = exitViewAs;

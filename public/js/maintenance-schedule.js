@@ -178,6 +178,7 @@ var MaintSchedule = (function() {
   //  ENTRY
   // ═══════════════════════════════════════════════
   function show() {
+    if (window.ModalReturn) ModalReturn.enter('msched');
     _initSync();
     var jobs = [ loadEvents() ];
     jobs.push(hasMaint() && typeof Maintenance.loadAccess === 'function' ? Maintenance.loadAccess() : Promise.resolve({}));
@@ -298,7 +299,12 @@ var MaintSchedule = (function() {
 
   function _hoverOut() { _hideHover(); }
 
-  function _close() { _hideHover(); var m = document.getElementById('modalContainer'); if (m) m.innerHTML = ''; }
+  // Back to the maintenance list when that is where the schedule was opened.
+  function _close() {
+    _hideHover();
+    if (window.ModalReturn) { ModalReturn.dismiss('msched'); return; }
+    var m = document.getElementById('modalContainer'); if (m) m.innerHTML = '';
+  }
 
   // ── Month grid ──
   function _renderMonth() {

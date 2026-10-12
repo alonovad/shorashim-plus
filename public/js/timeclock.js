@@ -781,7 +781,7 @@ var TimeClock = (function() {
       html += '<button onclick="TimeClock.showCropAdmin();TimeClock.closeMenu()" style="' + menuBtn + 'background:#e8f5e9;">' + tt('🌱 סוגי גידולים', '🌱 ประเภทพืช', '🌱 أنواع المحاصيل') + '</button>';
     }
     html += '<button onclick="DisplaySettings.showSettings();TimeClock.closeMenu()" style="' + menuBtn + 'background:#e0f7fa;">' + tt('🎨 הגדרות תצוגה', '🎨 การตั้งค่าการแสดงผล', '🎨 إعدادات العرض') + '</button>';
-    html += '<button onclick="location.reload(true)" style="' + menuBtn + 'background:#e3f2fd;">' + tt('🔄 רענן אפליקציה', '🔄 รีเฟรชแอป', '🔄 تحديث التطبيق') + '</button>';
+    html += '<button onclick="if(window.ExitGuard)ExitGuard.allowLeave();location.reload(true)" style="' + menuBtn + 'background:#e3f2fd;">' + tt('🔄 רענן אפליקציה', '🔄 รีเฟรชแอป', '🔄 تحديث التطبيق') + '</button>';
     html += '</div>';
 
     // ── Bottom actions ──
@@ -1497,7 +1497,7 @@ var TimeClock = (function() {
         }
 
         if (typeof showToast === 'function') showToast('✅ ' + tt('גיבוי שוחזר — רענן את הדף', 'กู้คืนแล้ว — รีเฟรชหน้า', 'تمت الاستعادة — حدّث الصفحة'));
-        setTimeout(function() { location.reload(); }, 2000);
+        setTimeout(function() { if (window.ExitGuard) ExitGuard.allowLeave(); location.reload(); }, 2000);
       } catch(err) {
         if (typeof showToast === 'function') showToast('❌ ' + tt('שגיאה', 'ข้อผิดพลาด', 'خطأ') + ': ' + err.message);
       }
@@ -1558,9 +1558,11 @@ var TimeClock = (function() {
       closeMenu();
       if (typeof firebase !== 'undefined' && firebase.auth) {
         firebase.auth().signOut().then(function() {
+          if (window.ExitGuard) ExitGuard.allowLeave();
           location.reload();
         });
       } else {
+        if (window.ExitGuard) ExitGuard.allowLeave();
         location.reload();
       }
     }
