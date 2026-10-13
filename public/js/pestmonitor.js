@@ -57,6 +57,8 @@ var PestMonitor = (function () {
   var year = String(new Date().getFullYear());
   var listening = {};    // year -> true
   var lastSaved = '';    // guards DB.listen re-render loops on our own write
+  var plotsOpen = false; // plot picker folded away by default; kept across repaints
+  var farmOpen = {};     // farm id -> its plot list is expanded
 
   function tt(he, th, ar) {
     return (typeof window.tt === 'function') ? window.tt(he, th, ar) : he;
@@ -67,6 +69,32 @@ var PestMonitor = (function () {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
     });
   }
+  // Visit dates are stored and printed as dd/mm/yyyy (as they always were),
+  // but entered through the native date picker, which speaks yyyy-mm-dd.
+  // A legacy free-text date that cannot be read stays a text field, so
+  // nothing already in a season is lost or rewritten.
+  function pad2(n) { return (n < 10 ? '0' : '') + n; }
+  function dmyToIso(d) {
+    var t = String(d || '').trim();
+    var m = t.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})$/);
+    if (m) {
+      var y = m[3].length === 2 ? '20' + m[3] : m[3];
+      var dd = +m[1], mm = +m[2];
+      if (dd >= 1 && dd <= 31 && mm >= 1 && mm <= 12) return y + '-' + pad2(mm) + '-' + pad2(dd);
+      return null;
+    }
+    if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t;
+    return null;
+  }
+  function isoToDmy(iso) {
+    var m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    return m ? m[3] + '/' + m[2] + '/' + m[1] : '';
+  }
+  function todayDmy() {
+    var n = new Date();
+    return pad2(n.getDate()) + '/' + pad2(n.getMonth() + 1) + '/' + n.getFullYear();
+  }
+
   function key() { return KEY_PREFIX + year; }
 
   function blankSeason() {
@@ -246,7 +274,13 @@ var PestMonitor = (function () {
       visitsCard() +
       '</div></div>';
 
+    var prevRoot = document.getElementById('pmRoot');
+    var top = prevRoot ? prevRoot.scrollTop : 0;
     m.innerHTML = html;
+    // Every tick re-renders; without this the sheet jumped back to the top
+    // each time a plot was ticked inside the (long) picker.
+    var nextRoot = document.getElementById('pmRoot');
+    if (nextRoot && top) nextRoot.scrollTop = top;
     wire();
   }
 
@@ -281,32 +315,53 @@ var PestMonitor = (function () {
       if (!byFarm[fid]) byFarm[fid] = [];
       byFarm[fid].push(p);
     });
+    var sel = selectedPlots();
+    var selByFarm = {};
+    sel.forEach(function (p) { var f = p.farm_id || 0; selByFarm[f] = (selByFarm[f] || 0) + 1; });
+    var picked = Object.keys(selByFarm).map(function (f) {
+      return farmName(parseInt(f, 10) || 0) + ' (' + selByFarm[f] + ')';
+    }).join(', ');
+
     var body = '';
     Object.keys(byFarm).forEach(function (fid) {
       var list = byFarm[fid];
       var fidNum = parseInt(fid, 10) || 0;
-      var on = list.every(function (p) { return S.selected[p.id]; });
+      var n = list.filter(function (p) { return S.selected[p.id]; }).length;
+      var open = !!farmOpen[fidNum];
+      // The farm checkbox sits OUTSIDE the fold button: ticking a whole
+      // farm must not also open or close its list.
       body += '<div class="pm-farm">' +
-        '<label class="pm-farm-head"><input type="checkbox" class="pm-farm-cb" data-farm="' + fidNum + '"' +
-          (on ? ' checked' : '') + '> <b>\ud83c\udf33 ' + esc(farmName(fidNum)) + '</b>' +
-          '<span class="pm-n">' + list.filter(function (p) { return S.selected[p.id]; }).length +
-          '/' + list.length + '</span></label>';
+        '<div class="pm-farm-head">' +
+          '<input type="checkbox" class="pm-farm-cb" data-farm="' + fidNum + '"' +
+            (n === list.length ? ' checked' : '') + ' data-some="' + (n > 0 && n < list.length ? 1 : 0) + '"' +
+            ' aria-label="' + esc(farmName(fidNum)) + '">' +
+          '<button type="button" class="pm-farm-tog" data-no-back data-farm-tog="' + fidNum + '" aria-expanded="' + open + '">' +
+            '<b>\ud83c\udf33 ' + esc(farmName(fidNum)) + '</b>' +
+            '<span class="pm-n">' + n + '/' + list.length + '</span>' +
+            '<span class="pm-chev">' + (open ? '\u25b4' : '\u25be') + '</span>' +
+          '</button>' +
+        '</div>' +
+        '<div class="pm-farm-plots" data-farm-plots="' + fidNum + '"' + (open ? '' : ' hidden') + '>';
       list.forEach(function (p) {
         body += '<label class="pm-plot"><input type="checkbox" class="pm-plot-cb" value="' + p.id + '"' +
           (S.selected[p.id] ? ' checked' : '') + '> <span>' + esc(p.name) + '</span>' +
           '<span class="pm-dunam">' + (p.area ? (Math.round(p.area * 10) / 10) + ' ' +
             tt('\u05d3\u05d5\u05e0\u05dd', '\u0e44\u0e23\u0e48', '\u062f\u0648\u0646\u0645') : '') + '</span></label>';
       });
-      body += '</div>';
+      body += '</div></div>';
     });
     if (!all.length) {
-      body = '<div class="pm-empty">' + tt('\u05d0\u05d9\u05df \u05d7\u05dc\u05e7\u05d5\u05ea \u05d1\u05de\u05e4\u05d4',
-        '\u0e44\u0e21\u0e48\u0e21\u0e35\u0e41\u0e1b\u0e25\u0e07', '\u0644\u0627 \u062a\u0648\u062c\u062f \u0642\u0637\u0639') + '</div>';
+      body = '<div class="pm-empty">' + tt('\u05d0\u05d9\u05df \u05d7\u05dc\u05e7\u05d5\u05ea \u05d1\u05de\u05e4\u05d4', '\u0e44\u0e21\u0e48\u0e21\u0e35\u0e41\u0e1b\u0e25\u0e07', '\u0644\u0627 \u062a\u0648\u062c\u062f \u0642\u0637\u0639') + '</div>';
     }
-    return '<div class="pm-card">' +
-      '<h4>' + tt('\u05d7\u05dc\u05e7\u05d5\u05ea', '\u0e41\u0e1b\u0e25\u0e07', '\u0627\u0644\u0642\u0637\u0639') +
-        '<span class="pm-n">' + selectedPlots().length + ' ' +
-        tt('\u05de\u05e1\u05d5\u05de\u05e0\u05d5\u05ea', '\u0e40\u0e25\u0e37\u0e2d\u0e01', '\u0645\u062d\u062f\u062f\u0629') + '</span></h4>' +
+    // Folded by default: the season grid is the daily work, the plot list
+    // is set once. The summary line still says what is ticked.
+    return '<details class="pm-card pm-plots"' + (plotsOpen ? ' open' : '') + '>' +
+      '<summary>' +
+        '<span>' + tt('\u05d7\u05dc\u05e7\u05d5\u05ea \u05dc\u05d3\u05d5\u05d7', '\u0e41\u0e1b\u0e25\u0e07\u0e43\u0e19\u0e23\u0e32\u0e22\u0e07\u0e32\u0e19', '\u0627\u0644\u0642\u0637\u0639 \u0641\u064a \u0627\u0644\u062a\u0642\u0631\u064a\u0631') + '</span>' +
+        '<span class="pm-n">' + sel.length + ' ' + tt('\u05de\u05e1\u05d5\u05de\u05e0\u05d5\u05ea', '\u0e40\u0e25\u0e37\u0e2d\u0e01', '\u0645\u062d\u062f\u062f\u0629') +
+          (picked ? ' \u00b7 ' + esc(picked) : '') + '</span>' +
+        '<span class="pm-chev">\u25be</span>' +
+      '</summary>' +
       '<div class="pm-body">' +
         '<p class="pm-hint">' + tt('\u05de\u05e1\u05d5\u05de\u05df = \u05d9\u05d9\u05db\u05dc\u05dc \u05d1\u05d4\u05d3\u05e4\u05e1\u05d4. \u05dc\u05db\u05dc \u05d7\u05dc\u05e7\u05d4 \u05de\u05d5\u05d3\u05e4\u05e1 \u05d3\u05d5\u05d7 \u05e0\u05e4\u05e8\u05d3.',
           '\u0e40\u0e25\u0e37\u0e2d\u0e01 = \u0e23\u0e27\u0e21\u0e2d\u0e22\u0e39\u0e48\u0e43\u0e19\u0e01\u0e32\u0e23\u0e1e\u0e34\u0e21\u0e1e\u0e4c',
@@ -314,9 +369,9 @@ var PestMonitor = (function () {
         body +
         '<div class="pm-row"><button type="button" class="pm-btn ghost" onclick="PestMonitor.selectAll(true)">' +
           tt('\u05e1\u05d9\u05de\u05d5\u05df \u05d4\u05db\u05dc', '\u0e40\u0e25\u0e37\u0e2d\u0e01\u0e17\u0e31\u0e49\u0e07\u0e2b\u0e21\u0e14', '\u062a\u062d\u062f\u064a\u062f \u0627\u0644\u0643\u0644') + '</button>' +
-        '<button type="button" class="pm-btn ghost" onclick="PestMonitor.selectAll(false)">' +
+        '<button type="button" class="pm-btn ghost" data-no-sticky data-no-back onclick="PestMonitor.selectAll(false)">' +
           tt('\u05d1\u05d9\u05d8\u05d5\u05dc \u05e1\u05d9\u05de\u05d5\u05df', '\u0e25\u0e49\u0e32\u0e07', '\u0625\u0644\u063a\u0627\u0621') + '</button></div>' +
-      '</div></div>';
+      '</div></details>';
   }
 
   function visitsCard() {
@@ -326,8 +381,12 @@ var PestMonitor = (function () {
       '<th class="pm-wide">' + tt('\u05d4\u05e2\u05e8\u05d5\u05ea', '\u0e2b\u0e21\u0e32\u0e22\u0e40\u0e2b\u0e15\u0e38', '\u0645\u0644\u0627\u062d\u0638\u0627\u062a') + '</th><th></th>';
 
     var rows = S.visits.map(function (v, i) {
-      var cells = '<td class="pm-mid"><input data-v="' + i + '" data-f="d" value="' + esc(v.d) +
-        '" placeholder="dd/mm/yyyy"></td>';
+      var iso = v.d ? dmyToIso(v.d) : '';
+      var cells = (iso === null) ?
+        // Unreadable legacy text: leave it editable as typed.
+        '<td class="pm-mid"><input data-v="' + i + '" data-f="d" value="' + esc(v.d) +
+          '" placeholder="dd/mm/yyyy"></td>' :
+        '<td class="pm-mid"><input type="date" data-v="' + i + '" data-f="d" value="' + iso + '"></td>';
       S.pests.forEach(function (p, j) {
         cells += '<td class="pm-mid"><input list="pmRatings" data-v="' + i + '" data-f="r" data-j="' + j +
           '" value="' + esc((v.r || [])[j] || '') + '"></td>';
@@ -406,6 +465,22 @@ var PestMonitor = (function () {
       open();
     });
 
+    var det = document.querySelector('.pm-plots');
+    if (det) det.addEventListener('toggle', function () { plotsOpen = det.open; });
+    document.querySelectorAll('[data-farm-tog]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var fid = b.getAttribute('data-farm-tog');
+        farmOpen[fid] = !farmOpen[fid];
+        var box = document.querySelector('[data-farm-plots="' + fid + '"]');
+        if (box) box.hidden = !farmOpen[fid];
+        b.setAttribute('aria-expanded', String(!!farmOpen[fid]));
+        var ch = b.querySelector('.pm-chev');
+        if (ch) ch.textContent = farmOpen[fid] ? '\u25b4' : '\u25be';
+      });
+    });
+    // A farm with some plots ticked shows the dash state, not empty.
+    document.querySelectorAll('.pm-farm-cb[data-some="1"]').forEach(function (cb) { cb.indeterminate = true; });
+
     document.querySelectorAll('.pm-plot-cb').forEach(function (cb) {
       cb.addEventListener('change', function () {
         var id = parseInt(cb.value, 10);
@@ -438,6 +513,8 @@ var PestMonitor = (function () {
           var j = parseInt(el.getAttribute('data-j'), 10);
           if (!Array.isArray(v.r)) v.r = [];
           v.r[j] = el.value;
+        } else if (f === 'd' && el.type === 'date') {
+          v.d = isoToDmy(el.value);
         } else {
           v[f] = el.value;
         }
@@ -576,7 +653,7 @@ var PestMonitor = (function () {
     close: close,
     print: print,
     addVisit: function () {
-      S.visits.push({ d: '', r: [], rec: (S.visits[0] && S.visits[0].rec) || RECS[0], n: '' });
+      S.visits.push({ d: todayDmy(), r: [], rec: (S.visits[0] && S.visits[0].rec) || RECS[0], n: '' });
       persist(); render();
     },
     fillRec: function () {

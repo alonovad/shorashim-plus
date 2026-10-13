@@ -23,7 +23,8 @@
  * 3. RETURNING TO THE OPENER (window.ModalReturn)
  *    Every screen shares #modalContainer, so a department opened from
  *    inside another (Orders / Construction / Maintenance schedule from the
- *    maintenance list, Orders from the crop plan) used to close by emptying
+ *    maintenance list, Orders from the crop plan, the individual field
+ *    reports from the season monitoring screen) used to close by emptying
  *    the container — dropping the user out of maintenance altogether. A
  *    department now calls ModalReturn.enter(key) when it opens and
  *    ModalReturn.dismiss(key) from its close button; dismiss goes back to
@@ -61,6 +62,10 @@
     maint: {
       test: function (m) { return !!m.querySelector('[data-maint-view]'); },
       reopen: function () { if (window.Maintenance && Maintenance.showProjectsList) Maintenance.showProjectsList(); }
+    },
+    pestmon: {
+      test: function (m) { return !!m.querySelector('#pmRoot'); },
+      reopen: function () { if (window.PestMonitor && PestMonitor.open) PestMonitor.open(); }
     },
     agriplan: {
       test: function (m) { return !!m.querySelector('#apRoot'); },
@@ -160,14 +165,19 @@
   });
 
   // ── What counts as "the way out" of a window ──
-  var RX_BACK = /חזרה|חזור|กลับ|رجوع|العودة|←/;   // חזרה חזור กลับ رجوع العودة ←
-  var RX_CANCEL = /ביטול|ยกเลิก|إلغاء/;  // ביטול ยกเลิก إلغاء
-  var RX_CLOSE = /סגור|ปิด|إغلاق|^\s*[✕✖×xX]\s*$|^\s*[✕✖×]\s/;   // סגור ปิด إغلاق ✕ ×
+  // Matched against the label with emoji/symbols stripped. BACK may lead a
+  // longer label ("חזרה לרשימה"); CANCEL and CLOSE must BE the label, because
+  // "ביטול סימון" (clear all ticks) is an action, not a way out.
+  var RX_BACK = /^(\u05d7\u05d6\u05e8\u05d4|\u05d7\u05d6\u05d5\u05e8|\u0e01\u0e25\u0e31\u0e1a|\u0631\u062c\u0648\u0639|\u0627\u0644\u0639\u0648\u062f\u0629)/;   // חזרה חזור กลับ رجوع العودة
+  var RX_CANCEL = /^(\u05d1\u05d9\u05d8\u05d5\u05dc|\u0e22\u0e01\u0e40\u0e25\u0e34\u0e01|\u0625\u0644\u063a\u0627\u0621)$/;   // ביטול ยกเลิก إلغاء
+  var RX_CLOSE = /^(\u05e1\u05d2\u05d5\u05e8|\u0e1b\u0e34\u0e14|\u0625\u063a\u0644\u0627\u0642)$/;   // סגור ปิด إغلاق
+  var RX_X = /[\u2715\u2716\u00d7]/;       // ✕ ✖ ×
+  var RX_LEFT = /^\s*\u2190/;               // ← leading a label
   // A save is never a way out, even when worded "שמור וחזור".
-  var RX_COMMIT = /שמור|שמירה|אישור|บันทึก|ตกลง|حفظ|موافق/;
+  var RX_COMMIT = /\u05e9\u05de\u05d5\u05e8|\u05e9\u05de\u05d9\u05e8\u05d4|\u05d0\u05d9\u05e9\u05d5\u05e8|\u0e1a\u0e31\u0e19\u0e17\u0e36\u0e01|\u0e15\u0e01\u0e25\u0e07|\u062d\u0641\u0638|\u0645\u0648\u0627\u0641\u0642/;
   // ↩ means "back" in some sheets and "restore"/"un-void" in others, so it
   // only counts when its handler is a navigation call.
-  var RX_UNDO_ARROW = /↩/;
+  var RX_UNDO_ARROW = /\u21a9/;
   var RX_NAV_HANDLER = /\.(render\w*|open\w*|show\w*|backTo\w*|close\w*|cancel\w*|dismiss)\s*\(/i;
   // Same refusals as stickyactions.js — a bare ✕ is also the row-remove glyph.
   var DESTRUCTIVE_ATTR = /(^|[^a-z])(_?del|delete|remove|destroy|trash|clear|restore|unvoid|undo|save|submit)/i;
@@ -193,9 +203,13 @@
     if (!txt || txt.length > 26) return 0;
     if (/🗑/.test(txt) || RX_COMMIT.test(txt)) return 0;
     if (RX_UNDO_ARROW.test(txt)) return RX_NAV_HANDLER.test(on) ? 3 : 0;
-    if (RX_BACK.test(txt)) return 3;
-    if (RX_CANCEL.test(txt)) return 2;
-    if (RX_CLOSE.test(txt)) return 1;
+    var core = txt.replace(/[^\u0590-\u05ff\u0e00-\u0e7f\u0600-\u06ffa-zA-Z0-9 ]/g, ' ')
+                  .replace(/\s+/g, ' ').trim();
+    if (RX_BACK.test(core)) return 3;
+    if (RX_LEFT.test(txt) && (!core || RX_NAV_HANDLER.test(on))) return 3;
+    if (RX_CANCEL.test(core)) return 2;
+    if (RX_CLOSE.test(core)) return 1;
+    if (!core && RX_X.test(txt)) return 1;     // a bare ✕
     return 0;
   }
   function wayOut(root) {

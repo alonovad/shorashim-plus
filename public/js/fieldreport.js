@@ -311,7 +311,7 @@ var FieldReport = (function() {
           // Buttons
           '<div style="display:flex;gap:8px;margin-top:4px;">' +
             '<button onclick="FieldReport._saveReport()" style="flex:1;padding:12px;border-radius:10px;border:none;background:#4caf50;color:white;font-family:inherit;font-weight:700;cursor:pointer;">💾 ' + tt('שמור', 'บันทึก', 'حفظ') + '</button>' +
-            '<button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'" style="flex:1;padding:12px;border-radius:10px;border:none;background:#eee;font-family:inherit;cursor:pointer;">' + tt('ביטול', 'ยกเลิก', 'إلغاء') + '</button>' +
+            '<button onclick="FieldReport.showReportsList()" style="flex:1;padding:12px;border-radius:10px;border:none;background:#eee;font-family:inherit;cursor:pointer;">' + tt('ביטול', 'ยกเลิก', 'إلغاء') + '</button>' +
           '</div>' +
         '</div>' +
       '</div></div>';
@@ -609,14 +609,23 @@ var FieldReport = (function() {
       reports.unshift(report);
       saveReports(reports);
       _photos = [];
-      document.getElementById('modalContainer').innerHTML = '';
+      // Back to the list the form was opened from, with the new report in it.
+      showReportsList();
       if (typeof showToast === 'function') showToast('✅ ' + tt('דוח נשמר', 'บันทึกรายงานแล้ว', 'تم حفظ التقرير'));
     });
   }
 
   // ── View Reports ──
 
+  // The list's סגור. Opened from the season monitoring screen, it goes back
+  // there instead of emptying the screen out from under it.
+  function dismiss() {
+    if (window.ModalReturn) { ModalReturn.dismiss('fieldreport'); return; }
+    var m = document.getElementById('modalContainer'); if (m) m.innerHTML = '';
+  }
+
   function showReportsList() {
+    if (window.ModalReturn) ModalReturn.enter('fieldreport');
     var modal = document.getElementById('modalContainer');
     modal.innerHTML = '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;">' +
       '<div style="background:white;border-radius:16px;padding:20px;width:95%;max-width:600px;max-height:85vh;overflow-y:auto;">' +
@@ -625,7 +634,7 @@ var FieldReport = (function() {
           '<button onclick="FieldReport.showNewReport()" style="padding:6px 14px;border-radius:8px;border:none;background:#4caf50;color:white;font-family:inherit;font-weight:700;cursor:pointer;">➕</button>' +
         '</div>' +
         '<div id="reportsListContent" style="color:#999;text-align:center;padding:16px;">' + tt('טוען...', 'กำลังโหลด...', 'جاري التحميل...') + '</div>' +
-        '<button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'" style="margin-top:12px;width:100%;padding:10px;border-radius:10px;border:none;background:#eee;font-family:inherit;cursor:pointer;">' + tt('סגור', 'ปิด', 'إغلاق') + '</button>' +
+        '<button onclick="FieldReport.dismiss()" style="margin-top:12px;width:100%;padding:10px;border-radius:10px;border:none;background:#eee;font-family:inherit;cursor:pointer;">' + tt('סגור', 'ปิด', 'إغلاق') + '</button>' +
       '</div></div>';
 
     loadReports().then(function(reports) {
@@ -836,6 +845,7 @@ var FieldReport = (function() {
   return {
     showNewReport: showNewReport,
     showReportsList: showReportsList,
+    dismiss: dismiss,
     showReportDetail: showReportDetail,
     showPestListAdmin: showPestListAdmin,
     _handlePhotos: _handlePhotos,
