@@ -1,0 +1,52 @@
+# Deploy the app (Firebase Hosting) on every push to main that touches it.
+#
+# Credential: repository secret FIREBASE_SERVICE_ACCOUNT — the JSON key of
+# claude-deploy@shorashim-plus, roles Firebase Hosting Admin + Cloud
+# Functions Viewer. It can replace the website and nothing else: Firestore
+# rules, storage rules and functions are still deployed by hand.
+#
+# preflight.js gates the deploy — if any check fails, nothing ships.
+name: Deploy hosting
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'public/**'
+      - 'firebase.json'
+      - '.github/workflows/deploy-hosting.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-hosting
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Preflight
+        run: node public/js/preflight.js
+
+      - name: Write credential
+        env:
+          SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          if [ -z "$SA" ]; then echo "FIREBASE_SERVICE_ACCOUNT secret is missing"; exit 1; fi
+          printf '%s' "$SA" > "$RUNNER_TEMP/sa.json"
+
+      - name: Deploy to Firebase Hosting
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/sa.json
+        run: npx -y firebase-tools@13.29.1 deploy --only hosting --project shorashim-plus --non-interactive
+
+      - name: Remove credential
+        if: always()
+        run: rm -f "$RUNNER_TEMP/sa.json"
