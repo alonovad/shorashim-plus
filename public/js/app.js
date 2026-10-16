@@ -3124,12 +3124,13 @@
         }).addTo(map);
       }
 
-      if (polyPoints.length >= 3) {
-        undoPointBtn.classList.add('show');
-        drawBanner.textContent = '⬠ ' + t('לחץ על הנקודה הראשונה לסגירה');
-      } else {
-        drawBanner.textContent = '⬠ ' + t('לחץ להמשך סימון');
-      }
+      // Undo is available from the first point. It used to appear only at
+      // three, so a misplaced 2nd point could not be taken back — the only
+      // way out was cancelling the whole polygon.
+      undoPointBtn.classList.add('show');
+      drawBanner.textContent = '⬠ ' + (polyPoints.length >= 3
+        ? t('לחץ על הנקודה הראשונה לסגירה')
+        : t('לחץ להמשך סימון'));
       
     } else if (drawMode === 'rect') {
       if (!rectStart) {
@@ -3221,9 +3222,13 @@
         }).addTo(map);
       }
       
-      if (polyPoints.length < 3) {
+      // The button stays until every point is gone, and the banner follows
+      // the count back down instead of freezing on the "close it" hint.
+      if (!polyPoints.length) {
         undoPointBtn.classList.remove('show');
         drawBanner.textContent = '⬠ ' + t('לחץ על המפה לסימון נקודות');
+      } else if (polyPoints.length < 3) {
+        drawBanner.textContent = '⬠ ' + t('לחץ להמשך סימון');
       }
     }
   });
