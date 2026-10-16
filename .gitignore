@@ -67,3 +67,7 @@ node_modules/
 
 # dataconnect generated files
 .dataconnect
+
+# Deploy credential (service account, Hosting only) — never commit
+deploy-key.json
+*.key.json
