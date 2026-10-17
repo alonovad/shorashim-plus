@@ -2124,12 +2124,38 @@
     return JSON.parse(JSON.stringify(snap));
   }
 
+  // Refresh records IN PLACE, matched by id, instead of swapping in new
+  // objects. Every open window (plot details, farm, spray log) closes over
+  // the record it was opened with. A snapshot from any device — a worker
+  // logging hours writes this same document — used to replace the arrays,
+  // so the window's save then wrote into an orphaned copy: the toast said
+  // "updated", saveData() serialised the new array, and the edit vanished.
+  // Keeping identity means the open window always edits the live record.
+  // Keys the incoming record no longer has are dropped, so a field removed
+  // on another device is removed here too (map layers are rebuilt below).
+  function _reconcile(oldArr, newArr) {
+    if (!Array.isArray(newArr)) return [];
+    var byId = {};
+    (oldArr || []).forEach(function (o) {
+      if (o && typeof o === 'object' && o.id != null) byId[o.id] = o;
+    });
+    return newArr.map(function (n) {
+      if (!n || typeof n !== 'object' || n.id == null) return n;
+      var o = byId[n.id];
+      if (!o || o === n) return n;
+      delete byId[n.id];                 // a duplicated id must not share one object
+      Object.keys(o).forEach(function (k) { if (!(k in n)) delete o[k]; });
+      Object.keys(n).forEach(function (k) { o[k] = n[k]; });
+      return o;
+    });
+  }
+
   function _applyPlotData(data) {
-      plots = data.plots || [];
-      sprayEvents = data.sprayEvents || [];
-      pesticides = data.pesticides || getDefaultPesticides();
-      farms = data.farms || [];
-      worklogEntries = data.worklogEntries || [];
+      plots = _reconcile(plots, data.plots || []);
+      sprayEvents = _reconcile(sprayEvents, data.sprayEvents || []);
+      pesticides = data.pesticides ? _reconcile(pesticides, data.pesticides) : getDefaultPesticides();
+      farms = _reconcile(farms, data.farms || []);
+      worklogEntries = _reconcile(worklogEntries, data.worklogEntries || []);
       
       // Clear map
       drawnItems.clearLayers();
