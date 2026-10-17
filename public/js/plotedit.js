@@ -513,12 +513,35 @@ var PlotEdit = (function () {
 
   function save() {
     if (!S) return;
+    // A part still being traced belongs in the save: pressing save before
+    // "סיים חלק" used to drop it silently while the toast said "saved".
+    if (S.adding) {
+      if (S.adding.length >= 3) {
+        S.rings.push(S.adding.slice());
+        S.adding = null;
+      } else if (S.adding.length > 0) {
+        toast('⚠️ ' + tt('החלק הנוסף צריך לפחות 3 נקודות — הוסף נקודות או בטל אותו (✕)',
+          'ส่วนเพิ่มต้องมีอย่างน้อย 3 จุด', 'الجزء الإضافي يحتاج 3 نقاط على الأقل'));
+        return;
+      } else {
+        S.adding = null;
+      }
+    }
     var rings = S.rings.map(function (r) {
       return r.map(function (c) { return { lat: c.lat, lng: c.lng }; });
     });
     var id = S.id, area = ringsArea(rings) / 1000;
     var adopt = S.adopt;
-    var okd = MapAccess.setPlotRings(id, rings, adopt);
+    // Save must always answer: either it worked, or the editor stays open
+    // with the reason. A thrown error used to leave the button doing nothing.
+    var okd;
+    try {
+      okd = MapAccess.setPlotRings(id, rings, adopt);
+    } catch (err) {
+      console.error('PlotEdit.save', err);
+      toast('⚠️ ' + tt('השמירה נכשלה', 'บันทึกไม่สำเร็จ', 'فشل الحفظ') + ': ' + (err && err.message || err));
+      return;
+    }
     teardown();
     if (okd) {
       toast('\u2705 ' + n2(area) + ' ' + tt('דונם', 'ดูนัม', 'دونم'));

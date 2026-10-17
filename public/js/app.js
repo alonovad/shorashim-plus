@@ -2678,20 +2678,16 @@
       if (adoptDeclared != null && isFinite(adoptDeclared) && adoptDeclared > 0) {
         p.area = Math.round(adoptDeclared * 100) / 100;
       }
-      // Rebuild the drawn layers from the new rings.
-      if (p.layer) { try { drawnItems.removeLayer(p.layer); } catch (e) {} }
-      (p.partLayers || []).forEach(function (l) { try { drawnItems.removeLayer(l); } catch (e) {} });
-      p.layer = L.polygon(p.latlngs.map(function (c) { return L.latLng(c.lat, c.lng); }), {
-        color: p.color, fillColor: p.color, weight: 3, fillOpacity: 0.25
-      });
-      p.partLayers = (p.parts || []).map(function (ring) {
-        return L.polygon(ring.map(function (c) { return L.latLng(c.lat, c.lng); }), {
-          color: p.color, fillColor: p.color, weight: 2, fillOpacity: 0.20, dashArray: '7,5'
-        });
-      });
-      p.layer.addTo(drawnItems);
-      p.partLayers.forEach(function (l) { l.addTo(drawnItems); });
+      // Rebuild through the same path a load uses. The hand-rolled rebuild
+      // here left the new polygon and parts without click handlers (tapping
+      // the plot no longer opened it) and the name label at the old spot.
+      _unmountPlotLayers(p);
+      _buildPlotLayers(p);
+      _mountPlotLayers(p);
       saveData();
+      try { renderPlotList(); } catch (e) {}
+      // Lets map-filter re-apply itself to the rebuilt layers.
+      try { document.dispatchEvent(new CustomEvent('shorashim:plots-rendered')); } catch (e) {}
       return true;
     },
     plotAreaOf: function (plotId) {
