@@ -2150,8 +2150,35 @@
     });
   }
 
+  // Detached parts: in memory each part is a ring [{lat,lng},...]; in the
+  // document it is { pts: ring }. Reading accepts both, so a device whose
+  // local cache still holds the old bare-array shape loads cleanly.
+  function _partsFromStore(parts) {
+    if (!Array.isArray(parts)) return [];
+    return parts.map(function (r) {
+      var pts = Array.isArray(r) ? r : (r && Array.isArray(r.pts) ? r.pts : null);
+      if (!pts) return null;
+      return pts.map(function (c) {
+        if (!c) return null;
+        var lat = parseFloat(c.lat !== undefined ? c.lat : c[0]);
+        var lng = parseFloat(c.lng !== undefined ? c.lng : c[1]);
+        return (isNaN(lat) || isNaN(lng)) ? null : { lat: lat, lng: lng };
+      }).filter(Boolean);
+    }).filter(function (r) { return r && r.length >= 3; });
+  }
+  function _partsToStore(parts) {
+    return _partsFromStore(parts).map(function (ring) { return { pts: ring }; });
+  }
+
   function _applyPlotData(data) {
-      plots = _reconcile(plots, data.plots || []);
+      var incoming = (data.plots || []).map(function (p) {
+        if (!p || !p.parts) return p;
+        var c = {};
+        Object.keys(p).forEach(function (k) { c[k] = p[k]; });
+        c.parts = _partsFromStore(p.parts);
+        return c;
+      });
+      plots = _reconcile(plots, incoming);
       sprayEvents = _reconcile(sprayEvents, data.sprayEvents || []);
       pesticides = data.pesticides ? _reconcile(pesticides, data.pesticides) : getDefaultPesticides();
       farms = _reconcile(farms, data.farms || []);
@@ -2254,13 +2281,11 @@
           // track is one חלקה with one tree count, not two plots. `latlngs`
           // stays the primary ring so every existing reader keeps working
           // untouched; only code that knows about parts looks at this.
-          parts: Array.isArray(p.parts)
-            ? p.parts.map(function (ring) {
-                return (ring || []).map(function (c) {
-                  return { lat: c.lat, lng: c.lng };
-                });
-              }).filter(function (ring) { return ring.length >= 3; })
-            : []
+          // Firestore rejects an array directly inside an array, so each
+          // ring is stored as { pts: [...] }. Storing bare rings made the
+          // whole document write throw — every save from that device failed,
+          // sprays and work logs included, not only the boundary.
+          parts: _partsToStore(p.parts)
         };
       }),
       sprayEvents: sprayEvents || [],

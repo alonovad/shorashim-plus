@@ -20,12 +20,18 @@ var DB = (function() {
     if (!firestore) return;
     // Firestore rejects undefined values — strip them
     var clean = JSON.parse(JSON.stringify(data));
-    firestore.collection('appData').doc(key).set({ value: clean, updatedAt: firebase.firestore.FieldValue.serverTimestamp() })
-      .then(function() { console.log('Firestore saved: ' + key); })
-      .catch(function(err) { 
-        console.error('Firestore write FAILED for ' + key + ':', err);
-        if (typeof showToast === 'function') showToast('❌ Firestore: ' + err.message);
-      });
+    var fail = function(err) {
+      console.error('Firestore write FAILED for ' + key + ':', err);
+      if (typeof showToast === 'function') showToast('❌ Firestore: ' + (err && err.message || err));
+    };
+    // set() validates the payload synchronously and THROWS on bad data
+    // (e.g. nested arrays) instead of rejecting. Uncaught, that aborted
+    // whatever handler called save() halfway through its work.
+    try {
+      firestore.collection('appData').doc(key).set({ value: clean, updatedAt: firebase.firestore.FieldValue.serverTimestamp() })
+        .then(function() { console.log('Firestore saved: ' + key); })
+        .catch(fail);
+    } catch (err) { fail(err); }
   }
 
   // Save: writes to localStorage immediately + Firestore debounced

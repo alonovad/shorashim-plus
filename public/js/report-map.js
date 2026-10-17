@@ -84,6 +84,7 @@ var ReportMap = (function () {
     var main = ringOf(plot);
     if (main) out.push(main);
     ((plot && plot.parts) || []).forEach(function (raw) {
+      if (raw && !Array.isArray(raw) && Array.isArray(raw.pts)) raw = raw.pts;   // stored shape
       if (!raw || raw.length < 3) return;
       var r = raw.map(normLatLng).filter(Boolean);
       if (r.length >= 3) out.push(r);
