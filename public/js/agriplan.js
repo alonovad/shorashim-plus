@@ -47,11 +47,29 @@
  * season is ONE document written wholesale, so Firestore can only see
  * "an operator wrote appData/shorashim-agri-plan-YYYY", never which plan
  * inside it changed. Rules-level ownership needs per-plan documents.
+ *
+ * APPROVAL is per מטע. A farm's rows reach that farm's card
+ * (showFarmDetails → farmCard) only after an admin approves that farm.
+ * Each approval stores a signature of what the crew there executes: the
+ * plan-wide fields (name, target, deadline, notes), that farm's note and
+ * that farm's rows. A farm counts as approved only while its signature still
+ * matches — editing farm B's rows withdraws farm B alone; editing a
+ * plan-wide field withdraws every farm. No mutator has to remember to reset
+ * a flag.
+ *
+ * Approvals live in their own document, appData/shorashim-agri-approvals-
+ * {YYYY}, which firestore.rules lets only an admin write. An operator can
+ * write the plans but not an approval, and cannot change approved content
+ * without its signature failing — so, unlike ownership, approval is
+ * enforced by the rules, not only by this client. Anything called
+ * 'approvals' inside the plan document itself is ignored.
  */
 var AgriPlan = (function () {
   'use strict';
 
   var KEY_PREFIX = 'shorashim-agri-plan-';
+  // Admin-only in firestore.rules — see APPROVAL in the header.
+  var APPROVALS_PREFIX = 'shorashim-agri-approvals-';
 
   // אופן יישום. Each method only decides which carrier column is shown and
   // which label prints — the dose maths lives on the material, not here.
@@ -86,6 +104,8 @@ var AgriPlan = (function () {
   var year = String(new Date().getFullYear());
   var _listening = {};
   var _lastSaved = '';
+  var A = {};                    // { planId: { farmId: { by, at, sig } } } for `year`
+  var _aLastSaved = '';
   var _openPlan = null;          // plan id being edited
   var _rowFilter = { pid: null, q: '' };   // name filter for the open plan's rows (display only)
 
@@ -282,8 +302,111 @@ var AgriPlan = (function () {
       // family of documents. ReportTheme.resolve() reads .report_theme off
       // any object, so a plan can carry a theme without being a farm.
       report_theme: (p.report_theme && typeof p.report_theme === 'object') ? p.report_theme : {},
+      // { farmId: { by, at, sig } }, attached from the approvals document
+      // by attach(). Never read from the plan document: operators write that.
+      approvals: {},
       rows: Array.isArray(p.rows) ? p.rows.map(normRow) : []
     };
+  }
+
+  // ── Approval (per farm) ──
+  function normApprovals(a) {
+    var out = {};
+    if (a && typeof a === 'object') {
+      Object.keys(a).forEach(function (k) {
+        var v = a[k];
+        if (v && typeof v === 'object' && v.sig) {
+          out[String(k)] = { by: String(v.by || ''), at: Number(v.at) || 0, sig: String(v.sig) };
+        }
+      });
+    }
+    return out;
+  }
+  function normApprovalDoc(d) {
+    var out = {}, src = (d && d.plans && typeof d.plans === 'object') ? d.plans : {};
+    Object.keys(src).forEach(function (pid) {
+      var m = normApprovals(src[pid]);
+      if (Object.keys(m).length) out[String(pid)] = m;
+    });
+    return out;
+  }
+  function attach(s, a) {
+    (s.plans || []).forEach(function (p) {
+      p.approvals = JSON.parse(JSON.stringify((a || {})[String(p.id)] || {}));
+    });
+    return s;
+  }
+  // Key order is canonicalised: Firestore does not preserve map key order,
+  // so a row could come back with its keys reordered and void a valid approval.
+  function stable(v) {
+    if (Array.isArray(v)) return '[' + v.map(stable).join(',') + ']';
+    if (v && typeof v === 'object') {
+      return '{' + Object.keys(v).sort().map(function (k) {
+        return JSON.stringify(k) + ':' + stable(v[k]);
+      }).join(',') + '}';
+    }
+    return JSON.stringify(v === undefined ? null : v);
+  }
+  function hash(s) {
+    var h = 0x811c9dc5;                      // FNV-1a, 32 bit
+    for (var i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
+    }
+    return h.toString(16) + '.' + s.length;
+  }
+  function farmRows(p, fid) {
+    fid = Number(fid);
+    return (p.rows || []).filter(function (r) { return r.farmId === fid; });
+  }
+  function farmSig(p, fid) {
+    return hash(stable({
+      name: p.name, target: p.target, deadline: p.deadline, notes: p.notes,
+      farmNote: String(((p.farmNotes || {})[String(fid)]) || '').trim(),
+      rows: farmRows(p, fid).map(normRow)
+    }));
+  }
+  // Farms the plan currently covers, in first-appearance order.
+  function planFarms(p) {
+    var seen = {}, out = [];
+    (p.rows || []).forEach(function (r) {
+      if (r.farmId && !seen[r.farmId]) { seen[r.farmId] = true; out.push(r.farmId); }
+    });
+    return out;
+  }
+  // 'approved' | 'stale' (edited after approval) | 'draft'
+  function farmState(p, fid) {
+    var a = p && p.approvals && p.approvals[String(fid)];
+    if (!a || !a.sig) return 'draft';
+    return (farmRows(p, fid).length && a.sig === farmSig(p, fid)) ? 'approved' : 'stale';
+  }
+  function planSummary(p) {
+    var s = { total: 0, approved: 0, stale: 0, draft: 0 };
+    planFarms(p).forEach(function (fid) { s.total++; s[farmState(p, fid)]++; });
+    return s;
+  }
+  // Legacy name kept for callers outside: 'approved' only when every farm is.
+  function approvalState(p) {
+    var s = planSummary(p);
+    if (s.total && s.approved === s.total) return 'approved';
+    if (s.approved || s.stale) return 'partial';
+    return 'draft';
+  }
+  function farmBadge(p, fid) {
+    var st = farmState(p, fid);
+    if (st === 'approved') return '<span class="ap-st ok">✅ ' + tt('מאושר לביצוע', 'อนุมัติแล้ว', 'معتمد للتنفيذ') + '</span>';
+    if (st === 'stale') return '<span class="ap-st stale">⚠️ ' + tt('שונה אחרי אישור', 'แก้ไขหลังอนุมัติ', 'عُدّل بعد الاعتماد') + '</span>';
+    return '<span class="ap-st draft">📝 ' + tt('ממתין לאישור', 'รออนุมัติ', 'بانتظار الاعتماد') + '</span>';
+  }
+  function approvalBadge(p) {
+    var s = planSummary(p), out = '';
+    if (s.total && s.approved === s.total) {
+      return '<span class="ap-st ok">✅ ' + tt('מאושרת לביצוע', 'อนุมัติแล้ว', 'معتمدة للتنفيذ') + '</span>';
+    }
+    if (s.approved) out += '<span class="ap-st ok">✅ ' + s.approved + '/' + s.total + ' ' + tt('מטעים מאושרים', 'สวนอนุมัติแล้ว', 'بساتين معتمدة') + '</span> ';
+    if (s.stale) out += '<span class="ap-st stale">⚠️ ' + s.stale + ' ' + tt('שונו אחרי אישור', 'แก้ไขหลังอนุมัติ', 'عُدّلت بعد الاعتماد') + '</span> ';
+    if (!s.approved && !s.stale) out = '<span class="ap-st draft">📝 ' + tt('ממתינה לאישור', 'รออนุมัติ', 'بانتظار الاعتماد') + '</span>';
+    return out;
   }
 
   function normalise(d) {
@@ -294,15 +417,30 @@ var AgriPlan = (function () {
   }
 
   function load() {
-    return DB.loadAsync(key()).then(function (d) { return normalise(d); });
+    var y = year;
+    return Promise.all([DB.loadAsync(KEY_PREFIX + y), DB.loadAsync(APPROVALS_PREFIX + y)]).then(function (r) {
+      A = normApprovalDoc(r[1]);
+      return attach(normalise(r[0]), A);
+    });
   }
 
   function listen() {
     if (_listening[year]) return;
     _listening[year] = true;
-    DB.listen(key(), function (d) {
+    // Listeners stay registered for every season opened this session; a
+    // change to a season no longer on screen must not replace the one that is.
+    var y = year;
+    DB.listen(KEY_PREFIX + y, function (d) {
+      if (y !== year) return;
       if (JSON.stringify(d) === _lastSaved) return;   // our own write echoing back
-      S = normalise(d);
+      S = attach(normalise(d), A);
+      if (isOpen()) repaint();
+    });
+    DB.listen(APPROVALS_PREFIX + y, function (d) {
+      if (y !== year) return;
+      if (JSON.stringify(d) === _aLastSaved) return;
+      A = normApprovalDoc(d);
+      if (S) attach(S, A);
       if (isOpen()) repaint();
     });
   }
@@ -312,8 +450,23 @@ var AgriPlan = (function () {
     // Firestore rejects undefined; round-trip strips it and any accidental
     // function/DOM reference that crept onto a row.
     var clean = JSON.parse(JSON.stringify(S));
+    (clean.plans || []).forEach(function (p) { delete p.approvals; });   // they have their own document
     _lastSaved = JSON.stringify(clean);
     DB.save(key(), clean);
+  }
+  // Admin only — the rules reject anyone else. Rebuilt from the plans in
+  // memory, so approvals of deleted plans and departed farms drop out.
+  function saveApprovals() {
+    if (!isAdmin() || !S) return;
+    var out = {};
+    (S.plans || []).forEach(function (p) {
+      prune(p);
+      if (p.approvals && Object.keys(p.approvals).length) out[String(p.id)] = p.approvals;
+    });
+    A = JSON.parse(JSON.stringify(out));
+    var doc = { year: year, plans: A };
+    _aLastSaved = JSON.stringify(doc);
+    DB.save(APPROVALS_PREFIX + year, doc);
   }
 
   // ══════════════════════════════════════════════════════════════════
@@ -494,6 +647,26 @@ var AgriPlan = (function () {
         'font-family:inherit;font-weight:700;font-size:.84rem;cursor:pointer;}' +
       '.ap-btn.ghost{background:var(--surface-glass,#eef1ee);color:var(--text,#333);}' +
       '.ap-btn.warn{background:#c62828;}' +
+      '.ap-btn.ok{background:#2e7d32;}' +
+      '.ap-btn.ap-mini{padding:4px 9px;font-size:.74rem;border-radius:8px;}' +
+      '.ap-btn.ghost.ap-mini{background:var(--card-solid,#fff);border:1px solid var(--border,#dfe3df);}' +
+      '.ap-st{display:inline-block;border-radius:999px;padding:2px 9px;font-size:.72rem;font-weight:700;white-space:nowrap;}' +
+      '.ap-st.ok{background:#e8f5e9;color:#2e7d32;}.ap-st.stale{background:#fff3e0;color:#e65100;}' +
+      '.ap-st.draft{background:#eceff1;color:#546e7a;}' +
+      '.ap-apv{border-radius:12px;padding:9px 12px;margin-bottom:10px;font-size:.82rem;line-height:1.5;}' +
+      '.ap-apv.ok{background:#e8f5e9;color:#1b5e20;}.ap-apv.stale{background:#fff3e0;color:#bf360c;}' +
+      '.ap-apv.draft{background:#eceff1;color:#37474f;}' +
+      '.ap-apv ul{margin:4px 0 0;padding-inline-start:18px;}' +
+      '.ap-fc{background:var(--card-solid,#fff);border:1px solid var(--border,#dfe3df);border-inline-start:4px solid #2e7d32;' +
+        'border-radius:10px;padding:9px 10px;margin-bottom:8px;font-size:.8rem;}' +
+      '.ap-fc-hd{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-weight:800;font-size:.86rem;}' +
+      '.ap-fc-sub{color:var(--text-muted,#888);font-size:.72rem;margin-top:2px;}' +
+      '.ap-fc-op{margin-top:8px;padding-top:6px;border-top:1px dashed var(--border,#e0e0e0);}' +
+      '.ap-fc-mat{display:flex;justify-content:space-between;gap:8px;padding:2px 0;}' +
+      '.ap-fc-plots{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;}' +
+      '.ap-fc-plot{background:var(--surface-glass,#f1f4f1);border-radius:6px;padding:2px 7px;font-size:.72rem;}' +
+      '.ap-fc-pend{display:block;width:100%;text-align:start;background:none;border:1px dashed var(--border,#ccc);' +
+        'border-radius:8px;padding:6px 9px;margin-bottom:6px;font-family:inherit;font-size:.76rem;cursor:pointer;color:inherit;}' +
       '.ap-card{background:var(--surface-glass,#f5f7f5);border-radius:12px;padding:12px;margin-bottom:10px;}' +
       '.ap-in{padding:7px;border-radius:8px;border:1px solid var(--border,#ccc);font-family:inherit;' +
         'font-size:.82rem;background:var(--surface,#fff);color:var(--text,#222);width:100%;' +
@@ -581,7 +754,7 @@ var AgriPlan = (function () {
           '" onclick="AgriPlan.showPlan(' + p.id + ')">' +
           '<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">' +
             '<strong>' + (mine ? '' : '\ud83d\udd12 ') +
-              esc(p.name || tt('ללא שם', 'ไม่มีชื่อ', 'بلا اسم')) + '</strong>' +
+              esc(p.name || tt('ללא שם', 'ไม่มีชื่อ', 'بلا اسم')) + '</strong> ' + approvalBadge(p) +
             '<span style="font-size:.78rem;color:var(--text-muted,#888);">' +
               (p.target ? '\ud83d\udc1b ' + esc(p.target) + ' ' : '') +
               dlChip(earliestDeadline(p, p.rows), false) + '</span></div>' +
@@ -671,7 +844,8 @@ var AgriPlan = (function () {
         '<div class="ap-grphd">🌳 ' + esc(farmName(Number(fk))) +
           '<span class="n">' + g.n + ' ' + tt('שורות', 'แถว', 'صفوف') + ' · ' +
             g.trees.toLocaleString() + ' ' + tt('עצים', 'ต้น', 'شجرة') + ' · ' + esc(g.ops.join(', ')) + '</span>' +
-        '</div>' + g.html + '</div>';
+          (Number(fk) ? farmBadge(p, Number(fk)) + farmApproveBtn(p, Number(fk)) : '') +
+        '</div>' + farmIssues(p, Number(fk)) + g.html + '</div>';
     }).join('');
     if (!allRows) {
       rows = '<div class="ap-empty">' + tt('אין עדיין שורות. הוסף מטע שלם, בחר חלקות או הוסף שורה.',
@@ -737,6 +911,7 @@ var AgriPlan = (function () {
                          'ดูอย่างเดียว — แผนสร้างโดย ',
                          'للعرض فقط — أنشأها ') + esc(ownerLabel(p)) +
             '</div>' : '') +
+      approvalPanel(p) +
       // The plan's own details: one bordered card, visibly not a row.
       '<div class="ap-plan">' +
         '<div class="ap-plan-hd">📋 ' + tt('פרטי התוכנית', 'รายละเอียดแผน', 'تفاصيل الخطة') +
@@ -814,11 +989,272 @@ var AgriPlan = (function () {
       exportBtns(id) +
       '<button class="ap-btn ghost" onclick="AgriPlan.toOrder(' + id + ')">\ud83d\udce6 ' +
         tt('צור הזמנה', 'สร้างใบสั่งซื้อ', 'إنشاء طلب') + '</button>' +
+      (function () {
+        if (!isAdmin()) return '';
+        var s = planSummary(p), out = '';
+        if (s.total && s.approved < s.total) {
+          out += '<button class="ap-btn ok" onclick="AgriPlan.approveAll(' + id + ')">\u2705 ' +
+            tt('אשר את כל המטעים', 'อนุมัติทุกสวน', 'اعتماد كل البساتين') + '</button>';
+        }
+        if (Object.keys(p.approvals || {}).length) {
+          out += '<button class="ap-btn ghost" onclick="AgriPlan.revokeAll(' + id + ')">\u21a9\ufe0f ' +
+            tt('בטל את כל האישורים', 'ยกเลิกอนุมัติทั้งหมด', 'إلغاء كل الاعتمادات') + '</button>';
+        }
+        return out;
+      })() +
       '<button class="ap-btn warn" onclick="AgriPlan.delPlan(' + id + ')">\ud83d\uddd1</button>' +
       '<button class="ap-btn ghost" onclick="AgriPlan.renderList()">\u21a9 ' +
         tt('חזרה', 'กลับ', 'رجوع') + '</button>';
 
     paint(shell('\ud83c\udf3f ' + esc(p.name || tt('תוכנית', 'แผน', 'خطة')), bar, body));
+  }
+
+  // ── approval UI + actions ──
+  var _issues = null;                      // { pid, fid|null, errors[] } from the last approve attempt
+  function rowName(r) {
+    var pl = r.plotId ? plotById(r.plotId) : null;
+    return (r.farmId ? farmName(r.farmId) : '?') + (pl ? ' / ' + pl.name : '') +
+      (r.cohort ? ' (' + r.cohort + ')' : '') + ' · ' + opLabel(r.method, r.round);
+  }
+  // Errors block approval: a field crew cannot execute them. Warnings are
+  // shown in the confirm and the admin decides.
+  function validateRows(p, rows) {
+    var errors = [], warnings = [];
+    if (!rows.length) errors.push(tt('אין שורות טיפול', 'ไม่มีแถว', 'لا توجد صفوف معالجة'));
+    rows.forEach(function (r) {
+      var who = rowName(r) + ': ';
+      if (!r.farmId) errors.push(who + tt('לא נבחר מטע', 'ไม่ได้เลือกสวน', 'لم يُحدَّد بستان'));
+      if (!(Number(r.trees) > 0)) errors.push(who + tt('חסר מספר עצים', 'ไม่มีจำนวนต้น', 'عدد الأشجار مفقود'));
+      var mats = (r.materials || []).filter(function (m) { return m.name; });
+      if (!mats.length) errors.push(who + tt('לא הוגדר חומר', 'ไม่มีสาร', 'لم تُحدَّد مادة'));
+      mats.forEach(function (m) {
+        if (!(Number(m.value) > 0)) errors.push(who + esc(m.name) + ' — ' + tt('חסר ריכוז / מינון', 'ไม่มีความเข้มข้น', 'التركيز مفقود'));
+        if (m.mode === 'pct' && !(Number(r.carrier) > 0)) errors.push(who + esc(m.name) + ' — ' + tt('ריכוז באחוזים בלי נפח לעץ', 'เปอร์เซ็นต์โดยไม่มีปริมาตร', 'نسبة مئوية بلا حجم للشجرة'));
+      });
+      if (!effDeadline(p, r)) warnings.push(who + tt('אין תאריך סיום', 'ไม่มีกำหนดเสร็จ', 'لا تاريخ إنهاء'));
+    });
+    return { errors: errors, warnings: warnings };
+  }
+  function issuesBox(errors) {
+    return '<div class="ap-apv stale">⛔ <strong>' + tt('לא ניתן לאשר — יש לתקן:', 'อนุมัติไม่ได้ — ต้องแก้ไข:', 'لا يمكن الاعتماد — يجب تصحيح:') + '</strong><ul>' +
+      errors.slice(0, 30).map(function (e) { return '<li>' + e + '</li>'; }).join('') +
+      (errors.length > 30 ? '<li>…</li>' : '') + '</ul></div>';
+  }
+  function farmIssues(p, fid) {
+    return (_issues && _issues.pid === p.id && _issues.fid === fid && _issues.errors.length) ? issuesBox(_issues.errors) : '';
+  }
+  function farmApproveBtn(p, fid) {
+    if (!isAdmin()) return '';
+    return farmState(p, fid) === 'approved' ?
+      '<button class="ap-btn ghost ap-mini" onclick="AgriPlan.revokeFarm(' + p.id + ',' + fid + ')">↩️ ' +
+        tt('בטל אישור', 'ยกเลิก', 'إلغاء') + '</button>' :
+      '<button class="ap-btn ok ap-mini" onclick="AgriPlan.approveFarm(' + p.id + ',' + fid + ')">✅ ' +
+        tt('אשר מטע זה', 'อนุมัติสวนนี้', 'اعتماد هذا البستان') + '</button>';
+  }
+  function approvalPanel(p) {
+    var s = planSummary(p), html;
+    var cls = (s.total && s.approved === s.total) ? 'ok' : (s.stale ? 'stale' : 'draft');
+    html = '<div class="ap-apv ' + cls + '">' + approvalBadge(p) + '<br>' +
+      tt('כל מטע מאושר בנפרד ומוצג בכרטיס המטע רק אחרי שאושר. שינוי בשורות של מטע מחזיר לאישור רק אותו; שינוי בשם, במזיק, בתאריך הכללי או בהערות מחזיר את כל המטעים.',
+         'แต่ละสวนอนุมัติแยกกันและแสดงในบัตรสวนหลังอนุมัติเท่านั้น การแก้แถวของสวนใดต้องอนุมัติสวนนั้นใหม่ การแก้ข้อมูลทั่วไปต้องอนุมัติทุกสวนใหม่',
+         'يُعتمد كل بستان على حدة ويظهر في بطاقته بعد اعتماده فقط. تعديل صفوف بستان يعيده وحده للاعتماد؛ تعديل الاسم أو الآفة أو التاريخ العام أو الملاحظات يعيد كل البساتين.') +
+      '</div>';
+    if (_issues && _issues.pid === p.id && _issues.fid === null && _issues.errors.length) html += issuesBox(_issues.errors);
+    return html;
+  }
+  function me_() { return String((window.currentUser || {}).username || ''); }
+  function stamp(p, fid) {
+    p.approvals = p.approvals || {};
+    p.approvals[String(fid)] = { by: me_(), at: Date.now(), sig: farmSig(p, fid) };
+  }
+  // Approvals for farms that left the plan are dead weight — and would
+  // resurrect if the farm were added back with identical rows.
+  function prune(p) {
+    var live = {};
+    planFarms(p).forEach(function (f) { live[String(f)] = true; });
+    Object.keys(p.approvals || {}).forEach(function (k) { if (!live[k]) delete p.approvals[k]; });
+  }
+  function warnText(w) {
+    return w.length ? '\n\n⚠️ ' + w.length + ' ' + tt('שורות ללא תאריך סיום', 'แถวไม่มีกำหนด', 'صفوف بلا تاريخ') + ':\n' +
+      w.slice(0, 8).join('\n') + (w.length > 8 ? '\n…' : '') : '';
+  }
+  function adminOnly() {
+    if (isAdmin()) return true;
+    toast('⛔ ' + tt('רק מנהל מערכת מאשר תוכניות', 'เฉพาะผู้ดูแลระบบ', 'لمدير النظام فقط'));
+    return false;
+  }
+  function approveFarm(id, fid) {
+    if (!adminOnly()) return;
+    var p = planById(id);
+    if (!p) return;
+    fid = Number(fid);
+    var v = validateRows(p, farmRows(p, fid));
+    _issues = { pid: id, fid: fid, errors: v.errors };
+    if (v.errors.length) { showPlan(id); return; }
+    if (!confirm(tt('לאשר את ', 'อนุมัติ ', 'اعتماد ') + farmName(fid) +
+        tt(' לביצוע? התוכנית תוצג בכרטיס המטע.', ' ? จะแสดงในบัตรสวน', ' للتنفيذ؟ ستظهر الخطة في بطاقة البستان.') + warnText(v.warnings))) return;
+    var before = p.approvals[String(fid)] || null;
+    stamp(p, fid);
+    _issues = null;
+    save(); saveApprovals();
+    if (window.Audit && Audit.log) Audit.log('approve', 'agriplan', id + ':' + fid, { before: before, after: p.approvals[String(fid)] });
+    toast('✅ ' + farmName(fid) + ' ' + tt('אושר ומוצג בכרטיס המטע', 'อนุมัติแล้ว', 'اعتُمد'));
+    showPlan(id);
+  }
+  function approveAll(id) {
+    if (!adminOnly()) return;
+    var p = planById(id);
+    if (!p) return;
+    var v = validateRows(p, p.rows || []);
+    _issues = { pid: id, fid: null, errors: v.errors };
+    if (v.errors.length) { showPlan(id); return; }
+    var fids = planFarms(p);
+    if (!confirm(tt('לאשר את כל ', 'อนุมัติทั้ง ', 'اعتماد كل ') + fids.length +
+        tt(' המטעים בתוכנית לביצוע?', ' สวน?', ' بساتين في الخطة للتنفيذ؟') + warnText(v.warnings))) return;
+    var before = JSON.parse(JSON.stringify(p.approvals || {}));
+    fids.forEach(function (f) { if (farmState(p, f) !== 'approved') stamp(p, f); });
+    _issues = null;
+    save(); saveApprovals();
+    if (window.Audit && Audit.log) Audit.log('approve', 'agriplan', String(id), { before: before, after: p.approvals });
+    toast('✅ ' + tt('כל המטעים אושרו', 'อนุมัติทุกสวนแล้ว', 'اعتُمدت كل البساتين'));
+    showPlan(id);
+  }
+  function revokeFarm(id, fid) {
+    if (!adminOnly()) return;
+    var p = planById(id);
+    fid = String(Number(fid));
+    if (!p || !p.approvals || !p.approvals[fid]) return;
+    if (!confirm(tt('לבטל את האישור של ', 'ยกเลิกอนุมัติ ', 'إلغاء اعتماد ') + farmName(Number(fid)) + '?')) return;
+    var before = p.approvals[fid];
+    delete p.approvals[fid];
+    saveApprovals();
+    if (window.Audit && Audit.log) Audit.log('revoke', 'agriplan', id + ':' + fid, { before: before });
+    showPlan(id);
+  }
+  function revokeAll(id) {
+    if (!adminOnly()) return;
+    var p = planById(id);
+    if (!p || !Object.keys(p.approvals || {}).length) return;
+    if (!confirm(tt('לבטל את כל האישורים? התוכנית תוסר מכל כרטיסי המטעים.', 'ยกเลิกอนุมัติทั้งหมด?', 'إلغاء كل الاعتمادات؟'))) return;
+    var before = p.approvals;
+    p.approvals = {};
+    saveApprovals();
+    if (window.Audit && Audit.log) Audit.log('revoke', 'agriplan', String(id), { before: before });
+    showPlan(id);
+  }
+  function openPlan(y, id) {
+    if (!isManager()) return;
+    year = String(y);
+    load().then(function (s) { S = s; listen(); showPlan(Number(id)); });
+  }
+
+  // ── Farm card ──
+  // Approved plans touching this farm, as the crew executes them: per
+  // operation, the material quantities for THIS farm only and the plots in
+  // it. Reads the server copy (DB.read): a cached season would show a plan
+  // that was revoked an hour ago. Seasons y-1..y+1 — a plan filed under
+  // last year can still be running in January.
+  function farmCard(farmId, host) {
+    if (!host || !window.DB || !DB.read) return;
+    ensureCss();
+    farmId = Number(farmId);
+    var tag = String(farmId) + ':' + Date.now();
+    host.setAttribute('data-ap-fc', tag);
+    var title = '<div class="section-title" style="margin-top: 4px;">🧪 ' +
+      tt('תוכנית ריסוס', 'แผนการพ่นยา', 'خطة الرش') + '</div>';
+    host.innerHTML = title + '<div class="ap-fc-sub" style="padding:6px;">' + tt('טוען…', 'กำลังโหลด…', 'جارٍ التحميل…') + '</div>';
+    var now = new Date().getFullYear();
+    var yrs = [now - 1, now, now + 1];
+    Promise.all(yrs.map(function (y) {
+      return Promise.all([DB.read(KEY_PREFIX + y), DB.read(APPROVALS_PREFIX + y)]);
+    })).then(function (res) {
+      if (!document.body.contains(host) || host.getAttribute('data-ap-fc') !== tag) return;
+      var approved = [], pending = [];
+      var cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 30);
+      var cutIso = cutoff.toISOString().slice(0, 10);
+      res.forEach(function (r, i) {
+        var pd = r[0] && r[0].data, ad = r[1] && r[1].data;
+        var plans = (pd && Array.isArray(pd.plans)) ? attach({ plans: pd.plans.map(normPlan) }, normApprovalDoc(ad)).plans : [];
+        plans.forEach(function (p) {
+          var rows = p.rows.filter(function (x) { return x.farmId === farmId; });
+          if (!rows.length) return;
+          var st = farmState(p, farmId);
+          var last = '', undated = false;
+          rows.forEach(function (x) { var d = effDeadline(p, x); if (!d) undated = true; else if (d > last) last = d; });
+          // Finished a month ago → off the card. Undated plans live with their season.
+          var done = undated ? yrs[i] < now : last < cutIso;
+          if (done) return;
+          var item = { year: yrs[i], p: p, rows: rows, first: earliestDeadline(p, rows) };
+          if (st === 'approved') approved.push(item);
+          else if (isManager()) pending.push({ year: yrs[i], p: p, st: st, fid: farmId });
+        });
+      });
+      approved.sort(function (a, b) { return (a.first || '9999') < (b.first || '9999') ? -1 : 1; });
+      var html = title;
+      if (!approved.length) {
+        html += '<div style="padding: 8px; text-align: center; color: var(--text-muted); font-size: 0.82rem;">' +
+          tt('אין תוכנית ריסוס מאושרת למטע זה', 'ไม่มีแผนที่อนุมัติสำหรับสวนนี้', 'لا توجد خطة رش معتمدة لهذا البستان') + '</div>';
+      }
+      approved.forEach(function (it) { html += farmPlanHtml(it, farmId); });
+      pending.forEach(function (it) {
+        html += '<button type="button" class="ap-fc-pend" onclick="AgriPlan.openPlan(' + it.year + ',' + it.p.id + ')">' +
+          farmBadge(it.p, it.fid) + ' ' + esc(it.p.name || tt('ללא שם', 'ไม่มีชื่อ', 'بلا اسم')) +
+          ' · ' + tt('לא מוצגת לצוות עד אישור', 'ทีมยังไม่เห็นจนกว่าจะอนุมัติ', 'لا تظهر للطاقم قبل الاعتماد') + '</button>';
+      });
+      host.innerHTML = html;
+    });
+  }
+  function farmPlanHtml(it, farmId) {
+    var p = it.p, a = (p.approvals || {})[String(farmId)] || {};
+    var ops = {}, order = [];
+    it.rows.forEach(function (r) {
+      var k = opKey(r.method, r.round);
+      if (!ops[k]) { ops[k] = { method: r.method, round: r.round, rows: [], mats: {}, dose: {}, water: 0, trees: 0 }; order.push(k); }
+      var o = ops[k];
+      o.rows.push(r);
+      o.trees += Number(r.trees) || 0;
+      o.water += rowCarrierL(r);
+      (r.materials || []).forEach(function (m) {
+        if (!m.name) return;
+        o.mats[m.name] = (o.mats[m.name] || 0) + rowMaterialL(r, m);
+        if (!o.dose[m.name]) o.dose[m.name] = m.mode === 'pct' ? (m.value + '%') :
+          (m.value + ' ' + tt('סמ"ק לעץ', 'ซีซี/ต้น', 'سم³/شجرة'));
+      });
+    });
+    var note = String((p.farmNotes || {})[String(farmId)] || '').trim();
+    var when = a.at ? fmtDate(new Date(a.at).toISOString().slice(0, 10)) : '';
+    var html = '<div class="ap-fc">' +
+      '<div class="ap-fc-hd">✅ ' + esc(p.name || tt('ללא שם', 'ไม่มีชื่อ', 'بلا اسم')) +
+        (p.target ? ' <span style="font-weight:600;">· 🐛 ' + esc(p.target) + '</span>' : '') +
+        ' ' + dlChip(it.first, false) + '</div>' +
+      '<div class="ap-fc-sub">' + tt('אושרה ע"י', 'อนุมัติโดย', 'اعتمدها') + ' ' + esc(a.by) + (when ? ' · ' + when : '') + '</div>' +
+      (note ? '<div style="margin-top:5px;font-weight:600;">📌 ' + esc(note) + '</div>' : '') +
+      (p.notes ? '<div class="ap-fc-sub" style="margin-top:3px;">' + esc(p.notes) + '</div>' : '');
+    order.forEach(function (k) {
+      var o = ops[k], c = mColor(o.method);
+      html += '<div class="ap-fc-op">' +
+        '<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;">' +
+          '<span class="ap-op" style="--mc:' + c[0] + ';--mcb:' + c[1] + ';">' + esc(opLabel(o.method, o.round)) + '</span>' +
+          '<span class="ap-fc-sub" style="margin:0;">' + o.trees.toLocaleString() + ' ' + tt('עצים', 'ต้น', 'شجرة') +
+            (o.water ? ' · ' + n1(o.water).toLocaleString() + ' ' + tt('ליטר מים / תמיסה', 'ลิตรน้ำ', 'لتر ماء') : '') + '</span>' +
+        '</div>';
+      Object.keys(o.mats).sort().forEach(function (nm) {
+        html += '<div class="ap-fc-mat"><span>' + esc(nm) + ' <span class="ap-fc-sub">(' + esc(o.dose[nm]) + ')</span></span>' +
+          '<strong>' + n1(o.mats[nm]).toLocaleString() + ' ' + tt('ליטר', 'ลิตร', 'لتر') + ' ' + modeLabel(o.method) + '</strong></div>';
+      });
+      html += '<div class="ap-fc-plots">' + o.rows.map(function (r) {
+        var pl = r.plotId ? plotById(r.plotId) : null;
+        var nm = pl ? pl.name : (r.plotId ? '#' + r.plotId : tt('כל המטע', 'ทั้งสวน', 'كل البستان'));
+        var own = r.deadline && r.deadline !== it.first;
+        return '<span class="ap-fc-plot">' + esc(nm) + (r.cohort ? ' (' + esc(r.cohort) + ')' : '') +
+          ' · ' + (Number(r.trees) || 0).toLocaleString() + (own ? ' · ⏰ ' + fmtDate(r.deadline) : '') + '</span>';
+      }).join('') + '</div></div>';
+    });
+    if (isManager()) {
+      html += '<button type="button" class="ap-btn ghost" style="margin-top:8px;padding:6px 10px;font-size:.76rem;" ' +
+        'onclick="AgriPlan.openPlan(' + it.year + ',' + p.id + ')">🌿 ' + tt('פתח בתוכניות טיפול', 'เปิดในแผน', 'فتح في الخطط') + '</button>';
+    }
+    return html + '</div>';
   }
 
   function exportBtns(id) {
@@ -2249,6 +2685,14 @@ var AgriPlan = (function () {
     _pickShown: _pickShown,
     printPlan: printPlan,
     toOrder: toOrder,
+    approveFarm: approveFarm,
+    approveAll: approveAll,
+    revokeFarm: revokeFarm,
+    revokeAll: revokeAll,
+    farmState: farmState,
+    openPlan: openPlan,
+    farmCard: farmCard,
+    approvalState: approvalState,
     save: save,
     totals: totals,
     _setPlan: _setPlan,

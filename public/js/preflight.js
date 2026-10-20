@@ -240,6 +240,11 @@ shipped.forEach(f => {
       keys.add(m[2]);
     }
   });
+  // prefix constants saved directly: DB.save(SOME_PREFIX + year, ...)
+  [...c.matchAll(/DB\.save\(\s*([A-Z_]+)\s*\+/g)].forEach(m => {
+    const def = c.match(new RegExp(`${m[1]}\\s*=\\s*'(shorashim-[a-z-]+)'`));
+    if (def) keys.add(def[1]);
+  });
   // key() helpers that concatenate a prefix
   [...c.matchAll(/return\s+([A-Z_]+)\s*\+\s*year/g)].forEach(() => {});
 });

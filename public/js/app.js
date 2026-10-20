@@ -5599,6 +5599,7 @@
             '<div class="plot-meta">' +
               '<span>🌳 ' + farmPlots.length + ' ' + t('חלקות') + '</span>' +
               '<span>📐 ' + totalArea.toFixed(1) + ' ' + t('דונם') + '</span>' +
+              (function() { var n = farmPlots.reduce(function(s, p) { return s + (Number(p.tree_count) || 0); }, 0); return n ? '<span>🌴 ' + n.toLocaleString() + ' ' + t('עצים') + '</span>' : ''; })() +
             '</div>' +
             '<div style="font-size: 0.72rem; color: var(--water); margin-top: 3px; font-weight: 500;">💧 ' + irrText + (irrDays ? ' • ' + irrDays : '') + '</div>' +
           '</div>' +
@@ -6361,7 +6362,7 @@
     html += '<div style="font-size: 0.95rem; font-weight: 700; color: var(--g1);">' + totalHours.toFixed(1) + '</div></div>';
     if (totalTrees > 0) {
       html += '<div style="flex:1; background: #e8f5e9; padding: 6px 8px; border-radius: 8px; text-align: center;">';
-      html += '<div style="font-size: 0.6rem; color: var(--text-muted);">🌴 ' + t('עצים') + '</div>';
+      html += '<div style="font-size: 0.6rem; color: var(--text-muted);">🌴 ' + t('עצים שטופלו') + '</div>';
       html += '<div style="font-size: 0.95rem; font-weight: 700; color: var(--g1);">' + totalTrees + '</div></div>';
     }
     html += '</div>';
@@ -6748,6 +6749,13 @@
     var totalHours = farmWorklog.reduce(function(s, e) { return s + (e.hours || 0); }, 0);
     var totalEntries = farmWorklog.length;
     var avgProductivity = totalHours > 0 && totalTrees > 0 ? (totalTrees / totalHours).toFixed(1) : '—';
+    // Farm tree stock comes from the plots, not the worklog (worklog = trees treated)
+    var plotTrees = farmPlots.reduce(function(s, p) { return s + (Number(p.tree_count) || 0); }, 0);
+    var plotMissing = farmPlots.reduce(function(s, p) { return s + (Number(p.missing_trees) || 0); }, 0);
+    var plotYoung = farmPlots.reduce(function(s, p) { return s + (Number(p.young_trees) || 0); }, 0);
+    var treeSub = [];
+    if (plotMissing) treeSub.push(t('עצים חסרים') + ' ' + plotMissing.toLocaleString());
+    if (plotYoung) treeSub.push(t('עצים צעירים') + ' ' + plotYoung.toLocaleString());
     
     var matrixHtml = '<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px;">' +
       '<div style="background: var(--g6); padding: 10px 6px; border-radius: 10px; text-align: center;">' +
@@ -6756,7 +6764,7 @@
       '</div>' +
       '<div style="background: var(--g6); padding: 10px 6px; border-radius: 10px; text-align: center;">' +
         '<div style="font-size: 0.65rem; color: var(--text-muted);">' + t('שטח כולל') + '</div>' +
-        '<div style="font-size: 1.1rem; font-weight: 700; color: var(--g1);">' + totalArea.toFixed(1) + '</div>' +
+        '<div style="font-size: 1.1rem; font-weight: 700; color: var(--g1);">' + totalArea.toFixed(1) + ' <span style="font-size: 0.7rem; font-weight: 500;">' + t('דונם') + '</span></div>' +
       '</div>' +
       '<div style="background: #e3f2fd; padding: 10px 6px; border-radius: 10px; text-align: center;">' +
         '<div style="font-size: 0.65rem; color: var(--water);">' + t('קוב לדונם/פתיחה') + '</div>' +
@@ -6767,12 +6775,14 @@
         '<div style="font-size: 1.1rem; font-weight: 700; color: var(--accent);">' + totalEntries + '</div>' +
       '</div>' +
       '<div style="background: #f3e5f5; padding: 10px 6px; border-radius: 10px; text-align: center;">' +
-        '<div style="font-size: 0.65rem; color: #6a1b9a;">' + t('עצים') + '</div>' +
-        '<div style="font-size: 1.1rem; font-weight: 700; color: #6a1b9a;">' + totalTrees + '</div>' +
+        '<div style="font-size: 0.65rem; color: #6a1b9a;">🌴 ' + t('עצים') + '</div>' +
+        '<div style="font-size: 1.1rem; font-weight: 700; color: #6a1b9a;">' + (plotTrees ? plotTrees.toLocaleString() : '—') + '</div>' +
+        (treeSub.length ? '<div style="font-size: 0.6rem; color: #6a1b9a; margin-top: 2px;">' + treeSub.join(' • ') + '</div>' : '') +
       '</div>' +
       '<div style="background: #e8f5e9; padding: 10px 6px; border-radius: 10px; text-align: center;">' +
-        '<div style="font-size: 0.65rem; color: var(--g1);">' + t('עצים/שעה') + '</div>' +
-        '<div style="font-size: 1.1rem; font-weight: 700; color: var(--g1);">' + avgProductivity + '</div>' +
+        '<div style="font-size: 0.65rem; color: var(--g1);">' + t('עצים שטופלו') + '</div>' +
+        '<div style="font-size: 1.1rem; font-weight: 700; color: var(--g1);">' + (totalTrees ? totalTrees.toLocaleString() : '—') + '</div>' +
+        (avgProductivity !== '—' ? '<div style="font-size: 0.6rem; color: var(--g1); margin-top: 2px;">' + avgProductivity + ' ' + t('עצים/שעה') + '</div>' : '') +
       '</div>' +
     '</div>';
     
@@ -6890,6 +6900,8 @@
           
           matrixHtml +
           
+          '<div id="fdSprayPlan" style="margin-bottom: 14px;"></div>' +
+          
           '<div class="section-title" style="margin-top: 4px;">🚜 ' + t('ציוד ורכבים') + '</div>' +
           equipHtml +
           
@@ -6915,6 +6927,9 @@
           '</div>' +
         '</div>' +
       '</div>';
+    
+    // Approved spray plans for this farm (agriplan.js fills it asynchronously)
+    if (window.AgriPlan && AgriPlan.farmCard) AgriPlan.farmCard(farm.id, document.getElementById('fdSprayPlan'));
     
     // Receipt click handlers
     container.querySelectorAll('.receipt-thumb').forEach(function(el) {

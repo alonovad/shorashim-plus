@@ -131,6 +131,14 @@ service cloud.firestore {
       allow write: if isOperatorOrAbove() &&
                       docId.matches('shorashim-agri-plan-[0-9]{4}');
 
+      // Admin only: treatment-plan approvals, one document per growing year
+      // (shorashim-agri-approvals-2026, ...). Kept apart from the plan
+      // document above so an operator — who writes the plans — cannot write
+      // an approval. Each approval signs one farm's rows; agriplan.js shows a
+      // farm's part of a plan on its card only while that signature matches.
+      allow write: if isAdmin() &&
+                      docId.matches('shorashim-agri-approvals-[0-9]{4}');
+
       // Worker+: worklogs
       allow write: if isWorkerOrAbove() && docId.matches('shorashim-worklog.*');
 
