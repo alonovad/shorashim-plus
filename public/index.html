@@ -529,13 +529,24 @@
         <label class="form-label" data-t-key="עצים שטופלו">עצים שטופלו</label>
         <input type="number" class="form-input" id="wlTreesCompleted" min="0" step="1" placeholder="0">
       </div>
+      <div style="display: flex; gap: 10px;">
+        <div class="form-group" style="flex: 1;">
+          <label class="form-label" data-t-key="כמות (תפוקה)">כמות (תפוקה)</label>
+          <input type="number" class="form-input" id="wlQuantity" min="0" step="any" inputmode="decimal" placeholder="0">
+        </div>
+        <div class="form-group" style="flex: 1;">
+          <label class="form-label" data-t-key="יחידה">יחידה</label>
+          <select class="form-input" id="wlQtyUnit" style="cursor: pointer;"></select>
+        </div>
+      </div>
       <div id="wlProductivityPreview" style="display: none; background: linear-gradient(135deg, var(--g1), var(--g2)); border-radius: 10px; padding: 12px; color: white; margin-bottom: 14px;">
         <div style="font-size: 0.78rem; opacity: 0.8; margin-bottom: 4px;" data-t-key="הספק מחושב">הספק מחושב</div>
-        <div style="display: flex; gap: 16px; flex-wrap: wrap;">
+        <div id="wlProdTreesRow" style="display: flex; gap: 16px; flex-wrap: wrap;">
           <div><span style="font-size: 1.1rem; font-weight: 700;" id="wlProdTreesPerHour">—</span> <span style="font-size: 0.75rem; opacity: 0.8;" data-t-key="עצים/שעה">עצים/שעה</span></div>
           <div><span style="font-size: 1.1rem; font-weight: 700;" id="wlProdTreesPerWorker">—</span> <span style="font-size: 0.75rem; opacity: 0.8;" data-t-key="עצים/עובד">עצים/עובד</span></div>
           <div><span style="font-size: 1.1rem; font-weight: 700;" id="wlProdTreesPerWorkerHour">—</span> <span style="font-size: 0.75rem; opacity: 0.8;" data-t-key="עצים/עובד×שעה">עצים/עובד×שעה</span></div>
         </div>
+        <div id="wlProdQty" style="display: none; font-size: 0.85rem; margin-top: 6px;"></div>
       </div>
       <div class="form-group">
         <label class="form-label" data-t-key="עובדים (שמות)">עובדים (שמות — אופציונלי)</label>

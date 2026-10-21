@@ -1158,6 +1158,15 @@
     'עצים/עובד': { th: 'ต้น/คน', ar: 'شجرة/عامل' },
     'עצים/שעה': { th: 'ต้น/ชม.', ar: 'شجرة/ساعة' },
     'עצים/עובד×שעה': { th: 'ต้น/คน×ชม.', ar: 'شجرة/عامل×ساعة' },
+    'עובד×שעה': { th: 'คน×ชม.', ar: 'عامل×ساعة' },
+    'כמות (תפוקה)': { th: 'ปริมาณ (ผลผลิต)', ar: 'الكمية (الإنتاج)' },
+    'יחידה': { th: 'หน่วย', ar: 'الوحدة' },
+    'תפוקה': { th: 'ผลผลิต', ar: 'الإنتاج' },
+    'ארגזים': { th: 'ลัง', ar: 'صناديق' },
+    'ק״ג': { th: 'กก.', ar: 'كغ' },
+    'טון': { th: 'ตัน', ar: 'طن' },
+    'משטחים': { th: 'พาเลท', ar: 'منصات' },
+    'יחידות': { th: 'ชิ้น', ar: 'وحدات' },
 
     // ── Spray ──
     'פרטי ריסוס': { th: 'รายละเอียดพ่นยา', ar: 'تفاصيل الرش' },
@@ -5813,6 +5822,57 @@
   // Worker list
   var savedWorkers = JSON.parse(localStorage.getItem('shorashim-workers') || '[]');
 
+  // ── Output quantity (כמות + יחידה) ──
+  // Harvest and similar work is measured in crates, sacks, kg… not trees.
+  // An entry carries `quantity` (number) and `quantity_unit` (Hebrew key,
+  // shown through t()). Totals are kept per unit — crates and kg never add.
+  var WL_QTY_UNITS = ['ארגזים', 'שקים', 'ק״ג', 'טון', 'משטחים', 'יחידות'];
+  var WL_QTY_UNIT_KEY = 'shorashim-wl-qty-unit';
+
+  function wlQtyOf(e) {
+    var q = e ? Number(e.quantity) : 0;
+    return (isFinite(q) && q > 0) ? q : 0;
+  }
+  function wlFmtNum(n) {
+    return (Math.round(n * 100) / 100).toLocaleString('he-IL');
+  }
+  // "1,100 ארגזים" for one entry, '' when it has none
+  function wlQtyText(e) {
+    var q = wlQtyOf(e);
+    return q ? wlFmtNum(q) + ' ' + t(e.quantity_unit || 'יחידות') : '';
+  }
+  // { unit: { qty, hours, manHours } } over entries that carry a quantity
+  function wlQtyTotals(list) {
+    var out = {};
+    (list || []).forEach(function(e) {
+      var q = wlQtyOf(e); if (!q) return;
+      var u = e.quantity_unit || 'יחידות';
+      if (!out[u]) out[u] = { qty: 0, hours: 0, manHours: 0 };
+      out[u].qty += q;
+      out[u].hours += (e.hours || 0);
+      out[u].manHours += (e.hours || 0) * (e.worker_count || 1);
+    });
+    return out;
+  }
+  // "1,100 ארגזים · 40 שקים"
+  function wlQtyTotalsText(totals) {
+    return Object.keys(totals).map(function(u) { return wlFmtNum(totals[u].qty) + ' ' + t(u); }).join(' · ');
+  }
+  // per worker-hour, per unit: "16.1 ארגזים/עובד×שעה"
+  function wlQtyRateText(totals) {
+    return Object.keys(totals).filter(function(u) { return totals[u].manHours > 0; }).map(function(u) {
+      return (totals[u].qty / totals[u].manHours).toFixed(1) + ' ' + t(u) + '/' + t('עובד×שעה');
+    }).join(' · ');
+  }
+  function wlFillQtyUnits(sel, current) {
+    if (!sel) return;
+    var units = WL_QTY_UNITS.slice();
+    if (current && units.indexOf(current) === -1) units.unshift(current);
+    sel.innerHTML = units.map(function(u) {
+      return '<option value="' + u + '"' + (u === current ? ' selected' : '') + '>' + t(u) + '</option>';
+    }).join('');
+  }
+
   // ── Sub-view toggle ──
   var wlCurrentView = 'form';
   
@@ -5950,7 +6010,13 @@
       groupSelect.appendChild(opt);
     });
     if (currentGroup) groupSelect.value = currentGroup;
-    
+
+    // Quantity unit: keep what is selected, else the last unit used
+    var unitSelect = document.getElementById('wlQtyUnit');
+    var lastUnit = '';
+    try { lastUnit = localStorage.getItem(WL_QTY_UNIT_KEY) || ''; } catch (e) {}
+    wlFillQtyUnits(unitSelect, unitSelect.value || lastUnit || WL_QTY_UNITS[0]);
+
     // Populate worker name suggestions
     var datalist = document.getElementById('workerSuggestions');
     datalist.innerHTML = '';
@@ -6201,7 +6267,11 @@
     var workerGroup = document.getElementById('wlWorkerGroup').value || '';
     var workerCount = parseInt(document.getElementById('wlWorkerCount').value) || 1;
     var hours = parseFloat(document.getElementById('wlHours').value) || null;
-    
+    var quantity = parseFloat(document.getElementById('wlQuantity').value);
+    quantity = (isFinite(quantity) && quantity > 0) ? quantity : null;
+    var quantityUnit = quantity ? (document.getElementById('wlQtyUnit').value || WL_QTY_UNITS[0]) : null;
+    if (quantityUnit) { try { localStorage.setItem(WL_QTY_UNIT_KEY, quantityUnit); } catch (e) {} }
+
     // Day of week in Hebrew
     var dayNames = [t('יום א\''),t('יום ב\''),t('יום ג\''),t('יום ד\''),t('יום ה\''),t('יום ו\''),t('שבת')];
     var dayOfWeek = dayNames[new Date(date).getDay()];
@@ -6222,6 +6292,8 @@
       hours: hours,
       worker_count: workerCount,
       trees_completed: parseInt(document.getElementById('wlTreesCompleted').value) || null,
+      quantity: quantity,
+      quantity_unit: quantityUnit,
       workers: document.getElementById('wlWorkers').value.trim() || null,
       notes: document.getElementById('wlNotes').value.trim() || null,
       operator: currentUser ? currentUser.name : '',
@@ -6235,6 +6307,7 @@
     document.getElementById('wlHours').value = '';
     document.getElementById('wlWorkerCount').value = '';
     document.getElementById('wlTreesCompleted').value = '';
+    document.getElementById('wlQuantity').value = '';
     document.getElementById('wlWorkers').value = '';
     document.getElementById('wlNotes').value = '';
     document.getElementById('wlDate').value = new Date().toISOString().split('T')[0];
@@ -6248,7 +6321,21 @@
     var hours = parseFloat(document.getElementById('wlHours').value) || 0;
     var workers = parseInt(document.getElementById('wlWorkerCount').value) || 1;
     var preview = document.getElementById('wlProductivityPreview');
-    
+
+    // output quantity line (crates/worker, crates/worker-hour)
+    var qty = parseFloat(document.getElementById('wlQuantity').value) || 0;
+    var qtyLine = document.getElementById('wlProdQty');
+    if (qty > 0) {
+      var unit = t(document.getElementById('wlQtyUnit').value || WL_QTY_UNITS[0]);
+      var parts = ['<b>' + wlFmtNum(qty / workers) + '</b> ' + unit + '/' + t('עובד')];
+      if (hours > 0) parts.push('<b>' + (qty / (hours * workers)).toFixed(1) + '</b> ' + unit + '/' + t('עובד×שעה'));
+      qtyLine.innerHTML = '📦 ' + parts.join(' &nbsp;•&nbsp; ');
+      qtyLine.style.display = 'block';
+    } else {
+      qtyLine.style.display = 'none';
+    }
+    document.getElementById('wlProdTreesRow').style.display = trees > 0 ? 'flex' : 'none';
+
     if (trees > 0 && hours > 0) {
       preview.style.display = 'block';
       var treesPerHour = trees / hours;
@@ -6263,13 +6350,14 @@
       document.getElementById('wlProdTreesPerWorker').textContent = (trees / workers).toFixed(0);
       document.getElementById('wlProdTreesPerWorkerHour').textContent = '—';
     } else {
-      preview.style.display = 'none';
+      preview.style.display = qty > 0 ? 'block' : 'none';
     }
   }
-  
-  ['wlTreesCompleted', 'wlHours', 'wlWorkerCount'].forEach(function(id) {
+
+  ['wlTreesCompleted', 'wlHours', 'wlWorkerCount', 'wlQuantity'].forEach(function(id) {
     document.getElementById(id).addEventListener('input', updateProductivityPreview);
   });
+  document.getElementById('wlQtyUnit').addEventListener('change', updateProductivityPreview);
   
   function renderWorklogHistory() {
     var container = document.getElementById('wlLocalHistory');
@@ -6305,12 +6393,14 @@
           (entry.farm_name ? '<span>🌳 ' + entry.farm_name + '</span>' : '') +
           (entry.plot_name ? '<span>📍 ' + entry.plot_name + '</span>' : '') +
           (entry.trees_completed ? '<span>🌴 ' + entry.trees_completed + ' ' + t('עצים') + '</span>' : '') +
+          (wlQtyOf(entry) ? '<span>📦 ' + wlQtyText(entry) + '</span>' : '') +
           (entry.hours ? '<span>⏱ ' + entry.hours + ' ' + t('שעות') + '</span>' : '') +
           (entry.worker_count && entry.worker_count > 1 ? '<span>👥 ' + entry.worker_count + ' ' + t('עובדים') + '</span>' : '') +
           (entry.workers ? '<span>👷 ' + entry.workers + '</span>' : '') +
           '<span>👤 ' + entry.operator + '</span>' +
         '</div>' +
         (entry.trees_completed && entry.hours ? '<div style="font-size: 0.72rem; color: var(--g2); margin-top: 4px; font-weight: 600;">⚡ ' + (entry.trees_completed / entry.hours).toFixed(1) + ' ' + t('עצים/שעה') + (entry.worker_count > 1 ? ' • ' + (entry.trees_completed / (entry.hours * entry.worker_count)).toFixed(1) + ' ' + t('עצים/עובד×שעה') : '') + '</div>' : '') +
+        (wlQtyOf(entry) && entry.hours ? '<div style="font-size: 0.72rem; color: var(--g2); margin-top: 4px; font-weight: 600;">📦 ' + wlQtyRateText(wlQtyTotals([entry])) + '</div>' : '') +
         (entry.notes ? '<div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px; font-style: italic;">📝 ' + entry.notes + '</div>' : '') +
         (window.WorklogEdit ? WorklogEdit.actions(entry) : '') +
       '</div>';
@@ -6366,6 +6456,11 @@
       html += '<div style="font-size: 0.95rem; font-weight: 700; color: var(--g1);">' + totalTrees + '</div></div>';
     }
     html += '</div>';
+    var plotQty = wlQtyTotals(plotEntries);
+    if (Object.keys(plotQty).length) {
+      html += '<div style="background: #fff8e1; padding: 6px 8px; border-radius: 8px; margin-bottom: 8px; font-size: 0.78rem; text-align: center;">' +
+        '📦 <b>' + wlQtyTotalsText(plotQty) + '</b>' + (wlQtyRateText(plotQty) ? ' <span style="color: var(--text-muted);">(' + wlQtyRateText(plotQty) + ')</span>' : '') + '</div>';
+    }
 
     // Last 3 entries compact
     var recent = plotEntries.slice(0, 3);
@@ -6379,6 +6474,7 @@
       if (entry.hours) details.push('⏱' + entry.hours + t('שעות'));
       if (entry.worker_count > 1) details.push('👥' + entry.worker_count);
       if (entry.trees_completed) details.push('🌴' + entry.trees_completed);
+      if (wlQtyOf(entry)) details.push('📦' + wlQtyText(entry));
       if (entry.workers) details.push('👷' + entry.workers);
       if (details.length) html += '<div style="color: var(--text-muted); font-size: 0.7rem; margin-top: 2px;">' + details.join(' &nbsp; ') + '</div>';
       html += '</div>';
@@ -6420,6 +6516,11 @@
         html += '<div style="flex:1;background:#fff8e1;padding:10px;border-radius:10px;text-align:center;"><div style="font-size:0.65rem;color:var(--text-muted);">⚡/' + t('שעה') + '</div><div style="font-size:1.1rem;font-weight:700;color:#e65100;">' + avgProd + '</div></div>';
       }
       html += '</div>';
+      var histQty = wlQtyTotals(plotEntries);
+      if (Object.keys(histQty).length) {
+        html += '<div style="background:#fff8e1;padding:10px;border-radius:10px;margin:-6px 0 14px;font-size:0.85rem;text-align:center;">📦 <b>' +
+          wlQtyTotalsText(histQty) + '</b>' + (wlQtyRateText(histQty) ? '<div style="font-size:0.72rem;color:var(--text-muted);margin-top:2px;">' + wlQtyRateText(histQty) + '</div>' : '') + '</div>';
+      }
 
       // Full entry list
       plotEntries.forEach(function(entry) {
@@ -6433,6 +6534,7 @@
         if (entry.hours) html += '<span>⏱ ' + entry.hours + ' ' + t('שעות') + '</span>';
         if (entry.worker_count > 1) html += '<span>👥 ' + entry.worker_count + '</span>';
         if (entry.trees_completed) html += '<span>🌴 ' + entry.trees_completed + '</span>';
+        if (wlQtyOf(entry)) html += '<span>📦 ' + wlQtyText(entry) + '</span>';
         if (entry.workers) html += '<span>👷 ' + entry.workers + '</span>';
         html += '<span>👤 ' + entry.operator + '</span>';
         html += '</div>';
@@ -6479,7 +6581,8 @@
         var names = entry.workers ? entry.workers.split(',').map(function(s) { return s.trim(); }) : [entry.operator];
         names.forEach(function(name) {
           if (!name) return;
-          if (!groups[name]) groups[name] = { label: name, hours: 0, count: 0, totalWorkers: 0, trees: 0 };
+          if (!groups[name]) groups[name] = { label: name, hours: 0, count: 0, totalWorkers: 0, trees: 0, entries: [] };
+          groups[name].entries.push(entry);
           groups[name].hours += (entry.hours || 0);
           groups[name].count += 1;
           groups[name].totalWorkers += (entry.worker_count || 1);
@@ -6493,7 +6596,8 @@
       }
       
       if (mode !== 'worker') {
-        if (!groups[key]) groups[key] = { label: label, color: color, hours: 0, count: 0, totalWorkers: 0, trees: 0 };
+        if (!groups[key]) groups[key] = { label: label, color: color, hours: 0, count: 0, totalWorkers: 0, trees: 0, entries: [] };
+        groups[key].entries.push(entry);
         groups[key].hours += (entry.hours || 0);
         groups[key].count += 1;
         groups[key].totalWorkers += (entry.worker_count || 1);
@@ -6512,6 +6616,7 @@
         count: g.count,
         totalWorkers: g.totalWorkers,
         trees: g.trees,
+        qty: wlQtyTotals(g.entries),
         treesPerHour: g.hours > 0 ? (g.trees / g.hours) : 0,
         treesPerWorkerHour: totalManHours > 0 ? (g.trees / totalManHours) : 0
       };
@@ -6534,6 +6639,7 @@
       } else {
         statsText = item.hours.toFixed(1) + ' ' + t('שעות') + ' • ' + item.count + ' ' + t('רשומות');
       }
+      if (Object.keys(item.qty).length) statsText += ' • 📦 ' + wlQtyTotalsText(item.qty);
       
       html += '<div style="margin-bottom: 10px;">' +
         '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px;">' +
@@ -6554,6 +6660,8 @@
     var totalEntries = items.reduce(function(s, i) { return s + i.count; }, 0);
     var summaryParts = [t('שעות עבודה כולל') + ': <strong>' + totalHours.toFixed(1) + '</strong>'];
     if (totalTrees > 0) summaryParts.push(totalTrees + ' ' + t('עצים'));
+    var allQty = wlQtyTotals(filtered);
+    if (Object.keys(allQty).length) summaryParts.push('📦 ' + wlQtyTotalsText(allQty) + (wlQtyRateText(allQty) ? ' (' + wlQtyRateText(allQty) + ')' : ''));
     summaryParts.push(totalEntries + ' ' + t('רשומות'));
     document.getElementById('wlChartLegend').innerHTML = summaryParts.join(' • ');
     
@@ -6785,7 +6893,14 @@
         (avgProductivity !== '—' ? '<div style="font-size: 0.6rem; color: var(--g1); margin-top: 2px;">' + avgProductivity + ' ' + t('עצים/שעה') + '</div>' : '') +
       '</div>' +
     '</div>';
-    
+    var farmQty = wlQtyTotals(farmWorklog);
+    if (Object.keys(farmQty).length) {
+      matrixHtml += '<div style="background: #fff8e1; padding: 8px 10px; border-radius: 10px; margin: -8px 0 16px; font-size: 0.8rem; text-align: center; color: #e65100;">' +
+        '📦 ' + t('תפוקה') + ': <b>' + wlQtyTotalsText(farmQty) + '</b>' +
+        (wlQtyRateText(farmQty) ? '<div style="font-size: 0.68rem; color: var(--text-muted); margin-top: 2px;">' + wlQtyRateText(farmQty) + '</div>' : '') +
+      '</div>';
+    }
+
     // ── Equipment & Vehicles ──
     var equipHtml = '';
     if (equipment.length === 0) {
@@ -6857,6 +6972,7 @@
           '</div>' +
           '<div style="font-size: 0.8rem; margin-top: 3px;">' + entry.description + '</div>' +
           (entry.trees_completed ? '<div style="font-size: 0.7rem; color: var(--g2); margin-top: 2px;">🌴 ' + entry.trees_completed + ' ' + t('עצים') + (entry.hours ? ' • ⏱ ' + entry.hours + 'h' : '') + '</div>' : '') +
+          (wlQtyOf(entry) ? '<div style="font-size: 0.7rem; color: var(--g2); margin-top: 2px;">📦 ' + wlQtyText(entry) + '</div>' : '') +
         '</div>';
       });
     }

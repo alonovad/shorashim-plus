@@ -1375,9 +1375,9 @@ var TimeClock = (function() {
       filename = 'worklog_' + new Date().toISOString().slice(0,10) + '.csv';
       var data = JSON.parse(localStorage.getItem('plotMapperSprayData') || '{}');
       var entries = data.worklogEntries || [];
-      rows.push([tt('תאריך','วันที่','تاريخ'), tt('חלקה','แปลง','قطعة'), tt('סעיף','หมวด','بند'), tt('פעולה','งาน','عملية'), tt('קבוצת עובדים','กลุ่มคนงาน','مجموعة عمال'), tt('מספר עובדים','จำนวน','عدد العمال'), tt('שעות','ชม.','ساعات'), tt('עצים','ต้น','أشجار'), tt('הערות','หมายเหตุ','ملاحظات')]);
+      rows.push([tt('תאריך','วันที่','تاريخ'), tt('חלקה','แปลง','قطعة'), tt('סעיף','หมวด','بند'), tt('פעולה','งาน','عملية'), tt('קבוצת עובדים','กลุ่มคนงาน','مجموعة عمال'), tt('מספר עובדים','จำนวน','عدد العمال'), tt('שעות','ชม.','ساعات'), tt('עצים','ต้น','أشجار'), tt('כמות','ปริมาณ','الكمية'), tt('יחידה','หน่วย','الوحدة'), tt('עובדים','คนงาน','العمال'), tt('הערות','หมายเหตุ','ملاحظات')]);
       entries.forEach(function(e) {
-        rows.push([e.date || '', e.plot_name || '', e.budget_category || '', e.description || '', e.worker_group || '', e.worker_count || '', e.hours || '', e.trees || '', e.notes || '']);
+        rows.push([e.date || '', e.plot_name || '', e.budget_category || '', e.description || '', e.worker_group || '', e.worker_count || '', e.hours || '', e.trees_completed || '', e.quantity || '', e.quantity ? (e.quantity_unit || '') : '', e.workers || '', e.notes || '']);
       });
     }
 

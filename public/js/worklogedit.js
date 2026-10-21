@@ -65,6 +65,7 @@ var WorklogEdit = (function () {
       type: tt('פעולה', 'งาน', 'العمل'), budget_category: tt('סעיף תקציבי', 'หมวดงบ', 'بند الميزانية'),
       worker_group: tt('קבוצת עובדים', 'กลุ่มคนงาน', 'مجموعة العمال'), worker_count: tt('מספר עובדים', 'จำนวนคนงาน', 'عدد العمال'),
       hours: tt('שעות', 'ชั่วโมง', 'ساعات'), trees_completed: tt('עצים שבוצעו', 'ต้นที่เสร็จ', 'الأشجار المنجزة'),
+      quantity: tt('כמות (תפוקה)', 'ปริมาณ (ผลผลิต)', 'الكمية (الإنتاج)'), quantity_unit: tt('יחידה', 'หน่วย', 'الوحدة'),
       workers: tt('שמות עובדים', 'ชื่อคนงาน', 'أسماء العمال'), notes: tt('הערות', 'หมายเหตุ', 'ملاحظات')
     }[f] || f;
   }
@@ -72,6 +73,7 @@ var WorklogEdit = (function () {
   function shown(f, v) {
     if (v == null || v === '') return '\u2014';
     if (f === 'farm_id') { var fm = (typeof farms !== 'undefined' ? farms : []).filter(function (x) { return x.id === v; })[0]; return fm ? farmName(fm) : String(v); }
+    if (f === 'quantity_unit') return tr(String(v));
     if (f === 'plot_id') { var pl = (typeof plots !== 'undefined' ? plots : []).filter(function (x) { return x.id === v; })[0]; return pl ? pl.name : String(v); }
     return String(v);
   }
@@ -93,7 +95,7 @@ var WorklogEdit = (function () {
   }
 
   // ── the edit form ───────────────────────────────────────────────────
-  var EDIT_FIELDS = ['date', 'farm_id', 'plot_id', 'type', 'budget_category', 'worker_group', 'worker_count', 'hours', 'trees_completed', 'workers', 'notes'];
+  var EDIT_FIELDS = ['date', 'farm_id', 'plot_id', 'type', 'budget_category', 'worker_group', 'worker_count', 'hours', 'trees_completed', 'quantity', 'quantity_unit', 'workers', 'notes'];
   var back = null;     // where to return after saving: 'browse' | {plot, name} | null
 
   function opt(v, label, sel) { return '<option value="' + esc(v) + '"' + (sel ? ' selected' : '') + '>' + esc(label) + '</option>'; }
@@ -115,6 +117,8 @@ var WorklogEdit = (function () {
     var acts = list('WL_ACTIONS').slice(); if (e.type && acts.indexOf(e.type) < 0) acts.unshift(e.type);
     var cats = list('WL_BUDGET_CATEGORIES').slice(); if (e.budget_category && cats.indexOf(e.budget_category) < 0) cats.unshift(e.budget_category);
     var grps = list('WL_WORKER_GROUPS').slice(); if (e.worker_group && grps.indexOf(e.worker_group) < 0) grps.unshift(e.worker_group);
+    var units = list('WL_QTY_UNITS').slice(); if (e.quantity_unit && units.indexOf(e.quantity_unit) < 0) units.unshift(e.quantity_unit);
+    var unitSel = e.quantity_unit || units[0];
     var row = function (label, inner) { return '<div class="form-group"><label class="form-label">' + label + '</label>' + inner + '</div>'; };
     var two = function (a, b) { return '<div style="display:flex;gap:10px;"><div style="flex:1;">' + a + '</div><div style="flex:1;">' + b + '</div></div>'; };
     var revs = Array.isArray(e.revisions) ? e.revisions : [];
@@ -142,6 +146,8 @@ var WorklogEdit = (function () {
         two(row(fieldLabel('worker_count'), '<input type="number" min="1" step="1" class="form-input" id="weCount" value="' + esc(e.worker_count || '') + '">'),
             row(fieldLabel('hours'), '<input type="number" min="0" step="0.25" class="form-input" id="weHours" value="' + esc(e.hours != null ? e.hours : '') + '">')) +
         row(fieldLabel('trees_completed'), '<input type="number" min="0" step="1" class="form-input" id="weTrees" value="' + esc(e.trees_completed != null ? e.trees_completed : '') + '">') +
+        two(row(fieldLabel('quantity'), '<input type="number" min="0" step="any" inputmode="decimal" class="form-input" id="weQty" value="' + esc(e.quantity != null ? e.quantity : '') + '">'),
+            row(fieldLabel('quantity_unit'), '<select class="form-input" id="weQtyUnit">' + units.map(function (u) { return opt(u, tr(u), u === unitSel); }).join('') + '</select>')) +
         row(fieldLabel('workers'), '<input type="text" class="form-input" id="weWorkers" value="' + esc(e.workers || '') + '" placeholder="' + esc(tt('שמות, מופרדים בפסיק', 'ชื่อ คั่นด้วยจุลภาค', 'أسماء مفصولة بفواصل')) + '">') +
         row(fieldLabel('notes'), '<textarea class="form-input" id="weNotes" rows="3" style="resize:vertical;">' + esc(e.notes || '') + '</textarea>') +
         (revs.length
@@ -173,10 +179,12 @@ var WorklogEdit = (function () {
     var g = function (id) { var el = document.getElementById(id); return el ? el.value : ''; };
     var int = function (v) { var n = parseInt(v, 10); return isFinite(n) ? n : null; };
     var flt = function (v) { var n = parseFloat(v); return isFinite(n) ? n : null; };
+    var qty = flt(g('weQty')); if (qty != null && qty <= 0) qty = null;
     return {
       date: g('weDate'), farm_id: int(g('weFarm')), plot_id: int(g('wePlot')), type: g('weType'),
       budget_category: g('weBudget') || '', worker_group: g('weGroup') || '',
       worker_count: int(g('weCount')) || 1, hours: flt(g('weHours')), trees_completed: int(g('weTrees')),
+      quantity: qty, quantity_unit: qty ? (g('weQtyUnit') || null) : null,
       workers: String(g('weWorkers') || '').trim() || null, notes: String(g('weNotes') || '').trim() || null
     };
   }
@@ -186,6 +194,7 @@ var WorklogEdit = (function () {
     if (!v.date) { toast('\u274c ' + tt('יש לבחור תאריך', 'เลือกวันที่', 'اختر التاريخ')); return; }
     if (!v.farm_id) { toast('\u274c ' + tt('יש לבחור מטע', 'เลือกสวน', 'اختر البستان')); return; }
     if (!v.type) { toast('\u274c ' + tt('יש לבחור פעולה', 'เลือกงาน', 'اختر العمل')); return; }
+    if (v.quantity != null && v.quantity < 0) { toast('\u274c ' + tt('כמות לא תקינה', 'ปริมาณไม่ถูกต้อง', 'كمية غير صالحة')); return; }
     if (v.hours != null && (v.hours < 0 || v.hours > 24)) { toast('\u274c ' + tt('שעות לא תקינות', 'ชั่วโมงไม่ถูกต้อง', 'ساعات غير صالحة')); return; }
     var ch = [];
     EDIT_FIELDS.forEach(function (f) {
@@ -270,7 +279,7 @@ var WorklogEdit = (function () {
       if (B.from && String(e.date || '') < B.from) return false;
       if (B.to && String(e.date || '') > B.to) return false;
       if (q) {
-        var hay = [e.type, e.workers, e.notes, e.plot_name, e.farm_name, e.operator, e.worker_group, e.budget_category].join(' ').toLowerCase();
+        var hay = [e.type, e.workers, e.notes, e.plot_name, e.farm_name, e.operator, e.worker_group, e.budget_category, e.quantity_unit].join(' ').toLowerCase();
         if (hay.indexOf(q) < 0) return false;
       }
       return true;
@@ -319,7 +328,7 @@ var WorklogEdit = (function () {
        [tt('שעות עבודה', 'ชั่วโมงแรงงาน', 'ساعات العمل'), man.toFixed(1)], ['\ud83c\udf34', trees]].map(function (x) {
         return '<div style="flex:1;min-width:80px;background:var(--g6);padding:8px;border-radius:10px;text-align:center;">' +
           '<div style="font-size:.66rem;color:var(--text-muted);">' + x[0] + '</div><div style="font-size:1.05rem;font-weight:700;color:var(--g1);">' + x[1] + '</div></div>';
-      }).join('') + '</div>';
+      }).join('') + '</div>' + qtyStrip(rows);
     var box = document.getElementById('weList'); if (!box) return;
     if (!rows.length) { box.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);">' + tt('אין רשומות', 'ไม่มีรายการ', 'لا توجد سجلات') + '</div>'; return; }
     box.innerHTML = rows.slice(0, B.shown).map(function (e) { return card(e, 'browse'); }).join('') +
@@ -327,6 +336,15 @@ var WorklogEdit = (function () {
         ? '<button onclick="WorklogEdit._more()" style="width:100%;padding:10px;border-radius:10px;border:1px dashed var(--g5);background:none;font-family:inherit;cursor:pointer;">' +
             tt('הצג עוד', 'แสดงเพิ่ม', 'عرض المزيد') + ' (' + (rows.length - B.shown) + ')</button>'
         : '');
+  }
+  // output totals per unit for what is shown (app.js keeps the arithmetic)
+  function qtyStrip(rows) {
+    if (typeof wlQtyTotals !== 'function') return '';
+    var q = wlQtyTotals(rows);
+    if (!Object.keys(q).length) return '';
+    var rate = wlQtyRateText(q);
+    return '<div style="background:#fff8e1;border-radius:10px;padding:8px 10px;margin:-4px 0 12px;font-size:.82rem;text-align:center;">\ud83d\udce6 <b>' +
+      esc(wlQtyTotalsText(q)) + '</b>' + (rate ? '<div style="font-size:.7rem;color:var(--text-muted);margin-top:2px;">' + esc(rate) + '</div>' : '') + '</div>';
   }
   // one entry as a row, with its edit and delete — used by the browser and,
   // through WorklogEdit.actions(), by the lists app.js draws
@@ -343,6 +361,7 @@ var WorklogEdit = (function () {
         (e.hours ? '<span>\u23f1 ' + esc(e.hours) + '</span>' : '') +
         (e.worker_count > 1 ? '<span>\ud83d\udc65 ' + esc(e.worker_count) + '</span>' : '') +
         (e.trees_completed ? '<span>\ud83c\udf34 ' + esc(e.trees_completed) + '</span>' : '') +
+        (typeof wlQtyText === 'function' && wlQtyText(e) ? '<span>\ud83d\udce6 ' + esc(wlQtyText(e)) + '</span>' : '') +
         (e.workers ? '<span>\ud83d\udc77 ' + esc(e.workers) + '</span>' : '') +
         '<span>\ud83d\udc64 ' + esc(e.operator || '') + '</span>' +
       '</div>' +
