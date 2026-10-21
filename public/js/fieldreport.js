@@ -40,18 +40,36 @@ var FieldReport = (function() {
   // { "cropName": { pests: [{he,th?,ar?},...], diseases: [{he,th?,ar?},...] }, "_default": {...} }
   var pestLists = {};
 
+  // Drop null / nameless items and non-object crop entries (the stored
+  // lists once held null items, which crashed the list editor and the
+  // spray form's suggestions). Same rule as spray-pest-link.js.
+  function sanitizePestLists(d) {
+    var out = {};
+    if (!d || typeof d !== 'object') return out;
+    Object.keys(d).forEach(function(k) {
+      var v = d[k];
+      if (!v || typeof v !== 'object') return;
+      var ok = function(x) { return (typeof x === 'string' && x.trim()) || (x && typeof x === 'object' && typeof x.he === 'string' && x.he.trim()); };
+      out[k] = {
+        pests: Array.isArray(v.pests) ? v.pests.filter(ok) : [],
+        diseases: Array.isArray(v.diseases) ? v.diseases.filter(ok) : []
+      };
+    });
+    return out;
+  }
+
   function loadPestLists() {
     return new Promise(function(resolve) {
       if (typeof DB !== 'undefined') {
         DB.loadAsync('shorashim-pest-lists').then(function(data) {
           if (data && Object.keys(data).length > 0) {
-            pestLists = data;
+            pestLists = sanitizePestLists(data);
           } else { seedDefaults(); }
           resolve(pestLists);
         });
       } else {
         var saved = localStorage.getItem('shorashim-pest-lists');
-        if (saved) { try { pestLists = JSON.parse(saved); } catch(e) { seedDefaults(); } }
+        if (saved) { try { pestLists = sanitizePestLists(JSON.parse(saved)); } catch(e) { seedDefaults(); } }
         else { seedDefaults(); }
         resolve(pestLists);
       }
@@ -98,8 +116,8 @@ var FieldReport = (function() {
     if (lang === 'ar') return ar || he;
     return he;
   }
-  function pestName(p) { return (typeof p === 'string') ? p : tt(p.he, p.th, p.ar); }
-  function pestVal(p) { return (typeof p === 'string') ? p : p.he; }
+  function pestName(p) { return (typeof p === 'string') ? p : (p && p.he ? tt(p.he, p.th, p.ar) : ''); }
+  function pestVal(p) { return (typeof p === 'string') ? p : (p && p.he ? p.he : ''); }
 
   var LOC_NAMES = {
     'צמרת': { th: 'ยอด', ar: 'قمة' }, 'גזע': { th: 'ลำต้น', ar: 'جذع' },
@@ -438,7 +456,7 @@ var FieldReport = (function() {
     items.forEach(function(item, i) {
       html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;padding:6px 8px;background:#f9f9f9;border-radius:8px;">';
       html += '<div style="flex:1;font-size:0.82rem;">';
-      html += '<div style="font-weight:600;">' + item.he + '</div>';
+      html += '<div style="font-weight:600;">' + pestVal(item) + '</div>';
       var subs = [];
       if (item.th) subs.push('🇹🇭 ' + item.th);
       if (item.ar) subs.push('🇸🇦 ' + item.ar);
@@ -539,11 +557,11 @@ var FieldReport = (function() {
     // Deep copy and append
     var srcData = pestLists[source];
     (srcData.pests || []).forEach(function(p) {
-      var exists = pestLists[targetCrop].pests.some(function(x) { return x.he === p.he; });
+      var exists = pestLists[targetCrop].pests.some(function(x) { return pestVal(x) === pestVal(p); });
       if (!exists) pestLists[targetCrop].pests.push(JSON.parse(JSON.stringify(p)));
     });
     (srcData.diseases || []).forEach(function(d) {
-      var exists = pestLists[targetCrop].diseases.some(function(x) { return x.he === d.he; });
+      var exists = pestLists[targetCrop].diseases.some(function(x) { return pestVal(x) === pestVal(d); });
       if (!exists) pestLists[targetCrop].diseases.push(JSON.parse(JSON.stringify(d)));
     });
     savePestLists();

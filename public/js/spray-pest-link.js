@@ -62,20 +62,38 @@ var SprayLink = (function () {
     if (lang === 'ar') return ar || he;
     return he;
   }
-  function itemName(p) { return (typeof p === 'string') ? p : tt(p.he, p.th, p.ar); }
-  function itemVal(p) { return (typeof p === 'string') ? p : p.he; }
+  function itemName(p) { return (typeof p === 'string') ? p : (p && p.he ? tt(p.he, p.th, p.ar) : ''); }
+  function itemVal(p) { return (typeof p === 'string') ? p : (p && p.he ? p.he : ''); }
+  // The stored lists once held null items (אבטיח pests [0..2]), which threw
+  // on every spray-form load and left the suggestions empty. Drop anything
+  // that is not a name string or an object with a Hebrew name, and any crop
+  // entry that is not an object, on every load and live update.
+  function sanitize(d) {
+    var out = {};
+    if (!d || typeof d !== 'object') return out;
+    Object.keys(d).forEach(function (k) {
+      var v = d[k];
+      if (!v || typeof v !== 'object') return;
+      var ok = function (x) { return (typeof x === 'string' && x.trim()) || (x && typeof x === 'object' && typeof x.he === 'string' && x.he.trim()); };
+      out[k] = {
+        pests: Array.isArray(v.pests) ? v.pests.filter(ok) : [],
+        diseases: Array.isArray(v.diseases) ? v.diseases.filter(ok) : []
+      };
+    });
+    return out;
+  }
 
   // ── store ──
   function loadPestLists() {
     return new Promise(function (resolve) {
       if (typeof DB !== 'undefined') {
         DB.loadAsync(PEST_KEY).then(function (d) {
-          pestLists = (d && Object.keys(d).length) ? d : {};
+          pestLists = sanitize(d);
           resolve(pestLists);
         });
       } else {
         var s = localStorage.getItem(PEST_KEY);
-        try { pestLists = s ? JSON.parse(s) : {}; } catch (e) { pestLists = {}; }
+        try { pestLists = sanitize(s ? JSON.parse(s) : {}); } catch (e) { pestLists = {}; }
         resolve(pestLists);
       }
     });
@@ -398,7 +416,7 @@ var SprayLink = (function () {
     // localStorage and would otherwise never see another device's writes.
     if (typeof DB !== 'undefined' && typeof DB.listen === 'function') {
       DB.listen(PEST_KEY, function (d) {
-        if (d && Object.keys(d).length) { pestLists = d; refreshDatalist(); }
+        if (d && Object.keys(d).length) { pestLists = sanitize(d); refreshDatalist(); }
       });
       DB.listen(REPORT_KEY, function (d) {
         if (d) { reports = d; renderPanel(); announceReady(); }
