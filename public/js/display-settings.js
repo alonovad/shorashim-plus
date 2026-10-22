@@ -52,7 +52,8 @@ var DisplaySettings = (function() {
   // are left alone so text contrast never drifts.
   var TUNED_VARS = ['--primary', '--primary-dim', '--primary-soft', '--primary-faded',
     '--g1', '--g2', '--g3', '--g4', '--g5', '--g6', '--tonal', '--line', '--border', '--border-light',
-    '--surface-input', '--bg', '--gradient-header', '--gradient-deep', '--accent', '--accent-light'];
+    '--surface-input', '--bg', '--gradient-header', '--gradient-deep', '--accent', '--accent-light',
+    '--water', '--card', '--surface-glass'];
   var VARS_CACHE_KEY = 'shorashim-display-vars';
 
   // ── Translation helper ──
@@ -137,7 +138,13 @@ var DisplaySettings = (function() {
     var c = parseColor(str);
     if (!c) return null;
     var hsl = toHsl(c);
-    var rgb = fromHsl(hsl.h + hue, Math.max(0, Math.min(1, hsl.s * sat)), hsl.l);
+    // Most of the screen is pale surfaces whose saturation is near zero, so
+    // scaling it alone changes almost nothing. Above 1, strength also adds
+    // colour to those pale tones (more on the lightest ones); below 1 it
+    // fades everything toward grey.
+    var s2 = hsl.s * sat;
+    if (sat > 1) s2 += (sat - 1) * (hsl.l > 0.75 ? 0.55 : 0.25);
+    var rgb = fromHsl(hsl.h + hue, Math.max(0, Math.min(1, s2)), hsl.l);
     if (c.a < 1) return 'rgba(' + rgb.join(',') + ',' + c.a + ')';
     return '#' + rgb.map(function(v) { return ('0' + v.toString(16)).slice(-2); }).join('');
   }
