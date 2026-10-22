@@ -15,6 +15,48 @@
 
 /* ── Palettes ── */
 body.theme-soft {
+  --lime: #b9dc6a;
+  --lime-ink: #0c3b30;
+  --grad-primary: linear-gradient(145deg, #1d8a69 0%, #16785c 50%, #0f634b 100%);
+  --grad-hero: radial-gradient(120% 110% at 85% 10%, #8fd0a8 0%, #2f9a73 35%, #0f634b 70%, #0c3b30 100%);
+  --bg: #f1f4ef;
+  --card: #ffffff;
+  --card-solid: #ffffff;
+  --tonal: #e5ece3;
+  --line: #dbe3d8;
+  --g1: #0c3b30;
+  --g2: #0f634b;
+  --g3: #16785c;
+  --g4: #3f9a7a;
+  --g5: #b3dccb;
+  --g6: #e1eee8;
+  --primary: #16785c;
+  --primary-dim: #0f634b;
+  --on-primary: #ffffff;
+  --primary-soft: #d9efe6;
+  --primary-faded: rgba(22,120,92,0.10);
+  --primary-glow: transparent;
+  --primary-glow-sm: transparent;
+  --accent: #a8682a;
+  --accent-light: #f3e5d4;
+  --water: #3b7fa6;
+  --danger: #b4483c;
+  --danger-light: #f6e1dd;
+  --dark: #1d2a22;
+  --text: #1d2a22;
+  --text-muted: #66756b;
+  --border: #dbe3d8;
+  --border-light: #e5ece3;
+  --surface-input: #e5ece3;
+  --surface-glass: #ffffff;
+  --shadow: 0 1px 2px rgba(29,42,34,0.05);
+  --shadow-lg: 0 10px 30px rgba(29,42,34,0.12);
+  --radius: 16px;
+  --gradient-deep: #f1f4ef;
+  --gradient-header: #f1f4ef;
+}
+/* Fresh layout (default since v148): white, forest green, lime */
+body.theme-soft.layout-fresh {
   --bg: #f8faf6;
   --card: #ffffff;
   --card-solid: #ffffff;
@@ -881,7 +923,7 @@ body.theme-soft .ds-reset { width: 100%; margin-top: 16px; padding: 9px; border:
 }
 
 /* ════════════════════════════════════════════════════════════════
-   Fresh look (v148) — white surfaces, deep forest green, lime accent.
+   Fresh layout (v149, body.layout-fresh) — white surfaces, deep forest green, lime accent.
    Shapes: soft squares (12–14px) instead of long pills; the dark
    gradient marks the one primary action / active item on a screen;
    lime marks status and selection. Applies to all three palettes
@@ -889,50 +931,50 @@ body.theme-soft .ds-reset { width: 100%; margin-top: 16px; padding: 9px; border:
    ════════════════════════════════════════════════════════════════ */
 
 /* Header + clock bar: white, one hairline */
-body.theme-soft .header {
+body.theme-soft.layout-fresh .header {
   background: var(--card) !important;
   border-bottom: 1px solid var(--line) !important;
   padding: 10px 16px 8px !important;
 }
-body.theme-soft .hdr-btn { border-radius: 14px !important; background: var(--tonal) !important; }
-body.theme-soft .clock-bar {
+body.theme-soft.layout-fresh .hdr-btn { border-radius: 14px !important; background: var(--tonal) !important; }
+body.theme-soft.layout-fresh .clock-bar {
   background: var(--card) !important;
   color: var(--text) !important;
   border-bottom: 1px solid var(--line) !important;
 }
 
 /* Tabs: soft-square chips; the active one is the dark gradient */
-body.theme-soft .tab-bar {
+body.theme-soft.layout-fresh .tab-bar {
   background: var(--card) !important;
   border-bottom: 1px solid var(--line) !important;
   padding: 6px 8px 8px !important;
   gap: 4px;
 }
-body.theme-soft .tab {
+body.theme-soft.layout-fresh .tab {
   border-radius: 12px !important;
   padding: 8px 13px !important;
   color: var(--text-muted) !important;
 }
-body.theme-soft .tab.active {
+body.theme-soft.layout-fresh .tab.active {
   background: var(--grad-primary) !important;
   color: var(--on-primary) !important;
   font-weight: 600 !important;
   box-shadow: 0 4px 12px rgba(18,64,31,0.20) !important;
 }
-body.theme-soft.soft-dark .tab.active { color: var(--on-primary) !important; }
-body.theme-soft .tab:not(.active):hover { background: var(--tonal) !important; color: var(--text) !important; }
+body.theme-soft.layout-fresh.soft-dark .tab.active { color: var(--on-primary) !important; }
+body.theme-soft.layout-fresh .tab:not(.active):hover { background: var(--tonal) !important; color: var(--text) !important; }
 
 /* Cards: white, hairline, rounder */
-body.theme-soft .section-card,
-body.theme-soft .plot-card,
-body.theme-soft .history-item {
+body.theme-soft.layout-fresh .section-card,
+body.theme-soft.layout-fresh .plot-card,
+body.theme-soft.layout-fresh .history-item {
   background: var(--card) !important;
   border: 1px solid var(--line) !important;
   border-radius: var(--radius) !important;
   box-shadow: var(--shadow) !important;
 }
 /* farm/material rows keep their inline colour stripe on the right */
-body.theme-soft .pesticide-admin-item {
+body.theme-soft.layout-fresh .pesticide-admin-item {
   background: var(--card) !important;
   border-top: 1px solid var(--line) !important;
   border-bottom: 1px solid var(--line) !important;
@@ -941,70 +983,92 @@ body.theme-soft .pesticide-admin-item {
   box-shadow: var(--shadow) !important;
   transition: box-shadow .15s;
 }
-body.theme-soft .pesticide-admin-item:hover { box-shadow: 0 8px 22px rgba(18,64,31,0.10) !important; }
-body.theme-soft .modal { border-radius: 26px !important; }
+body.theme-soft.layout-fresh .pesticide-admin-item:hover { box-shadow: 0 8px 22px rgba(18,64,31,0.10) !important; }
+body.theme-soft.layout-fresh .modal { border-radius: 26px !important; }
 
 /* Inputs */
-body.theme-soft .form-input,
-body.theme-soft .modal input,
-body.theme-soft .modal textarea,
-body.theme-soft .modal select { border-radius: 14px !important; }
+body.theme-soft.layout-fresh .form-input,
+body.theme-soft.layout-fresh .modal input,
+body.theme-soft.layout-fresh .modal textarea,
+body.theme-soft.layout-fresh .modal select { border-radius: 14px !important; }
 
 /* Buttons: primary = dark gradient soft-square; secondary = white outline */
-body.theme-soft .btn-submit,
-body.theme-soft .btn-primary,
-body.theme-soft .btn-admin,
-body.theme-soft .pm-btn {
+body.theme-soft.layout-fresh .btn-submit,
+body.theme-soft.layout-fresh .btn-primary,
+body.theme-soft.layout-fresh .btn-admin,
+body.theme-soft.layout-fresh .pm-btn {
   background: var(--grad-primary) !important;
   color: var(--on-primary) !important;
   border: none !important;
   border-radius: 14px !important;
   box-shadow: 0 6px 16px rgba(18,64,31,0.22) !important;
 }
-body.theme-soft .btn-submit:active,
-body.theme-soft .btn-primary:active,
-body.theme-soft .btn-admin:active { transform: translateY(1px); box-shadow: 0 2px 8px rgba(18,64,31,0.22) !important; }
-body.theme-soft .btn-secondary {
+body.theme-soft.layout-fresh .btn-submit:active,
+body.theme-soft.layout-fresh .btn-primary:active,
+body.theme-soft.layout-fresh .btn-admin:active { transform: translateY(1px); box-shadow: 0 2px 8px rgba(18,64,31,0.22) !important; }
+body.theme-soft.layout-fresh .btn-secondary {
   background: var(--card) !important;
   color: var(--primary) !important;
   border: 1.5px solid var(--line) !important;
   border-radius: 14px !important;
 }
-body.theme-soft .btn-icon { border-radius: 12px !important; }
-body.theme-soft .ds-seg, body.theme-soft .ds-seg button,
-body.theme-soft .ds-reset { border-radius: 12px !important; }
-body.theme-soft .ds-seg button.on, body.theme-soft .ds-seg button[aria-pressed="true"] {
+body.theme-soft.layout-fresh .btn-icon { border-radius: 12px !important; }
+body.theme-soft.layout-fresh .ds-seg, body.theme-soft.layout-fresh .ds-seg button,
+body.theme-soft.layout-fresh .ds-reset { border-radius: 12px !important; }
+body.theme-soft.layout-fresh .ds-seg button.on, body.theme-soft.layout-fresh .ds-seg button[aria-pressed="true"] {
   background: var(--card) !important; color: var(--primary) !important; font-weight: 600 !important;
   box-shadow: 0 2px 8px rgba(18,64,31,0.10) !important;
 }
 
 /* Selected states use the lime family */
-body.theme-soft .plot-farm-group.has-selected { background: var(--primary-soft); }
-body.theme-soft .plot-farm-summary { color: var(--primary) !important; }
-body.theme-soft .calc-results { background: var(--grad-primary) !important; border-radius: var(--radius) !important; }
+body.theme-soft.layout-fresh .plot-farm-group.has-selected { background: var(--primary-soft); }
+body.theme-soft.layout-fresh .plot-farm-summary { color: var(--primary) !important; }
+body.theme-soft.layout-fresh .calc-results { background: var(--grad-primary) !important; border-radius: var(--radius) !important; }
 
 /* Floating action: dark circle, lime glyph */
-body.theme-soft .fab-main {
+body.theme-soft.layout-fresh .fab-main {
   background: var(--grad-primary) !important;
   color: var(--lime) !important;
   border-radius: 50% !important;
   border: 4px solid var(--card) !important;
   box-shadow: 0 10px 22px rgba(18,64,31,0.35) !important;
 }
-body.theme-soft .fab-quick { border-radius: 50% !important; background: var(--primary-soft) !important; color: var(--primary) !important; }
-body.theme-soft .fab-farms, body.theme-soft .mf-btn, body.theme-soft .layer-toggle { border-radius: 14px !important; }
+body.theme-soft.layout-fresh .fab-quick { border-radius: 50% !important; background: var(--primary-soft) !important; color: var(--primary) !important; }
+body.theme-soft.layout-fresh .fab-farms, body.theme-soft.layout-fresh .mf-btn, body.theme-soft.layout-fresh .layer-toggle { border-radius: 14px !important; }
 
 /* Lime tag helper for status pills in modules */
-body.theme-soft .tag-lime { background: var(--lime); color: var(--lime-ink); font-weight: 700; border-radius: 10px; padding: 3px 9px; font-size: .75rem; }
+body.theme-soft.layout-fresh .tag-lime { background: var(--lime); color: var(--lime-ink); font-weight: 700; border-radius: 10px; padding: 3px 9px; font-size: .75rem; }
 
 /* Desktop: use the width — lists become card grids, tabs one centred row */
 @media (min-width: 900px) {
-  body.theme-soft .tab-bar { justify-content: center !important; flex-wrap: wrap; }
-  body.theme-soft #farmsAdminList {
+  body.theme-soft.layout-fresh .tab-bar { justify-content: center !important; flex-wrap: wrap; }
+  body.theme-soft.layout-fresh #farmsAdminList {
     display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px;
   }
-  body.theme-soft #farmsAdminList .pesticide-admin-item { margin-bottom: 0 !important; }
+  body.theme-soft.layout-fresh #farmsAdminList .pesticide-admin-item { margin-bottom: 0 !important; }
 }
 @media (min-width: 1280px) {
-  body.theme-soft #farmsAdminList { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
+  body.theme-soft.layout-fresh #farmsAdminList { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
 }
+
+/* ── Layout switch (v149) ──
+   The בית tab and the bottom bar belong to the fresh layout only.
+   Phones in the fresh layout move navigation to the bottom bar (home.js),
+   so the top tab bar and the floating quick-action + step aside, and
+   everything pinned to the bottom of the map rises above the bar. */
+body:not(.layout-fresh) .tab-home,
+body:not(.layout-fresh) #hmNav { display: none !important; }
+@media (max-width: 899px) {
+  body.layout-fresh .tab-bar-wrap { display: none !important; }
+  body.layout-fresh #fabQuick,
+  body.layout-fresh #fabQuickOptions:not(.show) { display: none !important; }
+  body.layout-fresh .tabs-wrapper { padding-bottom: calc(84px + env(safe-area-inset-bottom, 0px)); }
+  body.layout-fresh .panel { bottom: calc(70px + env(safe-area-inset-bottom, 0px)) !important; }
+  body.layout-fresh .map-float-bar { bottom: calc(146px + env(safe-area-inset-bottom, 0px)) !important; }
+  body.layout-fresh .fab-options { bottom: calc(262px + env(safe-area-inset-bottom, 0px)) !important; }
+  body.layout-fresh .mf-btn { bottom: calc(204px + env(safe-area-inset-bottom, 0px)) !important; }
+  body.layout-fresh .toast { bottom: calc(90px + env(safe-area-inset-bottom, 0px)) !important; }
+}
+/* The home screen has its own farm list — the floating farm picker steps aside there. */
+body.layout-fresh.hm-home #fabFarms,
+body.layout-fresh.hm-home #fabFarmsMenu { display: none !important; }

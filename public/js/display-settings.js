@@ -21,7 +21,7 @@ var DisplaySettings = (function() {
     valleyMorning: {
       name: { he: 'בוקר בבקעה', th: 'เช้าในหุบเขา', ar: 'صباح الوادي' },
       hint: { he: 'בהיר · ירוק יער וליים', th: 'สว่าง · เขียวป่าและเขียวมะนาว', ar: 'فاتح · أخضر غابي وليموني' },
-      cls: '', dark: false, meta: '#ffffff',
+      cls: '', dark: false, meta: '#ffffff', metaClassic: '#f1f4ef',
       preview: ['#f8faf6', '#1d5a2c', '#ffffff', '#c5e663']
     },
     valleyNight: {
@@ -38,6 +38,12 @@ var DisplaySettings = (function() {
     }
   };
   var DEFAULT_THEME = 'valleyMorning';
+  // Layout: 'fresh' (v149 — home screen, bottom bar on phones, white/forest/
+  // lime look) or 'classic' (the tab-bar layout and look before v148).
+  // Body class layout-fresh / layout-classic; home.js and theme-soft.css key
+  // off it. The inline bootstrap in index.html applies it before first paint.
+  var LAYOUTS = ['fresh', 'classic'];
+  var DEFAULT_LAYOUT = 'fresh';
   var THEME_CLASSES = ['soft-dark', 'soft-earth', 'theme-neon', 'theme-classic'];
 
   // ── Fine-tuning ──
@@ -85,11 +91,12 @@ var DisplaySettings = (function() {
   }
 
   function loadSettings() {
-    var out = { theme: DEFAULT_THEME, tune: cleanTune(null) };
+    var out = { theme: DEFAULT_THEME, tune: cleanTune(null), layout: DEFAULT_LAYOUT };
     try {
       var saved = JSON.parse(localStorage.getItem('shorashim-display-settings') || 'null');
       if (saved && THEMES[saved.theme]) out.theme = saved.theme;
       if (saved && saved.tune) out.tune = cleanTune(saved.tune);
+      if (saved && LAYOUTS.indexOf(saved.layout) !== -1) out.layout = saved.layout;
     } catch (e) { console.warn('Failed to load display settings:', e); }
     return out;
   }
@@ -97,7 +104,8 @@ var DisplaySettings = (function() {
   function saveSettings(settings) {
     try {
       localStorage.setItem('shorashim-display-settings',
-        JSON.stringify({ theme: settings.theme, tune: cleanTune(settings.tune) }));
+        JSON.stringify({ theme: settings.theme, tune: cleanTune(settings.tune),
+          layout: LAYOUTS.indexOf(settings.layout) !== -1 ? settings.layout : DEFAULT_LAYOUT }));
     } catch (e) { console.warn('Failed to save display settings:', e); }
   }
 
@@ -171,12 +179,17 @@ var DisplaySettings = (function() {
   }
 
   // ── Apply ──
-  function applyTheme(themeKey, tune) {
+  function applyTheme(themeKey, tune, layout) {
     var key = THEMES[themeKey] ? themeKey : DEFAULT_THEME;
     var theme = THEMES[key];
     var body = document.body;
     if (!body) return;
-    tune = cleanTune(tune || loadSettings().tune);
+    var saved = loadSettings();
+    tune = cleanTune(tune || saved.tune);
+    if (LAYOUTS.indexOf(layout) === -1) layout = saved.layout;
+    var wasFresh = body.classList.contains('layout-fresh');
+    body.classList.remove('layout-fresh', 'layout-classic');
+    body.classList.add('layout-' + layout);
 
     THEME_CLASSES.forEach(function(c) { body.classList.remove(c); });
     Array.prototype.slice.call(body.classList).forEach(function(c) {
@@ -197,15 +210,19 @@ var DisplaySettings = (function() {
     var login = document.getElementById('loginScreen');
     if (login) login.style.background = '';
 
-    applyColorTune(tune, key);
+    applyColorTune(tune, key + ':' + layout);
 
+    var metaC = (layout === 'classic' && theme.metaClassic) ? theme.metaClassic : theme.meta;
     var meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', (tune.sat !== 1 || tune.hue !== 0) ? (tuneColor(theme.meta, tune.sat, tune.hue) || theme.meta) : theme.meta);
+    if (meta) meta.setAttribute('content', (tune.sat !== 1 || tune.hue !== 0) ? (tuneColor(metaC, tune.sat, tune.hue) || metaC) : metaC);
+    if (wasFresh !== (layout === 'fresh')) {
+      try { document.dispatchEvent(new CustomEvent('shorashim:layout', { detail: { layout: layout } })); } catch (e) {}
+    }
   }
 
   function applyAll(settings) {
     settings = settings || loadSettings();
-    applyTheme(settings.theme, settings.tune);
+    applyTheme(settings.theme, settings.tune, settings.layout);
   }
 
   function init() {
@@ -253,6 +270,11 @@ var DisplaySettings = (function() {
             '<h2 style="margin:0;">' + tt('הגדרות תצוגה', 'การตั้งค่าการแสดงผล', 'إعدادات العرض') + '</h2>' +
             '<button type="button" id="dsClose" aria-label="' + tt('סגור', 'ปิด', 'إغلاق') + '" style="background:var(--tonal);border:none;color:var(--text);width:34px;height:34px;border-radius:50%;font-size:1rem;cursor:pointer;">✕</button>' +
           '</div>' +
+          '<div class="ds-lbl">' + tt('פריסה ועיצוב', 'รูปแบบหน้าจอ', 'التخطيط') + '</div>' +
+          '<div class="ds-seg" id="dsLayout" style="margin-bottom:16px;">' +
+            '<button type="button" data-layout="fresh" class="' + (settings.layout === 'fresh' ? 'on' : '') + '">✨ ' + tt('חדשה', 'ใหม่', 'جديد') + '</button>' +
+            '<button type="button" data-layout="classic" class="' + (settings.layout === 'classic' ? 'on' : '') + '">' + tt('קלאסית', 'คลาสสิก', 'كلاسيكي') + '</button>' +
+          '</div>' +
           '<div class="ds-lbl">' + tt('ערכת צבעים', 'ชุดสี', 'نظام الألوان') + '</div>' +
           '<div id="dsThemeList" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">' + cards + '</div>' +
 
@@ -282,11 +304,18 @@ var DisplaySettings = (function() {
     function close() { modal.innerHTML = ''; }
     function commit(redraw) {
       saveSettings(settings);
-      applyTheme(settings.theme, settings.tune);
+      applyTheme(settings.theme, settings.tune, settings.layout);
       if (redraw) showSettings();
     }
     document.getElementById('dsClose').addEventListener('click', close);
     document.getElementById('dsOverlay').addEventListener('click', function(e) { if (e.target === this) close(); });
+
+    document.querySelectorAll('#dsLayout button[data-layout]').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        settings.layout = this.getAttribute('data-layout');
+        commit(true);
+      });
+    });
 
     document.querySelectorAll('#dsThemeList button[data-theme]').forEach(function(btn) {
       btn.addEventListener('click', function() {
@@ -322,7 +351,7 @@ var DisplaySettings = (function() {
 
   // ── Reset ──
   function resetDefaults() {
-    var fresh = { theme: DEFAULT_THEME, tune: cleanTune(null) };
+    var fresh = { theme: DEFAULT_THEME, tune: cleanTune(null), layout: DEFAULT_LAYOUT };
     saveSettings(fresh);
     applyAll(fresh);
     showSettings();
@@ -335,6 +364,8 @@ var DisplaySettings = (function() {
     applyAll: applyAll,
     resetDefaults: resetDefaults,
     THEMES: THEMES,
+    layout: function() { return loadSettings().layout; },
+    setLayout: function(l) { var st = loadSettings(); st.layout = l; saveSettings(st); applyAll(st); }
   };
 })();
 

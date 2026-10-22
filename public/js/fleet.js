@@ -394,6 +394,23 @@ var Fleet = (function () {
     });
   }
 
-  return { sectionHtml: sectionHtml, bind: bind, open: open, report: report, _overlap: overlap };
+  // Expired / due-within-30-days items for one farm's vehicles (Home alerts).
+  function farmAlerts(farmId) {
+    var S = window.SprayStore, out = [];
+    if (!S || !S.getVehicles) return out;
+    var d = S.getVehicles(farmId) || {};
+    (d.own || []).concat(d.inbound || []).forEach(function (v) {
+      var f = fields(v), name = v.name || v.plate || '';
+      [[f.mandatory, tt('ביטוח חובה', 'ประกันภาคบังคับ', 'تأمين إلزامي'), true], [f.comprehensive, tt('ביטוח מקיף', 'ประกันชั้นหนึ่ง', 'تأمين شامل'), false],
+       [f.test, tt('טסט', 'ตรวจสภาพ', 'فحص'), false], [f.safety, tt('בדיקת בטיחות', 'ตรวจความปลอดภัย', 'فحص سلامة'), f.needsSafety]].forEach(function (k) {
+        if (!k[0]) return;
+        var st = status(k[0]);
+        if (st.cls === 'bad' || st.cls === 'warn') out.push({ cls: st.cls, text: k[1] + ' · ' + name, when: st.txt });
+      });
+    });
+    return out;
+  }
+
+  return { sectionHtml: sectionHtml, bind: bind, open: open, report: report, farmAlerts: farmAlerts, _overlap: overlap };
 })();
 window.Fleet = Fleet;

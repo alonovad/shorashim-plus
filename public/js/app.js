@@ -1046,6 +1046,7 @@
     'ציוד': { th: 'อุปกรณ์', ar: 'معدات' },
     'ציוד עודכן': { th: 'อัปเดตอุปกรณ์แล้ว', ar: 'تم تحديث المعدات' },
     'תוצאות מיון/קטיף': { th: 'ผลคัดแยก/เก็บเกี่ยว', ar: 'نتائج الفرز/القطف' },
+    'בית': { th: 'หน้าแรก', ar: 'الرئيسية' },
     'מזג אוויר': { th: 'สภาพอากาศ', ar: 'الطقس' },
     'כרם': { th: 'ไร่องุ่น', ar: 'كرم' },
     'גד"ש': { th: 'พืชไร่', ar: 'محاصيل حقلية' },
@@ -2843,7 +2844,7 @@
       var ids = {};
       (accessible || []).forEach(function(p) { if (p.farm_id) ids[p.farm_id] = true; });
       return (farms || []).filter(function(f) { return ids[f.id]; })
-        .map(function(f) { return { id: f.id, name: f.name }; });
+        .map(function(f) { return { id: f.id, name: f.name, color: f.color || '' }; });
     },
 
     // Batched sibling of updateEvent. patchFn(event) returns the fields to
@@ -3368,6 +3369,8 @@
         window.HarvestResults.render();
       } else if (targetTab === 'weather' && window.Weather) {
         window.Weather.render();
+      } else if (targetTab === 'home' && window.Home) {
+        window.Home.render();
       }
     });
   });

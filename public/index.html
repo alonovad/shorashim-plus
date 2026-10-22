@@ -42,14 +42,16 @@
   // THEMES in js/display-settings.js.
   (function () {
     var T = { valleyMorning: ['', '#ffffff'], valleyNight: ['soft-dark', '#141b18'], earthDate: ['soft-earth', '#f2f0ec'] };
-    var k = 'valleyMorning', tu = {};
+    var k = 'valleyMorning', tu = {}, s0 = null;
     try {
       var s = JSON.parse(localStorage.getItem('shorashim-display-settings') || 'null');
+      s0 = s;
       if (s && T[s.theme]) k = s.theme;
       if (s && s.tune) tu = s.tune;
     } catch (e) {}
     var dark = k === 'valleyNight', b = document.body;
-    b.classList.add('theme-soft', dark ? 'theme-neon' : 'theme-classic');
+    var lay = (s0 && s0.layout === 'classic') ? 'classic' : 'fresh';
+    b.classList.add('theme-soft', dark ? 'theme-neon' : 'theme-classic', 'layout-' + lay);
     if (T[k][0]) b.classList.add(T[k][0]);
     // Fine-tuning (same classes as DisplaySettings.applyTheme).
     var O = { press: ['none', 'soft', 'strong'], shadow: ['none', 'soft', 'strong'], border: ['none', 'thin', 'bold'], text: ['sm', 'md', 'lg', 'xl'] };
@@ -58,12 +60,12 @@
     // Colour strength/hue: the variables DisplaySettings computed last time.
     try {
       var cv = JSON.parse(localStorage.getItem('shorashim-display-vars') || 'null');
-      if (cv && cv.theme === k && cv.vars) for (var v in cv.vars) b.style.setProperty(v, cv.vars[v]);
+      if (cv && cv.theme === k + ':' + lay && cv.vars) for (var v in cv.vars) b.style.setProperty(v, cv.vars[v]);
     } catch (e) {}
     var l = document.querySelector('link[href*="theme-neon"]');
     if (l) l.disabled = !dark;
     var m = document.querySelector('meta[name="theme-color"]');
-    if (m) m.setAttribute('content', T[k][1]);
+    if (m) m.setAttribute('content', (lay === 'classic' && k === 'valleyMorning') ? '#f1f4ef' : T[k][1]);
   })();
 </script>
 
@@ -283,6 +285,7 @@
   <div class="tab-scroll-hint start" aria-hidden="true">‹</div>
   <div class="tab-scroll-hint end" aria-hidden="true">›</div>
   <div class="tab-bar" id="tabBar">
+    <div class="tab tab-home" data-tab="home" data-t-key="בית">🏠 בית</div>
     <div class="tab active" data-tab="map" data-t-key="מפה">🗺️ מפה</div>
     <div class="tab" data-tab="spray" data-t-key="ריסוס"><i class="ico-spray" aria-hidden="true"></i> ריסוס</div>
     <div class="tab" data-tab="worklog" data-t-key="יומן">📝 יומן</div>
@@ -732,6 +735,9 @@
   <div id="harvestRoot" style="height:100%;"></div>
 </div>
 
+<!-- בית — fresh layout only, rendered by js/home.js -->
+<div class="tab-content" id="tabHome"><div id="homeRoot"></div></div>
+
 <!-- מזג אוויר — rendered by js/weather.js -->
 <div class="tab-content" id="tabWeather">
   <div id="weatherRoot"></div>
@@ -900,6 +906,7 @@
 <script src="js/cropprog.js"></script>
 <script src="js/opcost.js"></script>
 <script src="js/weather.js"></script>
+<script src="js/home.js"></script>
 <script src="js/plotedit.js"></script>
 <script src="js/geoedit.js"></script>
 <script src="js/plotimport.js"></script>

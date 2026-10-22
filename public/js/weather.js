@@ -273,7 +273,12 @@ var Weather = (function () {
       '<h3 style="margin:14px 0 6px;font-size:.95rem;">' + tt('48 השעות הקרובות', '48 ชั่วโมงข้างหน้า', 'الـ48 ساعة القادمة') + '</h3>' + table;
   }
 
+  // Callers waiting for data (Home hero) — run once a load settles.
+  var subs = [];
+  function notify() { var q = subs; subs = []; q.forEach(function (fn) { try { fn(); } catch (e) {} }); }
+
   function paint() {
+    if (!state.loading) notify();
     var el = root();
     if (!el) return;
     ensureCss();
@@ -307,6 +312,26 @@ var Weather = (function () {
     else paint();
   }
 
-  return { render: render, refresh: function () { load(true); }, _sprayHour: sprayHour, _points: points };
+  // Compact now-and-next for one farm (Home hero). cb(null) when the farm has
+  // no mapped main plot or the forecast could not be loaded.
+  function summary(farmId, cb) {
+    function done() {
+      var arr = state.data || [];
+      var x = arr.find(function (d) { return d.p.id === farmId; });
+      if (!x || !x.f || !x.f.hourly) return cb(null);
+      var hs = hours(x.f, 24), now = hs[0];
+      if (!now) return cb(null);
+      var sp = hs.map(sprayHour), gi = sp.findIndex(function (q) { return q[0] === 'good'; });
+      var D = x.f.daily || {};
+      cb({ farmId: farmId, temp: r0(now.temp), wind: r0(now.wind), rh: r0(now.rh), icon: wx(now.code)[0], label: wx(now.code)[1],
+        spray: sp[0], goodIdx: gi, goodAt: gi > 0 ? hh(hs[gi].time) + ':00' : '', et0: D.et0_fao_evapotranspiration ? r1(D.et0_fao_evapotranspiration[0]) : null,
+        alerts: alerts(x.f), at: state.at });
+    }
+    if (state.data && Date.now() - state.at <= TTL) return done();
+    subs.push(done);
+    if (!state.loading) load(false);
+  }
+
+  return { render: render, refresh: function () { load(true); }, summary: summary, _sprayHour: sprayHour, _points: points };
 })();
 window.Weather = Weather;
