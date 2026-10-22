@@ -281,6 +281,8 @@ select option {
 .plot-checkbox-item:active { background: rgba(255,255,255,0.08) !important; }
 .plot-checkbox-label { color: var(--text) !important; }
 .plot-checkbox-area { color: var(--text-muted) !important; }
+.plot-farm-group { border-color: rgba(255,255,255,0.12) !important; }
+.plot-farm-group.has-selected { border-color: var(--g4) !important; }
 
 /* ── Modals: dark glass ── */
 .modal-overlay {

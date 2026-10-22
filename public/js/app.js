@@ -846,6 +846,8 @@
     'תאריך': { th: 'วันที่', ar: 'تاريخ' },
     'שם המפעיל': { th: 'ชื่อผู้ปฏิบัติงาน', ar: 'اسم المشغل' },
     'בחירת חלקות': { th: 'เลือกแปลง', ar: 'اختيار قطع' },
+    'חיפוש מטע או חלקה': { th: 'ค้นหาสวนหรือแปลง', ar: 'ابحث عن بستان أو قطعة' },
+    'חלקות נבחרו': { th: 'แปลงที่เลือก', ar: 'قطع مختارة' },
     'הגדרות נפח': { th: 'ตั้งค่าปริมาตร', ar: 'إعدادات الحجم' },
     'נפח לעץ (ליטר)': { th: 'ปริมาตรต่อต้น (ลิตร)', ar: 'حجم لكل شجرة (لتر)' },
     'קיבולת מרסס (ליטר)': { th: 'ความจุเครื่องพ่น (ลิตร)', ar: 'سعة الرشاش (لتر)' },
@@ -3852,19 +3854,177 @@
       return;
     }
 
-    var html = '';
-    accessiblePlots.forEach(function(p) {
-      html += '<label class="plot-checkbox-item">' +
-        '<input type="checkbox" class="plot-checkbox" data-plot-id="' + p.id + '">' +
-        '<span class="plot-checkbox-label">' + locName(p) + '</span>' +
-        '<span class="plot-checkbox-area">' + formatArea(p.area) + '</span>' +
-      '</label>';
+    // Plots are grouped per orchard (farm) into collapsible groups with a
+    // search box. Each plot keeps class .plot-checkbox + data-plot-id —
+    // updateCalculations, the save handler and spray-pest-link all read
+    // that contract. The orchard-level box is .plot-farm-checkbox and is
+    // never counted as a plot.
+    var checkedBefore = {};
+    container.querySelectorAll('.plot-checkbox:checked').forEach(function(cb) {
+      checkedBefore[cb.getAttribute('data-plot-id')] = true;
     });
+    var prevSearch = document.getElementById('plotFarmSearch');
+    var searchVal = prevSearch ? prevSearch.value : '';
+
+    var byFarm = {};
+    var order = [];
+    accessiblePlots.forEach(function(p) {
+      var fid = p.farm_id || 0;
+      if (!byFarm[fid]) { byFarm[fid] = []; order.push(fid); }
+      byFarm[fid].push(p);
+    });
+    var cmp = function(a, b) {
+      return String(a).localeCompare(String(b), 'he', { numeric: true, sensitivity: 'base' });
+    };
+    var farmLabel = function(fid) {
+      var f = fid ? farms.find(function(x) { return x.id === fid; }) : null;
+      return f ? locName(f) : t('ללא מטע');
+    };
+    order.sort(function(a, b) {
+      if (!a) return 1;
+      if (!b) return -1;
+      return cmp(farmLabel(a), farmLabel(b));
+    });
+    var single = order.length === 1;
+
+    var html = '';
+    if (!single) {
+      html += '<div class="plot-farm-toolbar">' +
+        '<input type="search" class="form-input plot-farm-search" id="plotFarmSearch" autocomplete="off" placeholder="🔍 ' + t('חיפוש מטע או חלקה') + '">' +
+        '</div>';
+    }
+    html += '<div class="plot-farm-summary" id="plotFarmSummary"></div>';
+    order.forEach(function(fid) {
+      var list = byFarm[fid].slice().sort(function(a, b) { return cmp(locName(a), locName(b)); });
+      var hasChecked = list.some(function(p) { return checkedBefore[p.id]; });
+      var open = single || hasChecked || _sprayFarmOpen[fid] === true;
+      html += '<div class="plot-farm-group' + (open ? ' open' : '') + '" data-farm-id="' + fid + '">' +
+        '<div class="plot-farm-head">' +
+          '<input type="checkbox" class="plot-farm-checkbox" data-farm-id="' + fid + '" aria-label="' + t('בחר הכל') + '">' +
+          '<span class="plot-farm-name">' + farmLabel(fid) + '</span>' +
+          '<span class="plot-farm-count"></span>' +
+          '<span class="plot-farm-chevron">▾</span>' +
+        '</div>' +
+        '<div class="plot-farm-body">';
+      list.forEach(function(p) {
+        html += '<label class="plot-checkbox-item" data-search="' + (locName(p) + ' ' + (p.name || '')).toLowerCase().replace(/"/g, '') + '">' +
+          '<input type="checkbox" class="plot-checkbox" data-plot-id="' + p.id + '"' + (checkedBefore[p.id] ? ' checked' : '') + '>' +
+          '<span class="plot-checkbox-label">' + locName(p) + '</span>' +
+          '<span class="plot-checkbox-area">' + formatArea(p.area || 0) + '</span>' +
+        '</label>';
+      });
+      html += '</div></div>';
+    });
+    html += '<div class="plot-farm-empty" id="plotFarmEmpty" style="display:none">' + t('לא נמצאו תוצאות') + '</div>';
     container.innerHTML = html;
 
     container.querySelectorAll('.plot-checkbox').forEach(function(cb) {
       cb.addEventListener('change', updateCalculations);
     });
+
+    container.querySelectorAll('.plot-farm-group').forEach(function(g) {
+      var fid = g.getAttribute('data-farm-id');
+      var head = g.querySelector('.plot-farm-head');
+      var fcb = g.querySelector('.plot-farm-checkbox');
+      head.addEventListener('click', function(e) {
+        if (e.target === fcb) return;
+        var nowOpen = !g.classList.contains('open');
+        g.classList.toggle('open', nowOpen);
+        _sprayFarmOpen[fid] = nowOpen;
+      });
+      fcb.addEventListener('change', function() {
+        // Only the plots currently visible under the search filter.
+        var boxes = Array.prototype.filter.call(g.querySelectorAll('.plot-checkbox'), function(cb) {
+          return cb.closest('.plot-checkbox-item').style.display !== 'none';
+        });
+        var last = null;
+        boxes.forEach(function(cb) {
+          if (cb.checked !== fcb.checked) { cb.checked = fcb.checked; last = cb; }
+        });
+        if (fcb.checked) { g.classList.add('open'); _sprayFarmOpen[fid] = true; }
+        // One bubbling change event: runs updateCalculations and lets
+        // spray-pest-link refresh its pest vocabulary once, not per plot.
+        if (last) last.dispatchEvent(new Event('change', { bubbles: true }));
+        else syncPlotFarmGroups();
+      });
+    });
+
+    var search = document.getElementById('plotFarmSearch');
+    if (search) {
+      search.value = searchVal;
+      search.addEventListener('input', function() { applyPlotFarmFilter(search.value); });
+      applyPlotFarmFilter(searchVal);
+    }
+    syncPlotFarmGroups();
+  }
+
+  // Remembers which orchard groups the user opened, across re-renders
+  // (tab switch, language change, live data refresh).
+  var _sprayFarmOpen = {};
+
+  function applyPlotFarmFilter(raw) {
+    var container = document.getElementById('plotCheckboxList');
+    if (!container) return;
+    var q = String(raw || '').trim().toLowerCase();
+    var anyVisible = false;
+    container.querySelectorAll('.plot-farm-group').forEach(function(g) {
+      var fid = g.getAttribute('data-farm-id');
+      var items = g.querySelectorAll('.plot-checkbox-item');
+      var farmName = g.querySelector('.plot-farm-name').textContent.toLowerCase();
+      var farmHit = !q || farmName.indexOf(q) !== -1;
+      var plotHits = 0;
+      items.forEach(function(it) {
+        var hit = farmHit || it.getAttribute('data-search').indexOf(q) !== -1;
+        it.style.display = hit ? '' : 'none';
+        if (hit) plotHits++;
+      });
+      var show = plotHits > 0;
+      g.style.display = show ? '' : 'none';
+      if (show) anyVisible = true;
+      if (q) g.classList.toggle('open', show);
+      else {
+        var hasChecked = !!g.querySelector('.plot-checkbox:checked');
+        g.classList.toggle('open', container.querySelectorAll('.plot-farm-group').length === 1 ||
+          hasChecked || _sprayFarmOpen[fid] === true);
+      }
+    });
+    var empty = document.getElementById('plotFarmEmpty');
+    if (empty) empty.style.display = anyVisible ? 'none' : '';
+    syncPlotFarmGroups();
+  }
+
+  // Per-orchard "selected / total" counts, tri-state orchard checkbox and
+  // the overall summary line. Called from updateCalculations so it also
+  // catches the post-save reset and any programmatic change.
+  function syncPlotFarmGroups() {
+    var container = document.getElementById('plotCheckboxList');
+    if (!container) return;
+    var totalN = 0, totalArea = 0;
+    container.querySelectorAll('.plot-farm-group').forEach(function(g) {
+      var all = g.querySelectorAll('.plot-checkbox');
+      var on = g.querySelectorAll('.plot-checkbox:checked');
+      var visible = Array.prototype.filter.call(all, function(cb) {
+        return cb.closest('.plot-checkbox-item').style.display !== 'none';
+      });
+      var visOn = visible.filter(function(cb) { return cb.checked; }).length;
+      var fcb = g.querySelector('.plot-farm-checkbox');
+      fcb.checked = visible.length > 0 && visOn === visible.length;
+      fcb.indeterminate = visOn > 0 && visOn < visible.length;
+      var cnt = g.querySelector('.plot-farm-count');
+      cnt.textContent = on.length + '/' + all.length;
+      g.classList.toggle('has-selected', on.length > 0);
+      totalN += on.length;
+      on.forEach(function(cb) {
+        var pid = parseInt(cb.getAttribute('data-plot-id'), 10);
+        var p = plots.find(function(x) { return x.id === pid; });
+        if (p) totalArea += (p.area || 0);
+      });
+    });
+    var sum = document.getElementById('plotFarmSummary');
+    if (sum) {
+      sum.textContent = totalN ? ('✓ ' + totalN + ' ' + t('חלקות נבחרו') + ' · ' + formatArea(totalArea)) : '';
+      sum.style.display = totalN ? '' : 'none';
+    }
   }
 
   function renderPesticideList() {
@@ -3974,6 +4134,7 @@
   })();
 
   function updateCalculations() {
+    syncPlotFarmGroups();
     var selectedPlots = [];
     document.querySelectorAll('.plot-checkbox:checked').forEach(function(cb) {
       var plotId = parseInt(cb.getAttribute('data-plot-id'));

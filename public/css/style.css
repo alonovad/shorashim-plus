@@ -383,6 +383,70 @@
     color: var(--text-muted);
   }
 
+  /* Spray form: plots grouped per orchard */
+  .plot-farm-toolbar { margin-bottom: 2px; }
+  .plot-farm-search { width: 100%; box-sizing: border-box; }
+  .plot-farm-summary {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--g3);
+    padding: 2px 4px;
+  }
+  .plot-farm-group {
+    border: 1px solid var(--g6);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .plot-farm-group.has-selected { border-color: var(--g4); }
+  .plot-farm-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    cursor: pointer;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .plot-farm-head input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .plot-farm-name {
+    flex: 1;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--text);
+  }
+  .plot-farm-count {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    direction: ltr;
+    unicode-bidi: isolate;
+  }
+  .plot-farm-chevron {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    transition: transform 0.15s;
+    transform: rotate(90deg);
+  }
+  [dir="ltr"] .plot-farm-chevron { transform: rotate(-90deg); }
+  .plot-farm-group.open .plot-farm-chevron { transform: none; }
+  .plot-farm-body {
+    display: none;
+    flex-direction: column;
+    gap: 6px;
+    padding: 0 8px 8px;
+  }
+  .plot-farm-group.open .plot-farm-body { display: flex; }
+  .plot-farm-empty {
+    padding: 12px;
+    text-align: center;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+  }
+
   /* Pesticide selection */
   .pesticide-list {
     display: flex;
