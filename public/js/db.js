@@ -43,6 +43,20 @@ var DB = (function() {
     _writeFirestore(key, data);
   }
 
+  // Save and report the outcome: resolves once Firestore accepted the write,
+  // rejects with the Firestore error (e.g. permission-denied). For screens
+  // that show a real "saved ✓" state instead of assuming success.
+  function saveAsync(key, data) {
+    var clean = JSON.parse(JSON.stringify(data));
+    try { localStorage.setItem(key, JSON.stringify(clean)); } catch (e) {}
+    cache[key] = clean;
+    if (!firestore) return Promise.reject(new Error('offline-no-firestore'));
+    try {
+      return firestore.collection('appData').doc(key)
+        .set({ value: clean, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+    } catch (err) { return Promise.reject(err); }
+  }
+
   // Load: tries cache first, then Firestore, falls back to localStorage
   function load(key, callback) {
     // Return cached value immediately if available
@@ -194,6 +208,7 @@ var DB = (function() {
 
   return {
     save: save,
+    saveAsync: saveAsync,
     load: load,
     loadAsync: loadAsync,
     loadFresh: loadFresh,

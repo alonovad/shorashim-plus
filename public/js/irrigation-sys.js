@@ -41,6 +41,13 @@ var IrrigSys = (function () {
 
   var FILTERS = [['manual', 'ידני'], ['auto', 'אוטומטי'], ['auto-field', 'אוטומטי במגופי שטח'], ['none', 'ללא']];
   var WATER = [['wells', 'בארות'], ['reclaimed', 'קולחין'], ['mekorot', 'מקורות'], ['mixed', 'מעורב'], ['other', 'אחר']];
+  // Per plot (v151+): irrigation computer, water type, emitter kind, and a
+  // flow line per valve (planned vs measured, m³/h).
+  var CTRLS = [['', 'ללא מחשב'], ['galcon', 'גלקון'], ['netafim', 'נטפים (NMC / NetBeat)'], ['talgil', 'טלגיל (Dream)'], ['motorola', 'מוטורולה (IRRInet)'],
+    ['eldar', 'אלדר-שני'], ['bermad', 'ברמד'], ['other', 'אחר']];
+  var EMITS = [['drip', 'טפטפות'], ['sprinkler', 'מתזים'], ['minisprinkler', 'מיני-ממטירים'], ['sprinkler_big', 'ממטירים'], ['other', 'אחר']];
+  function emitWord(i) { return (i && i.emit === 'sprinkler') ? tt('מתזים', 'หัวพ่น', 'رشاشات') : (i && (i.emit === 'minisprinkler' || i.emit === 'sprinkler_big')) ? tt('ממטירים', 'สปริงเกอร์', 'مرشات') : tt('טפטפות', 'หัวน้ำหยด', 'نقاط'); }
+  function vflowSum(i, k) { return ((i && i.vflow) || []).reduce(function (a, r) { return a + (Number(r[k]) || 0); }, 0); }
   function lbl(list, v) { var x = list.find(function (o) { return o[0] === v; }); return x ? x[1] : (v || ''); }
   function isDate(p) { return /תמר/.test(String(p.crop_type || '')); }
 
@@ -98,6 +105,12 @@ var IrrigSys = (function () {
       '.ir-btn.ghost{background:transparent;color:var(--primary,#2d6a4f);border:1px solid var(--line,#dbe3d8);}' +
       '.ir-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}.ir-grid .form-group{margin:0;}.ir-grid .full{grid-column:1/-1;}' +
       '.ir-head-row{border:1px solid var(--line,#dbe3d8);border-radius:12px;padding:8px;margin-bottom:8px;}' +
+      '.ir-vt{margin-top:10px;border:1px solid var(--line,#e6ebe2);border-radius:14px;padding:10px;}' +
+      '.ir-vh{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;}' +
+      '.ir-vr{display:grid;grid-template-columns:1fr 1fr 1fr 1.4fr 30px;gap:5px;margin-top:5px;align-items:center;}.ir-vr .form-input{padding:7px 8px;margin:0;}' +
+      '.ir-vlab{font-size:.68rem;color:var(--text-muted,#777);margin-top:0;}' +
+      '.ir-vx{border:0;background:var(--tonal,#f1f4ee);border-radius:8px;height:30px;cursor:pointer;}' +
+      '.ir-vempty{font-size:.75rem;color:var(--text-muted,#777);padding:4px 2px;}' +
       '.ir-sum{font-size:.8rem;background:var(--g6,#f2f5f2);border-radius:10px;padding:8px 10px;margin-top:8px;line-height:1.6;}';
     document.head.appendChild(st);
   }
@@ -255,6 +268,7 @@ var IrrigSys = (function () {
   }
 
   function editPlot(plotId, farmId, done) {
+    ensureCss();
     var p = S().getFarmPlots(farmId).find(function (x) { return x.id === plotId; });
     if (!p) return;
     var heads = S().getIrrHeads(farmId);
@@ -262,6 +276,12 @@ var IrrigSys = (function () {
     function f(id, label, val, type, cls, extra) {
       return '<div class="form-group' + (cls ? ' ' + cls : '') + '"><label class="form-label">' + label + '</label><input class="form-input" id="' + id + '" type="' + (type || 'text') + '" step="any" value="' + esc(val == null ? '' : val) + '"' + (extra || '') + '></div>';
     }
+    function sel(id, label, list, val) {
+      return '<div class="form-group"><label class="form-label">' + label + '</label><select class="form-input" id="' + id + '">' +
+        list.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === val ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></div>';
+    }
+    // Older plots kept valves as a comma list; it seeds the per-valve table.
+    if (!i.vflow && i.valves) i.vflow = String(i.valves).split(/[,،;]+/).map(function (x) { return x.trim(); }).filter(Boolean).map(function (n) { return { n: n, q: 0, a: 0, t: '' }; });
     function draw() {
       var mode = i.mode || 'tree';
       modal('<h2>🚿 ' + esc(p.name) + '</h2>' +
@@ -269,27 +289,46 @@ var IrrigSys = (function () {
           '<div class="form-group"><label class="form-label">' + tt('ראש מערכת', 'หัวระบบ', 'رأس الري') + '</label><select class="form-input" id="ipHead"><option value="">—</option>' +
             heads.map(function (h) { return '<option value="' + h.id + '"' + (h.id === i.head ? ' selected' : '') + '>' + esc(h.name) + '</option>'; }).join('') + '</select></div>' +
           f('ipLine', tt('קו', 'สาย', 'الخط'), i.line) +
-          f('ipValves', tt('מגופים (למשל 1.1, 1.2)', 'วาล์ว', 'الصمامات'), i.valves, 'text', 'full') +
-          '<div class="form-group full"><label class="form-label">' + tt('אביזר השקיה', 'หัวน้ำ', 'نقاط الري') + '</label><select class="form-input" id="ipMode">' +
-            [['tree', tt('טפטפות לעץ', 'หัวน้ำต่อต้น', 'نقاط لكل شجرة')], ['line', tt('שלוחת טפטוף (ל׳/ש כל X ס״מ)', 'สายน้ำหยด', 'خط تنقيط')], ['dunam', tt('ספיקה לדונם', 'อัตราต่อไร่', 'تدفق لكل دونم')]]
+          sel('ipCtrl', tt('מחשב השקיה', 'คอมพิวเตอร์ให้น้ำ', 'حاسوب الري'), CTRLS, i.ctrl || '') +
+          f('ipCtrlNote', tt('דגם / מס׳ תחנה במחשב', 'รุ่น / สถานี', 'الطراز / المحطة'), i.ctrl_note) +
+          sel('ipWater', tt('סוג המים', 'ชนิดน้ำ', 'نوع المياه'), [['', tt('לפי ראש המערכת', 'ตามหัวระบบ', 'حسب رأس الري')]].concat(WATER), i.water || '') +
+          sel('ipEmit', tt('מתזים או טפטפות', 'หัวพ่นหรือหัวน้ำหยด', 'رشاشات أو نقاط'), EMITS, i.emit || 'drip') +
+          '<div class="form-group full"><label class="form-label">' + tt('אופן חישוב הספיקה', 'วิธีคำนวณ', 'طريقة الحساب') + '</label><select class="form-input" id="ipMode">' +
+            [['tree', emitWord(i) + ' ' + tt('לעץ', 'ต่อต้น', 'لكل شجرة')], ['line', tt('שלוחה (ל׳/ש כל X ס״מ)', 'สายน้ำหยด', 'خط تنقيط')], ['dunam', tt('ספיקה לדונם', 'อัตราต่อไร่', 'تدفق لكل دونم')]]
               .map(function (o) { return '<option value="' + o[0] + '"' + (mode === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></div>' +
-          (mode === 'tree' ? f('ipDpt', tt('טפטפות לעץ', 'หัวต่อต้น', 'نقاط/شجرة'), i.dpt, 'number') + f('ipLph', tt('ספיקת טפטפת (ל׳/ש)', 'ลิตร/ชม.', 'لتر/س'), i.lph || DEFAULT_LPH, 'number') +
+          (mode === 'tree' ? f('ipDpt', emitWord(i) + ' ' + tt('לעץ', 'ต่อต้น', 'لكل شجرة'), i.dpt, 'number') + f('ipLph', tt('ספיקה לאביזר (ל׳/ש)', 'ลิตร/ชม.', 'لتر/س'), i.lph || DEFAULT_LPH, 'number') +
             (isDate(p) ? '<div class="form-group full"><label class="form-label"><input type="checkbox" id="ipMales"' + (i.males !== false ? ' checked' : '') + '> ' + tt('כולל זכרים', 'รวมตัวผู้', 'مع الذكور') + ' (' + (p.male_trees || 0) + ')</label></div>' : '') : '') +
-          (mode === 'line' ? f('ipLph', tt('ספיקת טפטפת (ל׳/ש)', 'ลิตร/ชม.', 'لتر/س'), i.lph || DEFAULT_LPH, 'number') + f('ipSp', tt('מרווח טפטפות (ס״מ)', 'ระยะ ซม.', 'المسافة سم'), i.spacing_cm, 'number') +
+          (mode === 'line' ? f('ipLph', tt('ספיקה לאביזר (ל׳/ש)', 'ลิตร/ชม.', 'لتر/س'), i.lph || DEFAULT_LPH, 'number') + f('ipSp', tt('מרווח בין אביזרים (ס״מ)', 'ระยะ ซม.', 'المسافة سم'), i.spacing_cm, 'number') +
             f('ipLat', tt('שלוחות לשורה', 'สายต่อแถว', 'خطوط لكل صف'), i.laterals || 1, 'number') + f('ipRow', tt('רוחב שורה (מ׳)', 'ระยะแถว ม.', 'عرض الصف م'), i.row_m || p.row_spacing || '', 'number') : '') +
           (mode === 'dunam' ? f('ipPd', tt('מק״ש לדונם', 'ลบ.ม./ชม./ไร่', 'م³/س لكل دونم'), i.per_dunam, 'number', 'full') : '') +
-          f('ipAct', tt('ספיקה בפועל (מק״ש, נמדד)', 'อัตราจริง', 'التدفق الفعلي'), i.actual, 'number') +
+          f('ipAct', tt('ספיקה בפועל לכל החלקה (מק״ש, נמדד)', 'อัตราจริง', 'التدفق الفعلي'), i.actual, 'number') +
           f('ipNotes', tt('הערות', 'หมายเหตุ', 'ملاحظات'), i.notes, 'text') +
+        '</div>' +
+        '<div class="ir-vt"><div class="ir-vh"><b>🔧 ' + tt('מגופים וספיקות', 'วาล์วและอัตราไหล', 'الصمامات والتدفق') + '</b>' +
+          '<button type="button" class="ir-e" id="ipVAdd">＋ ' + tt('מגוף', 'วาล์ว', 'صمام') + '</button></div>' +
+          '<div class="ir-vr ir-vlab"><span>' + tt('מגוף', 'วาล์ว', 'صمام') + '</span><span>' + tt('מתוכנן מק״ש', 'ตามแผน', 'مخطط') + '</span><span>' + tt('נמדד מק״ש', 'วัดได้', 'مقاس') + '</span><span>' + tt('הערה', 'หมายเหตุ', 'ملاحظة') + '</span><span></span></div>' +
+          (i.vflow || []).map(function (r, k) {
+            return '<div class="ir-vr" data-vk="' + k + '"><input class="form-input" data-vf="n" value="' + esc(r.n || '') + '" placeholder="1.1">' +
+              '<input class="form-input" data-vf="q" type="number" step="any" value="' + esc(r.q || '') + '">' +
+              '<input class="form-input" data-vf="a" type="number" step="any" value="' + esc(r.a || '') + '">' +
+              '<input class="form-input" data-vf="t" value="' + esc(r.t || '') + '">' +
+              '<button type="button" class="ir-vx" data-vdel="' + k + '">×</button></div>';
+          }).join('') +
+          ((i.vflow || []).length ? '' : '<div class="ir-vempty">' + tt('הוסף מגוף לכל יחידת השקיה בחלקה כדי לרשום ספיקה מתוכננת ונמדדת.', 'เพิ่มวาล์ว', 'أضف صماماً') + '</div>') +
         '</div>' +
         '<div class="ir-sum" id="ipCalc"></div>' +
         '<div class="modal-buttons"><button class="btn btn-primary" id="ipSave">💾 ' + tt('שמור', 'บันทึก', 'حفظ') + '</button>' +
         '<button class="btn btn-secondary" id="ipBack">' + tt('חזור', 'กลับ', 'رجوع') + '</button></div>');
       document.getElementById('ipMode').addEventListener('change', function () { read(); i.mode = this.value; draw(); });
+      document.getElementById('ipEmit').addEventListener('change', function () { read(); draw(); });
+      document.getElementById('ipVAdd').addEventListener('click', function () { read(); (i.vflow = i.vflow || []).push({ n: '', q: 0, a: 0, t: '' }); draw(); });
+      document.querySelectorAll('[data-vdel]').forEach(function (b) { b.addEventListener('click', function () { read(); i.vflow.splice(Number(b.getAttribute('data-vdel')), 1); draw(); }); });
       document.querySelector('.modal').addEventListener('input', function () { read(); calc(); });
       document.querySelector('.modal').addEventListener('change', function () { read(); calc(); });
       document.getElementById('ipBack').addEventListener('click', function () { done ? done() : back(farmId); });
       document.getElementById('ipSave').addEventListener('click', function () {
         read();
+        i.vflow = (i.vflow || []).filter(function (r) { return r.n || r.q || r.a || r.t; });
         var r = S().updatePlot(plotId, { irr: i });
         if (!r || !r.ok) { toast('⛔ ' + tt('אין הרשאה', 'ไม่มีสิทธิ์', 'لا صلاحية')); return; }
         toast('✅ ' + tt('נשמר', 'บันทึกแล้ว', 'حُفظ'));
@@ -300,7 +339,14 @@ var IrrigSys = (function () {
     function v(id) { var el = document.getElementById(id); return el ? el.value : undefined; }
     function read() {
       var h = v('ipHead'); i.head = h ? Number(h) : null;
-      i.line = (v('ipLine') || '').trim(); i.valves = (v('ipValves') || '').trim();
+      i.line = (v('ipLine') || '').trim();
+      i.ctrl = v('ipCtrl') || ''; i.ctrl_note = (v('ipCtrlNote') || '').trim();
+      i.water = v('ipWater') || ''; i.emit = v('ipEmit') || 'drip';
+      i.vflow = Array.prototype.slice.call(document.querySelectorAll('.ir-vr[data-vk]')).map(function (row) {
+        var g = function (k) { var el = row.querySelector('[data-vf="' + k + '"]'); return el ? el.value : ''; };
+        return { n: g('n').trim(), q: Number(g('q')) || 0, a: Number(g('a')) || 0, t: g('t').trim() };
+      });
+      i.valves = i.vflow.map(function (r) { return r.n; }).filter(Boolean).join(', ');
       i.mode = v('ipMode') || i.mode;
       if (v('ipDpt') !== undefined) i.dpt = Number(v('ipDpt')) || 0;
       if (v('ipLph') !== undefined) i.lph = Number(v('ipLph')) || DEFAULT_LPH;
@@ -319,6 +365,9 @@ var IrrigSys = (function () {
         (p.area ? ' · ' + (Math.round(nom / p.area * 100) / 100) + ' ' + tt('לדונם', 'ต่อไร่', 'لكل دونم') : '') +
         (dev != null ? ' · <span class="' + (Math.abs(dev) > DEV_PCT ? 'ir-bad' : 'ir-ok') + '">' + tt('סטייה', 'ส่วนต่าง', 'الانحراف') + ' ' + (dev > 0 ? '+' : '') + Math.round(dev) + '%</span>' : '')
         : tt('מלא את נתוני האביזר כדי לחשב ספיקה', 'กรอกข้อมูลเพื่อคำนวณ', 'أكمل البيانات للحساب');
+      var vq = vflowSum(i, 'q'), va = vflowSum(i, 'a');
+      if (vq || va) el.innerHTML += '<br>' + tt('סה״כ מגופים', 'รวมวาล์ว', 'مجموع الصمامات') + ': ' + (vq ? tt('מתוכנן', 'ตามแผน', 'مخطط') + ' <b>' + n1(vq) + '</b>' : '') +
+        (va ? ' · ' + tt('נמדד', 'วัดได้', 'مقاس') + ' <b>' + n1(va) + '</b>' + (vq ? ' <span class="' + (Math.abs(va / vq - 1) * 100 > DEV_PCT ? 'ir-bad' : 'ir-ok') + '">(' + (va >= vq ? '+' : '') + Math.round((va / vq - 1) * 100) + '%)</span>' : '') : '') + ' ' + tt('מק״ש', 'ลบ.ม./ชม.', 'م³/س');
     }
     draw();
   }
@@ -335,6 +384,10 @@ var IrrigSys = (function () {
     return '<div class="ir-sum">' + (p.irr ?
       (h ? '🚰 ' + esc(h.name) + ' · ' : '') + (p.irr.line ? tt('קו', 'สาย', 'خط') + ' ' + esc(p.irr.line) + ' · ' : '') +
       (p.irr.valves ? tt('מגופים', 'วาล์ว', 'صمامات') + ' ' + esc(p.irr.valves) + ' · ' : '') + esc(emitterText(p)) +
+      '<br>' + [p.irr.emit ? lbl(EMITS, p.irr.emit) : '', p.irr.water ? '💧 ' + lbl(WATER, p.irr.water) : '',
+        p.irr.ctrl ? '🖥 ' + lbl(CTRLS, p.irr.ctrl) + (p.irr.ctrl_note ? ' (' + esc(p.irr.ctrl_note) + ')' : '') : ''].filter(Boolean).join(' · ') +
+      ((p.irr.vflow || []).length ? '<br>' + p.irr.vflow.map(function (r) {
+        return esc(r.n || '?') + ': ' + (r.q ? n1(r.q) : '—') + (r.a ? ' / ' + n1(r.a) : ''); }).join(' · ') + ' ' + tt('מק״ש (מתוכנן / נמדד)', 'ลบ.ม./ชม.', 'م³/س') : '') +
       (nom ? '<br>' + tt('ספיקה נומינלית', 'อัตราไหล', 'التدفق الاسمي') + ' <b>' + n1(nom) + '</b> ' + tt('מק״ש', 'ลบ.ม./ชม.', 'م³/س') : '') +
       (p.irr.actual ? ' · ' + tt('בפועל', 'จริง', 'فعلي') + ' ' + n1(p.irr.actual) : '') +
       (dev != null ? ' <span class="' + (Math.abs(dev) > DEV_PCT ? 'ir-bad' : 'ir-ok') + '">(' + (dev > 0 ? '+' : '') + Math.round(dev) + '%)</span>' : '')

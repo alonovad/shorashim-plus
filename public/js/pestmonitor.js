@@ -1,78 +1,66 @@
-/* pestmonitor.js — מערכת דוחות פיקוח מזיקים (season monitoring)
+/* pestmonitor.js — דוחות סיור ופיקוח מזיקים (season monitoring), v2
  * ------------------------------------------------------------------
- * Replaces the one-report-at-a-time דוחות סיור screen with the season
- * model: the plots are picked once, the season's visits are entered
- * once in a single grid (rows = visit dates, columns = pests), and one
- * A4-landscape report per selected plot is printed from that shared log.
+ * One document per growing year in Firestore (appData/shorashim-pest-monitor-YYYY,
+ * operator+ write — firestore.rules). v2 keeps a separate visit log PER PLOT:
  *
- * WHAT CHANGED FROM THE MOCK, AND WHY:
- *   - Plots are NOT typed by hand. They come from the app's own plots,
- *     grouped by מטע, with area filled in automatically. Typing grove
- *     names again would let the printed report disagree with the map.
- *   - Season data lives in Firestore (one doc per growing year) instead
- *     of localStorage, so a scout on a phone and the office see the same
- *     grid. DB.listen, not DB.loadAsync — loadAsync resolves from
- *     localStorage first and ignores the slower Firestore answer.
- *   - The annual summary row is computed, not a row of dashes: the free
- *     text ratings map onto the 0–4 scale printed in the legend, and the
- *     summary shows the average and the worst reading actually recorded.
- *   - JSON save/load is kept — it is how a report leaves the farm — but
- *     "reset" wipes only the current year's doc, never another year.
+ *   S = { v: 2, year, inspector, location, signature, withMap,
+ *         pests: [names],                 // season columns, shared by all plots
+ *         selected: { plotId: true },     // included in "print"
+ *         plots: { plotId: { visits: [{ d:'dd/mm/yyyy', r:[rating per pest], rec, n }] } } }
  *
- * One printed report covers one plot, so a grower only ever sees their
- * own מטע — the same rule the spray log follows.
+ * v1 had ONE shared grid (S.visits) applied to every ticked plot. On load it is
+ * migrated by copying that grid into each ticked plot, so every printed report
+ * stays exactly what it was; if nothing was ticked the grid is kept as
+ * S.legacy and offered as "apply to this plot".
+ *
+ * Saving: every change autosaves (debounced) through DB.saveAsync, and the
+ * header shows the real outcome — "שומר…", "נשמר ✓ hh:mm", or the error
+ * (e.g. no permission). The 💾 button forces an immediate save.
+ *
+ * Ratings are tapped on a 0–4 scale (ללא · קלה · בינונית · גבוהה · קשה) and
+ * stored as the scale words, which the printed legend and summary already
+ * understand. A legacy free-text rating is kept and shown until replaced.
  */
 var PestMonitor = (function () {
   'use strict';
 
   var KEY_PREFIX = 'shorashim-pest-monitor-';   // + year
-  var DEFAULT_PESTS = ['\u05d7\u05d3\u05e7\u05d5\u05e0\u05d9\u05ea', '\u05db\u05e0\u05d9\u05de\u05d5\u05ea \u05de\u05d2\u05df',
-    '\u05d0\u05e7\u05e8\u05d9\u05d5\u05ea \u05e7\u05d5\u05e8\u05d9\u05dd', '\u05e2\u05e9 \u05ea\u05de\u05e8 \u05e7\u05d8\u05df',
-    '\u05e2\u05e9 \u05ea\u05de\u05e8 \u05d2\u05d3\u05d5\u05dc', '\u05db\u05d5\u05d5\u05d9\u05d4 \u05e9\u05d7\u05d5\u05e8\u05d4'];
+  var DEFAULT_PESTS = ['חדקונית', 'כנימות מגן', 'אקריות קורים', 'עש תמר קטן', 'עש תמר גדול', 'כוויה שחורה'];
+  var RECS = ['המשך על פי תוכנית שנתית', 'ניטור צמוד בביקור הבא', 'טיפול נדרש - ראה הערות'];
 
-  var RATINGS = ['\u05dc\u05dc\u05d0', '\u05d6\u05e0\u05d9\u05d7', '\u05d1\u05d5\u05d3\u05d3\u05d5\u05ea', '\u05d6\u05e0\u05d9\u05d7-\u05e0\u05de\u05d5\u05da',
-    '\u05e0\u05de\u05d5\u05da/\u05e7\u05dc\u05d4', '\u05d1\u05d9\u05e0\u05d5\u05e0\u05d9\u05ea', '\u05d2\u05d1\u05d5\u05d4\u05d4',
-    '\u05e7\u05e9\u05d4 - \u05d8\u05d9\u05e4\u05d5\u05dc \u05de\u05d9\u05d9\u05d3\u05d9'];
+  // Tap scale → stored word. Index = score.
+  var LEVELS = ['ללא', 'קלה', 'בינונית', 'גבוהה', 'קשה - טיפול מיידי'];
+  var LEVEL_SHORT = ['ללא', 'קלה', 'בינונית', 'גבוהה', 'קשה'];
+  var LEVEL_COL = ['#6aa84f', '#c5d94a', '#f0b33c', '#e8833a', '#d94b3f'];
 
-  var RECS = ['\u05d4\u05de\u05e9\u05da \u05e2\u05dc \u05e4\u05d9 \u05ea\u05d5\u05db\u05e0\u05d9\u05ea \u05e9\u05e0\u05ea\u05d9\u05ea',
-    '\u05e0\u05d9\u05d8\u05d5\u05e8 \u05e6\u05de\u05d5\u05d3 \u05d1\u05d1\u05d9\u05e7\u05d5\u05e8 \u05d4\u05d1\u05d0',
-    '\u05d8\u05d9\u05e4\u05d5\u05dc \u05e0\u05d3\u05e8\u05e9 - \u05e8\u05d0\u05d4 \u05d4\u05e2\u05e8\u05d5\u05ea'];
-
-  // The legend printed on every report is the contract for these words.
-  // Anything unrecognised still prints verbatim but scores as unknown —
-  // the summary says so rather than quietly averaging it as zero.
+  // Words → score (legacy texts included). Unknown text = undefined.
   var SCALE = {
-    '\u05dc\u05dc\u05d0': 0, '\u05d0\u05d9\u05df': 0, '\u05e0\u05e7\u05d9': 0,
-    '\u05d6\u05e0\u05d9\u05d7': 1, '\u05d1\u05d5\u05d3\u05d3\u05d5\u05ea': 1, '\u05d6\u05e0\u05d9\u05d7-\u05e0\u05de\u05d5\u05da': 1,
-    '\u05e0\u05de\u05d5\u05da/\u05e7\u05dc\u05d4': 1, '\u05e7\u05dc\u05d4': 1, '\u05e0\u05de\u05d5\u05da': 1,
-    '\u05d1\u05d9\u05e0\u05d5\u05e0\u05d9\u05ea': 2, '\u05d1\u05d9\u05e0\u05d5\u05e0\u05d9': 2,
-    '\u05d2\u05d1\u05d5\u05d4\u05d4': 3, '\u05d2\u05d1\u05d5\u05d4': 3,
-    '\u05e7\u05e9\u05d4 - \u05d8\u05d9\u05e4\u05d5\u05dc \u05de\u05d9\u05d9\u05d3\u05d9': 4, '\u05e7\u05e9\u05d4': 4
+    'ללא': 0, 'אין': 0, 'נקי': 0,
+    'זניח': 1, 'בודדות': 1, 'זניח-נמוך': 1, 'נמוך/קלה': 1, 'קלה': 1, 'נמוך': 1,
+    'בינונית': 2, 'בינוני': 2,
+    'גבוהה': 3, 'גבוה': 3,
+    'קשה - טיפול מיידי': 4, 'קשה': 4
   };
-  var SCALE_LABEL = ['\u05d0\u05d9\u05df \u05e0\u05d2\u05d9\u05e2\u05d5\u05ea', '\u05e0\u05d2\u05d9\u05e2\u05d5\u05ea \u05e7\u05dc\u05d4',
-    '\u05e0\u05d2\u05d9\u05e2\u05d5\u05ea \u05d1\u05d9\u05e0\u05d5\u05e0\u05d9\u05ea', '\u05e0\u05d2\u05d9\u05e2\u05d5\u05ea \u05d2\u05d1\u05d5\u05d4\u05d4',
-    '\u05e0\u05d2\u05d9\u05e2\u05d5\u05ea \u05e7\u05e9\u05d4'];
+  var SCALE_LABEL = ['אין נגיעות', 'נגיעות קלה', 'נגיעות בינונית', 'נגיעות גבוהה', 'נגיעות קשה'];
 
-  var S = null;          // season state
+  var S = null;
   var year = String(new Date().getFullYear());
-  var listening = {};    // year -> true
-  var lastSaved = '';    // guards DB.listen re-render loops on our own write
-  var plotsOpen = false; // plot picker folded away by default; kept across repaints
-  var farmOpen = {};     // farm id -> its plot list is expanded
+  var listening = {};
+  var lastSaved = '';
+  var active = null;        // plot id shown in the editor
+  var farmOpen = {};
+  var q = '';               // plot search
+  var listOpen = false;     // phone: plot list unfolded
+  var saveState = { st: 'idle', at: 0, err: '' };
+  var saveTimer = null;
 
-  function tt(he, th, ar) {
-    return (typeof window.tt === 'function') ? window.tt(he, th, ar) : he;
-  }
+  function tt(he, th, ar) { return (typeof window.tt === 'function') ? window.tt(he, th, ar) : he; }
   function toast(m) { if (typeof showToast === 'function') showToast(m); }
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
     });
   }
-  // Visit dates are stored and printed as dd/mm/yyyy (as they always were),
-  // but entered through the native date picker, which speaks yyyy-mm-dd.
-  // A legacy free-text date that cannot be read stays a text field, so
-  // nothing already in a season is lost or rewritten.
   function pad2(n) { return (n < 10 ? '0' : '') + n; }
   function dmyToIso(d) {
     var t = String(d || '').trim();
@@ -86,81 +74,104 @@ var PestMonitor = (function () {
     if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t;
     return null;
   }
-  function isoToDmy(iso) {
-    var m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    return m ? m[3] + '/' + m[2] + '/' + m[1] : '';
-  }
-  function todayDmy() {
-    var n = new Date();
-    return pad2(n.getDate()) + '/' + pad2(n.getMonth() + 1) + '/' + n.getFullYear();
-  }
-
+  function isoToDmy(iso) { var m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})$/); return m ? m[3] + '/' + m[2] + '/' + m[1] : ''; }
+  function todayDmy() { var n = new Date(); return pad2(n.getDate()) + '/' + pad2(n.getMonth() + 1) + '/' + n.getFullYear(); }
+  function dmyKey(d) { var i = dmyToIso(d); return i || ''; }
   function key() { return KEY_PREFIX + year; }
+  function blankVisit(rec) { return { d: todayDmy(), r: [], rec: rec || RECS[0], n: '' }; }
 
   function blankSeason() {
     var u = window.currentUser || {};
-    return {
-      year: year,
-      inspector: u.name || u.username || '',
-      location: '',
-      signature: false,
-      withMap: false,
-      pests: DEFAULT_PESTS.slice(),
-      selected: {},                       // plotId -> true
-      visits: [{ d: '', r: [], rec: RECS[0], n: '' }]
-    };
+    return { v: 2, year: year, inspector: u.name || u.username || '', location: '', signature: false, withMap: false,
+      pests: DEFAULT_PESTS.slice(), selected: {}, plots: {} };
   }
-
+  function normVisit(v) {
+    v = v || {};
+    return { d: String(v.d || ''), r: Array.isArray(v.r) ? v.r.map(function (x) { return String(x == null ? '' : x); }) : [], rec: String(v.rec || ''), n: String(v.n || '') };
+  }
+  function hasContent(v) {
+    return String(v.d || '').trim() || (v.r || []).some(function (x) { return String(x || '').trim(); }) || String(v.n || '').trim();
+  }
   function normalise(d) {
     var s = d && typeof d === 'object' ? d : {};
     var out = blankSeason();
     if (Array.isArray(s.pests) && s.pests.length) out.pests = s.pests.slice();
-    if (typeof s.inspector === 'string') out.inspector = s.inspector;
-    if (typeof s.location === 'string') out.location = s.location;
+    ['inspector', 'location'].forEach(function (k) { if (typeof s[k] === 'string') out[k] = s[k]; });
     out.signature = !!s.signature;
     out.withMap = !!s.withMap;
     out.selected = (s.selected && typeof s.selected === 'object') ? s.selected : {};
-    if (Array.isArray(s.visits) && s.visits.length) {
-      out.visits = s.visits.map(function (v) {
-        return {
-          d: String(v.d || ''),
-          r: Array.isArray(v.r) ? v.r.slice() : [],
-          rec: String(v.rec || ''),
-          n: String(v.n || '')
-        };
+    if (s.plots && typeof s.plots === 'object') {
+      Object.keys(s.plots).forEach(function (pid) {
+        var pv = s.plots[pid] || {};
+        out.plots[pid] = { visits: (Array.isArray(pv.visits) ? pv.visits : []).map(normVisit) };
       });
+    }
+    if (Array.isArray(s.legacy) && s.legacy.length) out.legacy = s.legacy.map(normVisit);
+    // v1 → v2: the shared grid becomes each ticked plot's own log.
+    if (!s.plots && Array.isArray(s.visits)) {
+      var vs = s.visits.map(normVisit).filter(hasContent);
+      if (vs.length) {
+        var ids = Object.keys(out.selected).filter(function (k) { return out.selected[k]; });
+        if (ids.length) ids.forEach(function (pid) { out.plots[pid] = { visits: JSON.parse(JSON.stringify(vs)) }; });
+        else out.legacy = vs;
+      }
     }
     return out;
   }
-
-  // ── persistence ──
-  function persist() {
-    if (!S) return;
-    // Firestore rejects undefined — round-trip before writing.
-    var clean = JSON.parse(JSON.stringify(S));
-    lastSaved = JSON.stringify(clean);
-    if (typeof DB !== 'undefined') DB.save(key(), clean);
-    else { try { localStorage.setItem(key(), lastSaved); } catch (e) {} }
+  function plotLog(pid) {
+    if (!S.plots[pid]) S.plots[pid] = { visits: [] };
+    return S.plots[pid];
   }
 
+  // ── persistence ──
+  function persistNow() {
+    if (!S) return Promise.resolve();
+    clearTimeout(saveTimer); saveTimer = null;
+    var clean = JSON.parse(JSON.stringify(S));
+    lastSaved = JSON.stringify(clean);
+    saveState = { st: 'saving', at: 0, err: '' }; paintSave();
+    var p;
+    if (typeof DB !== 'undefined' && DB.saveAsync) p = DB.saveAsync(key(), clean);
+    else if (typeof DB !== 'undefined') { DB.save(key(), clean); p = Promise.resolve(); }
+    else { try { localStorage.setItem(key(), lastSaved); } catch (e) {} p = Promise.resolve(); }
+    return p.then(function () {
+      saveState = { st: 'ok', at: Date.now(), err: '' }; paintSave();
+    }, function (err) {
+      var code = String((err && (err.code || err.message)) || err || '');
+      saveState = { st: 'err', at: 0, err: /permission/i.test(code) ? tt('אין הרשאת שמירה (נדרש מנהל)', 'ไม่มีสิทธิ์บันทึก', 'لا صلاحية للحفظ') : code };
+      paintSave();
+      toast('❌ ' + tt('השמירה נכשלה', 'บันทึกไม่สำเร็จ', 'فشل الحفظ') + ': ' + saveState.err);
+    });
+  }
+  function persist() {
+    saveState = { st: 'dirty', at: 0, err: '' }; paintSave();
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(persistNow, 900);
+  }
   function listen() {
     if (listening[year] || typeof DB === 'undefined' || !DB.listen) return;
     listening[year] = true;
-    DB.listen(key(), function (d) {
-      if (!d) return;
+    var y = year;
+    DB.listen(KEY_PREFIX + y, function (d) {
+      if (!d || y !== year) return;
       var incoming = JSON.stringify(d);
-      if (incoming === lastSaved) return;   // our own write echoing back
+      if (incoming === lastSaved) return;
+      if (saveTimer) return;            // local edits pending — ours win, they save next
       lastSaved = incoming;
       S = normalise(d);
-      if (isOpen()) { render(); }
+      if (isOpen() && !editing()) render();
     });
   }
-
+  function editing() {
+    var a = document.activeElement;
+    return !!(a && a.closest && a.closest('#pmRoot') && /INPUT|TEXTAREA|SELECT/.test(a.tagName));
+  }
   function load() {
     return new Promise(function (resolve) {
-      if (typeof DB !== 'undefined' && DB.loadAsync) {
-        DB.loadAsync(key()).then(function (d) { resolve(d ? normalise(d) : blankSeason()); },
-          function () { resolve(blankSeason()); });
+      if (typeof DB !== 'undefined' && DB.loadFresh) {
+        DB.loadFresh(key()).then(function (d) { resolve(d ? normalise(d) : blankSeason()); }, function () { resolve(blankSeason()); });
+      } else if (typeof DB !== 'undefined' && DB.loadAsync) {
+        DB.loadAsync(key()).then(function (d) { resolve(d ? normalise(d) : blankSeason()); }, function () { resolve(blankSeason()); });
       } else {
         var raw = null;
         try { raw = localStorage.getItem(key()); } catch (e) {}
@@ -169,570 +180,573 @@ var PestMonitor = (function () {
     });
   }
 
-  // ── plots, straight from the app ──
-  function plots() {
-    var src = (window.SprayStore && window.SprayStore.getPlots)
-      ? window.SprayStore.getPlots() : [];
-    return src.slice();
-  }
-  function farms() {
-    return (window.SprayStore && window.SprayStore.getFarms)
-      ? window.SprayStore.getFarms() : [];
-  }
-  function farmName(id) {
-    var f = farms().find(function (x) { return x.id === id; });
-    return f ? f.name : tt('\u05dc\u05dc\u05d0 \u05de\u05e9\u05e7', '\u0e44\u0e21\u0e48\u0e21\u0e35\u0e1f\u0e32\u0e23\u0e4c\u0e21', '\u0628\u0644\u0627 \u0645\u0632\u0631\u0639\u0629');
-  }
-  function selectedPlots() {
-    return plots().filter(function (p) { return S && S.selected[p.id]; });
-  }
+  // ── plots ──
+  function plots() { return (window.SprayStore && SprayStore.getPlots) ? SprayStore.getPlots().slice() : []; }
+  function farms() { return (window.SprayStore && SprayStore.getFarms) ? SprayStore.getFarms() : []; }
+  function farmName(id) { var f = farms().find(function (x) { return x.id === id; }); return f ? f.name : tt('ללא משק', 'ไม่มีฟาร์ม', 'بلا مزرعة'); }
+  function plotById(id) { return plots().find(function (p) { return String(p.id) === String(id); }) || null; }
+  function selectedPlots() { return plots().filter(function (p) { return S && S.selected[p.id]; }); }
 
-  // ── summary maths ──
+  // ── scores ──
   function scoreOf(text) {
     var k = String(text || '').trim();
     if (!k) return null;
-    return (k in SCALE) ? SCALE[k] : undefined;   // undefined = unrecognised
+    return (k in SCALE) ? SCALE[k] : undefined;
   }
-  function summaryFor(pestIndex) {
+  function summaryFor(visits, j) {
     var nums = [], words = 0, worst = null;
-    (S.visits || []).forEach(function (v) {
-      var sc = scoreOf((v.r || [])[pestIndex]);
+    (visits || []).forEach(function (v) {
+      var sc = scoreOf((v.r || [])[j]);
       if (sc === null) return;
       if (sc === undefined) { words++; return; }
       nums.push(sc);
       if (worst === null || sc > worst) worst = sc;
     });
-    if (!nums.length) return words ? tt('\u05dc\u05dc\u05d0 \u05d3\u05d9\u05e8\u05d5\u05d2', '\u0e44\u0e21\u0e48\u0e08\u0e31\u0e14\u0e2d\u0e31\u0e19\u0e14\u0e31\u0e1a', '\u0628\u0644\u0627 \u062a\u0635\u0646\u064a\u0641') : '\u2014';
+    if (!nums.length) return words ? tt('ללא דירוג', 'ไม่จัดอันดับ', 'بلا تصنيف') : '—';
     var avg = nums.reduce(function (a, b) { return a + b; }, 0) / nums.length;
-    return (Math.round(avg * 10) / 10) + ' \u00b7 ' + SCALE_LABEL[worst];
+    return (Math.round(avg * 10) / 10) + ' · ' + SCALE_LABEL[worst];
+  }
+  function plotWorst(pid) {
+    var log = S.plots[pid];
+    if (!log || !log.visits.length) return null;
+    var last = sortedVisits(log.visits)[0];
+    var w = null;
+    (last.r || []).forEach(function (x) { var s = scoreOf(x); if (s != null && (w === null || s > w)) w = s; });
+    return w;
+  }
+  // Newest first for the editor; printing keeps chronological order.
+  function sortedVisits(vs) {
+    return vs.slice().sort(function (a, b) { return dmyKey(b.d).localeCompare(dmyKey(a.d)); });
   }
 
-  // ── in-app UI ──
+  // ── open / close ──
   function isOpen() { return !!document.getElementById('pmRoot'); }
-
   function open() {
     load().then(function (s) {
       S = s;
-      if (!S.location) {
-        var f = farms()[0];
-        if (f) S.location = f.name;
+      if (!S.location) { var f = farms()[0]; if (f) S.location = f.name; }
+      if (active == null || !plotById(active)) {
+        var sel = selectedPlots();
+        var withLog = plots().filter(function (p) { return S.plots[p.id] && S.plots[p.id].visits.length; });
+        active = (withLog[0] || sel[0] || plots()[0] || {}).id;
       }
-      // A saved season predating a pest-column change keeps its own list.
+      saveState = { st: 'idle', at: 0, err: '' };
       listen();
       render();
     });
   }
-
   function close() {
+    if (saveTimer) persistNow();
     var m = document.getElementById('modalContainer');
     if (m) m.innerHTML = '';
   }
 
+  // ── render ──
+  function saveChip() {
+    var st = saveState.st;
+    if (st === 'saving') return '<span class="pm2-save s">⏳ ' + tt('שומר…', 'กำลังบันทึก…', 'جارٍ الحفظ…') + '</span>';
+    if (st === 'dirty') return '<span class="pm2-save s">● ' + tt('שינויים לא נשמרו', 'ยังไม่บันทึก', 'تغييرات غير محفوظة') + '</span>';
+    if (st === 'ok') return '<span class="pm2-save ok">✓ ' + tt('נשמר', 'บันทึกแล้ว', 'تم الحفظ') + ' ' + new Date(saveState.at).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }) + '</span>';
+    if (st === 'err') return '<span class="pm2-save err">✕ ' + esc(saveState.err) + '</span>';
+    return '<span class="pm2-save">' + tt('נשמר אוטומטית', 'บันทึกอัตโนมัติ', 'حفظ تلقائي') + '</span>';
+  }
+  function paintSave() { var el = document.getElementById('pm2Save'); if (el) el.innerHTML = saveChip(); }
+
   function render() {
     var m = document.getElementById('modalContainer');
-    if (!m) return;
-    var all = plots();
+    if (!m || !S) return;
+    ensureCss();
+    var prev = document.querySelector('#pmRoot .pm2-main');
+    var top = prev ? prev.scrollTop : 0;
+    var yrs = [], now = new Date().getFullYear();
+    for (var y = now + 1; y >= now - 4; y--) yrs.push(String(y));
     var sel = selectedPlots();
-
-    var html = '<div class="pm-backdrop" id="pmRoot">' +
-      '<div class="pm-sheet">' +
-      '<div class="pm-head">' +
-        '<div>' +
-          '<h3>\ud83d\udd2c ' + tt('\u05de\u05e2\u05e8\u05db\u05ea \u05d3\u05d5\u05d7\u05d5\u05ea \u05e4\u05d9\u05e7\u05d5\u05d7 \u05de\u05d6\u05d9\u05e7\u05d9\u05dd',
-            '\u0e23\u0e30\u0e1a\u0e1a\u0e23\u0e32\u0e22\u0e07\u0e32\u0e19\u0e15\u0e23\u0e27\u0e08\u0e28\u0e31\u0e15\u0e23\u0e39\u0e1e\u0e37\u0e0a',
-            '\u0646\u0637\u0627\u0645 \u062a\u0642\u0627\u0631\u064a\u0631 \u0645\u0631\u0627\u0642\u0628\u0629 \u0627\u0644\u0622\u0641\u0627\u062a') + '</h3>' +
-          '<div class="pm-tag">' + tt('\u05de\u05d6\u05d9\u05e0\u05d9\u05dd \u05d0\u05ea \u05d4\u05d7\u05dc\u05e7\u05d5\u05ea \u05d5\u05d0\u05ea \u05de\u05de\u05e6\u05d0\u05d9 \u05d4\u05e2\u05d5\u05e0\u05d4 \u05e4\u05e2\u05dd \u05d0\u05d7\u05ea \u2014 \u05de\u05d3\u05e4\u05d9\u05e1\u05d9\u05dd \u05d3\u05d5\u05d7 \u05dc\u05db\u05dc \u05d7\u05dc\u05e7\u05d4',
-            '\u0e01\u0e23\u0e2d\u0e01\u0e04\u0e23\u0e31\u0e49\u0e07\u0e40\u0e14\u0e35\u0e22\u0e27 \u2014 \u0e1e\u0e34\u0e21\u0e1e\u0e4c\u0e23\u0e32\u0e22\u0e07\u0e32\u0e19\u0e17\u0e38\u0e01\u0e41\u0e1b\u0e25\u0e07',
-            '\u0625\u062f\u062e\u0627\u0644 \u0645\u0631\u0629 \u0648\u0627\u062d\u062f\u0629 \u2014 \u0637\u0628\u0627\u0639\u0629 \u062a\u0642\u0631\u064a\u0631 \u0644\u0643\u0644 \u0642\u0637\u0639\u0629') + '</div>' +
+    m.innerHTML = '<div class="pm-backdrop pm2-back" id="pmRoot"><div class="pm2">' +
+      '<div class="pm2-head">' +
+        '<div class="pm2-title"><b>🔬 ' + tt('דוחות סיור ופיקוח מזיקים', 'รายงานสำรวจศัตรูพืช', 'تقارير مراقبة الآفات') + '</b>' +
+          '<span id="pm2Save">' + saveChip() + '</span></div>' +
+        '<div class="pm2-tools">' +
+          '<select id="pm2Year" class="pm2-in sm">' + yrs.map(function (x) { return '<option' + (x === year ? ' selected' : '') + '>' + x + '</option>'; }).join('') + '</select>' +
+          '<button type="button" class="pm2-btn" data-a="save">💾 ' + tt('שמירה', 'บันทึก', 'حفظ') + '</button>' +
+          '<button type="button" class="pm2-btn pri" data-a="print">🖨 ' + tt('הדפסה', 'พิมพ์', 'طباعة') + ' (' + sel.length + ')</button>' +
+          '<button type="button" class="pm2-btn ghost" data-a="more" aria-label="more">⋯</button>' +
+          '<button type="button" class="pm2-btn ghost" data-a="close" aria-label="close">✕</button>' +
         '</div>' +
-        '<div class="pm-tag">' + all.length + ' ' + tt('\u05d7\u05dc\u05e7\u05d5\u05ea', '\u0e41\u0e1b\u0e25\u0e07', '\u0642\u0637\u0639') +
-          ' \u00b7 ' + S.visits.length + ' ' + tt('\u05d1\u05d9\u05e7\u05d5\u05e8\u05d9\u05dd', '\u0e01\u0e32\u0e23\u0e40\u0e22\u0e35\u0e48\u0e22\u0e21', '\u0632\u064a\u0627\u0631\u0627\u062a') + '</div>' +
       '</div>' +
-
-      '<div class="pm-bar">' +
-        '<button type="button" class="pm-btn" onclick="PestMonitor.print()">\ud83d\udda8 ' +
-          tt('\u05d4\u05d3\u05e4\u05e1\u05ea \u05d3\u05d5\u05d7\u05d5\u05ea \u05dc\u05d7\u05dc\u05e7\u05d5\u05ea \u05d4\u05de\u05e1\u05d5\u05de\u05e0\u05d5\u05ea',
-             '\u0e1e\u0e34\u0e21\u0e1e\u0e4c\u0e23\u0e32\u0e22\u0e07\u0e32\u0e19', '\u0637\u0628\u0627\u0639\u0629 \u0627\u0644\u062a\u0642\u0627\u0631\u064a\u0631') +
-          ' (' + sel.length + ')</button>' +
-        '<button type="button" class="pm-btn ghost" onclick="PestMonitor.exportJson()">\ud83d\udcbe ' +
-          tt('\u05e9\u05de\u05d9\u05e8\u05d4 \u05dc\u05de\u05d7\u05e9\u05d1 (JSON)', '\u0e1a\u0e31\u0e19\u0e17\u0e36\u0e01 JSON', '\u062d\u0641\u0638 JSON') + '</button>' +
-        '<label class="pm-btn ghost pm-file">\ud83d\udcc2 ' +
-          tt('\u05d8\u05e2\u05d9\u05e0\u05ea \u05e7\u05d5\u05d1\u05e5', '\u0e42\u0e2b\u0e25\u0e14\u0e44\u0e1f\u0e25\u0e4c', '\u062a\u062d\u0645\u064a\u0644 \u0645\u0644\u0641') +
-          '<input type="file" accept=".json" onchange="PestMonitor.importJson(this)" hidden></label>' +
-        '<button type="button" class="pm-btn ghost" onclick="PestMonitor.editPests()">\ud83e\uddec ' +
-          tt('\u05e2\u05e8\u05d9\u05db\u05ea \u05e2\u05de\u05d5\u05d3\u05d5\u05ea \u05de\u05d6\u05d9\u05e7\u05d9\u05dd',
-             '\u0e41\u0e01\u0e49\u0e44\u0e02\u0e04\u0e2d\u0e25\u0e31\u0e21\u0e19\u0e4c', '\u062a\u0639\u062f\u064a\u0644 \u0627\u0644\u0623\u0639\u0645\u062f\u0629') + '</button>' +
-        '<button type="button" class="pm-btn warn" onclick="PestMonitor.reset()">' +
-          tt('\u05d0\u05d9\u05e4\u05d5\u05e1 \u05d4\u05e0\u05ea\u05d5\u05e0\u05d9\u05dd', '\u0e23\u0e35\u0e40\u0e0b\u0e15', '\u062a\u0635\u0641\u064a\u0631') + '</button>' +
-        '<button type="button" class="pm-btn ghost" onclick="FieldReport.showReportsList()">\ud83d\udcf7 ' +
-          tt('\u05d3\u05d5\u05d7\u05d5\u05ea \u05e4\u05e8\u05d8\u05e0\u05d9\u05d9\u05dd', '\u0e23\u0e32\u0e22\u0e07\u0e32\u0e19\u0e40\u0e14\u0e35\u0e48\u0e22\u0e27', '\u062a\u0642\u0627\u0631\u064a\u0631 \u0645\u0641\u0631\u062f\u0629') + '</button>' +
-        '<button type="button" class="pm-btn ghost" onclick="PestMonitor.close()">\u2715 ' +
-          tt('\u05e1\u05d2\u05d5\u05e8', '\u0e1b\u0e34\u0e14', '\u0625\u063a\u0644\u0627\u0642') + '</button>' +
+      '<div class="pm2-body">' +
+        '<aside class="pm2-side' + (listOpen ? ' open' : '') + '">' + sideHtml() + '</aside>' +
+        '<section class="pm2-main">' + mainHtml() + '</section>' +
       '</div>' +
-
-      '<div class="pm-grid">' + settingsCard() + plotsCard(all) + '</div>' +
-      visitsCard() +
-      '</div></div>';
-
-    var prevRoot = document.getElementById('pmRoot');
-    var top = prevRoot ? prevRoot.scrollTop : 0;
-    m.innerHTML = html;
-    // Every tick re-renders; without this the sheet jumped back to the top
-    // each time a plot was ticked inside the (long) picker.
-    var nextRoot = document.getElementById('pmRoot');
-    if (nextRoot && top) nextRoot.scrollTop = top;
+    '</div></div>';
+    var nm = document.querySelector('#pmRoot .pm2-main');
+    if (nm && top) nm.scrollTop = top;
     wire();
   }
 
-  function settingsCard() {
-    var yrs = [];
-    var now = new Date().getFullYear();
-    for (var y = now + 1; y >= now - 4; y--) yrs.push(String(y));
-    return '<div class="pm-card">' +
-      '<h4>' + tt('\u05e4\u05e8\u05d8\u05d9 \u05d4\u05d3\u05d5\u05d7', '\u0e23\u0e32\u0e22\u0e25\u0e30\u0e40\u0e2d\u0e35\u0e22\u0e14', '\u062a\u0641\u0627\u0635\u064a\u0644') + '</h4>' +
-      '<div class="pm-body"><div class="pm-set">' +
-        '<div><label>' + tt('\u05de\u05d1\u05e6\u05e2 \u05d4\u05e4\u05d9\u05e7\u05d5\u05d7', '\u0e1c\u0e39\u0e49\u0e15\u0e23\u0e27\u0e08', '\u0627\u0644\u0645\u0641\u062a\u0634') +
-          '</label><input id="pmInsp" value="' + esc(S.inspector) + '"></div>' +
-        '<div><label>' + tt('\u05de\u05d9\u05e7\u05d5\u05dd', '\u0e2a\u0e16\u0e32\u0e19\u0e17\u0e35\u0e48', '\u0627\u0644\u0645\u0648\u0642\u0639') +
-          '</label><input id="pmLoc" value="' + esc(S.location) + '"></div>' +
-        '<div><label>' + tt('\u05e9\u05e0\u05ea \u05d2\u05d9\u05d3\u05d5\u05dc', '\u0e1b\u0e35\u0e40\u0e01\u0e29\u0e15\u0e23', '\u0633\u0646\u0629 \u0627\u0644\u0645\u062d\u0635\u0648\u0644') +
-          '</label><select id="pmYear">' + yrs.map(function (y) {
-            return '<option value="' + y + '"' + (y === year ? ' selected' : '') + '>' + y + '</option>';
-          }).join('') + '</select></div>' +
-      '</div>' +
-      '<label class="pm-chk"><input type="checkbox" id="pmSig"' + (S.signature ? ' checked' : '') + '> ' +
-        tt('\u05e9\u05d5\u05e8\u05ea \u05d7\u05ea\u05d9\u05de\u05d4 \u05d1\u05d3\u05d5\u05d7', '\u0e1a\u0e23\u0e23\u0e17\u0e31\u0e14\u0e25\u0e32\u0e22\u0e40\u0e0b\u0e19', '\u0633\u0637\u0631 \u062a\u0648\u0642\u064a\u0639') + '</label>' +
-      '<label class="pm-chk"><input type="checkbox" id="pmMap"' + (S.withMap ? ' checked' : '') + '> ' +
-        tt('\u05db\u05dc\u05d5\u05dc \u05ea\u05e6\u05dc\u05d5\u05dd \u05dc\u05d5\u05d5\u05d9\u05df \u05e9\u05dc \u05d4\u05de\u05e9\u05e7',
-           '\u0e23\u0e27\u0e21\u0e20\u0e32\u0e1e\u0e14\u0e32\u0e27\u0e40\u0e17\u0e35\u0e22\u0e21', '\u062a\u0636\u0645\u064a\u0646 \u0635\u0648\u0631\u0629 \u0627\u0644\u0642\u0645\u0631') + '</label>' +
-      '</div></div>';
-  }
-
-  function plotsCard(all) {
+  function sideHtml() {
+    var all = plots();
+    var ql = q.trim().toLowerCase();
     var byFarm = {};
     all.forEach(function (p) {
-      var fid = p.farm_id || 0;
-      if (!byFarm[fid]) byFarm[fid] = [];
-      byFarm[fid].push(p);
+      if (ql && (String(p.name || '') + ' ' + farmName(p.farm_id || 0)).toLowerCase().indexOf(ql) === -1) return;
+      var f = p.farm_id || 0;
+      (byFarm[f] = byFarm[f] || []).push(p);
     });
-    var sel = selectedPlots();
-    var selByFarm = {};
-    sel.forEach(function (p) { var f = p.farm_id || 0; selByFarm[f] = (selByFarm[f] || 0) + 1; });
-    var picked = Object.keys(selByFarm).map(function (f) {
-      return farmName(parseInt(f, 10) || 0) + ' (' + selByFarm[f] + ')';
-    }).join(', ');
-
-    var body = '';
+    var cur = plotById(active);
+    var html = '<button type="button" class="pm2-cur" data-a="list">' +
+        '<span>' + (cur ? '📍 ' + esc(farmName(cur.farm_id || 0)) + ' · <b>' + esc(cur.name) + '</b>' : tt('בחר חלקה', 'เลือกแปลง', 'اختر قطعة')) + '</span>' +
+        '<span class="pm2-chev">' + (listOpen ? '▴' : '▾') + '</span></button>' +
+      '<div class="pm2-list">' +
+      '<input class="pm2-in" id="pm2Q" placeholder="🔍 ' + tt('חיפוש משק או חלקה', 'ค้นหา', 'بحث') + '" value="' + esc(q) + '">' +
+      '<div class="pm2-hint">' + tt('לחיצה על חלקה פותחת את הביקורים שלה · ☑ = ייכלל בהדפסה', 'แตะแปลงเพื่อเปิด · ☑ = พิมพ์', 'اضغط لفتح القطعة · ☑ = للطباعة') + '</div>';
     Object.keys(byFarm).forEach(function (fid) {
-      var list = byFarm[fid];
-      var fidNum = parseInt(fid, 10) || 0;
+      var list = byFarm[fid], fnum = parseInt(fid, 10) || 0;
       var n = list.filter(function (p) { return S.selected[p.id]; }).length;
-      var open = !!farmOpen[fidNum];
-      // The farm checkbox sits OUTSIDE the fold button: ticking a whole
-      // farm must not also open or close its list.
-      body += '<div class="pm-farm">' +
-        '<div class="pm-farm-head">' +
-          '<input type="checkbox" class="pm-farm-cb" data-farm="' + fidNum + '"' +
-            (n === list.length ? ' checked' : '') + ' data-some="' + (n > 0 && n < list.length ? 1 : 0) + '"' +
-            ' aria-label="' + esc(farmName(fidNum)) + '">' +
-          '<button type="button" class="pm-farm-tog" data-no-back data-farm-tog="' + fidNum + '" aria-expanded="' + open + '">' +
-            '<b>\ud83c\udf33 ' + esc(farmName(fidNum)) + '</b>' +
-            '<span class="pm-n">' + n + '/' + list.length + '</span>' +
-            '<span class="pm-chev">' + (open ? '\u25b4' : '\u25be') + '</span>' +
-          '</button>' +
-        '</div>' +
-        '<div class="pm-farm-plots" data-farm-plots="' + fidNum + '"' + (open ? '' : ' hidden') + '>';
-      list.forEach(function (p) {
-        body += '<label class="pm-plot"><input type="checkbox" class="pm-plot-cb" value="' + p.id + '"' +
-          (S.selected[p.id] ? ' checked' : '') + '> <span>' + esc(p.name) + '</span>' +
-          '<span class="pm-dunam">' + (p.area ? (Math.round(p.area * 10) / 10) + ' ' +
-            tt('\u05d3\u05d5\u05e0\u05dd', '\u0e44\u0e23\u0e48', '\u062f\u0648\u0646\u0645') : '') + '</span></label>';
-      });
-      body += '</div></div>';
+      var open = ql || farmOpen[fnum] || (cur && (cur.farm_id || 0) === fnum);
+      html += '<div class="pm2-farm">' +
+        '<div class="pm2-fh"><input type="checkbox" class="pm2-fcb" data-farm="' + fnum + '"' + (n === list.length ? ' checked' : '') + (n > 0 && n < list.length ? ' data-some="1"' : '') + '>' +
+          '<button type="button" class="pm2-ft" data-ftog="' + fnum + '"><b>🌳 ' + esc(farmName(fnum)) + '</b><span>' + n + '/' + list.length + '</span><i>' + (open ? '▴' : '▾') + '</i></button></div>' +
+        '<div class="pm2-plots"' + (open ? '' : ' hidden') + '>' +
+        list.map(function (p) {
+          var log = S.plots[p.id], cnt = log ? log.visits.length : 0;
+          var last = cnt ? sortedVisits(log.visits)[0].d : '';
+          var w = plotWorst(p.id);
+          return '<div class="pm2-pl' + (String(p.id) === String(active) ? ' on' : '') + '" data-plot="' + p.id + '">' +
+            '<input type="checkbox" class="pm2-pcb" value="' + p.id + '"' + (S.selected[p.id] ? ' checked' : '') + ' aria-label="print">' +
+            '<span class="pm2-dot" style="background:' + (w == null ? 'var(--line,#dde5da)' : LEVEL_COL[w]) + '"></span>' +
+            '<span class="pm2-pn"><b>' + esc(p.name) + '</b><small>' + (p.area ? (Math.round(p.area * 10) / 10) + ' ' + tt('ד׳', 'ไร่', 'د') + ' · ' : '') +
+              (cnt ? cnt + ' ' + tt('ביקורים', 'ครั้ง', 'زيارات') + ' · ' + esc(last) : tt('אין ביקורים', 'ยังไม่มี', 'لا زيارات')) + '</small></span></div>';
+        }).join('') + '</div></div>';
     });
-    if (!all.length) {
-      body = '<div class="pm-empty">' + tt('\u05d0\u05d9\u05df \u05d7\u05dc\u05e7\u05d5\u05ea \u05d1\u05de\u05e4\u05d4', '\u0e44\u0e21\u0e48\u0e21\u0e35\u0e41\u0e1b\u0e25\u0e07', '\u0644\u0627 \u062a\u0648\u062c\u062f \u0642\u0637\u0639') + '</div>';
-    }
-    // Folded by default: the season grid is the daily work, the plot list
-    // is set once. The summary line still says what is ticked.
-    return '<details class="pm-card pm-plots"' + (plotsOpen ? ' open' : '') + '>' +
-      '<summary>' +
-        '<span>' + tt('\u05d7\u05dc\u05e7\u05d5\u05ea \u05dc\u05d3\u05d5\u05d7', '\u0e41\u0e1b\u0e25\u0e07\u0e43\u0e19\u0e23\u0e32\u0e22\u0e07\u0e32\u0e19', '\u0627\u0644\u0642\u0637\u0639 \u0641\u064a \u0627\u0644\u062a\u0642\u0631\u064a\u0631') + '</span>' +
-        '<span class="pm-n">' + sel.length + ' ' + tt('\u05de\u05e1\u05d5\u05de\u05e0\u05d5\u05ea', '\u0e40\u0e25\u0e37\u0e2d\u0e01', '\u0645\u062d\u062f\u062f\u0629') +
-          (picked ? ' \u00b7 ' + esc(picked) : '') + '</span>' +
-        '<span class="pm-chev">\u25be</span>' +
-      '</summary>' +
-      '<div class="pm-body">' +
-        '<p class="pm-hint">' + tt('\u05de\u05e1\u05d5\u05de\u05df = \u05d9\u05d9\u05db\u05dc\u05dc \u05d1\u05d4\u05d3\u05e4\u05e1\u05d4. \u05dc\u05db\u05dc \u05d7\u05dc\u05e7\u05d4 \u05de\u05d5\u05d3\u05e4\u05e1 \u05d3\u05d5\u05d7 \u05e0\u05e4\u05e8\u05d3.',
-          '\u0e40\u0e25\u0e37\u0e2d\u0e01 = \u0e23\u0e27\u0e21\u0e2d\u0e22\u0e39\u0e48\u0e43\u0e19\u0e01\u0e32\u0e23\u0e1e\u0e34\u0e21\u0e1e\u0e4c',
-          '\u0627\u0644\u0645\u062d\u062f\u062f = \u064a\u0637\u0628\u0639 \u0628\u062a\u0642\u0631\u064a\u0631 \u0645\u0646\u0641\u0631\u062f') + '</p>' +
-        body +
-        '<div class="pm-row"><button type="button" class="pm-btn ghost" onclick="PestMonitor.selectAll(true)">' +
-          tt('\u05e1\u05d9\u05de\u05d5\u05df \u05d4\u05db\u05dc', '\u0e40\u0e25\u0e37\u0e2d\u0e01\u0e17\u0e31\u0e49\u0e07\u0e2b\u0e21\u0e14', '\u062a\u062d\u062f\u064a\u062f \u0627\u0644\u0643\u0644') + '</button>' +
-        '<button type="button" class="pm-btn ghost" data-no-sticky data-no-back onclick="PestMonitor.selectAll(false)">' +
-          tt('\u05d1\u05d9\u05d8\u05d5\u05dc \u05e1\u05d9\u05de\u05d5\u05df', '\u0e25\u0e49\u0e32\u0e07', '\u0625\u0644\u063a\u0627\u0621') + '</button></div>' +
-      '</div></details>';
+    if (!all.length) html += '<div class="pm2-empty">' + tt('אין חלקות במפה', 'ไม่มีแปลง', 'لا توجد قطع') + '</div>';
+    html += '<div class="pm2-row"><button type="button" class="pm2-btn ghost sm" data-a="selall">' + tt('סמן הכל להדפסה', 'เลือกทั้งหมด', 'تحديد الكل') + '</button>' +
+      '<button type="button" class="pm2-btn ghost sm" data-a="selnone">' + tt('נקה סימון', 'ล้าง', 'إلغاء') + '</button></div>';
+    return html + '</div>';
   }
 
-  function visitsCard() {
-    var head = '<th class="pm-date">' + tt('\u05ea\u05d0\u05e8\u05d9\u05da \u05d1\u05d9\u05e7\u05d5\u05e8', '\u0e27\u0e31\u0e19\u0e17\u0e35\u0e48', '\u0627\u0644\u062a\u0627\u0631\u064a\u062e') + '</th>' +
-      S.pests.map(function (p) { return '<th>' + esc(p) + '</th>'; }).join('') +
-      '<th class="pm-wide">' + tt('\u05d4\u05de\u05dc\u05e6\u05ea \u05d8\u05d9\u05e4\u05d5\u05dc', '\u0e04\u0e33\u0e41\u0e19\u0e30\u0e19\u0e33', '\u0627\u0644\u062a\u0648\u0635\u064a\u0629') + '</th>' +
-      '<th class="pm-wide">' + tt('\u05d4\u05e2\u05e8\u05d5\u05ea', '\u0e2b\u0e21\u0e32\u0e22\u0e40\u0e2b\u0e15\u0e38', '\u0645\u0644\u0627\u062d\u0638\u0627\u062a') + '</th><th></th>';
+  function mainHtml() {
+    var p = plotById(active);
+    var info = '<details class="pm2-card pm2-info"><summary>⚙️ ' + tt('פרטי הדוח', 'รายละเอียดรายงาน', 'تفاصيل التقرير') +
+      ' <small>' + esc(S.inspector || '') + (S.location ? ' · ' + esc(S.location) : '') + '</small></summary>' +
+      '<div class="pm2-grid2">' +
+        '<label>' + tt('מבצע הפיקוח', 'ผู้ตรวจ', 'المفتش') + '<input class="pm2-in" data-s="inspector" value="' + esc(S.inspector) + '"></label>' +
+        '<label>' + tt('מיקום', 'สถานที่', 'الموقع') + '<input class="pm2-in" data-s="location" value="' + esc(S.location) + '"></label>' +
+      '</div>' +
+      '<label class="pm2-chk"><input type="checkbox" data-s="signature"' + (S.signature ? ' checked' : '') + '> ' + tt('שורת חתימה בדוח', 'บรรทัดลายเซ็น', 'سطر توقيع') + '</label>' +
+      '<label class="pm2-chk"><input type="checkbox" data-s="withMap"' + (S.withMap ? ' checked' : '') + '> ' + tt('כלול תצלום לווין של החלקה', 'รวมภาพดาวเทียม', 'تضمين صورة القمر') + '</label>' +
+      '<div class="pm2-row"><button type="button" class="pm2-btn ghost sm" data-a="pests">🧬 ' + tt('עריכת רשימת מזיקים', 'แก้ไขศัตรูพืช', 'تعديل الآفات') + '</button></div>' +
+    '</details>';
+    if (!p) return info + '<div class="pm2-empty big">' + tt('בחר חלקה מהרשימה כדי לרשום ביקורים', 'เลือกแปลง', 'اختر قطعة') + '</div>';
+    var log = plotLog(p.id);
+    var vs = log.visits;
+    var order = vs.map(function (v, i) { return i; }).sort(function (a, b) { return dmyKey(vs[b].d).localeCompare(dmyKey(vs[a].d)); });
+    var legacy = (S.legacy && S.legacy.length && !vs.length) ?
+      '<div class="pm2-legacy">' + tt('יש ממצאים משותפים מגרסה קודמת (' + S.legacy.length + ' ביקורים).', 'มีข้อมูลเดิม', 'بيانات سابقة') +
+        ' <button type="button" class="pm2-btn sm" data-a="legacy">' + tt('החל על חלקה זו', 'ใช้กับแปลงนี้', 'تطبيق على هذه القطعة') + '</button></div>' : '';
+    var head = '<div class="pm2-ph"><div><small>' + esc(farmName(p.farm_id || 0)) + '</small><h3>' + esc(p.name) + '</h3>' +
+        '<small>' + (p.area ? (Math.round(p.area * 10) / 10) + ' ' + tt('דונם', 'ไร่', 'دونم') + ' · ' : '') + (p.crop_type ? esc(p.crop_type) + ' · ' : '') +
+        vs.length + ' ' + tt('ביקורים', 'ครั้ง', 'زيارات') + '</small></div>' +
+        '<div class="pm2-ph-a"><label class="pm2-chk"><input type="checkbox" class="pm2-pcb" value="' + p.id + '"' + (S.selected[p.id] ? ' checked' : '') + '> ' + tt('בהדפסה', 'พิมพ์', 'للطباعة') + '</label>' +
+        '<button type="button" class="pm2-btn pri" data-a="add">＋ ' + tt('ביקור חדש', 'เพิ่มการเยี่ยม', 'زيارة جديدة') + '</button></div></div>';
+    var sums = vs.length ? '<div class="pm2-sum">' + S.pests.map(function (n, j) {
+      return '<span><small>' + esc(n) + '</small><b>' + esc(summaryFor(vs, j)) + '</b></span>'; }).join('') + '</div>' : '';
+    var cards = order.map(function (i) { return visitCard(vs[i], i, p.id); }).join('') ||
+      '<div class="pm2-empty">' + tt('עדיין אין ביקורים בחלקה הזו. לחץ "ביקור חדש".', 'ยังไม่มีการเยี่ยม', 'لا زيارات بعد') + '</div>';
+    return info + head + legacy + sums + cards +
+      '<div class="pm2-legend"><b>' + tt('סולם הערכה', 'มาตรวัด', 'المقياس') + ':</b> ' + SCALE_LABEL.map(function (l, i) { return '<i style="background:' + LEVEL_COL[i] + '"></i>' + i + ' ' + l; }).join(' · ') + '</div>';
+  }
 
-    var rows = S.visits.map(function (v, i) {
-      var iso = v.d ? dmyToIso(v.d) : '';
-      var cells = (iso === null) ?
-        // Unreadable legacy text: leave it editable as typed.
-        '<td class="pm-mid"><input data-v="' + i + '" data-f="d" value="' + esc(v.d) +
-          '" placeholder="dd/mm/yyyy"></td>' :
-        '<td class="pm-mid"><input type="date" data-v="' + i + '" data-f="d" value="' + iso + '"></td>';
-      S.pests.forEach(function (p, j) {
-        cells += '<td class="pm-mid"><input list="pmRatings" data-v="' + i + '" data-f="r" data-j="' + j +
-          '" value="' + esc((v.r || [])[j] || '') + '"></td>';
-      });
-      cells += '<td><input list="pmRecs" data-v="' + i + '" data-f="rec" value="' + esc(v.rec) + '"></td>';
-      cells += '<td><input data-v="' + i + '" data-f="n" value="' + esc(v.n) + '"></td>';
-      cells += '<td><button type="button" class="pm-del" data-del="' + i + '" title="' +
-        tt('\u05de\u05d7\u05d9\u05e7\u05ea \u05d4\u05d1\u05d9\u05e7\u05d5\u05e8', '\u0e25\u0e1a', '\u062d\u0630\u0641') + '">\u00d7</button></td>';
-      return '<tr>' + cells + '</tr>';
+  function visitCard(v, i, pid) {
+    var iso = v.d ? dmyToIso(v.d) : '';
+    var date = (iso === null)
+      ? '<input class="pm2-in sm" data-v="' + i + '" data-f="d" value="' + esc(v.d) + '" placeholder="dd/mm/yyyy">'
+      : '<input type="date" class="pm2-in sm" data-v="' + i + '" data-f="d" value="' + (iso || '') + '">';
+    var rows = S.pests.map(function (name, j) {
+      var cur = (v.r || [])[j] || '';
+      var sc = scoreOf(cur);
+      var btns = LEVEL_SHORT.map(function (l, k) {
+        return '<button type="button" class="pm2-lv' + (sc === k ? ' on' : '') + '" style="--c:' + LEVEL_COL[k] + '" data-lv="' + i + ':' + j + ':' + k + '">' + l + '</button>';
+      }).join('');
+      var odd = (sc === undefined) ? '<span class="pm2-odd" title="' + tt('ערך חופשי ישן', 'ค่าเดิม', 'قيمة قديمة') + '">“' + esc(cur) + '”</span>' : '';
+      return '<div class="pm2-pr"><span class="pm2-pname">' + esc(name) + odd + '</span><span class="pm2-lvs">' + btns + '</span></div>';
     }).join('');
-
-    var sum = '<tr><td class="pm-mid"><b>' + tt('\u05e1\u05d9\u05db\u05d5\u05dd', '\u0e2a\u0e23\u0e38\u0e1b', '\u0645\u0644\u062e\u0635') + '</b></td>' +
-      S.pests.map(function (p, j) { return '<td class="pm-mid pm-sum">' + esc(summaryFor(j)) + '</td>'; }).join('') +
-      '<td colspan="3"></td></tr>';
-
-    return '<div class="pm-card pm-visits">' +
-      '<h4>' + tt('\u05de\u05de\u05e6\u05d0\u05d9 \u05d4\u05e2\u05d5\u05e0\u05d4', '\u0e1c\u0e25\u0e01\u0e32\u0e23\u0e15\u0e23\u0e27\u0e08', '\u0646\u062a\u0627\u0626\u062c \u0627\u0644\u0645\u0648\u0633\u0645') +
-        '<span class="pm-n">' + tt('\u05d7\u05dc \u05e2\u05dc \u05db\u05dc \u05d4\u05d7\u05dc\u05e7\u05d5\u05ea \u05d4\u05de\u05e1\u05d5\u05de\u05e0\u05d5\u05ea',
-          '\u0e43\u0e0a\u0e49\u0e01\u0e31\u0e1a\u0e17\u0e38\u0e01\u0e41\u0e1b\u0e25\u0e07\u0e17\u0e35\u0e48\u0e40\u0e25\u0e37\u0e2d\u0e01',
-          '\u064a\u0646\u0637\u0628\u0642 \u0639\u0644\u0649 \u0643\u0644 \u0627\u0644\u0642\u0637\u0639 \u0627\u0644\u0645\u062d\u062f\u062f\u0629') + '</span></h4>' +
-      '<div class="pm-body">' +
-        '<div class="pm-scroll"><table class="pm-table"><thead><tr>' + head + '</tr></thead>' +
-        '<tbody>' + rows + '</tbody><tfoot>' + sum + '</tfoot></table></div>' +
-        '<datalist id="pmRatings">' + RATINGS.map(function (r) {
-          return '<option value="' + esc(r) + '">'; }).join('') + '</datalist>' +
-        '<datalist id="pmRecs">' + RECS.map(function (r) {
-          return '<option value="' + esc(r) + '">'; }).join('') + '</datalist>' +
-        '<div class="pm-row">' +
-          '<button type="button" class="pm-btn ghost" onclick="PestMonitor.addVisit()">\u2795 ' +
-            tt('\u05d4\u05d5\u05e1\u05e4\u05ea \u05d1\u05d9\u05e7\u05d5\u05e8', '\u0e40\u0e1e\u0e34\u0e48\u0e21', '\u0625\u0636\u0627\u0641\u0629') + '</button>' +
-          '<button type="button" class="pm-btn ghost" onclick="PestMonitor.fillRec()">' +
-            tt('\u05de\u05d9\u05dc\u05d5\u05d9 \u05d4\u05de\u05dc\u05e6\u05d4 \u05d1\u05db\u05dc \u05d4\u05e9\u05d5\u05e8\u05d5\u05ea',
-               '\u0e40\u0e15\u0e34\u0e21\u0e04\u0e33\u0e41\u0e19\u0e30\u0e19\u0e33', '\u062a\u0639\u0645\u064a\u0645 \u0627\u0644\u062a\u0648\u0635\u064a\u0629') + '</button>' +
-        '</div>' +
-        '<div class="pm-legend"><b>' + tt('\u05e1\u05d5\u05dc\u05dd \u05d4\u05e2\u05e8\u05db\u05d4', '\u0e40\u0e01\u0e13\u0e11\u0e4c', '\u0645\u0642\u064a\u0627\u0633') + ':</b> ' +
-          SCALE_LABEL.map(function (l, i) { return i + ' = ' + l; }).join(' \u00b7 ') + '</div>' +
+    var recOpts = RECS.concat(v.rec && RECS.indexOf(v.rec) === -1 ? [v.rec] : []);
+    return '<div class="pm2-card pm2-visit">' +
+      '<div class="pm2-vh">' + date +
+        '<span class="pm2-vact">' +
+          '<button type="button" class="pm2-btn ghost sm" data-copy="' + i + '" title="' + tt('העתק לחלקות נוספות', 'คัดลอก', 'نسخ') + '">⧉ ' + tt('העתק לחלקות', 'คัดลอก', 'نسخ') + '</button>' +
+          '<button type="button" class="pm2-x" data-del="' + i + '" title="' + tt('מחיקת הביקור', 'ลบ', 'حذف') + '">🗑</button></span></div>' +
+      rows +
+      '<div class="pm2-grid2">' +
+        '<label>' + tt('המלצת טיפול', 'คำแนะนำ', 'التوصية') + '<select class="pm2-in" data-v="' + i + '" data-f="rec">' +
+          recOpts.map(function (r) { return '<option' + (r === v.rec ? ' selected' : '') + '>' + esc(r) + '</option>'; }).join('') + '</select></label>' +
+        '<label>' + tt('הערות', 'หมายเหตุ', 'ملاحظات') + '<textarea class="pm2-in" rows="2" data-v="' + i + '" data-f="n">' + esc(v.n) + '</textarea></label>' +
       '</div></div>';
   }
 
   // ── wiring ──
   function wire() {
-    var bind = function (id, key, prop) {
-      var el = document.getElementById(id);
-      if (!el) return;
-      el.addEventListener('input', function () {
-        S[key] = (prop === 'checked') ? el.checked : el.value;
-        persist();
-      });
+    var root = document.getElementById('pmRoot');
+    if (!root) return;
+    root.querySelectorAll('.pm2-fcb[data-some]').forEach(function (cb) { cb.indeterminate = true; });
+    root.addEventListener('click', onClick);
+    root.addEventListener('input', onInput);
+    root.addEventListener('change', onChange);
+  }
+  function onClick(e) {
+    var t = e.target;
+    var b = t.closest('[data-a]');
+    if (b) {
+      var a = b.getAttribute('data-a');
+      if (a === 'close') return close();
+      if (a === 'save') return persistNow();
+      if (a === 'print') return print();
+      if (a === 'more') return moreMenu(b);
+      if (a === 'list') { listOpen = !listOpen; var sd = document.querySelector('.pm2-side'); if (sd) sd.classList.toggle('open', listOpen); var ch = b.querySelector('.pm2-chev'); if (ch) ch.textContent = listOpen ? '▴' : '▾'; return; }
+      if (a === 'selall') { plots().forEach(function (p) { S.selected[p.id] = true; }); persist(); return render(); }
+      if (a === 'selnone') { S.selected = {}; persist(); return render(); }
+      if (a === 'pests') return editPests();
+      if (a === 'add') {
+        var log = plotLog(active), prev = sortedVisits(log.visits)[0];
+        log.visits.push(blankVisit(prev ? prev.rec : RECS[0]));
+        S.selected[active] = true;
+        persistNow(); return render();
+      }
+      if (a === 'legacy') { plotLog(active).visits = JSON.parse(JSON.stringify(S.legacy)); S.selected[active] = true; persistNow(); return render(); }
+      return;
+    }
+    if (t.classList.contains('pm2-pcb') || t.classList.contains('pm2-fcb')) return;  // handled on change
+    var ft = t.closest('[data-ftog]');
+    if (ft) { var f = ft.getAttribute('data-ftog'); farmOpen[f] = !farmOpen[f]; var box = ft.closest('.pm2-farm').querySelector('.pm2-plots'); if (box) box.hidden = !box.hidden; var ic = ft.querySelector('i'); if (ic) ic.textContent = box && !box.hidden ? '▴' : '▾'; return; }
+    var pl = t.closest('[data-plot]');
+    if (pl) { active = pl.getAttribute('data-plot'); if (/^\d+$/.test(active)) active = Number(active); listOpen = false; var m0 = document.querySelector('#pmRoot .pm2-main'); if (m0) m0.scrollTop = 0; return render(); }
+    var lv = t.closest('[data-lv]');
+    if (lv) {
+      var parts = lv.getAttribute('data-lv').split(':').map(Number);
+      var v = plotLog(active).visits[parts[0]];
+      if (!v) return;
+      if (!Array.isArray(v.r)) v.r = [];
+      var cur = scoreOf(v.r[parts[1]]);
+      v.r[parts[1]] = (cur === parts[2]) ? '' : LEVELS[parts[2]];
+      for (var k = 0; k < S.pests.length; k++) if (v.r[k] == null) v.r[k] = '';
+      persist();
+      // repaint just this row
+      var row = lv.parentNode;
+      row.querySelectorAll('.pm2-lv').forEach(function (x, k2) { x.classList.toggle('on', v.r[parts[1]] !== '' && k2 === parts[2]); });
+      var odd = row.parentNode.querySelector('.pm2-odd'); if (odd) odd.remove();
+      var sumEl = document.querySelector('#pmRoot .pm2-sum'), vs = plotLog(active).visits;
+      if (sumEl) sumEl.innerHTML = S.pests.map(function (n, j) { return '<span><small>' + esc(n) + '</small><b>' + esc(summaryFor(vs, j)) + '</b></span>'; }).join('');
+      return;
+    }
+    var del = t.closest('[data-del]');
+    if (del) {
+      var i = Number(del.getAttribute('data-del'));
+      var vv = plotLog(active).visits[i];
+      if (vv && hasContent(vv) && !confirm(tt('למחוק את הביקור מ־' + (vv.d || '') + '?', 'ลบ?', 'حذف الزيارة؟'))) return;
+      plotLog(active).visits.splice(i, 1);
+      persistNow(); return render();
+    }
+    var cp = t.closest('[data-copy]');
+    if (cp) return copyVisit(Number(cp.getAttribute('data-copy')));
+  }
+  function onInput(e) {
+    var t = e.target;
+    if (t.id === 'pm2Q') {
+      q = t.value;
+      var side = document.querySelector('.pm2-side');
+      if (side) { side.innerHTML = sideHtml(); side.querySelectorAll('.pm2-fcb[data-some]').forEach(function (cb) { cb.indeterminate = true; }); var nq = document.getElementById('pm2Q'); if (nq) { nq.focus(); nq.setSelectionRange(q.length, q.length); } }
+      return;
+    }
+    var sk = t.getAttribute('data-s');
+    if (sk && t.type !== 'checkbox') { S[sk] = t.value; persist(); return; }
+    var vi = t.getAttribute('data-v');
+    if (vi != null) {
+      var v = plotLog(active).visits[Number(vi)];
+      if (!v) return;
+      var f = t.getAttribute('data-f');
+      if (f === 'd') v.d = (t.type === 'date') ? isoToDmy(t.value) : t.value;
+      else v[f] = t.value;
+      persist();
+    }
+  }
+  function onChange(e) {
+    var t = e.target;
+    if (t.id === 'pm2Year') { if (saveTimer) persistNow(); year = t.value; active = null; return open(); }
+    var sk = t.getAttribute('data-s');
+    if (sk && t.type === 'checkbox') {
+      S[sk] = t.checked; persist();
+      if (sk === 'withMap' && t.checked) prepMaps();
+      return;
+    }
+    if (t.getAttribute('data-f') === 'rec') return onInput(e);
+    if (t.classList.contains('pm2-pcb')) {
+      var id = t.value; if (/^\d+$/.test(id)) id = Number(id);
+      if (t.checked) S.selected[id] = true; else delete S.selected[id];
+      persist(); return render();
+    }
+    if (t.classList.contains('pm2-fcb')) {
+      var fid = Number(t.getAttribute('data-farm')) || 0;
+      plots().filter(function (p) { return (p.farm_id || 0) === fid; }).forEach(function (p) { if (t.checked) S.selected[p.id] = true; else delete S.selected[p.id]; });
+      persist(); return render();
+    }
+  }
+
+  function prepMaps() {
+    if (!window.ReportMap || !ReportMap.prepare) return;
+    var list = selectedPlots(), i = 0;
+    var step = function () {
+      if (i >= list.length) return;
+      var p = list[i++];
+      ReportMap.prepare({ plotId: p.id }).then(function () { setTimeout(step, 350); }, function () { setTimeout(step, 350); });
     };
-    bind('pmInsp', 'inspector');
-    bind('pmLoc', 'location');
-    bind('pmSig', 'signature', 'checked');
-    bind('pmMap', 'withMap', 'checked');
-    var mapEl = document.getElementById('pmMap');
-    if (mapEl) mapEl.addEventListener('change', function () {
-      if (!mapEl.checked || !window.ReportMap || !window.ReportMap.prepare) return;
-      // Composite now, in the background, so the first print is not bare.
-      var list = selectedPlots();
-      var i = 0;
-      var step = function () {
-        if (i >= list.length) return;
-        var p = list[i++];
-        window.ReportMap.prepare({ plotId: p.id }).then(function () { setTimeout(step, 350); },
-          function () { setTimeout(step, 350); });
-      };
-      step();
-      toast('⏳ ' + tt('מכין תצלומי לווין לחלקות המסומנות',
-        'กำลังเตรียมภาพ', 'جارٍ التجهيز'));
-    });
+    step();
+    toast('⏳ ' + tt('מכין תצלומי לווין לחלקות המסומנות', 'กำลังเตรียมภาพ', 'جارٍ التجهيز'));
+  }
 
-    var ys = document.getElementById('pmYear');
-    if (ys) ys.addEventListener('change', function () {
-      // Each growing year is its own document — switching years must not
-      // drag this season's visits into the next one.
-      year = ys.value;
-      open();
-    });
-
-    var det = document.querySelector('.pm-plots');
-    if (det) det.addEventListener('toggle', function () { plotsOpen = det.open; });
-    document.querySelectorAll('[data-farm-tog]').forEach(function (b) {
-      b.addEventListener('click', function () {
-        var fid = b.getAttribute('data-farm-tog');
-        farmOpen[fid] = !farmOpen[fid];
-        var box = document.querySelector('[data-farm-plots="' + fid + '"]');
-        if (box) box.hidden = !farmOpen[fid];
-        b.setAttribute('aria-expanded', String(!!farmOpen[fid]));
-        var ch = b.querySelector('.pm-chev');
-        if (ch) ch.textContent = farmOpen[fid] ? '\u25b4' : '\u25be';
+  // Same visit (date, ratings, recommendation, notes) to other plots — a scout
+  // who walked several blocks on one day with the same picture.
+  function copyVisit(i) {
+    var src = plotLog(active).visits[i];
+    if (!src) return;
+    var cur = plotById(active);
+    var list = plots().filter(function (p) { return String(p.id) !== String(active); });
+    var same = list.filter(function (p) { return cur && p.farm_id === cur.farm_id; });
+    var other = list.filter(function (p) { return !cur || p.farm_id !== cur.farm_id; });
+    var row = function (p) { return '<label class="pm2-cpl"><input type="checkbox" value="' + p.id + '"> ' + esc(p.name) + ' <small>' + esc(farmName(p.farm_id || 0)) + '</small></label>'; };
+    var back = document.createElement('div');
+    back.className = 'pm2-pop-back';
+    back.innerHTML = '<div class="pm2-pop"><b>⧉ ' + tt('העתקת הביקור מ־', 'คัดลอกการเยี่ยม ', 'نسخ الزيارة ') + esc(src.d) + ' ' + tt('לחלקות:', 'ไปยัง:', 'إلى:') + '</b>' +
+      '<div class="pm2-cplist">' + same.map(row).join('') + (other.length ? '<hr>' + other.map(row).join('') : '') + '</div>' +
+      '<div class="pm2-row"><button type="button" class="pm2-btn pri" data-ok="1">' + tt('העתק', 'คัดลอก', 'نسخ') + '</button><button type="button" class="pm2-btn ghost" data-no="1">' + tt('ביטול', 'ยกเลิก', 'إلغاء') + '</button></div></div>';
+    document.getElementById('pmRoot').appendChild(back);
+    back.addEventListener('click', function (e) {
+      if (e.target === back || e.target.getAttribute('data-no')) return back.remove();
+      if (!e.target.getAttribute('data-ok')) return;
+      var ids = Array.prototype.slice.call(back.querySelectorAll('input:checked')).map(function (x) { return /^\d+$/.test(x.value) ? Number(x.value) : x.value; });
+      back.remove();
+      if (!ids.length) return;
+      ids.forEach(function (id) {
+        var log = plotLog(id);
+        var dup = log.visits.findIndex(function (v) { return v.d === src.d; });
+        var copy = JSON.parse(JSON.stringify(src));
+        if (dup !== -1) log.visits[dup] = copy; else log.visits.push(copy);
+        S.selected[id] = true;
       });
-    });
-    // A farm with some plots ticked shows the dash state, not empty.
-    document.querySelectorAll('.pm-farm-cb[data-some="1"]').forEach(function (cb) { cb.indeterminate = true; });
-
-    document.querySelectorAll('.pm-plot-cb').forEach(function (cb) {
-      cb.addEventListener('change', function () {
-        var id = parseInt(cb.value, 10);
-        if (cb.checked) S.selected[id] = true; else delete S.selected[id];
-        persist();
-        render();
-      });
-    });
-    document.querySelectorAll('.pm-farm-cb').forEach(function (cb) {
-      cb.addEventListener('change', function () {
-        var fid = parseInt(cb.getAttribute('data-farm'), 10) || 0;
-        plots().filter(function (p) { return (p.farm_id || 0) === fid; })
-          .forEach(function (p) {
-            if (cb.checked) S.selected[p.id] = true; else delete S.selected[p.id];
-          });
-        persist();
-        render();
-      });
-    });
-
-    // Typed cells save on the fly but must not re-render — a re-render on
-    // every keystroke would steal focus mid-word.
-    document.querySelectorAll('.pm-table input').forEach(function (el) {
-      el.addEventListener('input', function () {
-        var i = parseInt(el.getAttribute('data-v'), 10);
-        var f = el.getAttribute('data-f');
-        var v = S.visits[i];
-        if (!v) return;
-        if (f === 'r') {
-          var j = parseInt(el.getAttribute('data-j'), 10);
-          if (!Array.isArray(v.r)) v.r = [];
-          v.r[j] = el.value;
-        } else if (f === 'd' && el.type === 'date') {
-          v.d = isoToDmy(el.value);
-        } else {
-          v[f] = el.value;
-        }
-        persist();
-      });
-      // The summary row only needs to catch up when a cell is left.
-      el.addEventListener('change', function () { refreshSummary(); });
-    });
-
-    document.querySelectorAll('[data-del]').forEach(function (b) {
-      b.addEventListener('click', function () {
-        var i = parseInt(b.getAttribute('data-del'), 10);
-        if (S.visits.length <= 1) {
-          S.visits = [{ d: '', r: [], rec: RECS[0], n: '' }];
-        } else {
-          S.visits.splice(i, 1);
-        }
-        persist();
-        render();
-      });
+      persistNow(); render();
+      toast('✅ ' + tt('הביקור הועתק ל־', 'คัดลอกไป ', 'نُسخت إلى ') + ids.length + ' ' + tt('חלקות', 'แปลง', 'قطع'));
     });
   }
 
-  function refreshSummary() {
-    var cells = document.querySelectorAll('.pm-sum');
-    if (!cells.length) return;
-    S.pests.forEach(function (p, j) {
-      if (cells[j]) cells[j].textContent = summaryFor(j);
+  function moreMenu(anchor) {
+    var old = document.getElementById('pm2More');
+    if (old) return old.remove();
+    var r = anchor.getBoundingClientRect();
+    var mm = document.createElement('div');
+    mm.id = 'pm2More';
+    mm.className = 'pm2-more';
+    mm.style.top = (r.bottom + 6) + 'px';
+    mm.style.left = Math.max(8, r.left - 160) + 'px';
+    mm.innerHTML =
+      '<button type="button" data-m="json">💾 ' + tt('ייצוא לקובץ (JSON)', 'ส่งออก JSON', 'تصدير JSON') + '</button>' +
+      '<label>📂 ' + tt('טעינת קובץ', 'โหลดไฟล์', 'تحميل ملف') + '<input type="file" accept=".json" hidden></label>' +
+      '<button type="button" data-m="field">📷 ' + tt('דוחות פרטניים (תצפיות)', 'รายงานเดี่ยว', 'تقارير مفردة') + '</button>' +
+      '<button type="button" data-m="reset" class="warn">' + tt('איפוס נתוני ', 'รีเซ็ต ', 'تصفير ') + year + '</button>';
+    document.body.appendChild(mm);
+    var off = function (e) { if (!mm.contains(e.target) && e.target !== anchor) { mm.remove(); document.removeEventListener('click', off, true); } };
+    setTimeout(function () { document.addEventListener('click', off, true); }, 0);
+    mm.addEventListener('click', function (e) {
+      var k = e.target.getAttribute('data-m');
+      if (!k) return;
+      mm.remove();
+      if (k === 'json') exportJson();
+      if (k === 'field' && window.FieldReport && FieldReport.showReportsList) FieldReport.showReportsList();
+      if (k === 'reset') reset();
     });
+    mm.querySelector('input[type=file]').addEventListener('change', function () { mm.remove(); importJson(this); });
   }
 
-  // ── printed report ──
+  function editPests() {
+    var t = prompt(tt('מזיק בכל שורה:', 'หนึ่งชื่อต่อบรรทัด:', 'اسم لكل سطر:'), S.pests.join('\n'));
+    if (t === null) return;
+    var list = t.split(/\r?\n/).map(function (s) { return s.trim(); }).filter(Boolean);
+    if (!list.length) return;
+    // Ratings are positional: remap every plot's visits by pest name.
+    var old = S.pests.slice();
+    var remap = function (v) { v.r = list.map(function (name) { var k = old.indexOf(name); return k === -1 ? '' : ((v.r || [])[k] || ''); }); };
+    Object.keys(S.plots).forEach(function (pid) { S.plots[pid].visits.forEach(remap); });
+    (S.legacy || []).forEach(remap);
+    S.pests = list;
+    persistNow(); render();
+    toast('✅ ' + tt('רשימת המזיקים עודכנה', 'อัปเดตแล้ว', 'تم التحديث'));
+  }
+  function reset() {
+    if (!confirm(tt('לאפס את כל ביקורי ' + year + ' בכל החלקות? כדאי לייצא קובץ לפני.', 'รีเซ็ต ' + year + '?', 'تصفير ' + year + '؟'))) return;
+    S.plots = {}; delete S.legacy;
+    persistNow(); render();
+  }
+  function exportJson() {
+    var blob = new Blob([JSON.stringify(S, null, 2)], { type: 'application/json' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'פיקוח-מזיקים-' + (S.year || year) + '.json';
+    a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+  }
+  function importJson(input) {
+    var f = input && input.files && input.files[0];
+    if (!f) return;
+    var r = new FileReader();
+    r.onload = function () {
+      try {
+        var d = JSON.parse(r.result);
+        if (!d || (!Array.isArray(d.visits) && !d.plots)) throw new Error('shape');
+        S = normalise(d);
+        persistNow(); render();
+        toast('✅ ' + tt('הקובץ נטען', 'โหลดแล้ว', 'تم التحميل'));
+      } catch (e) { toast('❌ ' + tt('הקובץ אינו קובץ נתונים של המערכת', 'ไฟล์ไม่ถูกต้อง', 'ملف غير صالح')); }
+    };
+    r.readAsText(f);
+  }
+
+  // ── printed report: one A4-landscape page per ticked plot, its own visits ──
   function reportHtml(plot) {
     var pests = S.pests;
-    var widths = [9].concat(pests.map(function () {
-      return Math.floor(46 / Math.max(pests.length, 1));
-    })).concat([22, 22]);
-    var head = [tt('\u05ea\u05d0\u05e8\u05d9\u05da \u05d1\u05d9\u05e7\u05d5\u05e8', '', '')].concat(pests)
-      .concat([tt('\u05d4\u05de\u05dc\u05e6\u05ea \u05d8\u05d9\u05e4\u05d5\u05dc', '', ''), tt('\u05d4\u05e2\u05e8\u05d5\u05ea', '', '')])
+    var visits = ((S.plots[plot.id] || {}).visits || []).filter(hasContent).slice()
+      .sort(function (a, b) { return dmyKey(a.d).localeCompare(dmyKey(b.d)); });
+    var widths = [9].concat(pests.map(function () { return Math.floor(46 / Math.max(pests.length, 1)); })).concat([22, 22]);
+    var head = ['תאריך ביקור'].concat(pests).concat(['המלצת טיפול', 'הערות'])
       .map(function (h, i) { return '<th style="width:' + (widths[i] || 10) + '%">' + esc(h) + '</th>'; }).join('');
-
-    var rows = S.visits.filter(function (v) {
-      // An empty row is a UI convenience, not a visit.
-      return String(v.d || '').trim() || (v.r || []).some(function (x) { return String(x || '').trim(); });
-    }).map(function (v) {
+    var rows = visits.map(function (v) {
       var c = '<td class="c">' + esc(v.d) + '</td>';
-      for (var j = 0; j < pests.length; j++) c += '<td class="c">' + esc((v.r || [])[j] || '') + '</td>';
+      for (var j = 0; j < pests.length; j++) {
+        var val = (v.r || [])[j] || '', sc = scoreOf(val);
+        c += '<td class="c"' + (sc != null && sc !== undefined ? ' style="background:' + LEVEL_COL[sc] + '33"' : '') + '>' + esc(val) + '</td>';
+      }
       return '<tr>' + c + '<td>' + esc(v.rec) + '</td><td>' + esc(v.n) + '</td></tr>';
-    }).join('');
-
+    }).join('') || '<tr><td colspan="' + (pests.length + 3) + '" class="c">אין ביקורים רשומים לחלקה זו</td></tr>';
     var fid = plot.farm_id || 0;
-    var meta = [
-      ['\u05de\u05e9\u05e7', farmName(fid)],
-      ['\u05d7\u05dc\u05e7\u05d4', plot.name || ''],
-      ['\u05e9\u05d8\u05d7 (\u05d3\u05d5\u05e0\u05dd)', plot.area ? (Math.round(plot.area * 10) / 10) : ''],
-      ['\u05e9\u05e0\u05ea \u05d2\u05d9\u05d3\u05d5\u05dc', S.year || year]
-    ].filter(function (kv, i) { return i === 0 || i === 3 || String(kv[1] || '').trim() !== ''; })
-     .map(function (kv) { return '<td class="k">' + esc(kv[0]) + '</td><td>' + esc(kv[1]) + '</td>'; }).join('');
-
-    // One printed report = one plot, so the image is that plot in the
-    // context of its own מטע — never another grower's blocks.
-    var mapUrl = (S.withMap && window.ReportMap && window.ReportMap.getCached)
-      ? window.ReportMap.getCached({ plotId: plot.id }) : null;
-
-    var sig = S.signature
-      ? '<div class="sig">\u05de\u05d1\u05e6\u05e2 \u05d4\u05e4\u05d9\u05e7\u05d5\u05d7: <b>' + esc(S.inspector) +
-        '</b> &nbsp;&nbsp; \u05d7\u05ea\u05d9\u05de\u05d4: <span></span> &nbsp;&nbsp; \u05ea\u05d0\u05e8\u05d9\u05da: ____________</div>'
-      : '<div class="sig">\u05de\u05d1\u05e6\u05e2 \u05d4\u05e4\u05d9\u05e7\u05d5\u05d7: <b>' + esc(S.inspector) + '</b></div>';
-
+    var meta = [['משק', farmName(fid)], ['חלקה', plot.name || ''], ['שטח (דונם)', plot.area ? (Math.round(plot.area * 10) / 10) : ''], ['שנת גידול', S.year || year], ['ביקורים', visits.length]]
+      .filter(function (kv) { return String(kv[1] === 0 ? '0' : kv[1] || '').trim() !== ''; })
+      .map(function (kv) { return '<td class="k">' + esc(kv[0]) + '</td><td>' + esc(kv[1]) + '</td>'; }).join('');
+    var mapUrl = (S.withMap && window.ReportMap && ReportMap.getCached) ? ReportMap.getCached({ plotId: plot.id }) : null;
+    var sig = '<div class="sig">מבצע הפיקוח: <b>' + esc(S.inspector) + '</b>' + (S.signature ? ' &nbsp;&nbsp; חתימה: <span></span> &nbsp;&nbsp; תאריך: ____________' : '') + '</div>';
     return '<div class="report">' +
-      '<div class="band"><h3>\u05d3\u05d5\u05d7 \u05de\u05e8\u05db\u05d6 \u05e4\u05d9\u05e7\u05d5\u05d7 \u05de\u05d6\u05d9\u05e7\u05d9\u05dd \u2014 \u05de\u05d8\u05e2 \u05ea\u05de\u05e8\u05d9\u05dd</h3>' +
-        '<div class="m">' + esc(farmName(fid)) + ' &nbsp;|&nbsp; \u05de\u05d9\u05e7\u05d5\u05dd: ' + esc(S.location) +
-        ' &nbsp;|&nbsp; \u05e9\u05e0\u05ea \u05d2\u05d9\u05d3\u05d5\u05dc: ' + esc(S.year || year) +
-        ' &nbsp;|&nbsp; \u05de\u05d1\u05e6\u05e2 \u05d4\u05e4\u05d9\u05e7\u05d5\u05d7: ' + esc(S.inspector) + '</div></div>' +
+      '<div class="band"><h3>דוח פיקוח מזיקים — ' + esc(plot.name || '') + '</h3>' +
+        '<div class="m">' + esc(farmName(fid)) + ' &nbsp;|&nbsp; מיקום: ' + esc(S.location) + ' &nbsp;|&nbsp; שנת גידול: ' + esc(S.year || year) + ' &nbsp;|&nbsp; מבצע הפיקוח: ' + esc(S.inspector) + '</div></div>' +
       '<table class="meta"><tr>' + meta + '</tr></table>' +
       (mapUrl ? '<div class="mapwrap"><img src="' + mapUrl + '" alt=""></div>' : '') +
       '<table class="log"><thead><tr>' + head + '</tr></thead><tbody>' + rows + '</tbody></table>' +
-      '<div class="scale"><b>\u05e1\u05d5\u05dc\u05dd \u05d4\u05e2\u05e8\u05db\u05d4:</b> &nbsp; ' +
-        SCALE_LABEL.map(function (l, i) { return i + ' = ' + l; }).join(' &nbsp;|&nbsp; ') + '</div>' +
-      '<h4>\u05e1\u05d9\u05db\u05d5\u05dd \u05e9\u05e0\u05ea\u05d9 \u2014 \u05e8\u05de\u05ea \u05e0\u05d2\u05d9\u05e2\u05d5\u05ea \u05dc\u05e4\u05d9 \u05de\u05d6\u05d9\u05e7 (\u05de\u05de\u05d5\u05e6\u05e2 \u00b7 \u05d4\u05d7\u05de\u05d5\u05e8 \u05e9\u05e0\u05e8\u05e9\u05dd)</h4>' +
+      '<div class="scale"><b>סולם הערכה:</b> &nbsp; ' + SCALE_LABEL.map(function (l, i) { return i + ' = ' + l; }).join(' &nbsp;|&nbsp; ') + '</div>' +
+      '<h4>סיכום שנתי — רמת נגיעות לפי מזיק (ממוצע · החמור שנרשם)</h4>' +
       '<table class="sum"><tr>' + pests.map(function (h) { return '<th>' + esc(h) + '</th>'; }).join('') + '</tr>' +
-      '<tr>' + pests.map(function (p, j) { return '<td>' + esc(summaryFor(j)) + '</td>'; }).join('') + '</tr></table>' +
+      '<tr>' + pests.map(function (p, j) { return '<td>' + esc(summaryFor(visits, j)) + '</td>'; }).join('') + '</tr></table>' +
       sig + '</div>';
   }
-
   function printStyles() {
-    // Hardcoded print colours on purpose — a printed document must not
-    // follow the app's dark theme.
     return '@page { size: A4 landscape; margin: 11mm 10mm; }' +
-      'body{margin:0;background:#fff;color:#1b2b1e;font-family:"Heebo","Rubik","Segoe UI",Arial,sans-serif;font-size:14px;line-height:1.45}' +
+      'body{margin:0;background:#fff;color:#1b2a1f;font-family:"Rubik","Heebo","Segoe UI",Arial,sans-serif;font-size:14px;line-height:1.45}' +
       '.report{page-break-after:always}.report:last-child{page-break-after:auto}' +
-      '.band{background:#2c5f2d;color:#fff;padding:9px 12px;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
-      '.band h3{margin:0 0 3px;font-size:15px}.band .m{font-size:10px;color:#d9e8d4}' +
-      '.meta{width:100%;border-collapse:collapse;margin-top:8px}' +
-      '.meta td{border:1px solid #c3d2bd;padding:5px 8px;font-size:10px}' +
-      '.meta .k{background:#eef1ea;font-weight:700;color:#2c5f2d;width:11%;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
-      '.mapwrap{margin-top:9px;page-break-inside:avoid;break-inside:avoid}' +
-      '.mapwrap img{width:100%;height:auto;display:block;border:1px solid #c3d2bd}' +
+      '.band{background:#12401f;color:#fff;padding:9px 12px;border-radius:6px;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
+      '.band h3{margin:0 0 3px;font-size:15px}.band .m{font-size:10px;color:#dfeccf}' +
+      '.meta{width:100%;border-collapse:collapse;margin-top:8px}.meta td{border:1px solid #d6e0cf;padding:5px 8px;font-size:10px}' +
+      '.meta .k{background:#eef7d4;font-weight:700;color:#12401f;width:10%;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
+      '.mapwrap{margin-top:9px;page-break-inside:avoid;break-inside:avoid}.mapwrap img{width:100%;height:auto;display:block;border:1px solid #d6e0cf}' +
       'table.log{width:100%;border-collapse:collapse;margin-top:10px}' +
-      'table.log th{background:#2c5f2d;color:#fff;font-size:9px;padding:5px 3px;border:1px solid #24501f;text-align:center;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
-      'table.log td{font-size:9.5px;padding:5px 4px;border:1px solid #c3d2bd;background:#fff}' +
+      'table.log th{background:#1d5a2c;color:#fff;font-size:9px;padding:5px 3px;border:1px solid #12401f;text-align:center;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
+      'table.log td{font-size:9.5px;padding:5px 4px;border:1px solid #d6e0cf;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
       'table.log td.c{text-align:center;white-space:nowrap}' +
-      'table.log tr:nth-child(even) td{background:#f7faf5;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
-      '.scale{background:#eef1ea;border:1px solid #c3d2bd;padding:6px 10px;font-size:9.5px;margin-top:9px;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
-      'h4{font-size:11px;color:#2c5f2d;margin:12px 0 5px;border-right:4px solid #7fae5f;padding-right:7px}' +
+      '.scale{background:#f4f7f1;border:1px solid #d6e0cf;padding:6px 10px;font-size:9.5px;margin-top:9px;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
+      'h4{font-size:11px;color:#12401f;margin:12px 0 5px;border-right:4px solid #c5e663;padding-right:7px}' +
       'table.sum{width:100%;border-collapse:collapse}' +
-      'table.sum th{background:#7fae5f;border:1px solid #6b9950;font-size:9.5px;padding:5px 3px;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
-      'table.sum td{text-align:center;padding:8px 4px;font-size:10px;background:#fff;border:1px solid #c3d2bd}' +
-      '.sig{margin-top:20px;font-size:10px}.sig span{display:inline-block;border-bottom:1px solid #2c5f2d;width:140px}';
+      'table.sum th{background:#eef7d4;border:1px solid #d6e0cf;font-size:9.5px;padding:5px 3px;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
+      'table.sum td{text-align:center;padding:8px 4px;font-size:10px;border:1px solid #d6e0cf}' +
+      '.sig{margin-top:20px;font-size:10px}.sig span{display:inline-block;border-bottom:1px solid #12401f;width:140px}';
   }
-
   function print() {
+    if (saveTimer) persistNow();
     var sel = selectedPlots();
-    if (!sel.length) {
-      toast('\u274c ' + tt('\u05e1\u05de\u05df \u05dc\u05e4\u05d7\u05d5\u05ea \u05d7\u05dc\u05e7\u05d4 \u05d0\u05d7\u05ea',
-        '\u0e40\u0e25\u0e37\u0e2d\u0e01\u0e2d\u0e22\u0e48\u0e32\u0e07\u0e19\u0e49\u0e2d\u0e22\u0e2b\u0e19\u0e36\u0e48\u0e07\u0e41\u0e1b\u0e25\u0e07',
-        '\u0627\u062e\u062a\u0631 \u0642\u0637\u0639\u0629 \u0648\u0627\u062d\u062f\u0629 \u0639\u0644\u0649 \u0627\u0644\u0623\u0642\u0644'));
-      return;
-    }
-    var html = '<!DOCTYPE html>\n<html lang="he" dir="rtl">\n<head>\n<meta charset="UTF-8">\n' +
-      '<title>\u05d3\u05d5\u05d7\u05d5\u05ea \u05e4\u05d9\u05e7\u05d5\u05d7 \u05de\u05d6\u05d9\u05e7\u05d9\u05dd ' + esc(S.year || year) + '</title>\n' +
-      '<style>' + printStyles() + '</style>\n</head>\n<body>\n' +
-      sel.map(reportHtml).join('\n') + '\n</body>\n</html>';
-
-    var fname = '\u05e4\u05d9\u05e7\u05d5\u05d7_\u05de\u05d6\u05d9\u05e7\u05d9\u05dd_' + (S.year || year) + '.html';
-    if (window.Util && typeof window.Util.exportReport === 'function') {
-      window.Util.exportReport(html, fname);
-    }
-    toast('\ud83d\udcc4 ' + sel.length + ' ' + tt('\u05d3\u05d5\u05d7\u05d5\u05ea \u05e0\u05e4\u05ea\u05d7\u05d5 \u2014 \u05d1\u05d7\u05e8 \u05d4\u05d3\u05e4\u05e1\u05d4 / \u05e9\u05de\u05d5\u05e8 \u05db-PDF',
-      '\u0e40\u0e2d\u0e01\u0e2a\u0e32\u0e23\u0e40\u0e1b\u0e34\u0e14\u0e41\u0e25\u0e49\u0e27', '\u0641\u064f\u062a\u062d\u062a \u0627\u0644\u062a\u0642\u0627\u0631\u064a\u0631'));
+    if (!sel.length) { toast('❌ ' + tt('סמן ☑ לפחות חלקה אחת להדפסה', 'เลือกอย่างน้อยหนึ่งแปลง', 'اختر قطعة واحدة على الأقل')); return; }
+    var html = '<!DOCTYPE html>\n<html lang="he" dir="rtl">\n<head>\n<meta charset="UTF-8">\n<title>דוחות פיקוח מזיקים ' + esc(S.year || year) + '</title>\n' +
+      '<style>' + printStyles() + '</style>\n</head>\n<body>\n' + sel.map(reportHtml).join('\n') + '\n</body>\n</html>';
+    if (window.Util && typeof Util.exportReport === 'function') Util.exportReport(html, 'פיקוח_מזיקים_' + (S.year || year) + '.html');
+    toast('📄 ' + sel.length + ' ' + tt('דוחות נפתחו — בחר הדפסה / שמור כ-PDF', 'เอกสารเปิดแล้ว', 'فُتحت التقارير'));
   }
 
-  // ── toolbar actions ──
+  function ensureCss() {
+    if (document.getElementById('pm2Css')) return;
+    var st = document.createElement('style');
+    st.id = 'pm2Css';
+    st.textContent =
+      '.pm2-back{padding:0 !important;align-items:stretch !important;background:rgba(16,24,20,.45) !important;}' +
+      '.pm2{background:var(--bg,#f8faf6);color:var(--text,#1b2a1f);width:100%;max-width:1400px;margin:0 auto;display:flex;flex-direction:column;height:100dvh;}' +
+      '@media(min-width:900px){.pm2-back{padding:18px !important;}.pm2{height:calc(100dvh - 36px);border-radius:24px;overflow:hidden;box-shadow:0 20px 50px rgba(0,0,0,.25);}}' +
+      '.pm2-head{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;padding:12px 14px;background:var(--card,#fff);border-bottom:1px solid var(--line,#e6ebe2);}' +
+      '.pm2-title{display:flex;flex-direction:column;gap:2px;}.pm2-title b{font-size:1.05rem;}' +
+      '.pm2-save{font-size:.72rem;color:var(--text-muted,#6f7b72);}.pm2-save.ok{color:#2e7d32;font-weight:600;}.pm2-save.s{color:#a86a00;}.pm2-save.err{color:#b3261e;font-weight:600;}' +
+      '.pm2-tools{display:flex;gap:6px;align-items:center;flex-wrap:wrap;}' +
+      '.pm2-btn{border:1.5px solid var(--line,#e6ebe2);background:var(--card,#fff);color:var(--primary,#1d5a2c);border-radius:12px;padding:8px 12px;font:inherit;font-weight:600;font-size:.82rem;cursor:pointer;white-space:nowrap;}' +
+      '.pm2-btn.pri{background:var(--grad-primary,linear-gradient(145deg,#2a6b36,#12401f));color:#fff;border-color:transparent;box-shadow:0 4px 12px rgba(18,64,31,.2);}' +
+      '.pm2-btn.ghost{background:transparent;}.pm2-btn.sm{padding:5px 10px;font-size:.76rem;}' +
+      '.pm2-in{width:100%;box-sizing:border-box;border:1.5px solid transparent;background:var(--tonal,#f1f4ee);color:var(--text,#1b2a1f);border-radius:12px;padding:9px 11px;font:inherit;font-size:.86rem;}' +
+      '.pm2-in:focus{outline:0;border-color:var(--primary,#1d5a2c);background:var(--card,#fff);}.pm2-in.sm{width:auto;padding:6px 9px;}' +
+      '.pm2-body{flex:1;min-height:0;display:flex;flex-direction:column;}' +
+      '@media(min-width:900px){.pm2-body{flex-direction:row;}}' +
+      '.pm2-side{background:var(--card,#fff);border-bottom:1px solid var(--line,#e6ebe2);}' +
+      '@media(min-width:900px){.pm2-side{width:330px;flex:none;border-bottom:0;border-left:1px solid var(--line,#e6ebe2);overflow-y:auto;}.pm2-cur{display:none !important;}.pm2-list{display:block !important;}}' +
+      '.pm2-cur{display:flex;width:100%;justify-content:space-between;align-items:center;border:0;background:none;padding:12px 14px;font:inherit;font-size:.9rem;color:inherit;cursor:pointer;}' +
+      '.pm2-list{display:none;padding:10px 12px 14px;max-height:55dvh;overflow-y:auto;}.pm2-side.open .pm2-list{display:block;}' +
+      '@media(min-width:900px){.pm2-list{max-height:none;}}' +
+      '.pm2-hint{font-size:.7rem;color:var(--text-muted,#6f7b72);margin:6px 2px 8px;}' +
+      '.pm2-farm{margin-bottom:6px;}.pm2-fh{display:flex;align-items:center;gap:6px;}' +
+      '.pm2-ft{flex:1;display:flex;gap:8px;align-items:center;border:0;background:var(--tonal,#f1f4ee);border-radius:12px;padding:8px 10px;font:inherit;color:inherit;cursor:pointer;}' +
+      '.pm2-ft b{flex:1;text-align:right;font-size:.86rem;}.pm2-ft span{font-size:.72rem;color:var(--text-muted,#6f7b72);}.pm2-ft i{font-style:normal;font-size:.7rem;}' +
+      '.pm2-plots{padding:4px 0 2px;}' +
+      '.pm2-pl{display:flex;align-items:center;gap:8px;padding:8px 8px;border-radius:12px;cursor:pointer;}' +
+      '.pm2-pl:hover{background:var(--tonal,#f1f4ee);}' +
+      '.pm2-pl.on{background:var(--grad-primary,linear-gradient(145deg,#2a6b36,#12401f));color:#fff;}.pm2-pl.on small{color:rgba(255,255,255,.8);}' +
+      '.pm2-dot{width:10px;height:10px;border-radius:50%;flex:none;}' +
+      '.pm2-pn{flex:1;min-width:0;}.pm2-pn b{display:block;font-size:.85rem;font-weight:600;}.pm2-pn small{font-size:.7rem;color:var(--text-muted,#6f7b72);}' +
+      '.pm2-main{flex:1;min-height:0;overflow-y:auto;padding:12px 14px 40px;-webkit-overflow-scrolling:touch;}' +
+      '.pm2-card{background:var(--card,#fff);border:1px solid var(--line,#e6ebe2);border-radius:20px;padding:12px 14px;margin-bottom:12px;}' +
+      '.pm2-info summary{cursor:pointer;font-weight:600;font-size:.86rem;}.pm2-info summary small{font-weight:400;color:var(--text-muted,#6f7b72);}' +
+      '.pm2-grid2{display:grid;gap:8px;margin-top:8px;}@media(min-width:620px){.pm2-grid2{grid-template-columns:1fr 1fr;}}' +
+      '.pm2-grid2 label{display:flex;flex-direction:column;gap:4px;font-size:.74rem;color:var(--text-muted,#6f7b72);}' +
+      '.pm2-chk{display:flex;align-items:center;gap:6px;font-size:.8rem;margin-top:8px;cursor:pointer;}' +
+      '.pm2-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;}' +
+      '.pm2-ph{display:flex;justify-content:space-between;align-items:flex-end;gap:10px;flex-wrap:wrap;margin:4px 2px 12px;}' +
+      '.pm2-ph h3{margin:0;font-size:1.25rem;}.pm2-ph small{color:var(--text-muted,#6f7b72);font-size:.76rem;}' +
+      '.pm2-ph-a{display:flex;gap:10px;align-items:center;}.pm2-ph-a .pm2-chk{margin:0;}' +
+      '.pm2-sum{display:flex;gap:8px;overflow-x:auto;margin-bottom:12px;padding-bottom:2px;}' +
+      '.pm2-sum span{flex:none;background:var(--primary-soft,#eef7d4);border-radius:14px;padding:7px 11px;}' +
+      '.pm2-sum small{display:block;font-size:.66rem;color:var(--text-muted,#6f7b72);}.pm2-sum b{font-size:.78rem;}' +
+      '.pm2-vh{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;}.pm2-vact{display:flex;gap:4px;align-items:center;}' +
+      '.pm2-x{border:0;background:var(--tonal,#f1f4ee);border-radius:10px;width:32px;height:32px;cursor:pointer;}' +
+      '.pm2-pr{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;border-top:1px solid var(--line,#eef1ec);flex-wrap:wrap;}' +
+      '.pm2-pname{font-size:.84rem;font-weight:600;}.pm2-odd{font-weight:400;font-size:.72rem;color:#a86a00;margin-inline-start:6px;}' +
+      '.pm2-lvs{display:flex;gap:4px;flex-wrap:wrap;}' +
+      '.pm2-lv{border:1.5px solid var(--line,#e6ebe2);background:var(--card,#fff);color:var(--text,#1b2a1f);border-radius:10px;padding:6px 9px;font:inherit;font-size:.74rem;cursor:pointer;min-width:46px;}' +
+      '.pm2-lv.on{background:var(--c);border-color:var(--c);color:#fff;font-weight:700;text-shadow:0 1px 1px rgba(0,0,0,.2);}' +
+      '.pm2-legend{font-size:.72rem;color:var(--text-muted,#6f7b72);margin-top:6px;line-height:1.9;}.pm2-legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin:0 3px -1px;}' +
+      '.pm2-legacy{background:#fff4e2;color:#7a4a00;border-radius:14px;padding:10px 12px;margin-bottom:12px;font-size:.82rem;}' +
+      '.pm2-empty{padding:18px;text-align:center;color:var(--text-muted,#6f7b72);font-size:.84rem;}.pm2-empty.big{padding:50px 18px;}' +
+      '.pm2-more{position:fixed;z-index:100001;background:var(--card,#fff);border:1px solid var(--line,#e6ebe2);border-radius:16px;box-shadow:0 12px 30px rgba(0,0,0,.18);padding:6px;display:flex;flex-direction:column;min-width:210px;}' +
+      '.pm2-more button,.pm2-more label{border:0;background:none;text-align:right;padding:10px 12px;border-radius:10px;font:inherit;font-size:.84rem;color:var(--text,#1b2a1f);cursor:pointer;}' +
+      '.pm2-more button:hover,.pm2-more label:hover{background:var(--tonal,#f1f4ee);}.pm2-more .warn{color:#b3261e;}' +
+      '.pm2-pop-back{position:fixed;inset:0;z-index:100002;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;padding:14px;}' +
+      '.pm2-pop{background:var(--card,#fff);color:var(--text,#1b2a1f);border-radius:20px;padding:16px;width:100%;max-width:420px;max-height:80dvh;display:flex;flex-direction:column;}' +
+      '.pm2-cplist{overflow-y:auto;margin:10px 0;}.pm2-cpl{display:flex;gap:8px;align-items:center;padding:7px 4px;font-size:.86rem;}.pm2-cpl small{color:var(--text-muted,#6f7b72);}' +
+      '.pm2-cplist hr{border:0;border-top:1px solid var(--line,#e6ebe2);margin:6px 0;}';
+    document.head.appendChild(st);
+  }
+
   return {
     open: open,
     close: close,
     print: print,
-    addVisit: function () {
-      S.visits.push({ d: todayDmy(), r: [], rec: (S.visits[0] && S.visits[0].rec) || RECS[0], n: '' });
-      persist(); render();
-    },
-    fillRec: function () {
-      var t = prompt(tt('\u05d4\u05de\u05dc\u05e6\u05ea \u05d8\u05d9\u05e4\u05d5\u05dc \u05dc\u05db\u05dc \u05d4\u05e9\u05d5\u05e8\u05d5\u05ea:',
-        '\u0e04\u0e33\u0e41\u0e19\u0e30\u0e19\u0e33\u0e2a\u0e33\u0e2b\u0e23\u0e31\u0e1a\u0e17\u0e38\u0e01\u0e41\u0e16\u0e27:',
-        '\u0627\u0644\u062a\u0648\u0635\u064a\u0629 \u0644\u0643\u0644 \u0627\u0644\u0623\u0633\u0637\u0631:'),
-        (S.visits[0] && S.visits[0].rec) || RECS[0]);
-      if (t === null) return;
-      S.visits.forEach(function (v) { v.rec = t; });
-      persist(); render();
-    },
-    selectAll: function (on) {
-      if (on) plots().forEach(function (p) { S.selected[p.id] = true; });
-      else S.selected = {};
-      persist(); render();
-    },
-    editPests: function () {
-      var t = prompt(tt('\u05e2\u05de\u05d5\u05d3\u05d4 \u05dc\u05db\u05dc \u05de\u05d6\u05d9\u05e7 \u2014 \u05e9\u05dd \u05d1\u05db\u05dc \u05e9\u05d5\u05e8\u05d4:',
-        '\u0e2b\u0e19\u0e36\u0e48\u0e07\u0e0a\u0e37\u0e48\u0e2d\u0e15\u0e48\u0e2d\u0e1a\u0e23\u0e23\u0e17\u0e31\u0e14:',
-        '\u0627\u0633\u0645 \u0644\u0643\u0644 \u0633\u0637\u0631:'), S.pests.join('\n'));
-      if (t === null) return;
-      var list = t.split(/\r?\n/).map(function (s) { return s.trim(); }).filter(Boolean);
-      if (!list.length) return;
-      // Ratings are stored positionally, so a column change would silently
-      // shift readings under the wrong pest. Remap by name and drop the rest.
-      var old = S.pests.slice();
-      S.visits.forEach(function (v) {
-        var moved = list.map(function (name) {
-          var k = old.indexOf(name);
-          return k === -1 ? '' : ((v.r || [])[k] || '');
-        });
-        v.r = moved;
-      });
-      S.pests = list;
-      persist(); render();
-      toast('\u2705 ' + tt('\u05e2\u05de\u05d5\u05d3\u05d5\u05ea \u05e2\u05d5\u05d3\u05db\u05e0\u05d5', '\u0e2d\u0e31\u0e1b\u0e40\u0e14\u0e15\u0e41\u0e25\u0e49\u0e27', '\u062a\u0645 \u0627\u0644\u062a\u062d\u062f\u064a\u062b'));
-    },
-    reset: function () {
-      if (!confirm(tt('\u05dc\u05d0\u05e4\u05e1 \u05d0\u05ea \u05d1\u05d9\u05e7\u05d5\u05e8\u05d9 ' + year + '? \u05db\u05d3\u05d0\u05d9 \u05dc\u05e9\u05de\u05d5\u05e8 \u05e7\u05d5\u05d1\u05e5 \u05dc\u05e4\u05e0\u05d9.',
-        '\u0e23\u0e35\u0e40\u0e0b\u0e15 ' + year + '?', '\u062a\u0635\u0641\u064a\u0631 ' + year + '?'))) return;
-      var keep = { inspector: S.inspector, location: S.location, signature: S.signature,
-                   withMap: S.withMap, pests: S.pests.slice(), selected: S.selected };
-      S = blankSeason();
-      S.inspector = keep.inspector; S.location = keep.location;
-      S.signature = keep.signature; S.withMap = keep.withMap;
-      S.pests = keep.pests; S.selected = keep.selected;
-      persist(); render();
-    },
-    exportJson: function () {
-      var blob = new Blob([JSON.stringify(S, null, 2)], { type: 'application/json' });
-      var a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = '\u05e4\u05d9\u05e7\u05d5\u05d7-\u05de\u05d6\u05d9\u05e7\u05d9\u05dd-' + (S.year || year) + '.json';
-      a.click();
-      setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
-      toast('\ud83d\udcbe ' + tt('\u05d4\u05e7\u05d5\u05d1\u05e5 \u05e0\u05e9\u05de\u05e8', '\u0e1a\u0e31\u0e19\u0e17\u0e36\u0e01\u0e41\u0e25\u0e49\u0e27', '\u062a\u0645 \u0627\u0644\u062d\u0641\u0638'));
-    },
-    importJson: function (input) {
-      var f = input && input.files && input.files[0];
-      if (!f) return;
-      var r = new FileReader();
-      r.onload = function () {
-        try {
-          var d = JSON.parse(r.result);
-          if (!Array.isArray(d.visits)) throw new Error('shape');
-          S = normalise(d);
-          persist(); render();
-          toast('\u2705 ' + tt('\u05d4\u05e7\u05d5\u05d1\u05e5 \u05e0\u05d8\u05e2\u05df', '\u0e42\u0e2b\u0e25\u0e14\u0e41\u0e25\u0e49\u0e27', '\u062a\u0645 \u0627\u0644\u062a\u062d\u0645\u064a\u0644'));
-        } catch (e) {
-          toast('\u274c ' + tt('\u05d4\u05e7\u05d5\u05d1\u05e5 \u05d0\u05d9\u05e0\u05d5 \u05e7\u05d5\u05d1\u05e5 \u05e0\u05ea\u05d5\u05e0\u05d9\u05dd \u05e9\u05dc \u05d4\u05de\u05e2\u05e8\u05db\u05ea',
-            '\u0e44\u0e1f\u0e25\u0e4c\u0e44\u0e21\u0e48\u0e16\u0e39\u0e01\u0e15\u0e49\u0e2d\u0e07', '\u0645\u0644\u0641 \u063a\u064a\u0631 \u0635\u0627\u0644\u062d'));
-        }
-        input.value = '';
-      };
-      r.readAsText(f);
-    },
-    // Test seam.
-    _summary: function (i) { return summaryFor(i); },
-    _state: function () { return S; }
+    // Test seams.
+    _state: function () { return S; },
+    _summary: function (pid, j) { return summaryFor(((S.plots[pid] || {}).visits) || [], j); },
+    _normalise: normalise
   };
 })();
 window.PestMonitor = PestMonitor;
