@@ -2580,12 +2580,62 @@
           id: Date.now() + Math.floor(Math.random() * 1000), at: Date.now(), by: u.email || u.username || '',
           path: String(d.path || ''), name: String(d.name || '').slice(0, 120), type: d.type || 'other',
           supplier: String(d.supplier || '').slice(0, 80), doc_date: d.doc_date || '', doc_no: String(d.doc_no || '').slice(0, 40),
-          items: Number(d.items) || 0
+          items: Number(d.items) || 0,
+          model: String(d.model || '').slice(0, 40), tokens_in: Number(d.tokens_in) || 0, tokens_out: Number(d.tokens_out) || 0,
+          usd: Number(d.usd) || 0
         });
       });
       f.intake_docs = f.intake_docs.slice(0, 60);
       saveData();
       return { ok: true, counts: n };
+    },
+    // ── Equipment transfer between farms (ניוד כלים) ──
+    // Admin, or an operator who holds both farms. The item moves with all its
+    // fields; both farms log the move.
+    getEquipment: function(farmId) {
+      var f = (farms || []).find(function(x) { return x.id === farmId; });
+      return JSON.parse(JSON.stringify(((f && f.equipment) || []).map(function(e, i) {
+        return { idx: i, name: locName(e), type: e.type || 'tool', capacityL: e.capacityL || 0, status: e.status || 'active' };
+      })));
+    },
+    getMoves: function(farmId) {
+      var f = (farms || []).find(function(x) { return x.id === farmId; });
+      return JSON.parse(JSON.stringify((f && f.equipment_moves) || []));
+    },
+    transferTargets: function(farmId) {
+      var u = window.currentUser || {};
+      return getUserFarms(u).filter(function(f) { return f.id !== farmId; }).map(function(f) { return { id: f.id, name: locName(f) }; });
+    },
+    canTransfer: function(fromId, toId) {
+      var u = window.currentUser || {};
+      if (u.role === 'admin') return true;
+      if (u.role !== 'operator') return false;
+      var mine = getUserFarms(u).map(function(f) { return f.id; });
+      return mine.indexOf(fromId) !== -1 && (toId == null || mine.indexOf(toId) !== -1);
+    },
+    moveEquipment: function(fromId, idx, toId, meta) {
+      if (!SprayStore.canTransfer(fromId, toId) || fromId === toId) return { ok: false, err: 'forbidden' };
+      var from = (farms || []).find(function(x) { return x.id === fromId; });
+      var to = (farms || []).find(function(x) { return x.id === toId; });
+      if (!from || !to || !from.equipment || !from.equipment[idx]) return { ok: false, err: 'not-found' };
+      var u = window.currentUser || {};
+      var item = from.equipment.splice(idx, 1)[0];
+      item.moved_from = fromId; item.moved_at = Date.now();
+      if (!to.equipment) to.equipment = [];
+      to.equipment.push(item);
+      var mv = {
+        id: Date.now(), at: Date.now(), date: (meta && meta.date) || new Date().toISOString().slice(0, 10),
+        by: u.email || u.username || '', item: locName(item), type: item.type || 'tool',
+        from: fromId, fromName: locName(from), to: toId, toName: locName(to),
+        note: String((meta && meta.note) || '').slice(0, 200), docPath: (meta && meta.docPath) || ''
+      };
+      [from, to].forEach(function(f) {
+        if (!f.equipment_moves) f.equipment_moves = [];
+        f.equipment_moves.unshift(JSON.parse(JSON.stringify(mv)));
+        f.equipment_moves = f.equipment_moves.slice(0, 40);
+      });
+      saveData();
+      return { ok: true, move: mv };
     },
     // Admin correction of a stock line (quantity 0 removes it).
     setStockQty: function(farmId, stockId, qty) {
@@ -7728,6 +7778,7 @@
           
           '<div class="section-title" style="margin-top: 4px;">🚜 ' + t('ציוד ורכבים') + '</div>' +
           equipHtml +
+          (window.FarmIntake && FarmIntake.movesHtml ? FarmIntake.movesHtml(farm.id) : '') +
           
           '<div class="section-title" style="margin-top: 14px;">📋 ' + t('פעולות אחרונות') + '</div>' +
           activitiesHtml +

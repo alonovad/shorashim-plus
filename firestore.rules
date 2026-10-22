@@ -46,7 +46,10 @@ service cloud.firestore {
 
     // ── appData collection ──
     match /appData/{docId} {
-      allow read: if isSignedIn();
+      // Prices (shorashim-prices-YYYY) are commercial data: operator+ only,
+      // so a worker cannot read what each supplier charges.
+      allow read: if isSignedIn() &&
+                     (!docId.matches('shorashim-prices-[0-9]{4}') || isOperatorOrAbove());
 
       // TEMPORARY (broad grant): any signed-in user may write
       // shorashim-users. The app writes the WHOLE users blob for ordinary
@@ -136,6 +139,12 @@ service cloud.firestore {
       // per orchard. Same prefix trick: a new season needs no rules deploy.
       allow write: if isOperatorOrAbove() &&
                       docId.matches('shorashim-harvest-[0-9]{4}');
+
+      // Operator+: shared product & price database, one document per year
+      // (shorashim-prices-2026, ...). prices.js — fed by every farm's
+      // document intake; read restricted to operator+ above.
+      allow write: if isOperatorOrAbove() &&
+                      docId.matches('shorashim-prices-[0-9]{4}');
 
       // Admin only: treatment-plan approvals, one document per growing year
       // (shorashim-agri-approvals-2026, ...). Kept apart from the plan

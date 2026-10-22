@@ -1130,7 +1130,9 @@ const INVENTORY_TOOL = {
   input_schema: {
     type: "object",
     properties: {
-      doc_type: { type: "string", enum: ["invoice", "delivery_note", "receipt", "equipment_photo", "product_photo", "stock_list", "other"] },
+      doc_type: { type: "string", enum: ["invoice", "delivery_note", "receipt", "equipment_photo", "product_photo", "stock_list", "equipment_transfer", "other"],
+        description: "equipment_transfer = a document moving tools/machines between farms or sites (ניוד כלים)." },
+      vat_included: { type: "boolean", description: "True if the line prices on this document include VAT (מע\"מ), false if before VAT. Default false for Israeli invoices that show a separate VAT line." },
       supplier: { type: "string", description: "Supplier / issuer name as written. Empty if none." },
       doc_date: { type: "string", description: "Document date as YYYY-MM-DD if legible, else empty." },
       doc_no:   { type: "string", description: "Invoice / delivery note number. Empty if none." },
@@ -1142,9 +1144,13 @@ const INVENTORY_TOOL = {
             kind: { type: "string", enum: ["pesticide", "fertilizer", "equipment", "other"],
               description: "pesticide = crop-protection product (insecticide, fungicide, herbicide, acaricide, oil, adjuvant); fertilizer = fertilizer or nutrient; equipment = a machine, sprayer, vehicle or tool (not a consumable); other = any other consumable." },
             name: { type: "string", description: "Product or item name as written (Hebrew as written; keep trade names)." },
+            product: { type: "string", description: "The generic product name without pack size, quantity or supplier code (e.g. 'טוטם', 'אשלגן כלורי', 'צינור טפטוף 16 מ\"מ'), so the same product groups across suppliers and pack sizes." },
             catalogue_match: { type: "string", description: "If kind is pesticide and the product is one of the catalogue names given, that exact catalogue name; else empty." },
             qty: { type: "number", description: "Total quantity delivered/owned in `unit` (multiply packs × pack size when both are shown). 1 for a single piece of equipment." },
             unit: { type: "string", description: "ליטר, ק\"ג, יחידה, שק, etc." },
+            base_unit: { type: "string", enum: ["ליטר", "ק\"ג", "יחידה", "מטר", "טון", ""], description: "The unit a price is compared in: litres for liquids, kg for solids, unit for pieces, metre for pipe/wire." },
+            unit_price: { type: "number", description: "Price in ₪ per ONE base_unit, BEFORE VAT (convert packs: a 5 L can at 450 ₪ → 90 per litre; remove VAT if the document's prices include it). 0 if no price on the document." },
+            line_total: { type: "number", description: "Line total in ₪ as written on the document, 0 if none." },
             pack: { type: "string", description: "Pack description if shown (e.g. 'מיכל 5 ל׳'). Empty if none." },
             equipment_type: { type: "string", enum: ["sprayer", "vehicle", "tool", ""], description: "Only for equipment." },
             sprayer_kind: { type: "string", enum: ["airblast", "gun", "boom", "backpack", "drench", ""], description: "Only for sprayers: airblast (mist blower / תותח), gun (hose & gun / רובה), boom (מוט), backpack (גב), drench (הגמעה tank)." },
@@ -1162,9 +1168,10 @@ const INVENTORY_TOOL = {
 };
 const INVENTORY_SYSTEM = [
   "You read Israeli farm documents — supplier invoices, delivery notes (תעודת משלוח), receipts, stock lists — and photos of products or equipment, and report what they add to a farm's stock and equipment.",
-  "Report each line once. Skip lines that are services, transport, discounts, deposits or VAT. Quantities are what was supplied, not prices.",
+  "Report each line once. Skip lines that are services, transport, discounts, deposits or VAT. Quantities are what was supplied; prices go in unit_price (per base unit, before VAT) and line_total.",
   "Hebrew documents are right-to-left; read numbers carefully (a comma may be a thousands separator).",
   "For a photo of a single product or machine, report that one item (qty 1 for equipment; for a product container, qty = its labelled volume or weight).",
+  "Prices: the net price actually paid per base unit after any per-line discount, before VAT. A delivery note usually has no prices — leave them 0.",
   "Never invent: leave a field empty or 0 when it is not on the document, and lower the confidence when unsure."
 ].join(" ");
 
@@ -1262,6 +1269,10 @@ exports.inventoryExtract = onCall(
     const items = (Array.isArray(call.input.items) ? call.input.items : []).slice(0, 200).map((r) => ({
       kind: oneOf(r.kind, ["pesticide", "fertilizer", "equipment", "other"], "other"),
       name: str(r.name, 100),
+      product: str(r.product, 100),
+      base_unit: oneOf(r.base_unit, ["ליטר", "ק\"ג", "יחידה", "מטר", "טון"], ""),
+      unit_price: num(r.unit_price, 0, 10000000),
+      line_total: num(r.line_total, 0, 100000000),
       catalogue_match: cat.includes(r.catalogue_match) ? r.catalogue_match : "",
       qty: num(r.qty, 0, 1000000),
       unit: str(r.unit, 20),
@@ -1274,7 +1285,8 @@ exports.inventoryExtract = onCall(
     })).filter((r) => r.name);
 
     return {
-      doc_type: oneOf(call.input.doc_type, ["invoice", "delivery_note", "receipt", "equipment_photo", "product_photo", "stock_list", "other"], "other"),
+      doc_type: oneOf(call.input.doc_type, ["invoice", "delivery_note", "receipt", "equipment_photo", "product_photo", "stock_list", "equipment_transfer", "other"], "other"),
+      vat_included: call.input.vat_included === true,
       supplier: str(call.input.supplier, 80),
       doc_date: /^\d{4}-\d{2}-\d{2}$/.test(String(call.input.doc_date || "")) ? call.input.doc_date : "",
       doc_no: str(call.input.doc_no, 40),

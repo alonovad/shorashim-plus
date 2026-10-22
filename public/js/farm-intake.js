@@ -43,8 +43,27 @@ var FarmIntake = (function () {
   };
   var DOC_TYPE = {
     invoice: 'חשבונית', delivery_note: 'תעודת משלוח', receipt: 'קבלה', equipment_photo: 'תמונת ציוד',
-    product_photo: 'תמונת מוצר', stock_list: 'רשימת מלאי', other: 'מסמך'
+    product_photo: 'תמונת מוצר', stock_list: 'רשימת מלאי', equipment_transfer: 'ניוד כלים', other: 'מסמך'
   };
+  var BASE_UNITS = ['ליטר', 'ק"ג', 'יחידה', 'מטר', 'טון'];
+  // Anthropic list prices, USD per million tokens [input, output] (Oct 2026,
+  // platform.claude.com/docs/en/about-claude/pricing). Used to record what
+  // each document read actually cost, from the usage the function returns.
+  var MODEL_USD = { 'claude-sonnet-5': [2, 10], 'claude-haiku-4-5': [1, 5], 'claude-opus-5': [5, 25], 'claude-opus-5-5': [4, 20], 'claude-sonnet-4-5': [3, 15] };
+  function readCost(res) {
+    var u = res && res.usage, m = MODEL_USD[res && res.model];
+    if (!u || !m) return 0;
+    return ((Number(u.input) || 0) * m[0] + (Number(u.output) || 0) * m[1]) / 1e6;
+  }
+  function usd(n) { return '$' + (Number(n) || 0).toFixed(n < 1 ? 3 : 2); }
+  function monthCost(docs) {
+    var ym = new Date().toISOString().slice(0, 7), n = 0, sum = 0;
+    (docs || []).forEach(function (d) { if (new Date(d.at).toISOString().slice(0, 7) === ym) { n++; sum += Number(d.usd) || 0; } });
+    return { n: n, usd: sum };
+  }
+  // An invoice usually follows a delivery note that already brought the
+  // goods into stock, so invoice lines default to "price only".
+  var STOCK_DEFAULT = { delivery_note: true, stock_list: true, product_photo: true, equipment_photo: true, other: true };
   var SPRAYER = [['airblast', 'מרסס מפוח (תותח)'], ['gun', 'מרסס רובה / צינור'], ['boom', 'מרסס מוט'], ['backpack', 'מרסס גב'], ['drench', 'מכל הגמעה']];
   function kindLabel(k) { var d = KIND[k] || KIND.other; return d.ico + ' ' + tt(d.he, d.th, d.ar); }
 
@@ -65,6 +84,8 @@ var FarmIntake = (function () {
         (info.approvedBy ? ' · ' + esc(info.approvedBy) : '') +
         (info.approvedAt ? ' · ' + new Date(info.approvedAt).toLocaleDateString('he-IL') : '') + '</div>';
     }
+    var mc = monthCost(info.docs);
+    if (mc.n) h += '<div class="fi-cost">💵 ' + tt('עלות קריאת מסמכים החודש', 'ค่าอ่านเอกสารเดือนนี้', 'تكلفة قراءة المستندات هذا الشهر') + ': <b>' + usd(mc.usd) + '</b> · ' + mc.n + ' ' + tt('מסמכים', 'เอกสาร', 'مستندات') + '</div>';
     if (can) {
       h += '<button class="btn-admin fi-btn" id="fiOpen" type="button">📷 ' +
         tt('קליטה מתמונה / מסמך', 'รับจากรูป/เอกสาร', 'استلام من صورة/مستند') + '</button>';
@@ -95,6 +116,7 @@ var FarmIntake = (function () {
   }
 
   function bind(farmId) {
+    bindMoves(farmId);
     var o = document.getElementById('fiOpen');
     if (o) o.addEventListener('click', function () { open(farmId); });
     var tg = document.getElementById('fiToggle');
@@ -203,6 +225,7 @@ var FarmIntake = (function () {
       return;
     }
     S = { farmId: farmId, files: [], results: [], items: [], busy: false, hint: '' };
+    if (window.PriceBook) PriceBook.ensureLoaded().catch(function () {});
     drawPick();
   }
   function modal(inner) {
@@ -248,7 +271,12 @@ var FarmIntake = (function () {
     var i = 0;
     function step() {
       if (!S) return;
-      if (i >= S.files.length) { S.busy = false; buildItems(); drawReview(); return; }
+      if (i >= S.files.length) {
+        S.busy = false; buildItems();
+        var pl = window.PriceBook ? PriceBook.ensureLoaded() : Promise.resolve();
+        pl.catch(function () {}).then(drawReview);
+        return;
+      }
       var f = S.files[i], idx = i++;
       drawPick('⏳ ' + tt('קורא', 'กำลังอ่าน', 'جارٍ القراءة') + ' ' + (idx + 1) + '/' + S.files.length + ' — ' + esc(f.name));
       prepare(f).then(function (prep) {
@@ -271,7 +299,10 @@ var FarmIntake = (function () {
       (r.res.items || []).forEach(function (it) {
         var x = JSON.parse(JSON.stringify(it));
         x.doc = di;
-        x.on = true;
+        x.stock = !!STOCK_DEFAULT[r.res.doc_type];
+        x.price = Number(x.unit_price) > 0;
+        if (!x.base_unit) x.base_unit = '';
+        x.on = x.stock || x.price;
         if (x.kind === 'pesticide') x.pesticide_id = matchPesticide(x);
         if (x.kind === 'equipment' && !x.equipment_type) x.equipment_type = 'tool';
         S.items.push(x);
@@ -292,7 +323,8 @@ var FarmIntake = (function () {
       var d = r.res;
       return '<div class="fi-dochead">📄 ' + esc(tt(DOC_TYPE[d.doc_type] || 'מסמך')) + (d.supplier ? ' · ' + esc(d.supplier) : '') +
         (d.doc_no ? ' #' + esc(d.doc_no) : '') + (d.doc_date ? ' · ' + esc(d.doc_date) : '') +
-        (d.notes ? '<small>' + esc(d.notes) + '</small>' : '') + '</div>';
+        (d.notes ? '<small>' + esc(d.notes) + '</small>' : '') +
+        (d.usage ? '<small>💵 ' + tt('עלות הקריאה', 'ค่าอ่าน', 'تكلفة القراءة') + ': ' + usd(readCost(d)) + ' (' + ((d.usage.input || 0) + (d.usage.output || 0)).toLocaleString() + ' tokens)</small>' : '') + '</div>';
     }).join('');
     var rows = S.items.map(function (it, i) {
       var k = it.kind;
@@ -311,8 +343,9 @@ var FarmIntake = (function () {
             '<input class="form-input fi-cap" data-i="' + i + '" type="number" min="0" value="' + (it.capacity_l || '') + '" placeholder="' + esc(tt('נפח (ל׳)', 'ลิตร', 'لتر')) + '">' : '') +
           '</div>';
       }
-      return '<div class="fi-row' + (it.on ? '' : ' off') + (it.confidence === 'low' ? ' low' : '') + '">' +
-        '<div class="fi-r1"><input type="checkbox" class="fi-on" data-i="' + i + '"' + (it.on ? ' checked' : '') + '>' +
+      var cmp = priceBadge(it);
+      return '<div class="fi-row' + (it.on ? '' : ' off') + (it.confidence === 'low' ? ' low' : '') + (cmp.flag ? ' dear' : '') + '">' +
+        '<div class="fi-r1">' +
           '<select class="form-input fi-kind" data-i="' + i + '">' + Object.keys(KIND).map(function (kk) {
             return '<option value="' + kk + '"' + (kk === k ? ' selected' : '') + '>' + kindLabel(kk) + '</option>';
           }).join('') + '</select>' +
@@ -321,6 +354,16 @@ var FarmIntake = (function () {
           '<input class="form-input fi-qty" data-i="' + i + '" type="number" step="any" min="0" value="' + (it.qty || 0) + '">' +
           '<input class="form-input fi-unit" data-i="' + i + '" value="' + esc(it.unit || '') + '" placeholder="' + esc(tt('יחידה', 'หน่วย', 'وحدة')) + '"></div>' +
         (extra ? '<div class="fi-r3">' + extra + '</div>' : '') +
+        '<div class="fi-r4">' +
+          '<input class="form-input fi-price" data-i="' + i + '" type="number" step="any" min="0" value="' + (it.unit_price || '') + '" placeholder="' + esc(tt('₪ ליחידה', '₪/หน่วย', '₪/وحدة')) + '">' +
+          '<select class="form-input fi-base" data-i="' + i + '"><option value="">' + tt('יחידת מחיר', 'หน่วยราคา', 'وحدة السعر') + '</option>' +
+            BASE_UNITS.map(function (u) { return '<option' + (it.base_unit === u ? ' selected' : '') + '>' + esc(u) + '</option>'; }).join('') + '</select>' +
+        '</div>' +
+        (cmp.html ? '<div class="fi-cmp ' + (cmp.cls || '') + '">' + cmp.html + '</div>' : '') +
+        '<div class="fi-r5">' +
+          '<label><input type="checkbox" class="fi-stock" data-i="' + i + '"' + (it.stock ? ' checked' : '') + '> ' + tt('הוסף למלאי / ציוד', 'เพิ่มในสต็อก', 'أضف للمخزون') + '</label>' +
+          '<label><input type="checkbox" class="fi-pricebox" data-i="' + i + '"' + (it.price ? ' checked' : '') + (Number(it.unit_price) > 0 ? '' : ' disabled') + '> ' + tt('למאגר המחירים', 'ฐานข้อมูลราคา', 'لقاعدة الأسعار') + '</label>' +
+        '</div>' +
         (it.notes || it.pack ? '<div class="fi-note">' + esc([it.pack, it.notes].filter(Boolean).join(' · ')) + '</div>' : '') +
       '</div>';
     }).join('');
@@ -330,7 +373,7 @@ var FarmIntake = (function () {
       (S.items.length ? '<div class="fi-list">' + rows + '</div>' :
         '<div class="empty-state" style="padding:16px;"><p>' + tt('לא נמצאו שורות במסמך', 'ไม่พบรายการ', 'لا سطور') + '</p></div>') +
       '<div class="modal-buttons">' +
-        (S.items.length ? '<button class="btn btn-primary" id="fiSave">💾 ' + tt('הוסף למשק', 'เพิ่มในฟาร์ม', 'أضف للمزرعة') + '</button>' : '') +
+        (S.items.length ? '<button class="btn btn-primary" id="fiSave">💾 ' + tt('שמור', 'บันทึก', 'حفظ') + '</button>' : '') +
         '<button class="btn btn-secondary" id="fiBack">' + tt('חזרה', 'กลับ', 'رجوع') + '</button>' +
       '</div>');
     var list = document.querySelector('.fi-list');
@@ -338,15 +381,27 @@ var FarmIntake = (function () {
     if (list) {
       list.addEventListener('input', function (e) {
         var it = at(e.target); if (!it) return;
-        if (e.target.classList.contains('fi-name')) it.name = e.target.value;
+        if (e.target.classList.contains('fi-name')) { it.name = e.target.value; if (!it._productTouched) it.product = ''; }
         if (e.target.classList.contains('fi-qty')) it.qty = Number(e.target.value) || 0;
         if (e.target.classList.contains('fi-unit')) it.unit = e.target.value;
         if (e.target.classList.contains('fi-cap')) it.capacity_l = Number(e.target.value) || 0;
+        if (e.target.classList.contains('fi-price')) {
+          it.unit_price = Number(e.target.value) || 0;
+          var pb = e.target.closest('.fi-row').querySelector('.fi-pricebox');
+          if (pb) { pb.disabled = !(it.unit_price > 0); if (it.unit_price > 0 && !it._priceTouched) { it.price = true; pb.checked = true; } }
+          refreshBadge(e.target.closest('.fi-row'), it);
+        }
       });
       list.addEventListener('change', function (e) {
         var it = at(e.target); if (!it) return;
         var t = e.target.classList;
-        if (t.contains('fi-on')) { it.on = e.target.checked; e.target.closest('.fi-row').classList.toggle('off', !it.on); return; }
+        if (t.contains('fi-stock') || t.contains('fi-pricebox')) {
+          if (t.contains('fi-stock')) it.stock = e.target.checked; else { it.price = e.target.checked; it._priceTouched = true; }
+          it.on = it.stock || it.price;
+          e.target.closest('.fi-row').classList.toggle('off', !it.on);
+          return;
+        }
+        if (t.contains('fi-base')) { it.base_unit = e.target.value; refreshBadge(e.target.closest('.fi-row'), it); return; }
         if (t.contains('fi-cat')) { it.pesticide_id = Number(e.target.value) || 0; return; }
         if (t.contains('fi-spk')) { it.sprayer_kind = e.target.value; return; }
         if (t.contains('fi-kind')) { it.kind = e.target.value; if (it.kind === 'pesticide' && !it.pesticide_id) it.pesticide_id = matchPesticide(it); if (it.kind === 'equipment' && !it.equipment_type) it.equipment_type = 'tool'; drawReview(); return; }
@@ -361,20 +416,138 @@ var FarmIntake = (function () {
   function save() {
     var chosen = S.items.filter(function (it) { return it.on && String(it.name || '').trim(); });
     if (!chosen.length) { toast('⚠️ ' + tt('לא נבחרו שורות', 'ไม่ได้เลือก', 'لم يتم الاختيار')); return; }
-    var docs = S.results.filter(function (r) { return r.res; }).map(function (r, di) {
+    var toStock = chosen.filter(function (it) { return it.stock; });
+    var toPrice = chosen.filter(function (it) { return it.price && Number(it.unit_price) > 0; });
+    var docs = S.results.filter(function (r) { return r.res; }).map(function (r) {
+      var di = S.results.indexOf(r);
       return { path: r.path, name: r.name, type: r.res.doc_type, supplier: r.res.supplier, doc_date: r.res.doc_date,
-        doc_no: r.res.doc_no, items: chosen.filter(function (it) { return it.doc === S.results.indexOf(r); }).length };
+        doc_no: r.res.doc_no, items: chosen.filter(function (it) { return it.doc === di; }).length,
+        model: r.res.model || '', tokens_in: (r.res.usage && r.res.usage.input) || 0, tokens_out: (r.res.usage && r.res.usage.output) || 0,
+        usd: Math.round(readCost(r.res) * 100000) / 100000 };
     });
-    var res = store().applyFarmIntake(S.farmId, { items: chosen, docs: docs });
+    var res = store().applyFarmIntake(S.farmId, { items: toStock, docs: docs });
     if (!res || !res.ok) { toast('⛔ ' + tt('אין הרשאה', 'ไม่มีสิทธิ์', 'لا صلاحية')); return; }
     var c = res.counts;
-    toast('✅ ' + [c.pest ? c.pest + ' ' + tt('חומרים למלאי', 'สาร', 'مواد') : '', c.stock ? c.stock + ' ' + tt('פריטי מלאי', 'สต็อก', 'مخزون') : '',
-      c.equip ? c.equip + ' ' + tt('כלים', 'อุปกรณ์', 'معدات') : ''].filter(Boolean).join(' · '));
+    var dear = toPrice.filter(function (it) { return priceBadge(it).flag; }).length;
+    var recs = toPrice.map(function (it) {
+      var r = S.results[it.doc] || {};
+      var d = r.res || {};
+      return PriceBook.fromIntake(it, { doc_date: d.doc_date, supplier: d.supplier, doc_type: d.doc_type, doc_no: d.doc_no, path: r.path }, S.farmId);
+    });
     var fid = S.farmId;
+    var pdone = (recs.length && window.PriceBook) ? PriceBook.add(recs) : Promise.resolve(true);
+    pdone.then(function () {
+      toast('✅ ' + [c.pest ? c.pest + ' ' + tt('חומרים למלאי', 'สาร', 'مواد') : '', c.stock ? c.stock + ' ' + tt('פריטי מלאי', 'สต็อก', 'مخزون') : '',
+        c.equip ? c.equip + ' ' + tt('כלים', 'อุปกรณ์', 'معدات') : '', recs.length ? recs.length + ' ' + tt('מחירים למאגר', 'ราคา', 'أسعار') : '',
+        dear ? '⚠️ ' + dear + ' ' + tt('יקרים מהרגיל', 'แพงกว่าปกติ', 'أغلى من المعتاد') : ''].filter(Boolean).join(' · '));
+    });
     close();
     refresh(fid);
   }
 
-  return { sectionHtml: sectionHtml, bind: bind, open: open, _matchPesticide: matchPesticide };
+  // Price check for one line against the shared database (prices.js).
+  function priceBadge(it) {
+    var up = Number(it.unit_price) || 0;
+    if (!window.PriceBook || !(up > 0)) return {};
+    var unit = it.base_unit || it.unit || '';
+    var c = PriceBook.compare(it.product || it.catalogue_match || it.name, unit, up);
+    var m = PriceBook._money;
+    if (!c.known) return { html: '🆕 ' + tt('מוצר חדש במאגר המחירים', 'สินค้าใหม่ในฐานข้อมูล', 'منتج جديد في القاعدة'), cls: 'new' };
+    if (c.cheapest) return { html: '✓ ' + tt('המחיר הזול ביותר בתקופה', 'ราคาถูกที่สุดในช่วงนี้', 'أرخص سعر في الفترة'), cls: 'ok' };
+    var who = esc(c.min.supplier || '—') + ', ' + (c.min.date || '');
+    return {
+      flag: c.flag, cls: c.flag ? 'dear' : 'near',
+      html: (c.flag ? '⚠️ ' : '') + tt('יקר ב-', 'แพงกว่า ', 'أغلى بـ ') + Math.round(c.pct) + '% ' +
+        tt('מהזול בתקופה', 'จากถูกสุด', 'من الأرخص') + ' (' + m(c.min.unitPrice) + ' · ' + who + ')'
+    };
+  }
+  function refreshBadge(row, it) {
+    if (!row) return;
+    var b = priceBadge(it), el = row.querySelector('.fi-cmp');
+    if (!b.html) { if (el) el.remove(); row.classList.remove('dear'); return; }
+    if (!el) { el = document.createElement('div'); row.querySelector('.fi-r5').before(el); }
+    el.className = 'fi-cmp ' + (b.cls || ''); el.innerHTML = b.html;
+    row.classList.toggle('dear', !!b.flag);
+  }
+
+  // ── Equipment transfer between farms (ניוד כלים) ──
+  function movesHtml(farmId) {
+    var St = store();
+    if (!St.getMoves) return '';
+    var moves = St.getMoves(farmId);
+    var can = St.canTransfer && St.canTransfer(farmId, null) && St.getEquipment(farmId).length && St.transferTargets(farmId).length;
+    if (!moves.length && !can) return '';
+    var h = '<div class="fi-moves">';
+    if (can) h += '<button type="button" class="fi-ghost fi-move-btn" id="fiMove">🔁 ' + tt('ניוד כלי למשק אחר', 'ย้ายอุปกรณ์', 'نقل معدة') + '</button>';
+    if (moves.length) {
+      h += '<div class="fi-sub">' + tt('ניודים אחרונים', 'การย้ายล่าสุด', 'آخر عمليات النقل') + '</div>' +
+        moves.slice(0, 5).map(function (m) {
+          var out = m.from === farmId;
+          return '<div class="fi-mv"><span>' + (out ? '↗️ ' : '↙️ ') + esc(m.item) + '</span>' +
+            '<small>' + (out ? tt('אל', 'ไป', 'إلى') + ' ' + esc(m.toName) : tt('מ', 'จาก', 'من') + '-' + esc(m.fromName)) +
+            ' · ' + esc(m.date) + (m.note ? ' · ' + esc(m.note) : '') + '</small>' +
+            (m.docPath ? '<button type="button" class="fi-st-edit" data-fi-doc="' + esc(m.docPath) + '">📄</button>' : '') + '</div>';
+        }).join('');
+    }
+    return h + '</div>';
+  }
+
+  function openMove(farmId) {
+    var St = store();
+    var eq = St.getEquipment(farmId), targets = St.transferTargets(farmId);
+    var info = St.getFarmIntake(farmId) || {};
+    var file = null;
+    function draw(busy) {
+      modal('<h2>🔁 ' + tt('ניוד כלי', 'ย้ายอุปกรณ์', 'نقل معدة') + ' — ' + esc(info.name || '') + '</h2>' +
+        '<div class="form-group"><label class="form-label">' + tt('כלי', 'อุปกรณ์', 'المعدة') + '</label>' +
+          '<select class="form-input" id="mvItem">' + eq.map(function (e) {
+            return '<option value="' + e.idx + '">' + esc(e.name) + (e.capacityL ? ' · ' + e.capacityL + ' ' + tt('ל׳', 'ล.', 'ل') : '') + '</option>'; }).join('') + '</select></div>' +
+        '<div class="form-group"><label class="form-label">' + tt('אל משק', 'ไปยังฟาร์ม', 'إلى مزرعة') + '</label>' +
+          '<select class="form-input" id="mvTo">' + targets.map(function (f) { return '<option value="' + f.id + '">' + esc(f.name) + '</option>'; }).join('') + '</select></div>' +
+        '<div class="form-group"><label class="form-label">' + tt('תאריך', 'วันที่', 'التاريخ') + '</label>' +
+          '<input class="form-input" type="date" id="mvDate" value="' + new Date().toISOString().slice(0, 10) + '"></div>' +
+        '<div class="form-group"><label class="form-label">' + tt('הערה', 'หมายเหตุ', 'ملاحظة') + '</label>' +
+          '<input class="form-input" id="mvNote" placeholder="' + esc(tt('למשל: הושאל לעונת הריסוס', 'เช่น ยืมใช้', 'مثلاً: إعارة')) + '"></div>' +
+        '<label class="fi-drop"><input type="file" id="mvFile" accept="image/*,application/pdf" hidden>' +
+          '<span>' + (file ? '📎 ' + esc(file.name) : '📷 ' + tt('צילום תעודת ניוד (לא חובה)', 'รูปเอกสาร (ไม่บังคับ)', 'صورة مستند النقل (اختياري)')) + '</span></label>' +
+        (busy ? '<div class="fi-status">⏳ ' + tt('שומר…', 'กำลังบันทึก…', 'جارٍ الحفظ…') + '</div>' : '') +
+        '<div class="modal-buttons"><button class="btn btn-primary" id="mvSave"' + (busy ? ' disabled' : '') + '>🔁 ' + tt('נייד', 'ย้าย', 'انقل') + '</button>' +
+        '<button class="btn btn-secondary" id="mvCancel">' + tt('ביטול', 'ยกเลิก', 'إلغاء') + '</button></div>');
+      document.getElementById('mvFile').addEventListener('change', function () {
+        var keep = { item: document.getElementById('mvItem').value, to: document.getElementById('mvTo').value,
+          date: document.getElementById('mvDate').value, note: document.getElementById('mvNote').value };
+        file = this.files && this.files[0] || null;
+        draw();
+        document.getElementById('mvItem').value = keep.item; document.getElementById('mvTo').value = keep.to;
+        document.getElementById('mvDate').value = keep.date; document.getElementById('mvNote').value = keep.note;
+      });
+      document.getElementById('mvCancel').addEventListener('click', function () { refresh(farmId); });
+      document.getElementById('mvSave').addEventListener('click', function () {
+        var idx = Number(document.getElementById('mvItem').value), to = Number(document.getElementById('mvTo').value);
+        var meta = { date: document.getElementById('mvDate').value, note: document.getElementById('mvNote').value.trim() };
+        var itemName = (eq.find(function (e) { return e.idx === idx; }) || {}).name || '';
+        var toName = (targets.find(function (f) { return f.id === to; }) || {}).name || '';
+        if (!confirm(tt('לנייד את', 'ย้าย', 'نقل') + ' "' + itemName + '" ' + tt('אל', 'ไป', 'إلى') + ' "' + toName + '"?')) return;
+        draw(true);
+        var up = file ? prepare(file).then(function (prep) { return upload(farmId, prep, 'mv'); }).catch(function () { return ''; }) : Promise.resolve('');
+        up.then(function (path) {
+          meta.docPath = path || '';
+          var r = St.moveEquipment(farmId, idx, to, meta);
+          if (!r || !r.ok) { toast('⛔ ' + tt('אין הרשאה לניוד בין המשקים האלה', 'ไม่มีสิทธิ์', 'لا صلاحية')); draw(); return; }
+          toast('✅ ' + itemName + ' → ' + toName);
+          refresh(farmId);
+        });
+      });
+    }
+    draw();
+  }
+
+  // Binds the transfer button and document links of the moves block.
+  function bindMoves(farmId) {
+    var b = document.getElementById('fiMove');
+    if (b) b.addEventListener('click', function () { openMove(farmId); });
+  }
+
+  return { sectionHtml: sectionHtml, bind: bind, open: open, movesHtml: movesHtml, openMove: openMove, monthCost: monthCost, usd: usd, _matchPesticide: matchPesticide };
 })();
 window.FarmIntake = FarmIntake;

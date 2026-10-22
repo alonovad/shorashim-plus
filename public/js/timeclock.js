@@ -763,6 +763,10 @@ var TimeClock = (function() {
       // Sits next to דוחות סיור because a plan is what a monitoring
       // finding turns into; orders.js is reachable from inside it.
       html += '<button onclick="AgriPlan.open();TimeClock.closeMenu()" style="' + menuBtn + 'background:#e8f5e9;">' + tt('🌿 תוכניות טיפול', '🌿 แผนการดูแล', '🌿 خطط المعالجة') + '</button>';
+
+      // Shared product & price database (prices.js), fed by every farm's
+      // invoices and delivery notes; flags prices above the period's cheapest.
+      html += '<button onclick="PriceBook.open();TimeClock.closeMenu()" style="' + menuBtn + 'background:#fff8e1;">' + tt('💲 מאגר מחירים', '💲 ฐานข้อมูลราคา', '💲 قاعدة الأسعار') + '</button>';
     }
 
     // ── הגדרות (collapsible) ──
