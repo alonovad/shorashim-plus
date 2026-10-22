@@ -941,7 +941,7 @@ var TimeClock = (function() {
             var far = [dIn, dOut].filter(function(d) { return d != null; });
             if (far.length) {
               distLine = '<div style="color:#666;margin-top:2px;">' +
-                tt('מרחק מהמטע','ระยะจากฟาร์ม','المسافة من المزرعة') + ': ' +
+                tt('מרחק מהמשק','ระยะจากฟาร์ม','المسافة من المزرعة') + ': ' +
                 Math.max.apply(null, far) + 'm</div>';
             }
           } catch (e) { /* distance is a nicety — never break the panel */ }
@@ -1120,11 +1120,11 @@ var TimeClock = (function() {
     var html = '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;">';
     html += '<div style="background:white;border-radius:16px;padding:20px;width:90%;max-width:400px;max-height:80vh;overflow-y:auto;">';
     html += '<h3 style="font-weight:700;margin-bottom:12px;">📍 ' + tt('ניהול מקומות עבודה', 'จัดการสถานที่ทำงาน', 'إدارة أماكن العمل') + '</h3>';
-    html += '<div style="font-size:0.75rem;color:#999;margin-bottom:10px;">' + tt('מטעים מהמערכת מתווספים אוטומטית. כאן ניתן להוסיף מקומות נוספים.', 'สวนจากระบบจะเพิ่มอัตโนมัติ เพิ่มสถานที่อื่นได้ที่นี่', 'البساتين تُضاف تلقائياً. يمكن إضافة أماكن أخرى هنا.') + '</div>';
+    html += '<div style="font-size:0.75rem;color:#999;margin-bottom:10px;">' + tt('משקים מהמערכת מתווספים אוטומטית. כאן ניתן להוסיף מקומות נוספים.', 'ฟาร์มจากระบบจะเพิ่มอัตโนมัติ เพิ่มสถานที่อื่นได้ที่นี่', 'المزارع تُضاف تلقائياً. يمكن إضافة أماكن أخرى هنا.') + '</div>';
 
     // Show farms (read-only)
     if (typeof farms !== 'undefined' && farms.length > 0) {
-      html += '<div style="font-size:0.8rem;font-weight:600;margin-bottom:4px;color:#666;">' + tt('מטעים (אוטומטי)', 'สวน (อัตโนมัติ)', 'بساتين (تلقائي)') + ':</div>';
+      html += '<div style="font-size:0.8rem;font-weight:600;margin-bottom:4px;color:#666;">' + tt('משקים (אוטומטי)', 'ฟาร์ม (อัตโนมัติ)', 'مزارع (تلقائي)') + ':</div>';
       farms.forEach(function(f) {
         html += '<div style="padding:6px 10px;background:#e8f5e9;border-radius:6px;margin-bottom:4px;font-size:0.85rem;">🌳 ' + (window.locName ? window.locName(f) : f.name) + '</div>';
       });
@@ -1318,7 +1318,7 @@ var TimeClock = (function() {
         '<h3 style="font-weight:700;margin-bottom:12px;">📥 ' + tt('ייצוא נתונים', 'ส่งออกข้อมูล', 'تصدير البيانات') + '</h3>' +
         '<div style="display:grid;gap:8px;">' +
           '<button onclick="TimeClock._exportCSV(\'timeclock\')" style="padding:12px;border-radius:10px;border:none;background:#e8f5e9;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">' + tt('🕐 שעות עבודה (CSV)', '🕐 ชั่วโมงทำงาน (CSV)', '🕐 ساعات العمل (CSV)') + '</button>' +
-          '<button onclick="TimeClock._exportCSV(\'spray\')" style="padding:12px;border-radius:10px;border:none;background:#e3f2fd;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">' + tt('💧 יומן ריסוס (CSV)', '💧 บันทึกพ่นยา (CSV)', '💧 سجل الرش (CSV)') + '</button>' +
+          '<button onclick="TimeClock._exportCSV(\'spray\')" style="padding:12px;border-radius:10px;border:none;background:#e3f2fd;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">' + '<i class="ico-spray" aria-hidden="true"></i> ' + tt('יומן ריסוס (CSV)', 'บันทึกพ่นยา (CSV)', 'سجل الرش (CSV)') + '</button>' +
           '<button onclick="TimeClock._exportCSV(\'worklog\')" style="padding:12px;border-radius:10px;border:none;background:#fff3e0;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">' + tt('📝 יומן עבודה (CSV)', '📝 บันทึกงาน (CSV)', '📝 سجل العمل (CSV)') + '</button>' +
           '<button onclick="TimeClock._exportCSV(\'tasks\')" style="padding:12px;border-radius:10px;border:none;background:#f3e5f5;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">' + tt('📋 משימות (CSV)', '📋 งาน (CSV)', '📋 المهام (CSV)') + '</button>' +
         '</div>' +

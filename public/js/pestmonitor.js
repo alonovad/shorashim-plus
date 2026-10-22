@@ -181,7 +181,7 @@ var PestMonitor = (function () {
   }
   function farmName(id) {
     var f = farms().find(function (x) { return x.id === id; });
-    return f ? f.name : tt('\u05dc\u05dc\u05d0 \u05de\u05d8\u05e2', '\u0e44\u0e21\u0e48\u0e21\u0e35\u0e2a\u0e27\u0e19', '\u0628\u0644\u0627 \u0628\u0633\u062a\u0627\u0646');
+    return f ? f.name : tt('\u05dc\u05dc\u05d0 \u05de\u05e9\u05e7', '\u0e44\u0e21\u0e48\u0e21\u0e35\u0e1f\u0e32\u0e23\u0e4c\u0e21', '\u0628\u0644\u0627 \u0645\u0632\u0631\u0639\u0629');
   }
   function selectedPlots() {
     return plots().filter(function (p) { return S && S.selected[p.id]; });
@@ -303,7 +303,7 @@ var PestMonitor = (function () {
       '<label class="pm-chk"><input type="checkbox" id="pmSig"' + (S.signature ? ' checked' : '') + '> ' +
         tt('\u05e9\u05d5\u05e8\u05ea \u05d7\u05ea\u05d9\u05de\u05d4 \u05d1\u05d3\u05d5\u05d7', '\u0e1a\u0e23\u0e23\u0e17\u0e31\u0e14\u0e25\u0e32\u0e22\u0e40\u0e0b\u0e19', '\u0633\u0637\u0631 \u062a\u0648\u0642\u064a\u0639') + '</label>' +
       '<label class="pm-chk"><input type="checkbox" id="pmMap"' + (S.withMap ? ' checked' : '') + '> ' +
-        tt('\u05db\u05dc\u05d5\u05dc \u05ea\u05e6\u05dc\u05d5\u05dd \u05dc\u05d5\u05d5\u05d9\u05df \u05e9\u05dc \u05d4\u05de\u05d8\u05e2',
+        tt('\u05db\u05dc\u05d5\u05dc \u05ea\u05e6\u05dc\u05d5\u05dd \u05dc\u05d5\u05d5\u05d9\u05df \u05e9\u05dc \u05d4\u05de\u05e9\u05e7',
            '\u0e23\u0e27\u0e21\u0e20\u0e32\u0e1e\u0e14\u0e32\u0e27\u0e40\u0e17\u0e35\u0e22\u0e21', '\u062a\u0636\u0645\u064a\u0646 \u0635\u0648\u0631\u0629 \u0627\u0644\u0642\u0645\u0631') + '</label>' +
       '</div></div>';
   }
@@ -567,7 +567,7 @@ var PestMonitor = (function () {
 
     var fid = plot.farm_id || 0;
     var meta = [
-      ['\u05de\u05d8\u05e2', farmName(fid)],
+      ['\u05de\u05e9\u05e7', farmName(fid)],
       ['\u05d7\u05dc\u05e7\u05d4', plot.name || ''],
       ['\u05e9\u05d8\u05d7 (\u05d3\u05d5\u05e0\u05dd)', plot.area ? (Math.round(plot.area * 10) / 10) : ''],
       ['\u05e9\u05e0\u05ea \u05d2\u05d9\u05d3\u05d5\u05dc', S.year || year]

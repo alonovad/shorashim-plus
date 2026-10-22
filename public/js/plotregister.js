@@ -320,7 +320,7 @@ var PlotRegister = (function () {
 
   // ── Row editor card ─────────────────────────────────────────────────
   function cardHtml(r, list, i) {
-    var fo = '<option value="">' + tt('— מטע —', '— สวน —', '— بستان —') + '</option>' +
+    var fo = '<option value="">' + tt('— משק —', '— ฟาร์ม —', '— مزرعة —') + '</option>' +
       farmsList().map(function (f) {
         return '<option value="' + f.id + '"' + (String(r.farm_id) === String(f.id) ? ' selected' : '') + '>' + esc(f.name) + '</option>';
       }).join('');
@@ -339,7 +339,7 @@ var PlotRegister = (function () {
       '<div class="pr-grid">' +
         inp('plot_no', tt('מס׳ חלקה', 'เลขแปลง', 'رقم القطعة'), 'text', r.plot_no) +
         inp('name', tt('שם', 'ชื่อ', 'الاسم'), 'text', r.name) +
-        '<div><label>' + tt('מטע', 'สวน', 'البستان') + (r.farm && !r.farm_id ? ' <span style="color:#e65100">(' + esc(r.farm) + ')</span>' : '') + '</label>' +
+        '<div><label>' + tt('משק', 'ฟาร์ม', 'المزرعة') + (r.farm && !r.farm_id ? ' <span style="color:#e65100">(' + esc(r.farm) + ')</span>' : '') + '</label>' +
           '<select data-f="farm_id" data-l="' + list + '" data-i="' + i + '">' + fo + '</select></div>' +
         inp('area', tt('שטח (דונם)', 'พื้นที่ (ดูนัม)', 'المساحة (دونم)'), 'number', r.area) +
         inp('variety', tt('זן', 'สายพันธุ์', 'الصنف'), 'text', r.variety) +

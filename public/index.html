@@ -284,11 +284,11 @@
   <div class="tab-scroll-hint end" aria-hidden="true">›</div>
   <div class="tab-bar" id="tabBar">
     <div class="tab active" data-tab="map" data-t-key="מפה">🗺️ מפה</div>
-    <div class="tab" data-tab="spray" data-t-key="ריסוס">💧 ריסוס</div>
+    <div class="tab" data-tab="spray" data-t-key="ריסוס"><i class="ico-spray" aria-hidden="true"></i> ריסוס</div>
     <div class="tab" data-tab="worklog" data-t-key="יומן">📝 יומן</div>
     <div class="tab" data-tab="irrigation" data-t-key="השקיה">💧 השקיה</div>
     <div class="tab" data-tab="profile" data-t-key="אישי">👤 אישי</div>
-    <div class="tab" data-tab="farms" data-t-key="מטעים">🌳 מטעים</div>
+    <div class="tab" data-tab="farms" data-t-key="שדות/מטעים">🌳 שדות/מטעים</div>
     <div class="tab" data-tab="harvest" data-t-key="תוצאות מיון/קטיף">📦 תוצאות מיון/קטיף</div>
     <div class="tab admin-only" data-tab="users" data-t-key="משתמשים" style="display: none;">👥 משתמשים</div>
   </div>
@@ -345,7 +345,7 @@
 
     <!-- Sub-view toggle -->
     <div class="spray-subview-toggle">
-      <button class="sv-btn active" data-spray-view="form" type="button">💧 <span data-t-key="ריסוס חדש">ריסוס חדש</span></button>
+      <button class="sv-btn active" data-spray-view="form" type="button"><i class="ico-spray" aria-hidden="true"></i> <span data-t-key="ריסוס חדש">ריסוס חדש</span></button>
       <button class="sv-btn" data-spray-view="history" type="button">📋 <span data-t-key="היסטוריה">היסטוריה</span></button>
       <button class="sv-btn" data-spray-view="pestsearch" type="button">🔍 <span data-t-key="חיפוש חומרים">חיפוש חומרים</span></button>
       <button class="sv-btn admin-only" data-spray-view="materials" type="button" style="display: none;">🧪 <span data-t-key="חומרים">חומרים</span></button>
@@ -504,9 +504,9 @@
     <!-- Farm selector (always visible) -->
     <div class="section-card">
       <div class="form-group" style="margin-bottom: 0;">
-        <label class="form-label" data-t-key="בחר מטע">בחר מטע</label>
+        <label class="form-label" data-t-key="בחר משק">בחר משק</label>
         <select class="form-input" id="wlFarmSelect" style="cursor: pointer;">
-          <option value="" data-t-val="— בחר מטע —">— בחר מטע —</option>
+          <option value="" data-t-val="— בחר משק —">— בחר משק —</option>
         </select>
       </div>
     </div>
@@ -669,14 +669,14 @@
       <div id="profileAppsScriptStatus" style="font-size: 0.78rem; min-height: 18px; margin-bottom: 16px;"></div>
       
       <div style="border-top: 1px solid var(--g5); padding-top: 14px;">
-        <label class="form-label" data-t-key="מזהה גיליון לכל מטע">מזהה גיליון (Sheet ID) לכל מטע</label>
+        <label class="form-label" data-t-key="מזהה גיליון לכל משק">מזהה גיליון (Sheet ID) לכל משק</label>
         <p style="font-size: 0.72rem; color: var(--text-muted); margin-bottom: 12px;" data-t-key="המזהה נמצא בכתובת URL של הגיליון">המזהה נמצא בכתובת URL של הגיליון בין /d/ ל-/edit</p>
         <div id="profileSheetIds"></div>
       </div>
     </div>
 
     <div class="section-card">
-      <div class="section-title" data-t-key="המטעים שלי">🌳 המטעים שלי</div>
+      <div class="section-title" data-t-key="המשקים שלי">🌳 המשקים שלי</div>
       <div id="profileFarmsList"></div>
     </div>
     
@@ -697,7 +697,7 @@
   <div class="admin-container">
     <div class="section-card">
       <div class="admin-actions">
-        <button class="btn-admin" id="addFarmBtn" onclick="window.showFarmModalGlobal()" data-t-key="הוסף מטע חדש">➕ הוסף מטע חדש</button>
+        <button class="btn-admin" id="addFarmBtn" onclick="window.showFarmModalGlobal()" data-t-key="הוסף משק חדש">➕ הוסף משק חדש</button>
       </div>
       <div id="farmsAdminList"></div>
     </div>
@@ -838,7 +838,7 @@
 </div><!-- End tabs-wrapper -->
 
 <!-- Draggable Farms FAB -->
-<button class="fab-farms" id="fabFarms" style="bottom: 140px; right: 16px;">🌳 <span data-t-key="המטעים שלי">המטעים שלי</span></button>
+<button class="fab-farms" id="fabFarms" style="bottom: 140px; right: 16px;">🌳 <span data-t-key="המשקים שלי">המשקים שלי</span></button>
 <div class="fab-farms-menu" id="fabFarmsMenu"></div>
 
 <!-- Quick Actions FAB -->
@@ -887,6 +887,7 @@
 <script src="js/orders.js"></script>
 <script src="js/agriplan.js"></script>
 <script src="js/harvest.js"></script>
+<script src="js/farm-intake.js"></script>
 <script src="js/plotedit.js"></script>
 <script src="js/geoedit.js"></script>
 <script src="js/plotimport.js"></script>

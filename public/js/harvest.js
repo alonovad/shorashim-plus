@@ -282,7 +282,7 @@ var HarvestResults = (function () {
     var years = [y0 + 1, y0, y0 - 1, y0 - 2, y0 - 3].map(function (y) {
       return '<option value="' + y + '"' + (y === season ? ' selected' : '') + '>' + tt('עונה', 'ฤดูกาล', 'موسم') + ' ' + y + '</option>';
     }).join('');
-    var farmOpts = '<option value="">' + tt('כל המטעים', 'ทุกสวน', 'جميع البساتين') + '</option>' +
+    var farmOpts = '<option value="">' + tt('כל המשקים', 'ทุกฟาร์ม', 'جميع المزارع') + '</option>' +
       farms().map(function (f) { return '<option value="' + f.id + '"' + (String(f.id) === String(farmFilter) ? ' selected' : '') + '>' + esc(f.name) + '</option>'; }).join('');
 
     var cards = list.map(function (r) {
@@ -307,7 +307,7 @@ var HarvestResults = (function () {
       '</div>' +
       (cards || '<div class="hv-empty">' + (farms().length
         ? tt('אין עדיין תוצאות לעונה זו.', 'ยังไม่มีผลสำหรับฤดูกาลนี้', 'لا نتائج لهذا الموسم بعد.') + (canEdit() ? '<br>' + tt('לחצו "דוח חדש" כדי להזין תוצאות מבית האריזה.', 'กด "รายงานใหม่"', 'اضغط "تقرير جديد"') : '')
-        : tt('אין מטעים משויכים למשתמש.', 'ไม่มีสวนที่ผูกไว้', 'لا توجد بساتين مرتبطة')) + '</div>') +
+        : tt('אין משקים משויכים למשתמש.', 'ไม่มีฟาร์มที่ผูกไว้', 'لا توجد مزارع مرتبطة')) + '</div>') +
       '</div>';
 
     document.getElementById('hvSeason').addEventListener('change', function () { load(Number(this.value)); });
@@ -346,7 +346,7 @@ var HarvestResults = (function () {
     var farmOpts = farms().map(function (f) {
       return '<option value="' + f.id + '"' + (f.id === r.farmId ? ' selected' : '') + '>' + esc(f.name) + '</option>';
     }).join('');
-    if (!r.farmId) farmOpts = '<option value="">' + tt('בחר מטע', 'เลือกสวน', 'اختر بستانًا') + '</option>' + farmOpts;
+    if (!r.farmId) farmOpts = '<option value="">' + tt('בחר משק', 'เลือกฟาร์ม', 'اختر مزرعةً') + '</option>' + farmOpts;
     var fmtOpts = Object.keys(FORMATS).map(function (k) {
       return '<option value="' + k + '"' + (k === r.format ? ' selected' : '') + '>' + esc(FORMATS[k].label()) + '</option>';
     }).join('');
@@ -369,7 +369,7 @@ var HarvestResults = (function () {
     back.innerHTML = '<div class="hv-sheet" role="dialog">' +
       '<h2>📦 ' + (ro ? '' : (r.createdAt && (S.reports || []).some(function (x) { return x.id === r.id; }) ? tt('עריכת דוח', 'แก้ไขรายงาน', 'تعديل التقرير') : tt('דוח חדש', 'รายงานใหม่', 'تقرير جديد')) + ' · ') + tt('עונה', 'ฤดูกาล', 'موسم') + ' ' + season + '</h2>' +
       '<div class="hv-grid">' +
-        '<div class="hv-f"><label>' + tt('מטע', 'สวน', 'بستان') + '</label><select class="form-input" id="hvFarmSel"' + dis + '>' + farmOpts + '</select></div>' +
+        '<div class="hv-f"><label>' + tt('משק', 'ฟาร์ม', 'مزرعة') + '</label><select class="form-input" id="hvFarmSel"' + dis + '>' + farmOpts + '</select></div>' +
         '<div class="hv-f"><label>' + tt('פורמט הדוח', 'รูปแบบรายงาน', 'صيغة التقرير') + '</label><select class="form-input" id="hvFmt"' + dis + '>' + fmtOpts + '</select></div>' +
         '<div class="hv-f"><label>' + tt('בית אריזה', 'โรงคัดบรรจุ', 'بيت التعبئة') + '</label><input class="form-input" id="hvPacker" list="hvPackers" value="' + esc(r.packer) + '"' + dis + '>' + datalist('hvPackers', 'packer') + '</div>' +
         '<div class="hv-f"><label>' + tt('משווק', 'ผู้จำหน่าย', 'المسوّق') + '</label><input class="form-input" id="hvMarketer" list="hvMarketers" value="' + esc(r.marketer) + '"' + dis + '>' + datalist('hvMarketers', 'marketer') + '</div>' +
@@ -506,8 +506,8 @@ var HarvestResults = (function () {
 
     document.getElementById('hvSave').addEventListener('click', function () {
       readHeader();
-      if (!draft.farmId) { toast('⚠️ ' + tt('יש לבחור מטע', 'ต้องเลือกสวน', 'يجب اختيار بستان')); return; }
-      if (farmIds().indexOf(draft.farmId) === -1) { toast('⛔ ' + tt('אין לך הרשאה למטע זה', 'ไม่มีสิทธิ์', 'لا صلاحية')); return; }
+      if (!draft.farmId) { toast('⚠️ ' + tt('יש לבחור משק', 'ต้องเลือกฟาร์ม', 'يجب اختيار مزرعة')); return; }
+      if (farmIds().indexOf(draft.farmId) === -1) { toast('⛔ ' + tt('אין לך הרשאה למשק זה', 'ไม่มีสิทธิ์', 'لا صلاحية')); return; }
       var rec = JSON.parse(JSON.stringify(draft));
       rec.updatedAt = Date.now();
       rec.updatedBy = me();
@@ -583,7 +583,7 @@ var HarvestResults = (function () {
           (t.total ? '<span class="kpi">' + tt('יצוא', 'ส่งออก', 'تصدير') + ' ' + pct(t.by.export.kg / t.total * 100) + '</span>' : '') +
           (t.priced ? '<span class="kpi">' + tt('הכנסה', 'รายได้', 'الدخل') + ' ' + money(t.revenue) + '</span>' : '') + '</div></div>' +
       '<div class="meta">' +
-        '<div>' + tt('מגדל / מטע', 'สวน', 'المزارع / البستان') + ': <b>' + esc(farmName(r.farmId)) + '</b></div>' +
+        '<div>' + tt('מגדל / משק', 'ฟาร์ม', 'المزارع / المزرعة') + ': <b>' + esc(farmName(r.farmId)) + '</b></div>' +
         '<div>' + tt('זן הפרי', 'พันธุ์', 'الصنف') + ': <b>' + esc(r.variety || '—') + '</b></div>' +
         '<div>' + tt('תאריך', 'วันที่', 'التاريخ') + ': <b>' + esc(r.date ? new Date(r.date).toLocaleDateString('he-IL') : '—') + '</b></div>' +
         '<div>' + tt('בית אריזה', 'โรงคัดบรรจุ', 'بيت التعبئة') + ': <b>' + esc(r.packer || '—') + '</b></div>' +

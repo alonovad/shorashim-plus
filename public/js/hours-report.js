@@ -280,7 +280,7 @@ var HoursReport = (function() {
     });
 
     var head = (state.groupBy === 'worker') ? tt('עובד','พนักงาน','موظف')
-             : (state.groupBy === 'farm')   ? tt('מטע','สวน','مزرعة')
+             : (state.groupBy === 'farm')   ? tt('משק','ฟาร์ม','مزرعة')
              : tt('אירוע','เหตุการณ์','حدث');
 
     var body = '';
@@ -328,7 +328,7 @@ var HoursReport = (function() {
 
           '<div style="display:flex;gap:6px;margin-bottom:12px;">' +
             tabBtn('worker', '👤 ' + tt('לפי עובד','ตามพนักงาน','حسب الموظف')) +
-            tabBtn('farm',   '🌳 ' + tt('לפי מטע','ตามสวน','حسب المزرعة')) +
+            tabBtn('farm',   '🌳 ' + tt('לפי משק','ตามฟาร์ม','حسب المزرعة')) +
             tabBtn('event',  '📌 ' + tt('לפי אירוע','ตามเหตุการณ์','حسب الحدث')) +
           '</div>' +
 
@@ -372,7 +372,7 @@ var HoursReport = (function() {
 
   function _exportCSV() {
     var rows = build();
-    var head = (state.groupBy === 'worker') ? 'עובד' : (state.groupBy === 'farm') ? 'מטע' : 'אירוע';
+    var head = (state.groupBy === 'worker') ? 'עובד' : (state.groupBy === 'farm') ? 'משק' : 'אירוע';
     var lines = [[head, 'ימים', 'עובדים', 'ברוטו', 'נטו', 'נוספות', 'אומדן ₪'].join(',')];
     rows.forEach(function(r) {
       lines.push([

@@ -16,7 +16,7 @@ var MapFilter = (function () {
   'use strict';
 
   var KEY = 'shorashim-map-filter';
-  var st = { farms: {}, crops: {}, text: '', hidden: {}, open: {} };
+  var st = { farms: {}, crops: {}, branches: {}, text: '', hidden: {}, open: {} };
   var open = false;
   var built = false;
 
@@ -40,6 +40,7 @@ var MapFilter = (function () {
         var p = JSON.parse(raw);
         st.farms = p.farms || {};
         st.crops = p.crops || {};
+        st.branches = p.branches || {};
         st.text = p.text || '';
         // A HIDE list, not a show list: a plot is visible unless it is in
         // here. That way a newly drawn plot appears on the map immediately
@@ -83,11 +84,14 @@ var MapFilter = (function () {
 
   function anyFarm() { return Object.keys(st.farms).some(function (k) { return st.farms[k]; }); }
   function anyCrop() { return Object.keys(st.crops).some(function (k) { return st.crops[k]; }); }
+  function anyBranch() { return Object.keys(st.branches || {}).some(function (k) { return st.branches[k]; }); }
+  function branchOf(p) { return window.PlotBranch ? window.PlotBranch.forPlot(p) : 'orchard'; }
 
   function activeCount() {
     var n = 0;
     if (anyFarm()) n++;
     if (anyCrop()) n++;
+    if (anyBranch()) n++;
     if (st.text.trim()) n++;
     if (hiddenCount()) n++;
     return n;
@@ -100,6 +104,7 @@ var MapFilter = (function () {
     if (st.hidden[p.id]) return false;
     if (anyFarm() && !st.farms[p.farm_id]) return false;
     if (anyCrop() && !st.crops[p.crop_type]) return false;
+    if (anyBranch() && !st.branches[branchOf(p)]) return false;
     var q = st.text.trim().toLowerCase();
     if (q && String(p.name || '').toLowerCase().indexOf(q) === -1) return false;
     return true;
@@ -126,6 +131,7 @@ var MapFilter = (function () {
     if (st.hidden[p.id]) delete st.hidden[p.id];
     if (anyFarm() && p.farm_id) st.farms[p.farm_id] = true;
     if (anyCrop() && p.crop_type) st.crops[p.crop_type] = true;
+    if (anyBranch()) st.branches[branchOf(p)] = true;
     if (st.text.trim() && String(p.name || '').toLowerCase()
         .indexOf(st.text.trim().toLowerCase()) === -1) {
       st.text = '';
@@ -235,12 +241,20 @@ var MapFilter = (function () {
     var farmHtml = farms.map(function (fa) {
       return farmGroup(fa.id, '🌳 ' + esc(fa.name));
     }).join('');
-    farmHtml += farmGroup(0, tt('ללא מטע', 'ไม่มีสวน', 'بدون بستان'));
+    farmHtml += farmGroup(0, tt('ללא משק', 'ไม่มีฟาร์ม', 'بدون مزرعة'));
 
     var cropHtml = crops.map(function (c) {
       var count = plots.filter(function (p) { return p.crop_type === c; }).length;
       return '<label class="mf-row"><input type="checkbox" class="mf-crop" data-id="' + esc(c) + '"' +
         (st.crops[c] ? ' checked' : '') + '> <span>🌱 ' + esc(c) + '</span>' +
+        '<span class="mf-count">' + count + '</span></label>';
+    }).join('');
+
+    var brHtml = (window.PlotBranch ? window.PlotBranch.list() : []).map(function (b) {
+      var count = plots.filter(function (p) { return branchOf(p) === b.v; }).length;
+      if (!count) return '';
+      return '<label class="mf-row"><input type="checkbox" class="mf-branch" data-id="' + esc(b.v) + '"' +
+        (st.branches[b.v] ? ' checked' : '') + '> <span>🧭 ' + esc(b.label) + '</span>' +
         '<span class="mf-count">' + count + '</span></label>';
     }).join('');
 
@@ -253,8 +267,10 @@ var MapFilter = (function () {
       '</div>' +
       '<input type="text" id="mfText" class="mf-input" value="' + esc(st.text) + '" placeholder="' +
         esc(tt('חיפוש חלקה…', 'ค้นหาแปลง…', 'بحث قطعة…')) + '">' +
-      (farmHtml ? '<div class="mf-label">' + tt('מטעים', 'สวน', 'البساتين') + '</div>' +
+      (farmHtml ? '<div class="mf-label">' + tt('משקים', 'ฟาร์ม', 'المزارع') + '</div>' +
         '<div class="mf-list">' + farmHtml + '</div>' : '') +
+      (brHtml ? '<div class="mf-label">' + tt('ענפים', 'สาขา', 'الفروع') + '</div>' +
+        '<div class="mf-list">' + brHtml + '</div>' : '') +
       (cropHtml ? '<div class="mf-label">' + tt('גידולים', 'พืช', 'المحاصيل') + '</div>' +
         '<div class="mf-list">' + cropHtml + '</div>' : '') +
       '<button type="button" class="mf-clear" onclick="MapFilter.clear()">' +
@@ -295,6 +311,13 @@ var MapFilter = (function () {
         apply(); render();
       });
     });
+    panel.querySelectorAll('.mf-branch').forEach(function (cb) {
+      cb.addEventListener('change', function () {
+        var id = this.getAttribute('data-id');
+        if (this.checked) st.branches[id] = true; else delete st.branches[id];
+        apply(); render();
+      });
+    });
     panel.querySelectorAll('.mf-crop').forEach(function (cb) {
       cb.addEventListener('change', function () {
         var id = this.getAttribute('data-id');
@@ -321,7 +344,7 @@ var MapFilter = (function () {
   function toggle() { open = !open; syncTabVisibility(); render(); }
 
   function clear() {
-    st = { farms: {}, crops: {}, text: '', hidden: {}, open: st.open || {} };
+    st = { farms: {}, crops: {}, branches: {}, text: '', hidden: {}, open: st.open || {} };
     apply();
     render();
   }

@@ -686,7 +686,7 @@ var PlotImport = (function () {
   function commit() {
     if (!S) return;
     var farmId = parseInt(S.farmId, 10);
-    if (!farmId) { toast('❌ ' + tt('חובה לבחור מטע', 'ต้องเลือกสวน', 'يجب اختيار بستان')); return; }
+    if (!farmId) { toast('❌ ' + tt('חובה לבחור משק', 'ต้องเลือกฟาร์ม', 'يجب اختيار مزرعة')); return; }
     var chosen = S.drafts.filter(function (d) { return d.include; });
     if (!chosen.length) { toast('⚠️ ' + tt('לא נבחרו חלקות', 'ไม่ได้เลือกแปลง', 'لم يتم اختيار قطع')); return; }
     var items = chosen.map(function (d) {
@@ -848,7 +848,7 @@ var PlotImport = (function () {
       var crops = [];
       try { crops = JSON.parse(localStorage.getItem('shorashim-crop-types') || '[]'); } catch (e) {}
       h += '<div class="pi-row" style="margin-top:10px">' +
-        '<select data-in="farm" style="flex:1"><option value="">' + tt('בחר מטע', 'เลือกสวน', 'اختر بستانًا') + '</option>' +
+        '<select data-in="farm" style="flex:1"><option value="">' + tt('בחר משק', 'เลือกฟาร์ม', 'اختر مزرعةً') + '</option>' +
         farmsList.map(function (f) {
           return '<option value="' + f.id + '"' + (String(S.farmId) === String(f.id) ? ' selected' : '') + '>' + esc(f.name) + '</option>';
         }).join('') + '</select>' +

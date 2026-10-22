@@ -707,7 +707,7 @@ var ReportMap = (function () {
     var drawn = chosen.filter(function (o) { return o.rings.length; });
 
     var head = '<div class="ps-head"><div>' +
-        '<h2>' + escH(farm ? nameOf(farm) : '') + ' — ' + tt('חלקות המטע', 'แปลงในสวน', 'قطع البستان') + '</h2>' +
+        '<h2>' + escH(farm ? nameOf(farm) : '') + ' — ' + tt('חלקות המשק', 'แปลงในฟาร์ม', 'قطع المزرعة') + '</h2>' +
         '<div class="ps-sub">' + tt('מצב לתאריך', 'ข้อมูล ณ วันที่', 'حتى تاريخ') + ' ' +
           new Date().toLocaleDateString('he-IL') + '</div>' +
       '</div><div class="ps-kpis">' +

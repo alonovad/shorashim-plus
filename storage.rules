@@ -49,6 +49,19 @@ service firebase.storage {
         request.resource.contentType.matches('image/.*');
     }
 
+    // Originals behind a farm's document intake (invoices, delivery notes,
+    // photos of products and equipment) — farm-docs/{farmId}/{file}.
+    // Kept as the evidence for what was added to stock. Staff only; the
+    // admin switch per farm is enforced by the inventoryExtract function.
+    match /farm-docs/{farmId}/{file} {
+      allow read: if signedIn();
+      allow delete: if signedIn() && role() == 'admin';
+      allow create: if staff() &&
+        request.resource.size < 12 * 1024 * 1024 &&
+        (request.resource.contentType.matches('image/.*') ||
+         request.resource.contentType == 'application/pdf');
+    }
+
     match /{allPaths=**} {
       allow read, write: if false;
     }

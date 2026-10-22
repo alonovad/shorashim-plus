@@ -143,7 +143,7 @@ var SprayBulk = (function () {
       var orphans = plots.filter(function (p) { return !p.farm_id; });
       if (orphans.length) {
         farmHtml += '<div class="sb-farm"><div class="sb-farm-head sb-orphan">' +
-          tt('ללא מטע', 'ไม่มีสวน', 'بدون بستان') + '</div><div class="sb-plots">' +
+          tt('ללא משק', 'ไม่มีฟาร์ม', 'بدون مزرعة') + '</div><div class="sb-plots">' +
           orphans.map(function (p) {
             return '<label class="sb-plot"><input type="checkbox" class="sb-plot-cb" ' +
               'data-plot="' + p.id + '"' + (f.plots[p.id] ? ' checked' : '') + '> ' +
@@ -153,7 +153,7 @@ var SprayBulk = (function () {
 
       body =
         '<div class="sb-body">' +
-          '<div class="sb-section-label">' + tt('מטעים וחלקות', 'สวนและแปลง', 'البساتين والقطع') + '</div>' +
+          '<div class="sb-section-label">' + tt('משקים וחלקות', 'ฟาร์มและแปลง', 'المزارع والقطع') + '</div>' +
           '<div class="sb-farms">' + (farmHtml || '<div class="sb-none">' +
             tt('אין חלקות', 'ไม่มีแปลง', 'لا قطع') + '</div>') + '</div>' +
           '<div class="sb-row">' +

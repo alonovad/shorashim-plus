@@ -473,7 +473,7 @@
         '<div><div class="bp-lbl">' + BP.tt('שם', 'ชื่อ', 'الاسم') + '</div>' +
           '<input class="bp-in" value="' + BP.esc(p.name) + '" ' +
           'oninput="BuildPlan._set(' + id + ',\'name\',this.value)"></div>' +
-        '<div><div class="bp-lbl">' + BP.tt('לקוח / מטע', 'ลูกค้า', 'العميل') + '</div>' +
+        '<div><div class="bp-lbl">' + BP.tt('לקוח / משק', 'ลูกค้า', 'العميل') + '</div>' +
           '<input class="bp-in" value="' + BP.esc(p.client) + '" ' +
           'oninput="BuildPlan._set(' + id + ',\'client\',this.value)"></div>' +
       '</div></div>' + '<div class="bp-bar">' + tabs + '</div>';

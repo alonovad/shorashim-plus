@@ -61,7 +61,7 @@ var WorklogEdit = (function () {
   function list(name) { return (typeof window[name] !== 'undefined' && Array.isArray(window[name])) ? window[name] : []; }
   function fieldLabel(f) {
     return {
-      date: tt('תאריך', 'วันที่', 'التاريخ'), farm_id: tt('מטע', 'สวน', 'البستان'), plot_id: tt('חלקה', 'แปลง', 'القطعة'),
+      date: tt('תאריך', 'วันที่', 'التاريخ'), farm_id: tt('משק', 'ฟาร์ม', 'المزرعة'), plot_id: tt('חלקה', 'แปลง', 'القطعة'),
       type: tt('פעולה', 'งาน', 'العمل'), budget_category: tt('סעיף תקציבי', 'หมวดงบ', 'بند الميزانية'),
       worker_group: tt('קבוצת עובדים', 'กลุ่มคนงาน', 'مجموعة العمال'), worker_count: tt('מספר עובדים', 'จำนวนคนงาน', 'عدد العمال'),
       hours: tt('שעות', 'ชั่วโมง', 'ساعات'), trees_completed: tt('עצים שבוצעו', 'ต้นที่เสร็จ', 'الأشجار المنجزة'),
@@ -101,7 +101,7 @@ var WorklogEdit = (function () {
   function opt(v, label, sel) { return '<option value="' + esc(v) + '"' + (sel ? ' selected' : '') + '>' + esc(label) + '</option>'; }
   function plotOptions(farmId, sel) {
     var ps = (typeof plots !== 'undefined' ? plots : []).filter(function (p) { return !farmId || p.farm_id === farmId; });
-    return opt('', tt('— כל המטע —', '— ทั้งสวน —', '— البستان كله —'), !sel) +
+    return opt('', tt('— כל המשק —', '— ทั้งฟาร์ม —', '— المزرعة كلها —'), !sel) +
       ps.map(function (p) { return opt(p.id, p.name, p.id === sel); }).join('');
   }
   function edit(id, from) {
@@ -192,7 +192,7 @@ var WorklogEdit = (function () {
     var e = byId(id); if (!e || !canEdit(e)) return;
     var v = collect();
     if (!v.date) { toast('\u274c ' + tt('יש לבחור תאריך', 'เลือกวันที่', 'اختر التاريخ')); return; }
-    if (!v.farm_id) { toast('\u274c ' + tt('יש לבחור מטע', 'เลือกสวน', 'اختر البستان')); return; }
+    if (!v.farm_id) { toast('\u274c ' + tt('יש לבחור משק', 'เลือกฟาร์ม', 'اختر المزرعة')); return; }
     if (!v.type) { toast('\u274c ' + tt('יש לבחור פעולה', 'เลือกงาน', 'اختر العمل')); return; }
     if (v.quantity != null && v.quantity < 0) { toast('\u274c ' + tt('כמות לא תקינה', 'ปริมาณไม่ถูกต้อง', 'كمية غير صالحة')); return; }
     if (v.hours != null && (v.hours < 0 || v.hours > 24)) { toast('\u274c ' + tt('שעות לא תקינות', 'ชั่วโมงไม่ถูกต้อง', 'ساعات غير صالحة')); return; }

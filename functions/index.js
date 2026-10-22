@@ -1114,3 +1114,175 @@ exports.plotDataExtract = onCall(
     };
   }
 );
+
+// ═══════════════════════════════════════════
+// INVENTORY EXTRACT — stock and equipment from a photo or document
+// (Oct 2026). A farm's "document intake" mode is switched on by an admin
+// (farm.doc_intake.enabled in appData/plotMapperSprayData); this function
+// refuses any farm where it is off, so the switch is enforced here and not
+// only in the UI. Operators must also hold a permission for the farm.
+// Nothing is written: the items go back to the browser for the person to
+// review before anything reaches the farm's stock or equipment.
+// ═══════════════════════════════════════════
+const INVENTORY_TOOL = {
+  name: "report_inventory",
+  description: "Report the document's header and every stock or equipment line in it.",
+  input_schema: {
+    type: "object",
+    properties: {
+      doc_type: { type: "string", enum: ["invoice", "delivery_note", "receipt", "equipment_photo", "product_photo", "stock_list", "other"] },
+      supplier: { type: "string", description: "Supplier / issuer name as written. Empty if none." },
+      doc_date: { type: "string", description: "Document date as YYYY-MM-DD if legible, else empty." },
+      doc_no:   { type: "string", description: "Invoice / delivery note number. Empty if none." },
+      items: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            kind: { type: "string", enum: ["pesticide", "fertilizer", "equipment", "other"],
+              description: "pesticide = crop-protection product (insecticide, fungicide, herbicide, acaricide, oil, adjuvant); fertilizer = fertilizer or nutrient; equipment = a machine, sprayer, vehicle or tool (not a consumable); other = any other consumable." },
+            name: { type: "string", description: "Product or item name as written (Hebrew as written; keep trade names)." },
+            catalogue_match: { type: "string", description: "If kind is pesticide and the product is one of the catalogue names given, that exact catalogue name; else empty." },
+            qty: { type: "number", description: "Total quantity delivered/owned in `unit` (multiply packs × pack size when both are shown). 1 for a single piece of equipment." },
+            unit: { type: "string", description: "ליטר, ק\"ג, יחידה, שק, etc." },
+            pack: { type: "string", description: "Pack description if shown (e.g. 'מיכל 5 ל׳'). Empty if none." },
+            equipment_type: { type: "string", enum: ["sprayer", "vehicle", "tool", ""], description: "Only for equipment." },
+            sprayer_kind: { type: "string", enum: ["airblast", "gun", "boom", "backpack", "drench", ""], description: "Only for sprayers: airblast (mist blower / תותח), gun (hose & gun / רובה), boom (מוט), backpack (גב), drench (הגמעה tank)." },
+            capacity_l: { type: "number", description: "Sprayer tank volume in litres if shown, else 0." },
+            notes: { type: "string", description: "Model, serial number, price or anything worth keeping. Short." },
+            confidence: { type: "string", enum: ["high", "medium", "low"] }
+          },
+          required: ["kind", "name", "qty", "unit", "confidence"]
+        }
+      },
+      notes: { type: "string", description: "Anything the reviewer should know (illegible parts, totals that do not add up). Short." }
+    },
+    required: ["doc_type", "items"]
+  }
+};
+const INVENTORY_SYSTEM = [
+  "You read Israeli farm documents — supplier invoices, delivery notes (תעודת משלוח), receipts, stock lists — and photos of products or equipment, and report what they add to a farm's stock and equipment.",
+  "Report each line once. Skip lines that are services, transport, discounts, deposits or VAT. Quantities are what was supplied, not prices.",
+  "Hebrew documents are right-to-left; read numbers carefully (a comma may be a thousands separator).",
+  "For a photo of a single product or machine, report that one item (qty 1 for equipment; for a product container, qty = its labelled volume or weight).",
+  "Never invent: leave a field empty or 0 when it is not on the document, and lower the confidence when unsure."
+].join(" ");
+
+exports.inventoryExtract = onCall(
+  { region: "us-central1", secrets: [ANTHROPIC_API_KEY], memory: "1GiB", timeoutSeconds: 300, maxInstances: 3 },
+  async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Sign in required");
+    const tok = request.auth.token || {};
+    const fb = tok.firebase || {};
+    if (fb.sign_in_provider === "phone") throw new HttpsError("permission-denied", "Not for recovery sessions");
+    if (!["admin", "operator"].includes(tok.role)) {
+      throw new HttpsError("permission-denied", "Operator or admin required");
+    }
+
+    const { farmId, image, pdf, model, hint, catalogue } = request.data || {};
+    const fid = Number(farmId);
+    if (!Number.isFinite(fid) || fid <= 0) throw new HttpsError("invalid-argument", "farmId required");
+
+    // The admin switch, read from the stored farm — not from the request.
+    const db = getFirestore();
+    const dataSnap = await db.collection("appData").doc("plotMapperSprayData").get();
+    const farms = (dataSnap.exists && dataSnap.get("value.farms")) || [];
+    const farm = Array.isArray(farms) ? farms.find((f) => f && Number(f.id) === fid) : null;
+    if (!farm) throw new HttpsError("not-found", "Farm not found");
+    if (!(farm.doc_intake && farm.doc_intake.enabled === true)) {
+      throw new HttpsError("permission-denied", "Document intake is not enabled for this farm (admin approval required)");
+    }
+    if (tok.role !== "admin") {
+      const usersSnap = await db.collection("appData").doc("shorashim-users").get();
+      const users = (usersSnap.exists && usersSnap.get("value")) || {};
+      const email = String(tok.email || "").toLowerCase();
+      const me = Object.values(users).find((u) => u && String(u.email || "").toLowerCase() === email);
+      const perms = (me && Array.isArray(me.farm_permissions)) ? me.farm_permissions.map(Number) : [];
+      if (!perms.includes(fid)) throw new HttpsError("permission-denied", "No permission for this farm");
+    }
+
+    const b64ok = (s, max) => typeof s === "string" && s.length > 0 && s.length <= max &&
+      /^[A-Za-z0-9+/=]+$/.test(s.slice(0, 200));
+    let block;
+    if (pdf) {
+      if (!b64ok(pdf, 9 * 1024 * 1024)) throw new HttpsError("invalid-argument", "Bad or oversized PDF (max ~6.5 MB)");
+      block = { type: "document", source: { type: "base64", media_type: "application/pdf", data: pdf } };
+    } else {
+      if (!b64ok(image, 4 * 1024 * 1024)) throw new HttpsError("invalid-argument", "Bad or oversized image");
+      block = { type: "image", source: { type: "base64", media_type: "image/jpeg", data: image } };
+    }
+    const allowed = ["haiku", "sonnet-5", "opus", "opus-5.5"];
+    const modelId = PLAN_MODELS[allowed.includes(model) ? model : "sonnet-5"];
+    const soft = /^claude-(opus-5-5|fable-|mythos-)/.test(modelId);
+
+    const cat = Array.isArray(catalogue)
+      ? catalogue.filter((c) => typeof c === "string").map((c) => c.slice(0, 60)).slice(0, 300) : [];
+    const userText = "Report this document through the tool." +
+      (cat.length ? " Crop-protection products in the farm's catalogue (use these exact spellings for catalogue_match): " + cat.join(", ") + "." : "") +
+      (typeof hint === "string" && hint.trim() ? " Context from the farmer: " + hint.trim().slice(0, 400) : "");
+
+    let res, text;
+    try {
+      res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": ANTHROPIC_API_KEY.value(),
+          "anthropic-version": "2023-06-01"
+        },
+        body: JSON.stringify({
+          model: modelId,
+          max_tokens: soft ? 16000 : 8000,
+          system: INVENTORY_SYSTEM + (soft ? "\n\nAnswer ONLY by calling the report_inventory tool. Do not reply with prose." : ""),
+          tools: [INVENTORY_TOOL],
+          tool_choice: soft ? { type: "auto" } : { type: "tool", name: "report_inventory" },
+          messages: [{ role: "user", content: [block, { type: "text", text: userText }] }]
+        })
+      });
+      text = await res.text();
+    } catch (err) {
+      throw new HttpsError("unavailable", "Model call failed: " + err.message);
+    }
+    if (!res.ok) {
+      let why = text.slice(0, 300);
+      try { const e = JSON.parse(text); if (e && e.error && e.error.message) why = e.error.message; } catch (e) {}
+      throw new HttpsError("internal", modelId + " — " + res.status + ": " + why);
+    }
+    let body;
+    try { body = JSON.parse(text); } catch (e) { throw new HttpsError("internal", "Bad model response"); }
+    const call = (body.content || []).find((b) => b.type === "tool_use" && b.name === "report_inventory");
+    if (!call || !call.input) {
+      const said = (body.content || []).filter((b) => b.type === "text").map((b) => b.text).join(" ").slice(0, 200);
+      throw new HttpsError("internal", modelId + " — " + (said ? "answered in text instead of the tool: " + said : "returned no items"));
+    }
+
+    const str = (v, n) => (typeof v === "string" ? v.trim().slice(0, n) : "");
+    const num = (v, lo, hi) => { const x = Number(v); return isFinite(x) && x >= lo && x <= hi ? x : 0; };
+    const oneOf = (v, list, dflt) => (list.includes(v) ? v : dflt);
+    const items = (Array.isArray(call.input.items) ? call.input.items : []).slice(0, 200).map((r) => ({
+      kind: oneOf(r.kind, ["pesticide", "fertilizer", "equipment", "other"], "other"),
+      name: str(r.name, 100),
+      catalogue_match: cat.includes(r.catalogue_match) ? r.catalogue_match : "",
+      qty: num(r.qty, 0, 1000000),
+      unit: str(r.unit, 20),
+      pack: str(r.pack, 60),
+      equipment_type: oneOf(r.equipment_type, ["sprayer", "vehicle", "tool"], ""),
+      sprayer_kind: oneOf(r.sprayer_kind, ["airblast", "gun", "boom", "backpack", "drench"], ""),
+      capacity_l: num(r.capacity_l, 0, 100000),
+      notes: str(r.notes, 200),
+      confidence: oneOf(r.confidence, ["high", "medium", "low"], "low")
+    })).filter((r) => r.name);
+
+    return {
+      doc_type: oneOf(call.input.doc_type, ["invoice", "delivery_note", "receipt", "equipment_photo", "product_photo", "stock_list", "other"], "other"),
+      supplier: str(call.input.supplier, 80),
+      doc_date: /^\d{4}-\d{2}-\d{2}$/.test(String(call.input.doc_date || "")) ? call.input.doc_date : "",
+      doc_no: str(call.input.doc_no, 40),
+      items,
+      notes: str(call.input.notes, 300),
+      model: modelId,
+      usage: body.usage ? { input: body.usage.input_tokens, output: body.usage.output_tokens } : null,
+      at: Date.now()
+    };
+  }
+);

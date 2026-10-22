@@ -158,9 +158,9 @@ var ReportTheme = (function () {
     document.getElementById('modalContainer').innerHTML =
       '<div class="se-backdrop"><div class="se-modal" style="max-width:420px;">' +
         '<h3 class="se-title">📄 ' + tt('ייצוא יומן ריסוסים', 'ส่งออกบันทึกการพ่น', 'تصدير سجل الرش') + '</h3>' +
-        '<label class="se-label">' + tt('עבור מטע', 'สำหรับสวน', 'للبستان') + '</label>' +
+        '<label class="se-label">' + tt('עבור משק', 'สำหรับฟาร์ม', 'للمزرعة') + '</label>' +
         '<select id="rtFarm" class="form-input">' +
-          '<option value="">' + tt('כל המטעים (עיצוב ברירת מחדל)', 'ทุกสวน (ค่าเริ่มต้น)', 'كل البساتين (افتراضي)') + '</option>' +
+          '<option value="">' + tt('כל המשקים (עיצוב ברירת מחדל)', 'ทุกฟาร์ม (ค่าเริ่มต้น)', 'كل المزارع (افتراضي)') + '</option>' +
           opts +
         '</select>' +
         '<div id="rtHint" class="rt-hint"></div>' +
@@ -186,7 +186,7 @@ var ReportTheme = (function () {
       }
       var th = store().getFarmTheme(id);
       el.textContent = th
-        ? tt('עיצוב מותאם מוגדר למטע זה.', 'มีดีไซน์เฉพาะสำหรับสวนนี้', 'يوجد تصميم مخصص لهذا البستان.')
+        ? tt('עיצוב מותאם מוגדר למשק זה.', 'มีดีไซน์เฉพาะสำหรับฟาร์มนี้', 'يوجد تصميم مخصص لهذه المزرعة.')
         : tt('אין עיצוב מותאם — ישתמש בעיצוב הבית.',
              'ยังไม่มีดีไซน์เฉพาะ ใช้ค่าเริ่มต้น',
              'لا يوجد تصميم مخصص — سيُستخدم الافتراضي.');
@@ -206,7 +206,7 @@ var ReportTheme = (function () {
       return;
     }
     if (!res || !res.ok) {
-      toast('❌ ' + tt('אין רשומות למטע זה', 'ไม่มีบันทึกสำหรับสวนนี้', 'لا سجلات لهذا البستان'));
+      toast('❌ ' + tt('אין רשומות למשק זה', 'ไม่มีบันทึกสำหรับฟาร์มนี้', 'لا سجلات لهذه المزرعة'));
       return;
     }
     close();
@@ -218,9 +218,9 @@ var ReportTheme = (function () {
   function editFromChooser() {
     var id = parseInt(document.getElementById('rtFarm').value, 10);
     if (!id) {
-      toast('❌ ' + tt('בחר מטע כדי לערוך את עיצובו',
-                      'เลือกสวนเพื่อแก้ไขดีไซน์',
-                      'اختر بستانًا لتعديل تصميمه'));
+      toast('❌ ' + tt('בחר משק כדי לערוך את עיצובו',
+                      'เลือกฟาร์มเพื่อแก้ไขดีไซน์',
+                      'اختر مزرعةً لتعديل تصميمه'));
       return;
     }
     edit(id);
@@ -310,7 +310,7 @@ var ReportTheme = (function () {
              'เพิ่มหัวข้อ Shorashim Plus',
              'أضف عنوان Shorashim Plus') + '</label>' +
 
-        '<label class="se-label">' + tt('החלקה הראשית של המטע (לתצלום)',
+        '<label class="se-label">' + tt('החלקה הראשית של המשק (לתצלום)',
           'แปลงหลัก', 'القطعة الرئيسية') + '</label>' +
         '<select id="rtMainPlot" class="form-input">' + plotOptions(farmId, cur.mainPlot) + '</select>' +
 
@@ -406,7 +406,7 @@ var ReportTheme = (function () {
       return;
     }
     if (!res || !res.ok) {
-      toast('ℹ ' + tt('אין רשומות למטע זה להצגה', 'ไม่มีบันทึกให้แสดง', 'لا سجلات للعرض'));
+      toast('ℹ ' + tt('אין רשומות למשק זה להצגה', 'ไม่มีบันทึกให้แสดง', 'لا سجلات للعرض'));
     }
   }
 
