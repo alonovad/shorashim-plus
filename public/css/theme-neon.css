@@ -1,3 +1,9 @@
+/* theme-neon.css — dark adapter.
+   Since Oct 2026 this file serves only the soft dark theme (לילה בבקעה,
+   body.theme-soft.soft-dark): it maps the app's light, inline-styled UI onto
+   dark surfaces. The palette itself and the soft component look live in
+   theme-soft.css, which loads after this file and wins. The former neon
+   accents below were repointed to the sage primary (#93c7a4). */
 /* ═══════════════════════════════════════════════════════════════
    SHORASHIM PLUS — NEON FOREST THEME OVERLAY
    Layer this AFTER style.css — overrides everything to dark glass
@@ -7,10 +13,10 @@
 /* ── Dark palette override ── */
 :root {
   --g1: #0d2818;
-  --g2: #39ff14;
-  --g3: #2bc410;
-  --g4: #39ff14;
-  --g5: rgba(57,255,20,0.2);
+  --g2: #93c7a4;
+  --g3: #7fb592;
+  --g4: #93c7a4;
+  --g5: rgba(147,199,164,0.2);
   --g6: rgba(255,255,255,0.05);
   --dark: #030a07;
   --text: #e8ffe8;
@@ -31,19 +37,19 @@
   --transition: 0.22s cubic-bezier(0.4, 0, 0.2, 1);
 
   /* New theme tokens */
-  --primary: #39ff14;
-  --primary-dim: #2bc410;
-  --primary-faded: rgba(57,255,20,0.12);
-  --primary-glow: rgba(57,255,20,0.3);
-  --primary-glow-sm: rgba(57,255,20,0.15);
+  --primary: #93c7a4;
+  --primary-dim: #7fb592;
+  --primary-faded: rgba(147,199,164,0.12);
+  --primary-glow: rgba(147,199,164,0.3);
+  --primary-glow-sm: rgba(147,199,164,0.15);
   --border: rgba(255,255,255,0.08);
   --border-light: rgba(255,255,255,0.04);
   --surface-glass: rgba(255,255,255,0.07);
   --surface-input: rgba(255,255,255,0.05);
-  --leaf-color: #39ff14;
-  --spark-color: #76ff03;
-  --orb1: #39ff14;
-  --orb2: #00e676;
+  --leaf-color: #93c7a4;
+  --spark-color: #93c7a4;
+  --orb1: #93c7a4;
+  --orb2: #93c7a4;
 }
 
 /* ── Body: dark gradient ── */
@@ -81,7 +87,7 @@ body {
   box-shadow: 0 4px 24px rgba(0,0,0,0.4), inset 0 -1px 0 var(--border);
   border-bottom: 1px solid var(--border);
 }
-.header h1 { color: var(--text) !important; text-shadow: 0 0 20px rgba(57,255,20,0.15); }
+.header h1 { color: var(--text) !important; text-shadow: 0 0 20px rgba(147,199,164,0.15); }
 .header .subtitle { color: var(--text-muted) !important; }
 
 .hdr-btn {
@@ -113,7 +119,7 @@ body {
 .tab.active::after {
   background: linear-gradient(90deg, var(--primary), var(--accent)) !important;
 }
-.tab:active { background: rgba(57,255,20,0.06) !important; }
+.tab:active { background: rgba(147,199,164,0.06) !important; }
 
 /* ── Cards & sections: dark glass ── */
 .section-card {
@@ -230,8 +236,8 @@ select option {
 
 /* ── Calc results ── */
 .calc-results {
-  background: rgba(57,255,20,0.08) !important;
-  border: 1px solid rgba(57,255,20,0.2);
+  background: rgba(147,199,164,0.08) !important;
+  border: 1px solid rgba(147,199,164,0.2);
   color: var(--text) !important;
 }
 .calc-row { border-bottom-color: rgba(255,255,255,0.08) !important; }
@@ -363,8 +369,8 @@ select option {
 #modalContainer [style*="background: #f1f8e9"],
 #modalContainer [style*="background:#e8f5e9"],
 #modalContainer [style*="background: #e8f5e9"] {
-  background: rgba(57,255,20,0.08) !important;
-  border-color: rgba(57,255,20,0.2) !important;
+  background: rgba(147,199,164,0.08) !important;
+  border-color: rgba(147,199,164,0.2) !important;
   color: var(--text) !important;
 }
 #modalContainer [style*="background:#e3f2fd"],
@@ -481,7 +487,7 @@ select option {
 }
 .hamburger-panel button[style*="background"]:active {
   background: var(--primary-faded) !important;
-  border-color: rgba(57,255,20,0.2) !important;
+  border-color: rgba(147,199,164,0.2) !important;
 }
 .hamburger-panel h3, .hamburger-panel h4 { color: var(--primary) !important; }
 .hamburger-panel hr { border-color: var(--border) !important; }
@@ -492,8 +498,8 @@ select option {
 
 /* ── Clock bar: glow ── */
 .clock-bar {
-  background: rgba(57,255,20,0.08) !important;
-  border-bottom: 1px solid rgba(57,255,20,0.15);
+  background: rgba(147,199,164,0.08) !important;
+  border-bottom: 1px solid rgba(147,199,164,0.15);
   color: var(--text) !important;
 }
 .clock-bar * { color: var(--text) !important; }
@@ -510,7 +516,7 @@ select option {
 .plot-count {
   background: var(--primary-faded) !important;
   color: var(--primary) !important;
-  border: 1px solid rgba(57,255,20,0.2);
+  border: 1px solid rgba(147,199,164,0.2);
 }
 
 /* ── FABs: glow effect ── */
@@ -535,7 +541,7 @@ select option {
 
 .fab-quick {
   background: rgba(3,10,7,0.8) !important;
-  border: 1.5px solid rgba(57,255,20,0.4) !important;
+  border: 1.5px solid rgba(147,199,164,0.4) !important;
   color: var(--primary) !important;
   box-shadow: 0 0 12px var(--primary-glow-sm) !important;
 }
@@ -547,7 +553,7 @@ select option {
 
 .fab-farms {
   background: rgba(3,10,7,0.8) !important;
-  border: 1.5px solid rgba(57,255,20,0.3) !important;
+  border: 1.5px solid rgba(147,199,164,0.3) !important;
   color: var(--text) !important;
   box-shadow: 0 0 10px var(--primary-glow-sm) !important;
 }
@@ -613,9 +619,9 @@ select option {
 
 /* ── Table: dark ── */
 .sheet-table th {
-  background: rgba(57,255,20,0.1) !important;
+  background: rgba(147,199,164,0.1) !important;
   color: var(--primary) !important;
-  border-bottom: 1px solid rgba(57,255,20,0.2);
+  border-bottom: 1px solid rgba(147,199,164,0.2);
 }
 .sheet-table td {
   border-bottom-color: var(--border) !important;
@@ -668,7 +674,7 @@ select option {
   color: var(--text);
 }
 #viewerStats > div > div:first-child { color: var(--text-muted) !important; }
-#viewerStats > div > div:last-child { color: var(--text) !important; text-shadow: 0 0 10px rgba(57,255,20,0.15); }
+#viewerStats > div > div:last-child { color: var(--text) !important; text-shadow: 0 0 10px rgba(147,199,164,0.15); }
 
 /* ── Skeleton loading: dark ── */
 .skeleton {
@@ -676,8 +682,8 @@ select option {
 }
 
 /* ── Scrollbar: subtle ── */
-::-webkit-scrollbar-thumb { background: rgba(57,255,20,0.12) !important; }
-::-webkit-scrollbar-thumb:hover { background: rgba(57,255,20,0.2) !important; }
+::-webkit-scrollbar-thumb { background: rgba(147,199,164,0.12) !important; }
+::-webkit-scrollbar-thumb:hover { background: rgba(147,199,164,0.2) !important; }
 
 /* ── Empty state ── */
 .empty-state { color: var(--text-muted) !important; }
@@ -693,8 +699,8 @@ select option {
 [style*="background:#ffebee"], [style*="background: #ffebee"] { background: rgba(255,71,87,0.1) !important; color: var(--text) !important; }
 [style*="background:#fff8e1"], [style*="background: #fff8e1"] { background: rgba(255,159,67,0.1) !important; color: var(--text) !important; }
 [style*="background:#fff3e0"], [style*="background: #fff3e0"] { background: rgba(255,159,67,0.08) !important; color: var(--text) !important; }
-[style*="background:#f1f8e9"], [style*="background: #f1f8e9"] { background: rgba(57,255,20,0.08) !important; color: var(--text) !important; }
-[style*="background:#e8f5e9"], [style*="background: #e8f5e9"] { background: rgba(57,255,20,0.06) !important; color: var(--text) !important; }
+[style*="background:#f1f8e9"], [style*="background: #f1f8e9"] { background: rgba(147,199,164,0.08) !important; color: var(--text) !important; }
+[style*="background:#e8f5e9"], [style*="background: #e8f5e9"] { background: rgba(147,199,164,0.06) !important; color: var(--text) !important; }
 [style*="background:#e3f2fd"], [style*="background: #e3f2fd"] { background: rgba(79,195,247,0.1) !important; color: var(--text) !important; }
 [style*="background:#fce4ec"], [style*="background: #fce4ec"] { background: rgba(255,71,87,0.08) !important; color: var(--text) !important; }
 [style*="background:#f3e5f5"], [style*="background: #f3e5f5"] { background: rgba(167,139,250,0.1) !important; color: var(--text) !important; }
@@ -764,7 +770,7 @@ select option {
 
 @keyframes glowPulse {
   0%, 100% { box-shadow: 0 0 8px var(--primary-glow-sm); }
-  50% { box-shadow: 0 0 20px var(--primary-glow), 0 0 40px rgba(57,255,20,0.1); }
+  50% { box-shadow: 0 0 20px var(--primary-glow), 0 0 40px rgba(147,199,164,0.1); }
 }
 
 @keyframes btnPress {
@@ -816,7 +822,7 @@ select option {
   box-shadow: 0 20px 60px rgba(0,0,0,0.4) !important;
   color: var(--text) !important;
 }
-#loginScreen h1 { color: #e8ffe8 !important; text-shadow: 0 0 30px rgba(57,255,20,0.3); }
+#loginScreen h1 { color: #e8ffe8 !important; text-shadow: 0 0 30px rgba(147,199,164,0.3); }
 #loginScreen p { color: rgba(255,255,255,0.45) !important; }
 #loginScreen label { color: rgba(255,255,255,0.45) !important; }
 #loginScreen input {
@@ -825,8 +831,8 @@ select option {
   color: #e8ffe8 !important;
 }
 #loginScreen input:focus {
-  border-color: #39ff14 !important;
-  box-shadow: 0 0 10px rgba(57,255,20,0.15) !important;
+  border-color: #93c7a4 !important;
+  box-shadow: 0 0 10px rgba(147,199,164,0.15) !important;
 }
 #loginScreen button { color: var(--text) !important; }
 #googleLoginBtn {
@@ -836,15 +842,15 @@ select option {
 }
 #loginBtn {
   background: transparent !important;
-  border: 1.5px solid #39ff14 !important;
-  color: #39ff14 !important;
-  box-shadow: 0 0 15px rgba(57,255,20,0.2) !important;
+  border: 1.5px solid #93c7a4 !important;
+  color: #93c7a4 !important;
+  box-shadow: 0 0 15px rgba(147,199,164,0.2) !important;
 }
 #emailToggleBtn {
   border: 1px solid rgba(255,255,255,0.1) !important;
   color: rgba(255,255,255,0.5) !important;
 }
-#forgotPassLink { color: #39ff14 !important; }
+#forgotPassLink { color: #93c7a4 !important; }
 #loginError { color: #ff4757 !important; }
 
 /* ── Print: override back to readable ── */

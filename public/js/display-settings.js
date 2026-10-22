@@ -1,122 +1,43 @@
 // ── DISPLAY SETTINGS MODULE ──
-// Lets users customize theme, colors, effects, and display preferences
-// Persists to localStorage, applies on load
+// Lets each user pick one of three colour themes (the soft design, Oct 2026).
+// Persists to localStorage under 'shorashim-display-settings'.
+//
+// The palettes themselves live in css/theme-soft.css as body classes; this
+// module only switches classes. The same switch runs earlier, from the inline
+// bootstrap at the top of <body> in index.html, so the saved theme is in
+// place before first paint — keep THEME_CLASSES there in step with THEMES.
 
 var DisplaySettings = (function() {
   'use strict';
 
-  // ── Predefined Themes ──
+  // ── Themes ──
+  // cls: extra body class on top of .theme-soft. dark: enables the dark
+  // adapter (theme-neon.css). meta: browser/status-bar colour.
+  // preview: [page, primary, surface, line] for the picker swatch.
   var THEMES = {
-    classic: {
-      name: { he: '☀️ קלאסי (בהיר)', th: '☀️ คลาสสิก (สว่าง)', ar: '☀️ كلاسيكي (فاتح)' },
-      vars: {},
-      dark: false
+    valleyMorning: {
+      name: { he: 'בוקר בבקעה', th: 'เช้าในหุบเขา', ar: 'صباح الوادي' },
+      hint: { he: 'בהיר · ירוק עלה הדקל', th: 'สว่าง · เขียวใบปาล์ม', ar: 'فاتح · أخضر سعف النخيل' },
+      cls: '', dark: false, meta: '#f1f4ef',
+      preview: ['#f1f4ef', '#2f6a4f', '#ffffff', '#dbe3d8']
     },
-    neonForest: {
-      name: { he: '🌿 יער ניאון', th: '🌿 ป่านีออน', ar: '🌿 غابة نيون' },
-      vars: {
-        '--g1': '#0d2818', '--g2': '#39ff14', '--g3': '#2bc410', '--g4': '#39ff14',
-        '--primary': '#39ff14', '--primary-dim': '#2bc410',
-        '--primary-faded': 'rgba(57,255,20,0.12)', '--primary-glow': 'rgba(57,255,20,0.3)',
-        '--primary-glow-sm': 'rgba(57,255,20,0.15)',
-        '--accent': '#ff9f43', '--accent-light': 'rgba(255,159,67,0.12)',
-        '--danger': '#ff4757', '--water': '#4fc3f7',
-        '--text': '#e8ffe8', '--text-muted': 'rgba(255,255,255,0.45)',
-        '--border': 'rgba(255,255,255,0.08)', '--border-light': 'rgba(255,255,255,0.04)',
-        '--surface-glass': 'rgba(255,255,255,0.07)', '--surface-input': 'rgba(255,255,255,0.05)',
-        '--gradient-deep': 'radial-gradient(ellipse at 50% 0%, #0d2818 0%, #071510 40%, #030a07 100%)',
-        '--orb1': '#39ff14', '--orb2': '#00e676',
-        '--leaf-color': '#39ff14', '--spark-color': '#76ff03',
-      },
-      dark: true
+    valleyNight: {
+      name: { he: 'לילה בבקעה', th: 'คืนในหุบเขา', ar: 'ليل الوادي' },
+      hint: { he: 'כהה ורך', th: 'มืดและนุ่มนวล', ar: 'داكن وهادئ' },
+      cls: 'soft-dark', dark: true, meta: '#141b18',
+      preview: ['#141b18', '#93c7a4', '#1d2622', '#2f3b35']
     },
-    emeraldGlow: {
-      name: { he: '💎 ברקת זוהרת', th: '💎 มรกตเรืองแสง', ar: '💎 توهج زمردي' },
-      vars: {
-        '--g1': '#0a3d2a', '--g2': '#0fffaa', '--g3': '#0bc87e', '--g4': '#0fffaa',
-        '--primary': '#0fffaa', '--primary-dim': '#0bc87e',
-        '--primary-faded': 'rgba(15,255,170,0.12)', '--primary-glow': 'rgba(15,255,170,0.3)',
-        '--primary-glow-sm': 'rgba(15,255,170,0.15)',
-        '--accent': '#ffc857', '--accent-light': 'rgba(255,200,87,0.12)',
-        '--danger': '#ff5c5c', '--water': '#4fc3f7',
-        '--text': '#f0faf5', '--text-muted': 'rgba(255,255,255,0.5)',
-        '--border': 'rgba(255,255,255,0.1)', '--border-light': 'rgba(255,255,255,0.06)',
-        '--surface-glass': 'rgba(255,255,255,0.07)', '--surface-input': 'rgba(255,255,255,0.06)',
-        '--gradient-deep': 'radial-gradient(ellipse at 20% 50%, #0a3d2a 0%, #061f16 40%, #020d09 100%)',
-        '--orb1': '#0fffaa', '--orb2': '#00b874',
-        '--leaf-color': '#0fffaa', '--spark-color': '#0fffaa',
-      },
-      dark: true
-    },
-    goldenHour: {
-      name: { he: '🌅 שעת הזהב', th: '🌅 ชั่วโมงทอง', ar: '🌅 الساعة الذهبية' },
-      vars: {
-        '--g1': '#3d2a0a', '--g2': '#ffb347', '--g3': '#d4933a', '--g4': '#ffb347',
-        '--primary': '#ffb347', '--primary-dim': '#d4933a',
-        '--primary-faded': 'rgba(255,179,71,0.12)', '--primary-glow': 'rgba(255,179,71,0.35)',
-        '--primary-glow-sm': 'rgba(255,179,71,0.15)',
-        '--accent': '#4aeadc', '--accent-light': 'rgba(74,234,220,0.12)',
-        '--danger': '#ff5c5c', '--water': '#4aeadc',
-        '--text': '#fff8f0', '--text-muted': 'rgba(255,255,255,0.5)',
-        '--border': 'rgba(255,255,255,0.1)', '--border-light': 'rgba(255,255,255,0.06)',
-        '--surface-glass': 'rgba(255,255,255,0.07)', '--surface-input': 'rgba(255,255,255,0.06)',
-        '--gradient-deep': 'radial-gradient(ellipse at 70% 30%, #3d2a0a 0%, #1a1005 40%, #0d0a04 100%)',
-        '--orb1': '#ffb347', '--orb2': '#ff6b35',
-        '--leaf-color': '#ffb347', '--spark-color': '#ffc857',
-      },
-      dark: true
-    },
-    deepOcean: {
-      name: { he: '🌊 אוקיינוס עמוק', th: '🌊 มหาสมุทรลึก', ar: '🌊 المحيط العميق' },
-      vars: {
-        '--g1': '#0a1a3d', '--g2': '#4fc3f7', '--g3': '#3a9fd4', '--g4': '#4fc3f7',
-        '--primary': '#4fc3f7', '--primary-dim': '#3a9fd4',
-        '--primary-faded': 'rgba(79,195,247,0.12)', '--primary-glow': 'rgba(79,195,247,0.3)',
-        '--primary-glow-sm': 'rgba(79,195,247,0.15)',
-        '--accent': '#a8e06c', '--accent-light': 'rgba(168,224,108,0.12)',
-        '--danger': '#ff6b6b', '--water': '#4fc3f7',
-        '--text': '#f0f8ff', '--text-muted': 'rgba(255,255,255,0.5)',
-        '--border': 'rgba(255,255,255,0.1)', '--border-light': 'rgba(255,255,255,0.06)',
-        '--surface-glass': 'rgba(255,255,255,0.07)', '--surface-input': 'rgba(255,255,255,0.06)',
-        '--gradient-deep': 'radial-gradient(ellipse at 30% 70%, #0a1a3d 0%, #060f20 40%, #020509 100%)',
-        '--orb1': '#4fc3f7', '--orb2': '#0288d1',
-        '--leaf-color': '#4fc3f7', '--spark-color': '#80d8ff',
-      },
-      dark: true
-    },
-    aravaNight: {
-      name: { he: '🌙 לילות ערבה', th: '🌙 คืนอาราวา', ar: '🌙 ليالي عربة' },
-      vars: {
-        '--g1': '#2d2b55', '--g2': '#E8B04A', '--g3': '#4A46A0', '--g4': '#E8B04A',
-        '--primary': '#a78bfa', '--primary-dim': '#7c5cc4',
-        '--primary-faded': 'rgba(167,139,250,0.12)', '--primary-glow': 'rgba(167,139,250,0.3)',
-        '--primary-glow-sm': 'rgba(167,139,250,0.15)',
-        '--accent': '#E8B04A', '--accent-light': 'rgba(232,176,74,0.12)',
-        '--danger': '#D94452', '--water': '#7dd3fc',
-        '--text': '#f5f4f7', '--text-muted': 'rgba(255,255,255,0.45)',
-        '--border': 'rgba(255,255,255,0.08)', '--border-light': 'rgba(255,255,255,0.04)',
-        '--surface-glass': 'rgba(255,255,255,0.06)', '--surface-input': 'rgba(255,255,255,0.05)',
-        '--gradient-deep': 'radial-gradient(ellipse at 50% 0%, #1C1C30 0%, #12121f 40%, #0C0C14 100%)',
-        '--orb1': '#a78bfa', '--orb2': '#E8B04A',
-        '--leaf-color': '#a78bfa', '--spark-color': '#c4b5fd',
-      },
-      dark: true
-    },
+    earthDate: {
+      name: { he: 'אדמה ותמר', th: 'ดินและอินทผลัม', ar: 'أرض وتمر' },
+      hint: { he: 'בהיר · חום תמר', th: 'สว่าง · น้ำตาลอินทผลัม', ar: 'فاتح · بني التمر' },
+      cls: 'soft-earth', dark: false, meta: '#f2f0ec',
+      preview: ['#f2f0ec', '#6b4226', '#ffffff', '#e0d9cf']
+    }
   };
+  var DEFAULT_THEME = 'valleyMorning';
+  var ALL_CLASSES = ['soft-dark', 'soft-earth', 'theme-neon', 'theme-classic'];
 
-  // ── Defaults ──
-  var DEFAULTS = {
-    theme: 'neonForest',
-    effects: {
-      orbs: true,
-      sparkles: true,
-      leaves: true,
-      botanicals: true,
-      buttonBurst: true,
-    },
-    glowIntensity: 'normal', // 'off', 'subtle', 'normal', 'intense'
-    cardBlur: 18,
-  };
+  var DEFAULTS = { theme: DEFAULT_THEME };
 
   // ── Translation helper ──
   function tt(he, th, ar) {
@@ -125,340 +46,124 @@ var DisplaySettings = (function() {
     if (lang === 'ar') return ar || he;
     return he;
   }
-
-  function tName(nameObj) {
+  function tName(obj) {
     var lang = (typeof currentLang !== 'undefined') ? currentLang : 'he';
-    return nameObj[lang] || nameObj.he;
+    return obj[lang] || obj.he;
   }
 
   // ── Storage ──
+  // Older builds saved one of six themes (classic + five neon) plus effect
+  // and glow settings. Anything that is not a current theme falls back to
+  // the default; the old keys are simply dropped on the next save.
   function loadSettings() {
+    var out = { theme: DEFAULT_THEME };
     try {
-      var saved = localStorage.getItem('shorashim-display-settings');
-      if (saved) {
-        var parsed = JSON.parse(saved);
-        // Merge with defaults to fill any missing keys
-        return mergeDeep(JSON.parse(JSON.stringify(DEFAULTS)), parsed);
-      }
+      var saved = JSON.parse(localStorage.getItem('shorashim-display-settings') || 'null');
+      if (saved && THEMES[saved.theme]) out.theme = saved.theme;
     } catch (e) { console.warn('Failed to load display settings:', e); }
-    return JSON.parse(JSON.stringify(DEFAULTS));
+    return out;
   }
 
   function saveSettings(settings) {
     try {
-      localStorage.setItem('shorashim-display-settings', JSON.stringify(settings));
+      localStorage.setItem('shorashim-display-settings', JSON.stringify({ theme: settings.theme }));
     } catch (e) { console.warn('Failed to save display settings:', e); }
-  }
-
-  function mergeDeep(target, source) {
-    for (var key in source) {
-      if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key])) {
-        if (!target[key]) target[key] = {};
-        mergeDeep(target[key], source[key]);
-      } else {
-        target[key] = source[key];
-      }
-    }
-    return target;
   }
 
   // ── Apply Theme ──
   function applyTheme(themeKey) {
-    var theme = THEMES[themeKey];
-    if (!theme) return;
+    var key = THEMES[themeKey] ? themeKey : DEFAULT_THEME;
+    var theme = THEMES[key];
+    var body = document.body;
+    if (!body) return;
 
-    var root = document.documentElement;
-    var themeLink = document.querySelector('link[href*="theme-neon"]');
+    ALL_CLASSES.forEach(function(c) { body.classList.remove(c); });
+    body.classList.add('theme-soft');
+    if (theme.cls) body.classList.add(theme.cls);
+    // Light themes keep the light stylesheet's classic hooks; the dark one
+    // turns on the dark adapter and its body.theme-neon hooks in style.css.
+    body.classList.add(theme.dark ? 'theme-neon' : 'theme-classic');
 
-    // ── Classic (light) mode: disable dark overlay entirely ──
-    if (!theme.dark) {
-      if (themeLink) themeLink.disabled = true;
-      document.body.classList.add('theme-classic');
-      document.body.style.background = '';
-      // Clear all custom properties we may have set
-      var allProps = ['--g1','--g2','--g3','--g4','--g5','--g6','--dark','--text','--text-muted',
-        '--primary','--primary-dim','--primary-faded','--primary-glow','--primary-glow-sm',
-        '--accent','--accent-light','--danger','--water','--border','--border-light',
-        '--surface-glass','--surface-input','--gradient-deep','--orb1','--orb2',
-        '--leaf-color','--spark-color','--card','--card-solid','--bg',
-        '--danger-light','--accent-light','--shadow','--shadow-lg'];
-      allProps.forEach(function(p) { root.style.removeProperty(p); });
-      // Hide effects
-      document.querySelectorAll('.bg-layer, .sparkle-layer, .falling-leaves-layer, .botanical').forEach(function(el) {
-        el.style.display = 'none';
-      });
-      // Restore meta theme color
-      var meta = document.querySelector('meta[name="theme-color"]');
-      if (meta) meta.setAttribute('content', '#1b5e20');
-      // Login screen: clear any dark inline bg a previous dark theme left,
-      // and give classic mode a readable light gradient.
-      var _lg = document.getElementById('loginScreen');
-      if (_lg) _lg.style.background = 'linear-gradient(160deg, #eef6f1 0%, #c2e6d4 45%, #7ec9a4 100%)';
-      return;
-    }
+    var darkCss = document.querySelector('link[href*="theme-neon"]');
+    if (darkCss) darkCss.disabled = !theme.dark;
 
-    // ── Dark theme: enable overlay and apply variables ──
-    if (themeLink) themeLink.disabled = false;
-    document.body.classList.remove('theme-classic');
+    // Inline overrides older builds wrote at runtime would beat the classes.
+    body.style.background = '';
+    var login = document.getElementById('loginScreen');
+    if (login) login.style.background = '';
 
-    // Re-show effect layers that classic mode hid
-    document.querySelectorAll('.bg-layer, .sparkle-layer, .falling-leaves-layer, .botanical').forEach(function(el) {
-      el.style.display = '';
-    });
-
-    var vars = theme.vars;
-    for (var prop in vars) {
-      root.style.setProperty(prop, vars[prop]);
-    }
-
-    // Apply background gradient
-    document.body.style.background = vars['--gradient-deep'];
-
-    // Update orb colors if effects.js is loaded
-    var orbs = document.querySelectorAll('.bg-orb--1, .bg-orb--3');
-    orbs.forEach(function(o) { o.style.background = vars['--orb1']; });
-    var orbs2 = document.querySelectorAll('.bg-orb--2');
-    orbs2.forEach(function(o) { o.style.background = vars['--orb2']; });
-
-    // Update sparkle colors
-    document.querySelectorAll('.sparkle-layer > div').forEach(function(s) {
-      s.style.background = vars['--spark-color'];
-      s.style.boxShadow = '0 0 ' + (parseInt(s.style.width) * 2 || 6) + 'px ' + vars['--spark-color'];
-    });
-
-    // Update falling leaf colors
-    document.querySelectorAll('.falling-leaves-layer svg path').forEach(function(p) {
-      p.setAttribute('fill', vars['--leaf-color']);
-    });
-    document.querySelectorAll('.falling-leaves-layer svg line, .falling-leaves-layer svg path[stroke]').forEach(function(p) {
-      if (p.getAttribute('stroke')) p.setAttribute('stroke', vars['--leaf-color']);
-    });
-
-    // Update meta theme-color
     var meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', vars['--g1']);
-
-    // Update login screen if visible
-    var loginBg = document.getElementById('loginScreen');
-    if (loginBg) loginBg.style.background = vars['--gradient-deep'];
+    if (meta) meta.setAttribute('content', theme.meta);
   }
 
-  // ── Apply Effects ──
-  function applyEffects(effects) {
-    var layers = {
-      orbs: '.bg-layer .bg-orb',
-      sparkles: '.sparkle-layer',
-      leaves: '.falling-leaves-layer',
-      botanicals: '.botanical',
-    };
-
-    for (var key in layers) {
-      var els = document.querySelectorAll(layers[key]);
-      var visible = effects[key] !== false;
-      els.forEach(function(el) {
-        el.style.display = visible ? '' : 'none';
-      });
-    }
-  }
-
-  // ── Apply Glow Intensity ──
-  function applyGlow(intensity) {
-    var root = document.documentElement;
-    switch (intensity) {
-      case 'off':
-        root.style.setProperty('--primary-glow', 'transparent');
-        root.style.setProperty('--primary-glow-sm', 'transparent');
-        break;
-      case 'subtle':
-        // Half the normal glow
-        root.style.setProperty('--primary-glow', root.style.getPropertyValue('--primary-glow').replace(/[\d.]+\)$/, '0.15)'));
-        root.style.setProperty('--primary-glow-sm', root.style.getPropertyValue('--primary-glow-sm').replace(/[\d.]+\)$/, '0.08)'));
-        break;
-      case 'intense':
-        root.style.setProperty('--primary-glow', root.style.getPropertyValue('--primary-glow').replace(/[\d.]+\)$/, '0.5)'));
-        root.style.setProperty('--primary-glow-sm', root.style.getPropertyValue('--primary-glow-sm').replace(/[\d.]+\)$/, '0.3)'));
-        break;
-      default: break; // 'normal' uses the theme defaults
-    }
-  }
-
-  // ── Apply All Settings ──
   function applyAll(settings) {
-    if (!settings) settings = loadSettings();
-    applyTheme(settings.theme);
-    applyEffects(settings.effects);
-    applyGlow(settings.glowIntensity);
+    applyTheme((settings || loadSettings()).theme);
   }
 
-  // ── Initialize on Load ──
   function init() {
-    var settings = loadSettings();
-    // Small delay to let effects.js inject its elements first
-    setTimeout(function() { applyAll(settings); }, 100);
+    applyAll(loadSettings());
   }
 
   // ── Settings UI ──
+  // Built from the active theme's CSS variables, so the panel itself always
+  // matches whatever theme is on screen.
   function showSettings() {
     var settings = loadSettings();
     var modal = document.getElementById('modalContainer');
     if (!modal) return;
 
-    var isClassic = !THEMES[settings.theme] || !THEMES[settings.theme].dark;
-    // Adaptive colors so settings panel works in both light and dark mode
-    var C = {
-      bg: isClassic ? 'white' : 'rgba(15,25,18,0.95)',
-      overlay: isClassic ? 'rgba(0,0,0,0.4)' : 'rgba(3,10,7,0.7)',
-      text: isClassic ? '#1b2e1b' : '#e8ffe8',
-      muted: isClassic ? '#666' : 'rgba(255,255,255,0.45)',
-      border: isClassic ? '#ddd' : 'rgba(255,255,255,0.08)',
-      cardBg: isClassic ? '#f5f7f5' : 'rgba(255,255,255,0.03)',
-      activeBg: isClassic ? 'rgba(46,125,50,0.08)' : '',
-      heading: isClassic ? '#1b5e20' : (THEMES[settings.theme] ? THEMES[settings.theme].vars['--primary'] : '#39ff14'),
-      accent: isClassic ? '#2e7d32' : (THEMES[settings.theme] ? THEMES[settings.theme].vars['--primary'] : '#39ff14'),
-    };
-
-    var themeButtons = '';
-    Object.keys(THEMES).forEach(function(key) {
-      var theme = THEMES[key];
-      var isActive = settings.theme === key;
-      var primaryColor = theme.dark ? theme.vars['--primary'] : '#2e7d32';
-      var dotBg = theme.dark ? theme.vars['--primary'] : 'linear-gradient(135deg, #43a047, #2e7d32)';
-      themeButtons += '<button data-theme="' + key + '" style="' +
-        'display:flex;align-items:center;gap:10px;width:100%;padding:12px 14px;' +
-        'border-radius:12px;border:1.5px solid ' + (isActive ? primaryColor : C.border) + ';' +
-        'background:' + (isActive ? (theme.dark ? primaryColor + '18' : 'rgba(46,125,50,0.08)') : C.cardBg) + ';' +
-        'color:' + C.text + ';cursor:pointer;font-family:inherit;font-size:0.9rem;' +
-        'margin-bottom:6px;text-align:right;transition:all 0.2s;' +
-        (isActive ? 'box-shadow:0 0 12px ' + primaryColor + '33;' : '') +
-        '">' +
-        '<span style="width:20px;height:20px;border-radius:50%;background:' + dotBg + ';' +
-        'box-shadow:0 0 8px ' + primaryColor + '55;flex-shrink:0;"></span>' +
-        '<span style="flex:1;">' + tName(theme.name) + '</span>' +
-        (isActive ? '<span style="color:' + primaryColor + ';">✓</span>' : '') +
+    // Swatch colours travel as CSS custom properties, not inline
+    // background/border declarations: the dark adapter repaints any inline
+    // background inside a dialog, which would turn the light previews dark.
+    var cards = Object.keys(THEMES).map(function(key) {
+      var th = THEMES[key], p = th.preview, on = settings.theme === key;
+      return '<button type="button" class="ds-card' + (on ? ' on' : '') + '" data-theme="' + key + '" aria-pressed="' + on + '"' +
+          ' style="--sw-bg:' + p[0] + ';--sw-pri:' + p[1] + ';--sw-card:' + p[2] + ';--sw-line:' + p[3] + ';">' +
+          '<span class="ds-sw"><span class="ds-sw-bar"></span><span class="ds-sw-card"></span></span>' +
+          '<span class="ds-name">' + tName(th.name) + '</span>' +
+          '<span class="ds-hint">' + tName(th.hint) + '</span>' +
         '</button>';
-    });
+    }).join('');
 
-    function toggle(key) {
-      return '<label style="display:flex;align-items:center;justify-content:space-between;' +
-        'padding:10px 14px;border-radius:10px;background:' + C.cardBg + ';' +
-        'border:1px solid ' + C.border + ';margin-bottom:6px;cursor:pointer;">' +
-        '<span style="color:' + C.text + ';font-size:0.88rem;">' + key.label + '</span>' +
-        '<input type="checkbox" data-effect="' + key.id + '" ' + (settings.effects[key.id] !== false ? 'checked' : '') +
-        ' style="width:20px;height:20px;accent-color:' + C.accent + ';cursor:pointer;">' +
-        '</label>';
-    }
-
-    var effectToggles = [
-      { id: 'orbs', label: tt('🔮 כדורי אור ברקע', '🔮 ลูกแสงพื้นหลัง', '🔮 كرات ضوء الخلفية') },
-      { id: 'sparkles', label: tt('✨ ניצוצות', '✨ ประกาย', '✨ شرارات') },
-      { id: 'leaves', label: tt('🍃 עלים נופלים', '🍃 ใบไม้ร่วง', '🍃 أوراق متساقطة') },
-      { id: 'botanicals', label: tt('🌿 עיטורי צמחים', '🌿 ลวดลายพฤกษศาสตร์', '🌿 زخارف نباتية') },
-      { id: 'buttonBurst', label: tt('💥 אפקט לחיצה', '💥 เอฟเฟกต์กดปุ่ม', '💥 تأثير الضغط') },
-    ].map(toggle).join('');
-
-    var glowOptions = '';
-    ['off', 'subtle', 'normal', 'intense'].forEach(function(level) {
-      var labels = {
-        off: tt('כבוי', 'ปิด', 'مغلق'),
-        subtle: tt('עדין', 'เบา', 'خفيف'),
-        normal: tt('רגיל', 'ปกติ', 'عادي'),
-        intense: tt('חזק', 'เข้มข้น', 'مكثف'),
-      };
-      var isActive = settings.glowIntensity === level;
-      glowOptions += '<button data-glow="' + level + '" style="' +
-        'flex:1;padding:8px 4px;border-radius:8px;font-family:inherit;font-size:0.8rem;cursor:pointer;' +
-        'border:1px solid ' + (isActive ? C.accent : C.border) + ';' +
-        'background:' + (isActive ? (isClassic ? 'rgba(46,125,50,0.08)' : C.accent + '18') : C.cardBg) + ';' +
-        'color:' + (isActive ? C.accent : C.muted) + ';' +
-        'font-weight:' + (isActive ? '700' : '400') + ';' +
-        '">' + labels[level] + '</button>';
-    });
-
-    modal.innerHTML = '<div style="position:fixed;inset:0;background:' + C.overlay + ';backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);z-index:99999;display:flex;align-items:center;justify-content:center;" onclick="if(event.target===this)document.getElementById(\'modalContainer\').innerHTML=\'\'">' +
-      '<div style="background:' + C.bg + ';' + (isClassic ? '' : 'backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);') + 'border:1px solid ' + C.border + ';border-radius:20px;padding:24px 20px;width:92%;max-width:440px;max-height:85vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,' + (isClassic ? '0.15' : '0.5') + ');color:' + C.text + ';">' +
-
-        // Header
-        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">' +
-          '<h3 style="font-weight:700;font-size:1.1rem;color:' + C.heading + ';margin:0;">🎨 ' + tt('הגדרות תצוגה', 'การตั้งค่าการแสดงผล', 'إعدادات العرض') + '</h3>' +
-          '<button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'" style="background:none;border:none;color:' + C.muted + ';font-size:1.3rem;cursor:pointer;padding:4px;">✕</button>' +
+    modal.innerHTML =
+      '<div class="modal-overlay" id="dsOverlay">' +
+        '<div class="modal" style="max-width:420px;padding:22px 18px;">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">' +
+            '<h2 style="margin:0;">' + tt('הגדרות תצוגה', 'การตั้งค่าการแสดงผล', 'إعدادات العرض') + '</h2>' +
+            '<button type="button" id="dsClose" aria-label="' + tt('סגור', 'ปิด', 'إغلاق') + '" style="background:var(--tonal);border:none;color:var(--text);width:34px;height:34px;border-radius:50%;font-size:1rem;cursor:pointer;">✕</button>' +
+          '</div>' +
+          '<div style="font-size:0.85rem;font-weight:600;color:var(--text);margin-bottom:10px;">' + tt('ערכת צבעים', 'ชุดสี', 'نظام الألوان') + '</div>' +
+          '<div id="dsThemeList" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">' + cards + '</div>' +
+          '<div style="text-align:center;margin-top:14px;font-size:0.72rem;color:var(--text-muted);">' +
+            tt('הבחירה נשמרת במכשיר הזה', 'บันทึกไว้ในอุปกรณ์นี้', 'يُحفظ الاختيار على هذا الجهاز') +
+          '</div>' +
         '</div>' +
+      '</div>';
 
-        // Theme section
-        '<div style="margin-bottom:20px;">' +
-          '<div style="font-size:0.75rem;font-weight:700;color:' + C.muted + ';text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;">' + tt('ערכת נושא', 'ธีม', 'السمة') + '</div>' +
-          '<div id="dsThemeList">' + themeButtons + '</div>' +
-        '</div>' +
+    function close() { modal.innerHTML = ''; }
+    document.getElementById('dsClose').addEventListener('click', close);
+    document.getElementById('dsOverlay').addEventListener('click', function(e) { if (e.target === this) close(); });
 
-        // Effects section
-        '<div style="margin-bottom:20px;">' +
-          '<div style="font-size:0.75rem;font-weight:700;color:' + C.muted + ';text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;">' + tt('אפקטים', 'เอฟเฟกต์', 'التأثيرات') + (isClassic ? ' <span style="font-size:0.65rem;font-weight:400;">(' + tt('פעיל רק במצב כהה', 'ใช้ได้เฉพาะโหมดมืด', 'متاح فقط في الوضع الداكن') + ')</span>' : '') + '</div>' +
-          '<div id="dsEffects" style="' + (isClassic ? 'opacity:0.4;pointer-events:none;' : '') + '">' + effectToggles + '</div>' +
-        '</div>' +
-
-        // Glow section
-        '<div style="margin-bottom:20px;">' +
-          '<div style="font-size:0.75rem;font-weight:700;color:' + C.muted + ';text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;">' + tt('עוצמת זוהר', 'ความเข้มของแสง', 'شدة التوهج') + '</div>' +
-          '<div id="dsGlow" style="display:flex;gap:6px;' + (isClassic ? 'opacity:0.4;pointer-events:none;' : '') + '">' + glowOptions + '</div>' +
-        '</div>' +
-
-        // Reset button
-        '<button onclick="DisplaySettings.resetDefaults()" style="width:100%;padding:10px;border-radius:10px;border:1px solid ' + C.border + ';background:' + C.cardBg + ';color:' + C.muted + ';font-family:inherit;font-size:0.85rem;cursor:pointer;margin-top:4px;">' +
-          '🔄 ' + tt('איפוס לברירת מחדל', 'รีเซ็ตเป็นค่าเริ่มต้น', 'إعادة تعيين') +
-        '</button>' +
-
-        '<div style="text-align:center;margin-top:12px;font-size:0.7rem;color:' + C.muted + ';">' +
-          tt('השינויים נשמרים אוטומטית', 'บันทึกอัตโนมัติ', 'يتم الحفظ تلقائيًا') +
-        '</div>' +
-
-      '</div></div>';
-
-    // ── Event listeners ──
-
-    // Theme buttons
     document.querySelectorAll('#dsThemeList button[data-theme]').forEach(function(btn) {
       btn.addEventListener('click', function() {
         var key = this.getAttribute('data-theme');
         settings.theme = key;
         saveSettings(settings);
         applyTheme(key);
-        // Refresh the panel to show new active state
-        setTimeout(function() { showSettings(); }, 50);
-      });
-    });
-
-    // Effect toggles
-    document.querySelectorAll('#dsEffects input[data-effect]').forEach(function(cb) {
-      cb.addEventListener('change', function() {
-        var key = this.getAttribute('data-effect');
-        settings.effects[key] = this.checked;
-        saveSettings(settings);
-        applyEffects(settings.effects);
-      });
-    });
-
-    // Glow buttons
-    document.querySelectorAll('#dsGlow button[data-glow]').forEach(function(btn) {
-      btn.addEventListener('click', function() {
-        settings.glowIntensity = this.getAttribute('data-glow');
-        saveSettings(settings);
-        applyTheme(settings.theme); // reapply base first
-        applyGlow(settings.glowIntensity);
-        // Refresh panel
-        setTimeout(function() { showSettings(); }, 50);
+        showSettings(); // redraw so the panel picks up the new palette
       });
     });
   }
 
   // ── Reset ──
   function resetDefaults() {
-    var fresh = JSON.parse(JSON.stringify(DEFAULTS));
+    var fresh = { theme: DEFAULT_THEME };
     saveSettings(fresh);
     applyAll(fresh);
-    showSettings(); // refresh UI
-    if (typeof showToast === 'function') showToast('🔄 ' + tt('הוחזר לברירת מחדל', 'รีเซ็ตแล้ว', 'تمت إعادة التعيين'));
+    showSettings();
+    if (typeof showToast === 'function') showToast(tt('הוחזר לברירת המחדל', 'รีเซ็ตแล้ว', 'تمت إعادة التعيين'));
   }
 
-  // ── Public API ──
   return {
     init: init,
     showSettings: showSettings,

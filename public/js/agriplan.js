@@ -2243,12 +2243,17 @@ var AgriPlan = (function () {
   // quote. Always branded שורשים regardless of the plan's print theme — it
   // leaves the company, the grower sheets do not.
   var BRAND = { dark: '#1b3a1e', mid: '#2e7d32', light: '#c8e6c9' };
+  // The Shorashim Plus mark (triangle with three cuts, from the printed
+  // logo). Gradient ids are numbered so header + footer marks in one sheet
+  // never share an id.
+  var _brandSeq = 0;
   function brandMark(size) {
-    return '<svg class="mark" viewBox="0 0 100 88" width="' + size + '" height="' + Math.round(size * 0.88) + '" aria-hidden="true">' +
-      '<polygon points="50,2 98,86 2,86" fill="#c8e6c9"/>' +
-      '<polygon points="50,15 87,80 13,80" fill="#81c784"/>' +
-      '<polygon points="50,28 76,74 24,74" fill="#43a047"/>' +
-      '<polygon points="50,41 65,68 35,68" fill="#2e7d32"/></svg>';
+    var n = ++_brandSeq;
+    return '<svg class="mark" viewBox="0 0 118 100" width="' + Math.round(size * 1.18) + '" height="' + size + '" aria-hidden="true">' +
+      '<defs><linearGradient id="spA-ag' + n + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0f86b3"/><stop offset="0.3" stop-color="#2a9cbf"/><stop offset="1" stop-color="#c8eab5"/></linearGradient>' +
+      '<linearGradient id="spB-ag' + n + '" x1="0.22" y1="0" x2="0.9" y2="1"><stop offset="0" stop-color="#2799be"/><stop offset="0.5" stop-color="#4aa9bd"/><stop offset="1" stop-color="#c8eab5"/></linearGradient></defs>' +
+      '<path fill="url(#spA-ag' + n + ')" d="M56 6 L117.4 94 L30.9 94 L68.3 34.6 L27.7 94 L21.2 94 L63.7 26.5 L18 94 L11 94 L57.7 19.9 L7.8 94 L0.6 94 Z"/>' +
+      '<path fill="url(#spB-ag' + n + ')" d="M72 28.8 L117.4 94 L30.9 94 Z"/></svg>';
   }
 
   // Litres per material for a set of rows, with the operations it serves.

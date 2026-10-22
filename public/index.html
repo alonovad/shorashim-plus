@@ -7,8 +7,11 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
 <link rel="stylesheet" href="css/style.css"/>
 <link rel="stylesheet" href="css/theme-neon.css"/>
+<link rel="stylesheet" href="css/theme-soft.css"/>
 <link rel="manifest" href="/manifest.json">
-<meta name="theme-color" content="#0d2818">
+<link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<meta name="theme-color" content="#f1f4ef">
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
@@ -31,6 +34,27 @@
 </script>
 </head>
 <body>
+<script>
+  // Theme bootstrap — runs before first paint so the saved colour theme is
+  // in place immediately (no flash of another theme on launch). Mirrors
+  // DisplaySettings.applyTheme; keep the key→class table in step with
+  // THEMES in js/display-settings.js.
+  (function () {
+    var T = { valleyMorning: ['', '#f1f4ef'], valleyNight: ['soft-dark', '#141b18'], earthDate: ['soft-earth', '#f2f0ec'] };
+    var k = 'valleyMorning';
+    try {
+      var s = JSON.parse(localStorage.getItem('shorashim-display-settings') || 'null');
+      if (s && T[s.theme]) k = s.theme;
+    } catch (e) {}
+    var dark = k === 'valleyNight', b = document.body;
+    b.classList.add('theme-soft', dark ? 'theme-neon' : 'theme-classic');
+    if (T[k][0]) b.classList.add(T[k][0]);
+    var l = document.querySelector('link[href*="theme-neon"]');
+    if (l) l.disabled = !dark;
+    var m = document.querySelector('meta[name="theme-color"]');
+    if (m) m.setAttribute('content', T[k][1]);
+  })();
+</script>
 
 <!-- Login Screen -->
 <div id="loginScreen" style="position: fixed; inset: 0; display: none; align-items: center; justify-content: center; z-index: 99999;">
@@ -51,12 +75,8 @@
 
   <div style="position:relative;z-index:1;background: rgba(255,255,255,0.07); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-radius: 24px; padding: 36px 24px; width: 90%; max-width: 400px; border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 20px 60px rgba(0,0,0,0.4);">
     <div style="text-align: center; margin-bottom: 28px;">
-      <svg width="56" height="50" viewBox="0 0 52 46" style="margin: 0 auto 12px; filter: drop-shadow(0 0 10px rgba(57,255,20,0.55));">
-        <polygon points="26,2 48,42 4,42" fill="#39ff14" opacity="0.15"/>
-        <polygon points="26,10 42,38 10,38" fill="#39ff14" opacity="0.3"/>
-        <polygon points="26,18 36,34 16,34" fill="#39ff14" opacity="0.6"/>
-        <polygon points="26,22 32,32 20,32" fill="#39ff14"/>
-      </svg>
+      <!-- Brand mark: the Shorashim Plus triangle with its three cuts (from the printed logo). -->
+      <svg width="66" height="56" viewBox="0 0 118 100" role="img" aria-label="שורשים פלוס" style="display:block;margin:0 auto 12px;"><defs><linearGradient id="spA-login" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0f86b3"/><stop offset="0.3" stop-color="#2a9cbf"/><stop offset="1" stop-color="#c8eab5"/></linearGradient><linearGradient id="spB-login" x1="0.22" y1="0" x2="0.9" y2="1"><stop offset="0" stop-color="#2799be"/><stop offset="0.5" stop-color="#4aa9bd"/><stop offset="1" stop-color="#c8eab5"/></linearGradient></defs><path fill="url(#spA-login)" d="M56 6 L117.4 94 L30.9 94 L68.3 34.6 L27.7 94 L21.2 94 L63.7 26.5 L18 94 L11 94 L57.7 19.9 L7.8 94 L0.6 94 Z"/><path fill="url(#spB-login)" d="M72 28.8 L117.4 94 L30.9 94 Z"/></svg>
       <h1 style="font-size: 1.8rem; font-weight: 900; color: #e8ffe8; margin-bottom: 4px; text-shadow: 0 0 30px rgba(57,255,20,0.3);">שורשים פלוס</h1>
       <p id="loginSubtitle" style="font-size: 0.85rem; color: rgba(255,255,255,0.45); letter-spacing: 1.5px; text-transform: uppercase;">Farm Management</p>
     </div>
@@ -220,12 +240,7 @@
   </button>
   <div class="header-brand">
     <div class="header-logo">
-      <svg width="34" height="34" viewBox="0 0 100 100" fill="none" style="filter: drop-shadow(0 0 6px rgba(57,255,20,0.4));">
-        <polygon points="50,8 92,82 8,82" fill="#39ff14" opacity="0.15"/>
-        <polygon points="50,18 82,78 18,78" fill="#39ff14" opacity="0.3"/>
-        <polygon points="50,28 72,74 28,74" fill="#39ff14" opacity="0.6"/>
-        <polygon points="50,38 62,70 38,70" fill="#39ff14"/>
-      </svg>
+      <svg width="38" height="32" viewBox="0 0 118 100" role="img" aria-label="שורשים פלוס"><defs><linearGradient id="spA-hdr" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0f86b3"/><stop offset="0.3" stop-color="#2a9cbf"/><stop offset="1" stop-color="#c8eab5"/></linearGradient><linearGradient id="spB-hdr" x1="0.22" y1="0" x2="0.9" y2="1"><stop offset="0" stop-color="#2799be"/><stop offset="0.5" stop-color="#4aa9bd"/><stop offset="1" stop-color="#c8eab5"/></linearGradient></defs><path fill="url(#spA-hdr)" d="M56 6 L117.4 94 L30.9 94 L68.3 34.6 L27.7 94 L21.2 94 L63.7 26.5 L18 94 L11 94 L57.7 19.9 L7.8 94 L0.6 94 Z"/><path fill="url(#spB-hdr)" d="M72 28.8 L117.4 94 L30.9 94 Z"/></svg>
     </div>
     <div>
       <h1>שורשים פלוס</h1>
@@ -890,12 +905,8 @@
 <script src="js/report-map.js"></script>
 <script src="js/report-theme.js"></script>
 <script src="js/effects.js" type="module"></script>
-<script type="module">
-  import { initEffects } from './js/effects.js';
-  document.addEventListener('DOMContentLoaded', function() {
-    initEffects({ sparkleCount: 8, leafCount: 3 });
-  });
-</script>
+<!-- Decorative effects (orbs, sparkles, falling leaves, click bursts) are
+     not part of the soft design and are no longer started. -->
 <script>
   // Register service worker for offline support
   if ('serviceWorker' in navigator) {
