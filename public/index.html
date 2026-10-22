@@ -41,14 +41,24 @@
   // THEMES in js/display-settings.js.
   (function () {
     var T = { valleyMorning: ['', '#f1f4ef'], valleyNight: ['soft-dark', '#141b18'], earthDate: ['soft-earth', '#f2f0ec'] };
-    var k = 'valleyMorning';
+    var k = 'valleyMorning', tu = {};
     try {
       var s = JSON.parse(localStorage.getItem('shorashim-display-settings') || 'null');
       if (s && T[s.theme]) k = s.theme;
+      if (s && s.tune) tu = s.tune;
     } catch (e) {}
     var dark = k === 'valleyNight', b = document.body;
     b.classList.add('theme-soft', dark ? 'theme-neon' : 'theme-classic');
     if (T[k][0]) b.classList.add(T[k][0]);
+    // Fine-tuning (same classes as DisplaySettings.applyTheme).
+    var O = { press: ['none', 'soft', 'strong'], shadow: ['none', 'soft', 'strong'], border: ['none', 'thin', 'bold'], text: ['sm', 'md', 'lg', 'xl'] };
+    var D = { press: 'soft', shadow: 'none', border: 'thin', text: 'md' };
+    for (var o in O) b.classList.add(o + '-' + (O[o].indexOf(tu[o]) !== -1 ? tu[o] : D[o]));
+    // Colour strength/hue: the variables DisplaySettings computed last time.
+    try {
+      var cv = JSON.parse(localStorage.getItem('shorashim-display-vars') || 'null');
+      if (cv && cv.theme === k && cv.vars) for (var v in cv.vars) b.style.setProperty(v, cv.vars[v]);
+    } catch (e) {}
     var l = document.querySelector('link[href*="theme-neon"]');
     if (l) l.disabled = !dark;
     var m = document.querySelector('meta[name="theme-color"]');

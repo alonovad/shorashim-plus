@@ -19,6 +19,13 @@ var ReportTheme = (function () {
   'use strict';
 
   var PRESETS = {
+    // Soft presets (Oct 2026) — the app's own palettes.
+    valley: { label: ['בוקר בבקעה', 'เช้าในหุบเขา', 'صباح الوادي'],
+      c1: '#1d3d2e', c2: '#2f6a4f', c3: '#4f8a6c', accent: '#2f6a4f',
+      headText: '#1d3d2e', radius: 18 },
+    earthDate: { label: ['אדמה ותמר', 'ดินและอินทผลัม', 'أرض وتمر'],
+      c1: '#3d2514', c2: '#6b4226', c3: '#8a5d3d', accent: '#6b4226',
+      headText: '#3d2514', radius: 18 },
     forest: { label: ['ירוק קלאסי', 'เขียวคลาสสิก', 'أخضر كلاسيكي'],
       c1: '#1a5632', c2: '#2d6a4f', c3: '#40916c', accent: '#2d6a4f',
       headText: '#ffffff', radius: 20 },
@@ -37,7 +44,7 @@ var ReportTheme = (function () {
   };
 
   var DEFAULTS = {
-    preset: 'forest', logo: '', title: '', sub: '',
+    preset: 'valley', logo: '', title: '', sub: '',
     footer: '', signature: false, orientation: 'landscape',
     // Satellite image of the מטע's main plot. OFF by default: the image
     // belongs to the outgoing document only, and only when the grower asks
@@ -97,9 +104,12 @@ var ReportTheme = (function () {
     Object.keys(DEFAULTS).forEach(function (k) {
       merged[k] = (saved[k] !== undefined && saved[k] !== null) ? saved[k] : DEFAULTS[k];
     });
-    var p = PRESETS[merged.preset] || PRESETS.forest;
+    var p = PRESETS[merged.preset] || PRESETS.valley;
     return {
       c1: p.c1, c2: p.c2, c3: p.c3, accent: p.accent,
+      // Soft letterhead (Oct 2026): a light tint of the preset instead of a
+      // saturated gradient band — calmer on paper and far less ink.
+      soft: mix(p.c2, 0.89), line: mix(p.c2, 0.72), ink: p.c1,
       headText: p.headText, radius: p.radius,
       orientation: merged.orientation === 'portrait' ? 'portrait' : 'landscape',
       title: merged.title || '', sub: merged.sub || '',
@@ -109,6 +119,33 @@ var ReportTheme = (function () {
       mainPlot: merged.mainPlot ? parseInt(merged.mainPlot, 10) : null,
       brand: merged.brand === true
     };
+  }
+
+  // Blend a #rrggbb colour toward white; amount 0 = colour, 1 = white.
+  // Printed documents need literal colours (no CSS variables in a print window).
+  function mix(hex, amount) {
+    var h = String(hex || '#2f6a4f').replace('#', '');
+    if (h.length === 3) h = h.replace(/(.)/g, '$1$1');
+    var out = '#';
+    for (var i = 0; i < 3; i++) {
+      var c = parseInt(h.substr(i * 2, 2), 16);
+      c = Math.round(c + (255 - c) * amount);
+      out += ('0' + c.toString(16)).slice(-2);
+    }
+    return out;
+  }
+
+  // The Shorashim Plus mark (triangle with three cuts, from the printed logo),
+  // as inline SVG for printed documents. Gradient ids are numbered so several
+  // marks in one document never share an id.
+  var _markSeq = 0;
+  function brandMark(height) {
+    var n = ++_markSeq, h = height || 28;
+    return '<svg viewBox="0 0 118 100" width="' + Math.round(h * 1.18) + '" height="' + h + '" style="direction:ltr;vertical-align:middle;" aria-hidden="true">' +
+      '<defs><linearGradient id="spA-rt' + n + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0f86b3"/><stop offset="0.3" stop-color="#2a9cbf"/><stop offset="1" stop-color="#c8eab5"/></linearGradient>' +
+      '<linearGradient id="spB-rt' + n + '" x1="0.22" y1="0" x2="0.9" y2="1"><stop offset="0" stop-color="#2799be"/><stop offset="0.5" stop-color="#4aa9bd"/><stop offset="1" stop-color="#c8eab5"/></linearGradient></defs>' +
+      '<path fill="url(#spA-rt' + n + ')" d="M56 6 L117.4 94 L30.9 94 L68.3 34.6 L27.7 94 L21.2 94 L63.7 26.5 L18 94 L11 94 L57.7 19.9 L7.8 94 L0.6 94 Z"/>' +
+      '<path fill="url(#spB-rt' + n + ')" d="M72 28.8 L117.4 94 L30.9 94 Z"/></svg>';
   }
 
   // ── farm chooser before export ──
@@ -330,7 +367,7 @@ var ReportTheme = (function () {
   function collect() {
     var sel = document.querySelector('.rt-preset.rt-on');
     return {
-      preset: sel ? sel.getAttribute('data-preset') : 'forest',
+      preset: sel ? sel.getAttribute('data-preset') : 'valley',
       title: document.getElementById('rtTitle').value.trim(),
       sub: document.getElementById('rtSub').value.trim(),
       logo: _pendingLogo || '',
@@ -381,7 +418,8 @@ var ReportTheme = (function () {
   return {
     resolve: resolve, chooseAndExport: chooseAndExport, doExport: doExport,
     editFromChooser: editFromChooser, edit: edit, save: save, reset: reset,
-    preview: preview, dropLogo: dropLogo, close: close, PRESETS: PRESETS
+    preview: preview, dropLogo: dropLogo, close: close, PRESETS: PRESETS,
+    brandMark: brandMark, mix: mix
   };
 })();
 window.ReportTheme = ReportTheme;

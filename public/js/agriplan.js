@@ -2003,10 +2003,10 @@ var AgriPlan = (function () {
     var presets = (window.ReportTheme && ReportTheme.PRESETS) ? ReportTheme.PRESETS : {};
     var sw = Object.keys(presets).map(function (k) {
       var pr = presets[k];
-      var on = (t.preset || 'forest') === k;
+      var on = (t.preset || 'valley') === k;
       return '<button onclick="AgriPlan._theme(' + pid + ',\'preset\',\'' + k + '\')" ' +
         'style="padding:8px 12px;border-radius:10px;cursor:pointer;font-family:inherit;font-weight:700;' +
-        'font-size:.78rem;color:' + pr.headText + ';background:linear-gradient(135deg,' + pr.c1 + ',' + pr.c3 + ');' +
+        'font-size:.78rem;color:#fff;background:linear-gradient(135deg,' + pr.c1 + ',' + pr.c3 + ');' +
         'border:' + (on ? '2.5px solid var(--accent,#ff9f43)' : '1px solid rgba(255,255,255,.2)') + ';">' +
         esc(pr.label ? pr.label[0] : k) + '</button>';
     }).join(' ');
@@ -2081,25 +2081,46 @@ var AgriPlan = (function () {
   function printCss(th) {
     return '' +
       '@page{size:A4 ' + th.orientation + ';margin:9mm;}' +
-      'body{font-family:Heebo,Arial,sans-serif;direction:rtl;color:#222;background:#fff;padding:0;margin:0;}' +
-      '.hd{background:linear-gradient(135deg,' + th.c1 + ',' + th.c3 + ');color:' + th.headText + ';' +
-        'padding:18px 22px;border-radius:0 0 ' + th.radius + 'px ' + th.radius + 'px;margin-bottom:14px;}' +
-      '.hd h1{margin:0;font-size:1.4rem;}' +
-      '.hd .sub{opacity:.9;font-size:.9rem;margin-top:3px;}' +
-      '.hd .kpi{margin-top:10px;font-size:.82rem;opacity:.95;}' +
+      'body{font-family:Rubik,Heebo,Arial,sans-serif;direction:rtl;color:#222;background:#fff;padding:0;margin:0;}' +
+      // Soft letterhead (Oct 2026): tinted band, dark ink, no gradient.
+      '.hd{background:' + (th.soft || '#e4eee8') + ';color:' + (th.ink || th.c1) + ';' +
+        'padding:18px 22px;border-radius:' + th.radius + 'px;margin:4px 0 14px;}' +
+      '.hd h1{margin:0;font-size:1.4rem;font-weight:700;color:' + (th.ink || th.c1) + ';}' +
+      '.hd .sub{color:#5f5a55;font-size:.9rem;margin-top:3px;}' +
+      '.hd .kpi{margin-top:10px;font-size:.82rem;color:#3f3a36;}' +
       '.wrap{padding:0 14px 14px;}' +
-      'h2{font-size:1rem;margin:16px 0 6px;color:' + th.c2 + ';border-bottom:2px solid ' + th.c3 + ';' +
+      'h2{font-size:1rem;font-weight:700;margin:16px 0 6px;color:' + (th.ink || th.c2) + ';border-bottom:2px solid ' + (th.line || th.c3) + ';' +
         'padding-bottom:3px;}' +
       'h3{font-size:.9rem;margin:0 0 4px;color:' + th.c2 + ';}' +
       'table{width:100%;border-collapse:collapse;margin-bottom:10px;}' +
-      'th,td{border:1px solid #c4ccc6;padding:4px 6px;font-size:.7rem;text-align:right;vertical-align:top;}' +
-      'th{background:' + th.c2 + ';color:' + th.headText + ';font-weight:800;}' +
-      'tfoot td{font-weight:800;background:#f2f6f3;}' +
+      'th,td{border:1px solid #e1ded8;padding:4px 6px;font-size:.7rem;text-align:right;vertical-align:top;}' +
+      'th{background:' + (th.soft || '#e4eee8') + ';color:' + (th.ink || th.c1) + ';font-weight:700;border-color:' + (th.line || '#c6d8cd') + ';}' +
+      'tfoot td{font-weight:700;background:' + (th.soft || '#f2f6f3') + ';}' +
       '.qty{color:' + th.accent + ';font-weight:800;font-size:.76rem;}' +
       '.rate{color:#666;font-size:.66rem;}' +
       '.mode{color:#8a5a2b;font-size:.66rem;font-weight:700;}' +
       '.farms{display:flex;flex-wrap:wrap;gap:10px;}' +
-      '.farm{flex:1 1 220px;border:1px solid #d5ddd7;border-radius:' + th.radius + 'px;padding:8px 10px;}' +
+      '.farm{flex:1 1 220px;border:1px solid ' + (th.line || '#d5ddd7') + ';border-radius:' + th.radius + 'px;padding:8px 10px;break-inside:avoid;}' +
+      '.mini td.loads{background:#f6f8f5;border-radius:6px;padding:4px 6px;font-size:.68rem;color:#3f3a36;line-height:1.5;}' +
+      '.mini td.loads b{color:' + (th.ink || th.c1) + ';}' +
+      '.mini td.loads.warn{background:#fdf3ea;color:#8a4b1b;}' +
+      // Materials page
+      '.mt-page{break-before:page;page-break-before:always;}' +
+      '.mt-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;}' +
+      '.mt-card{border:1px solid ' + (th.line || '#d5ddd7') + ';border-radius:14px;padding:10px 12px;display:flex;gap:12px;break-inside:avoid;page-break-inside:avoid;}' +
+      '.mt-info{flex:1;min-width:0;}' +
+      '.mt-info h3{font-size:1rem;margin:0 0 2px;color:' + (th.ink || th.c1) + ';}' +
+      '.mt-ai{font-size:.74rem;color:#5f5a55;margin-bottom:6px;}' +
+      '.mt-kv{width:100%;border-collapse:collapse;margin:0;}' +
+      '.mt-kv td{border:none;border-bottom:1px solid #eeebe6;font-size:.7rem;padding:3px 0;}' +
+      '.mt-kv td:first-child{color:#6b6560;width:40%;}' +
+      '.mt-use{margin-top:7px;background:' + (th.soft || '#e4eee8') + ';border-radius:8px;padding:5px 8px;font-size:.7rem;color:' + (th.ink || th.c1) + ';}' +
+      '.mt-label{flex:0 0 46mm;text-align:center;font-size:.62rem;color:#6b6560;}' +
+      '.mt-label img{width:100%;max-height:62mm;object-fit:contain;border:1px solid #e1ded8;border-radius:8px;background:#fff;}' +
+      '.mt-qr{width:30mm;height:30mm;margin:4mm auto 3px;}' +
+      '.mt-qr svg{width:100%;height:100%;}' +
+      '.mt-label a{color:' + (th.ink || th.c1) + ';word-break:break-all;}' +
+      '.mt-none{border:1px dashed #d8d3cc;border-radius:8px;padding:14px 6px;margin-top:4mm;}' +
       '.farm .note{font-size:.72rem;color:#8a5a2b;margin:0 0 5px;font-style:italic;}' +
       '.mini td{border:none;border-bottom:1px solid #eee;font-size:.72rem;padding:2px 0;}' +
       '.mini td.op{font-weight:800;color:#2d6a4f;padding-top:6px;border-bottom:1px solid #cfd8d2;}' +
@@ -2152,19 +2173,28 @@ var AgriPlan = (function () {
         '</tr>';
     });
 
+    // Solution litres per farm × operation, for the sprayer-load figures.
+    var solByOp = {};
+    rowsIn.forEach(function (r) {
+      var fid = (r.farmId === null || r.farmId === undefined) ? 0 : r.farmId;
+      var key = fid + '#' + opKey(r.method, r.round);
+      solByOp[key] = (solByOp[key] || 0) + rowCarrierL(r);
+    });
+
     var farmSec = '';
     Object.keys(t.farmOps).forEach(function (fid) {
       var ops = t.farmOps[fid];
       var body = Object.keys(ops).map(function (k) {
         var op = ops[k];
         var names = Object.keys(op.mats).sort();
+        var loads = loadsHtml(Number(fid), op, solByOp[fid + '#' + k] || 0);
         if (!names.length) return '';
         return '<tr><td colspan="2" class="op">' + esc(opLabel(op.method, op.round)) +
             ' — ' + esc(modeLabel(op.method)) + '</td></tr>' +
           names.map(function (nm) {
             return '<tr><td>' + esc(nm) + '</td><td><b>' + n1(op.mats[nm]) + ' ' +
               tt('ליטר', 'ลิตร', 'لتر') + '</b></td></tr>';
-          }).join('');
+          }).join('') + loads;
       }).join('');
       if (!body) return;
       var note = (p.farmNotes || {})[String(fid)] || '';
@@ -2227,15 +2257,163 @@ var AgriPlan = (function () {
   // not block a second popup.
   function exportPages(p, pages, o, suffix) {
     var th = planTheme(p);
+    var RM = window.ReportMap;
+    // Each grower sheet is followed by one plots page per מטע it covers
+    // (never repeated within a document); the materials page closes it.
+    var shown = {};
+    var body = pages.map(function (pg) {
+      var out = pageHtml(p, pg.rows, th, { unit: pg.unit, prices: o.prices });
+      if (RM && RM.plotSheet) {
+        farmIdsOf(pg.rows).forEach(function (fid) {
+          if (shown[fid]) return;
+          shown[fid] = true;
+          out += RM.plotSheet(fid, th);
+        });
+      }
+      return out;
+    }).join('');
+    var allRows = [];
+    pages.forEach(function (pg) { allRows = allRows.concat(pg.rows || []); });
+    var mats = materialsPage(allRows, th);
     var html = '<!DOCTYPE html><html dir="rtl" lang="he"><head><meta charset="utf-8">' +
-      '<title>' + esc((p.docTitle || p.name) + (suffix ? ' — ' + suffix : '')) + '</title><style>' +
-      printCss(th) + '</style></head><body>' +
-      pages.map(function (pg) { return pageHtml(p, pg.rows, th, { unit: pg.unit, prices: o.prices }); }).join('') +
+      '<title>' + esc((p.docTitle || p.name) + (suffix ? ' — ' + suffix : '')) + '</title>' +
+      '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700&display=swap">' +
+      '<style>' + printCss(th) + (RM && RM.plotSheetCss ? RM.plotSheetCss(th) : '') + '</style></head><body>' +
+      body + mats +
+      // QR codes for official labels that have no attached photo. Drawn in
+      // the print window; if the library cannot load, the printed link stays.
+      (mats.indexOf('data-qr=') !== -1
+        ? '<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>' +
+          '<script>(function(){try{document.querySelectorAll("[data-qr]").forEach(function(el){' +
+          'var q=qrcode(0,"M");q.addData(el.getAttribute("data-qr"));q.make();el.innerHTML=q.createSvgTag({cellSize:3,margin:2,scalable:true});});}catch(e){}})();</script>'
+        : '') +
       '</body></html>';
     if (window.Util && typeof window.Util.exportReport === 'function') {
       window.Util.exportReport(html, (p.docTitle || p.name || 'plan').replace(/\s+/g, '_') +
         (suffix ? '_' + suffix.replace(/\s+/g, '_') : '') + '_' + year + '.html');
     }
+  }
+
+  function farmIdsOf(rows) {
+    var seen = {}, out = [];
+    (rows || []).forEach(function (r) {
+      var fid = r.farmId;
+      if (fid === null || fid === undefined) { var pl = plotById(r.plotId); fid = pl ? pl.farm_id : null; }
+      if (fid && !seen[fid]) { seen[fid] = true; out.push(fid); }
+    });
+    return out;
+  }
+
+  // ── Sprayer loads per מטע × operation ──
+  // Uses the sprayers defined on the farm card (ציוד → מרסס, with tank
+  // volume). Per sprayer: how many fills the operation takes, and what goes
+  // into one full tank — derived from the plan's own product:solution ratio,
+  // so it holds for % and cc/tree recipes alike. Trunk injection uses no tank.
+  function loadsHtml(fid, op, solL) {
+    if (op.method === 'inject' || !(solL > 0)) return '';
+    var sprayers = (window.SprayStore && SprayStore.getFarmSprayers) ? SprayStore.getFarmSprayers(fid) : [];
+    var lt = tt('ל\'', 'ล.', 'ل');
+    if (!sprayers.length) {
+      return '<tr><td colspan="2" class="loads warn">' + tt('תמיסה', 'สารละลาย', 'محلول') + ': <b>' +
+        n1(solL).toLocaleString() + ' ' + lt + '</b> · ' +
+        tt('לא הוגדר מרסס למטע — הגדר בכרטיס המטע ← ציוד', 'ยังไม่ได้กำหนดถังพ่นของสวน', 'لم يُحدد رشاش للبستان') + '</td></tr>';
+    }
+    var names = Object.keys(op.mats).sort();
+    var lines = sprayers.map(function (sp) {
+      var fills = Math.ceil(solL / sp.capacityL);
+      var per = names.map(function (nm) {
+        var q = sp.capacityL * (op.mats[nm] / solL);
+        return esc(nm) + ' ' + (q < 10 ? Math.round(q * 100) / 100 : n1(q)) + ' ' + lt;
+      }).join(' · ');
+      return '<b>' + esc(sp.name) + '</b>' + (sp.kindLabel ? ' · ' + esc(sp.kindLabel) : '') + ' · ' +
+        sp.capacityL.toLocaleString() + ' ' + lt + ' → <b>' + fills + ' ' +
+        (fills === 1 ? tt('מילוי', 'ถัง', 'تعبئة') : tt('מילויים', 'ถัง', 'تعبئات')) + '</b>' +
+        (per ? '<br>' + tt('למילוי מלא', 'ต่อถังเต็ม', 'لكل تعبئة كاملة') + ': ' + per : '');
+    });
+    if (sprayers.length > 1) {
+      var cap = sprayers.reduce(function (a, sp) { return a + sp.capacityL; }, 0);
+      lines.push(tt('כל המרססים יחד', 'ทุกถังพร้อมกัน', 'جميع الرشاشات معًا') + ' (' + cap.toLocaleString() + ' ' + lt + '): <b>' +
+        Math.ceil(solL / cap) + ' ' + tt('סבבים', 'รอบ', 'جولات') + '</b>');
+    }
+    return '<tr><td colspan="2" class="loads">' + tt('תמיסה', 'สารละลาย', 'محلول') + ': <b>' +
+      n1(solL).toLocaleString() + ' ' + lt + '</b><br>' + lines.join('<br>') + '</td></tr>';
+  }
+
+  // ── Recommended materials page ──
+  // Every material in the document, with what the catalogue knows about it
+  // (from the Ministry registry import) and its label: an attached label
+  // photo when one exists, otherwise a QR code to the official label.
+  function catalogueFor(name) {
+    var all = (window.SprayStore && SprayStore.getPesticides) ? SprayStore.getPesticides() : [];
+    var nm = String(name || '').trim();
+    var hits = all.filter(function (x) { return String(x.productName || '').trim() === nm; });
+    if (!hits.length) return null;
+    hits.sort(function (a, b) {
+      function score(x) { return (x.labelImage ? 4 : 0) + (/תמר/.test(String(x.crop || x.commonTargets || '')) ? 2 : 0) + (x.labelUrl ? 1 : 0); }
+      return score(b) - score(a);
+    });
+    var best = hits[0];
+    // Targets across the product's registrations, for the "against" line.
+    var pests = {};
+    hits.forEach(function (x) { String(x.pest || '').split(/[,،]/).forEach(function (s) { s = s.trim(); if (s) pests[s] = true; }); });
+    best = JSON.parse(JSON.stringify(best));
+    best._pests = Object.keys(pests).slice(0, 8);
+    return best;
+  }
+
+  function materialsPage(rows, th) {
+    var use = {};      // name -> { L, rates:{}, ops:{} }
+    (rows || []).forEach(function (r) {
+      (r.materials || []).forEach(function (m) {
+        if (!m.name) return;
+        var u = use[m.name] || (use[m.name] = { L: 0, rates: {}, ops: {} });
+        u.L += rowMaterialL(r, m);
+        u.rates[m.mode === 'pct' ? m.value + '%' : m.value + ' ' + tt('סמ"ק/עץ', 'ซีซี/ต้น', 'سم³/شجرة')] = true;
+        u.ops[methodLabel(r.method)] = true;
+      });
+    });
+    var names = Object.keys(use).sort();
+    if (!names.length) return '';
+    var cards = names.map(function (nm) {
+      var c = catalogueFor(nm), u = use[nm];
+      var kv = [];
+      function row(label, val) { if (val) kv.push('<tr><td>' + label + '</td><td>' + esc(val) + '</td></tr>'); }
+      if (c) {
+        row(tt('ריכוז רשום', 'ความเข้มข้น', 'التركيز'), c.concentration);
+        row(tt('פורמולציה', 'สูตร', 'التركيبة'), c.formulation);
+        row(tt('סוג פעילות', 'ประเภท', 'نوع النشاط'), c.usage);
+        row(tt('מינון רשום', 'อัตราที่จดทะเบียน', 'الجرعة المسجلة'), c.dosage);
+        row(tt('ימי המתנה לקטיף', 'ระยะรอเก็บเกี่ยว', 'فترة الانتظار'), c.phi);
+        row(tt('דרגת רעילות', 'ระดับความเป็นพิษ', 'درجة السمية'), c.toxicity);
+        row(tt('גידול', 'พืช', 'المحصول'), c.crop || c.commonTargets);
+        row(tt('נגד', 'สำหรับ', 'ضد'), (c._pests || []).join(', '));
+        row(tt('מספר רישיון', 'เลขทะเบียน', 'رقم الترخيص'), c.regNumber);
+      }
+      var label;
+      if (c && c.labelImage) {
+        label = '<img src="' + esc(c.labelImage) + '" alt=""><div>' + tt('תווית המוצר', 'ฉลากสินค้า', 'ملصق المنتج') + '</div>';
+      } else if (c && c.labelUrl) {
+        label = '<div class="mt-qr" data-qr="' + esc(c.labelUrl) + '"></div>' +
+          '<div>' + tt('סרוק לתווית הרשמית', 'สแกนเพื่อดูฉลาก', 'امسح للملصق الرسمي') + '</div>';
+      } else {
+        label = '<div class="mt-none">' + tt('אין תווית שמורה', 'ไม่มีฉลาก', 'لا يوجد ملصق') + '</div>';
+      }
+      return '<div class="mt-card"><div class="mt-info">' +
+          '<h3>' + esc(nm) + '</h3>' +
+          '<div class="mt-ai">' + (c && c.activeIngredient ? esc(c.activeIngredient) :
+            (c ? '' : tt('לא נמצא במאגר החומרים', 'ไม่พบในฐานข้อมูล', 'غير موجود في قاعدة البيانات'))) + '</div>' +
+          (kv.length ? '<table class="mt-kv"><tbody>' + kv.join('') + '</tbody></table>' : '') +
+          '<div class="mt-use">' + tt('בתוכנית', 'ในแผน', 'في الخطة') + ': ' +
+            esc(Object.keys(u.ops).join(', ')) + ' · ' + esc(Object.keys(u.rates).join(', ')) + ' · <b>' +
+            n1(u.L).toLocaleString() + ' ' + tt('ליטר', 'ลิตร', 'لتر') + '</b></div>' +
+        '</div><div class="mt-label">' + label + '</div></div>';
+    }).join('');
+    return '<section class="page mt-page"><div class="hd"><h1>' +
+      tt('החומרים המומלצים', 'สารที่แนะนำ', 'المواد الموصى بها') + '</h1>' +
+      '<div class="sub">' + tt('פרטי רישום ותוויות', 'ข้อมูลการขึ้นทะเบียนและฉลาก', 'بيانات التسجيل والملصقات') + '</div></div>' +
+      '<div class="wrap"><div class="mt-grid">' + cards + '</div>' +
+      '<div class="ft">' + tt('יש לפעול לפי התווית הרשמית. הנתונים נלקחו ממאגר משרד החקלאות כפי שנשמר במערכת.',
+        'ปฏิบัติตามฉลากทางการ', 'يجب العمل وفق الملصق الرسمي') + '</div></div></section>';
   }
 
   // ── Supplier quantity sheet / request for quotation ──

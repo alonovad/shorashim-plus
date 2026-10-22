@@ -39,6 +39,16 @@ service firebase.storage {
          request.resource.contentType == 'application/pdf');
     }
 
+    // Label photos for catalogue materials (printed on the treatment
+    // plan's materials page). Images only, small after client compression.
+    match /pesticide-labels/{file} {
+      allow read: if signedIn();
+      allow delete: if staff();
+      allow create, update: if staff() &&
+        request.resource.size < 8 * 1024 * 1024 &&
+        request.resource.contentType.matches('image/.*');
+    }
+
     match /{allPaths=**} {
       allow read, write: if false;
     }

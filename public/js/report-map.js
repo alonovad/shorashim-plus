@@ -460,6 +460,413 @@ var ReportMap = (function () {
     return inflight[k];
   }
 
+  // ════════════════════════════════════════════════════════════════
+  // Per-orchard plots page (Oct 2026)
+  // One printed page per מטע: the list of its plots with a clear picture of
+  // their polygons and the data on them. Pure vector SVG — prints sharp,
+  // needs no network, and so can never hold an export up the way satellite
+  // tiles can.
+  //
+  // Two layouts, chosen per farm:
+  //   overview — all plots drawn to scale on one map, every plot numbered,
+  //              name + area + trees written on the polygons that have room,
+  //              full data table beside the map;
+  //   collage  — when the plots are scattered far apart an overview shrinks
+  //              them to dots, so each plot gets its own card instead, drawn
+  //              to fit, with its data under it.
+  // Colours arrive literal from the report theme (TH): a print window has
+  // no stylesheet, so no CSS variables here.
+  // ════════════════════════════════════════════════════════════════
+
+  function escH(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  function storeApi() { return window.SprayStore || {}; }
+
+  // Rings for a plot: stored latlngs (+ detached parts), or — for a plot
+  // drawn this session and not reloaded yet — its live Leaflet layer.
+  function sheetRings(p) {
+    var r = ringsOf(p);
+    if (r.length) return r;
+    try {
+      if (p && p.layer && typeof p.layer.getLatLngs === 'function') {
+        var ll = p.layer.getLatLngs()[0].map(normLatLng).filter(Boolean);
+        if (ll.length >= 3) return [ll];
+      }
+    } catch (e) {}
+    return [];
+  }
+
+  function nameOf(p) {
+    return (typeof window.locName === 'function') ? window.locName(p) : (p.name || '');
+  }
+
+  function isDate(p) { return /תמר/.test(String((p && p.crop_type) || '')); }
+
+  // Farming branch of a plot (orchard / vineyard / field / veg / greenhouse)
+  // decides which figures are meaningful: no tree counts for field crops.
+  function bdefOf(p) {
+    var PB = window.PlotBranch;
+    return PB ? PB.def(PB.forPlot(p)) : { count: tt('מספר עצים', 'จำนวนต้น', 'عدد الأشجار'), spacing: true, ym: true, plant: '' };
+  }
+  function fmtDay(d) { try { return d ? new Date(d).toLocaleDateString('he-IL') : ''; } catch (e) { return ''; } }
+
+  function fmtNum(n, d) {
+    n = Number(n) || 0;
+    return d ? n.toFixed(d) : Math.round(n).toLocaleString('he-IL');
+  }
+
+  // Local metric projection around the farm: x east, y south, metres.
+  function projector(allRings) {
+    var lat0 = 0, lng0 = 0, cnt = 0;
+    allRings.forEach(function (ring) { ring.forEach(function (q) { lat0 += q.lat; lng0 += q.lng; cnt++; }); });
+    lat0 /= cnt || 1; lng0 /= cnt || 1;
+    var kx = Math.cos(lat0 * Math.PI / 180) * 111320, ky = 110540;
+    return function (q) { return { x: (q.lng - lng0) * kx, y: (lat0 - q.lat) * ky }; };
+  }
+
+  function boxOf(ptsList) {
+    var b = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
+    ptsList.forEach(function (pts) {
+      pts.forEach(function (q) {
+        if (q.x < b.x0) b.x0 = q.x; if (q.x > b.x1) b.x1 = q.x;
+        if (q.y < b.y0) b.y0 = q.y; if (q.y > b.y1) b.y1 = q.y;
+      });
+    });
+    b.w = Math.max(b.x1 - b.x0, 1); b.h = Math.max(b.y1 - b.y0, 1);
+    return b;
+  }
+
+  function inside(pt, pts) {
+    var c = false;
+    for (var i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      var a = pts[i], b = pts[j];
+      if (((a.y > pt.y) !== (b.y > pt.y)) &&
+          (pt.x < (b.x - a.x) * (pt.y - a.y) / ((b.y - a.y) || 1e-9) + a.x)) c = !c;
+    }
+    return c;
+  }
+
+  function edgeDist(pt, pts) {
+    var best = Infinity;
+    for (var i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      var a = pts[j], b = pts[i];
+      var dx = b.x - a.x, dy = b.y - a.y, len = dx * dx + dy * dy || 1e-9;
+      var t = Math.max(0, Math.min(1, ((pt.x - a.x) * dx + (pt.y - a.y) * dy) / len));
+      var ex = a.x + t * dx - pt.x, ey = a.y + t * dy - pt.y;
+      best = Math.min(best, Math.sqrt(ex * ex + ey * ey));
+    }
+    return best;
+  }
+
+  // Label anchor: the point inside the polygon farthest from its edges
+  // (coarse grid search). A centroid can fall outside an L-shaped plot.
+  function labelPoint(pts) {
+    var b = boxOf([pts]), best = null, bestD = -1, N = 18;
+    for (var i = 1; i < N; i++) {
+      for (var j = 1; j < N; j++) {
+        var pt = { x: b.x0 + b.w * i / N, y: b.y0 + b.h * j / N };
+        if (!inside(pt, pts)) continue;
+        var d = edgeDist(pt, pts);
+        if (d > bestD) { bestD = d; best = pt; }
+      }
+    }
+    if (!best) best = { x: b.x0 + b.w / 2, y: b.y0 + b.h / 2 };
+    return { x: best.x, y: best.y, room: Math.max(bestD, 0) };
+  }
+
+  // Nearest polygon edge from pt along one axis (dir -1 / +1). Used to
+  // size an overview label to the room it really has.
+  function spanEdge(pts, pt, axis, dir) {
+    var best = dir < 0 ? -Infinity : Infinity;
+    var other = axis === 'x' ? 'y' : 'x';
+    for (var i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      var a = pts[j], b = pts[i];
+      if ((a[other] > pt[other]) === (b[other] > pt[other])) continue;
+      var t = (pt[other] - a[other]) / ((b[other] - a[other]) || 1e-9);
+      var v = a[axis] + t * (b[axis] - a[axis]);
+      if (dir < 0 && v <= pt[axis] && v > best) best = v;
+      if (dir > 0 && v >= pt[axis] && v < best) best = v;
+    }
+    if (!isFinite(best)) best = pt[axis];
+    return best;
+  }
+
+  function ringPath(pts) {
+    return 'M' + pts.map(function (q) { return q.x.toFixed(1) + ' ' + q.y.toFixed(1); }).join(' L') + ' Z';
+  }
+
+  // Scale bar length in metres that fits ~22% of the drawing width.
+  function niceLen(mPerPx, px) {
+    var target = mPerPx * px, pow = Math.pow(10, Math.floor(Math.log(target) / Math.LN10));
+    var best = pow;
+    [1, 2, 5, 10].forEach(function (m) { if (m * pow <= target) best = m * pow; });
+    return best;
+  }
+
+  function plotSheetCss(TH) {
+    var c1 = TH.c1 || '#1d3d2e', c2 = TH.c2 || '#2f6a4f';
+    var soft = TH.soft || '#e4eee8', line = TH.line || '#c6d8cd';
+    return '' +
+      '.ps-page{break-before:page;page-break-before:always;padding:4mm 6mm 0;}' +
+      '.ps-head{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap;' +
+        'border-bottom:2px solid ' + line + ';padding-bottom:7px;margin-bottom:10px;}' +
+      '.ps-head h2{margin:0;font-size:1.25rem;font-weight:700;color:' + c1 + ';}' +
+      '.ps-head .ps-sub{font-size:.78rem;color:#6b6560;margin-top:2px;}' +
+      '.ps-kpis{display:flex;gap:6px;flex-wrap:wrap;}' +
+      '.ps-kpi{background:' + soft + ';color:' + c1 + ';border-radius:99px;padding:4px 11px;font-size:.76rem;font-weight:600;white-space:nowrap;}' +
+      '.ps-body{display:flex;gap:12px;align-items:flex-start;}' +
+      '.ps-portrait .ps-body{flex-direction:column;}' +
+      '.ps-map{flex:1.35 1 0;min-width:0;border:1px solid ' + line + ';border-radius:14px;overflow:hidden;background:#fbfcfa;}' +
+      '.ps-map svg{display:block;width:100%;height:auto;}' +
+      '.ps-portrait .ps-map{width:100%;}' +
+      '.ps-tbl{flex:1 1 0;min-width:0;}' +
+      '.ps-portrait .ps-tbl{width:100%;}' +
+      '.ps-tbl table{width:100%;border-collapse:collapse;margin:0;box-shadow:none;border-radius:0;}' +
+      '.ps-tbl th{background:' + soft + ';color:' + c1 + ';font-size:.68rem;font-weight:700;padding:5px 6px;text-align:right;border:none;border-bottom:1.5px solid ' + line + ';}' +
+      '.ps-tbl td{font-size:.72rem;padding:4px 6px;border:none;border-bottom:1px solid #ecebe7;background:#fff;vertical-align:middle;}' +
+      '.ps-tbl tr:nth-child(even) td{background:#fafaf8;}' +
+      '.ps-tbl td.n{font-variant-numeric:tabular-nums;white-space:nowrap;}' +
+      '.ps-no{display:inline-block;min-width:18px;height:18px;line-height:18px;border-radius:9px;background:' + c2 + ';color:#fff;' +
+        'font-size:.64rem;font-weight:700;text-align:center;padding:0 4px;}' +
+      '.ps-tbl tfoot td{font-weight:700;background:' + soft + ';color:' + c1 + ';border-bottom:none;}' +
+      '.ps-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;}' +
+      '.ps-portrait .ps-grid{grid-template-columns:repeat(3,1fr);}' +
+      '.ps-card{border:1px solid ' + line + ';border-radius:12px;padding:6px 7px 7px;break-inside:avoid;page-break-inside:avoid;background:#fff;}' +
+      '.ps-card svg{display:block;width:100%;height:auto;background:#fbfcfa;border-radius:8px;}' +
+      '.ps-card .ps-cn{display:flex;align-items:center;gap:5px;font-weight:700;font-size:.8rem;color:' + c1 + ';margin:5px 0 2px;}' +
+      '.ps-card .ps-cd{font-size:.68rem;color:#4b4642;line-height:1.45;}' +
+      '.ps-card .ps-cd b{color:' + c1 + ';font-weight:600;}' +
+      '.ps-note{font-size:.66rem;color:#8a8580;margin-top:6px;}' +
+      '@media print{.ps-page{padding:0;}}';
+  }
+
+  // farmId: number. TH: resolved report theme. Returns '' when the farm has
+  // no plots with geometry and no plots at all.
+  function plotSheet(farmId, TH) {
+    TH = TH || {};
+    var api = storeApi();
+    var farms = api.getFarms ? api.getFarms() : [];
+    var farm = farms.find(function (f) { return f.id === farmId; }) || null;
+    var all = api.getPlots ? api.getPlots() : [];
+    var list = all.filter(function (p) { return p.farm_id === farmId; });
+    if (!list.length) return '';
+    list.sort(function (a, b) {
+      return String(nameOf(a)).localeCompare(String(nameOf(b)), 'he', { numeric: true, sensitivity: 'base' });
+    });
+
+    var c1 = TH.c1 || '#1d3d2e', c2 = TH.c2 || '#2f6a4f';
+    var portrait = TH.orientation === 'portrait';
+    var anyDate = list.some(isDate);
+
+    var totArea = 0, totTrees = 0;
+    list.forEach(function (p) { totArea += Number(p.area) || 0; if (bdefOf(p).count) totTrees += Number(p.tree_count) || 0; });
+
+    var withGeo = list.map(function (p, i) { return { p: p, no: i + 1, rings: sheetRings(p) }; });
+    var drawn = withGeo.filter(function (o) { return o.rings.length; });
+
+    var head = '<div class="ps-head"><div>' +
+        '<h2>' + escH(farm ? nameOf(farm) : '') + ' — ' + tt('חלקות המטע', 'แปลงในสวน', 'قطع البستان') + '</h2>' +
+        '<div class="ps-sub">' + tt('מצב לתאריך', 'ข้อมูล ณ วันที่', 'حتى تاريخ') + ' ' +
+          new Date().toLocaleDateString('he-IL') + '</div>' +
+      '</div><div class="ps-kpis">' +
+        '<span class="ps-kpi">' + list.length + ' ' + tt('חלקות', 'แปลง', 'قطع') + '</span>' +
+        '<span class="ps-kpi">' + fmtNum(totArea, 2) + ' ' + tt('דונם', 'ไร่', 'دونم') + '</span>' +
+        (totTrees ? '<span class="ps-kpi">' + fmtNum(totTrees) + ' ' + tt('עצים', 'ต้น', 'شجرة') + '</span>' : '') +
+      '</div></div>';
+
+    // Readability test for the overview: how big does a typical plot come
+    // out at map scale? Below ~70 px across, labels stop fitting — collage.
+    var mode = 'overview';
+    var proj = null, mapW = portrait ? 760 : 640, mapH = portrait ? 470 : 440, pad = 26;
+    if (drawn.length) {
+      var allRings = [];
+      drawn.forEach(function (o) { o.rings.forEach(function (r) { allRings.push(r); }); });
+      proj = projector(allRings);
+      drawn.forEach(function (o) {
+        o.pts = o.rings.map(function (r) { return r.map(proj); });
+        o.box = boxOf(o.pts);
+      });
+      var fb = boxOf(drawn.reduce(function (acc, o) { return acc.concat(o.pts); }, []));
+      var sc = Math.min((mapW - 2 * pad) / fb.w, (mapH - 2 * pad) / fb.h);
+      var sizes = drawn.map(function (o) { return Math.max(o.box.w, o.box.h) * sc; }).sort(function (a, b) { return a - b; });
+      var median = sizes[Math.floor(sizes.length / 2)];
+      if (drawn.length > 1 && median < 70) mode = 'collage';
+    } else {
+      mode = 'table';
+    }
+
+    var body = '';
+    if (mode === 'overview') {
+      body = '<div class="ps-body"><div class="ps-map">' + overviewSvg(drawn, mapW, mapH, pad, c1, c2) + '</div>' +
+        '<div class="ps-tbl">' + tableHtml(withGeo, anyDate, totArea, totTrees) + '</div></div>';
+    } else if (mode === 'collage') {
+      body = '<div class="ps-grid">' + withGeo.map(function (o) { return cardHtml(o, c1, c2); }).join('') + '</div>';
+    } else {
+      body = '<div class="ps-tbl">' + tableHtml(withGeo, anyDate, totArea, totTrees) + '</div>';
+    }
+
+    var missingGeo = withGeo.length - drawn.length;
+    var note = missingGeo
+      ? '<div class="ps-note">' + missingGeo + ' ' + tt('חלקות ללא גבולות מסומנים במפה — מופיעות ברשימה בלבד',
+          'แปลงที่ไม่มีขอบเขตบนแผนที่ — แสดงในรายการเท่านั้น', 'قطع بلا حدود على الخريطة — تظهر في القائمة فقط') + '</div>'
+      : '';
+
+    return '<section class="ps-page' + (portrait ? ' ps-portrait' : '') + '">' + head + body + note + '</section>';
+  }
+
+  function dataBits(p) {
+    var bits = [], bd = bdefOf(p);
+    bits.push('<b>' + fmtNum(p.area, 2) + '</b> ' + tt('דונם', 'ไร่', 'دونم'));
+    if (bd.count && p.tree_count) bits.push('<b>' + fmtNum(p.tree_count) + '</b> ' + escH(bd.count.replace(/^מספר /, '')));
+    if (bd.ym && p.young_trees) bits.push(fmtNum(p.young_trees) + ' ' + tt('צעירים', 'ต้นอ่อน', 'صغيرة'));
+    if (bd.ym && p.missing_trees) bits.push(fmtNum(p.missing_trees) + ' ' + tt('חסרים', 'ขาด', 'ناقصة'));
+    if (bd.plant && p.planting_date) bits.push(escH(bd.plant) + ' ' + fmtDay(p.planting_date));
+    if (isDate(p) && p.male_trees) bits.push(fmtNum(p.male_trees) + ' ' + tt('זכרים', 'ตัวผู้', 'ذكور'));
+    return bits;
+  }
+
+  function cropOf(p) {
+    return [p.crop_type, p.variety].filter(Boolean).map(escH).join(' · ');
+  }
+
+  function tableHtml(rows, anyDate, totArea, totTrees) {
+    // Columns follow the branches present: plant counts only when some plot
+    // counts plants, young/missing only for orchards and vineyards, a
+    // sowing/planting date only for annual crops.
+    var anyCount = rows.some(function (o) { return !!bdefOf(o.p).count; });
+    var anyYm = rows.some(function (o) { return bdefOf(o.p).ym; });
+    var anyPlant = rows.some(function (o) { return !!bdefOf(o.p).plant; });
+    var h = '<table><thead><tr>' +
+      '<th>#</th><th>' + tt('חלקה', 'แปลง', 'قطعة') + '</th>' +
+      '<th>' + tt('גידול / זן', 'พืช / พันธุ์', 'المحصول / الصنف') + '</th>' +
+      '<th>' + tt('דונם', 'ไร่', 'دونم') + '</th>' +
+      (anyCount ? '<th>' + tt('עצים / צמחים', 'ต้น', 'أشجار / نباتات') + '</th>' : '') +
+      (anyYm ? '<th>' + tt('צעירים', 'ต้นอ่อน', 'صغيرة') + '</th><th>' + tt('חסרים', 'ขาด', 'ناقصة') + '</th>' : '') +
+      (anyDate ? '<th>' + tt('זכרים', 'ตัวผู้', 'ذكور') + '</th>' : '') +
+      (anyPlant ? '<th>' + tt('זריעה / שתילה', 'หว่าน/ปลูก', 'البذر / الزراعة') + '</th>' : '') +
+      '</tr></thead><tbody>';
+    rows.forEach(function (o) {
+      var p = o.p, bd = bdefOf(p);
+      h += '<tr><td><span class="ps-no">' + o.no + '</span></td>' +
+        '<td><b>' + escH(nameOf(p)) + '</b></td>' +
+        '<td>' + (cropOf(p) || '—') + '</td>' +
+        '<td class="n">' + fmtNum(p.area, 2) + '</td>' +
+        (anyCount ? '<td class="n">' + (bd.count && p.tree_count ? fmtNum(p.tree_count) : '—') + '</td>' : '') +
+        (anyYm ? '<td class="n">' + (bd.ym && p.young_trees ? fmtNum(p.young_trees) : '—') + '</td>' +
+                 '<td class="n">' + (bd.ym && p.missing_trees ? fmtNum(p.missing_trees) : '—') + '</td>' : '') +
+        (anyDate ? '<td class="n">' + (isDate(p) && p.male_trees ? fmtNum(p.male_trees) : '—') + '</td>' : '') +
+        (anyPlant ? '<td class="n">' + (bd.plant && p.planting_date ? fmtDay(p.planting_date) : '—') + '</td>' : '') +
+        '</tr>';
+    });
+    h += '</tbody><tfoot><tr><td></td><td>' + tt('סה"כ', 'รวม', 'المجموع') + '</td><td></td>' +
+      '<td class="n">' + fmtNum(totArea, 2) + '</td>' +
+      (anyCount ? '<td class="n">' + (totTrees ? fmtNum(totTrees) : '—') + '</td>' : '') +
+      (anyYm ? '<td></td><td></td>' : '') + (anyDate ? '<td></td>' : '') + (anyPlant ? '<td></td>' : '') +
+      '</tr></tfoot></table>';
+    return h;
+  }
+
+  // Overview: all plots to scale, numbered; name + data on plots with room.
+  function overviewSvg(drawn, W, H, pad, c1, c2) {
+    var fb = boxOf(drawn.reduce(function (acc, o) { return acc.concat(o.pts); }, []));
+    var s = Math.min((W - 2 * pad) / fb.w, (H - 2 * pad) / fb.h);
+    var offX = (W - fb.w * s) / 2 - fb.x0 * s, offY = (H - fb.h * s) / 2 - fb.y0 * s;
+    function tp(q) { return { x: q.x * s + offX, y: q.y * s + offY }; }
+
+    var shapes = '', labels = '';
+    drawn.forEach(function (o, i) {
+      var px = o.pts.map(function (r) { return r.map(tp); });
+      px.forEach(function (r) {
+        shapes += '<path d="' + ringPath(r) + '" fill="' + (i % 2 ? c2 : c1) + '" fill-opacity="0.13" stroke="' + c2 +
+          '" stroke-width="1.6" stroke-linejoin="round"/>';
+      });
+      // Label in the largest ring.
+      var big = px.slice().sort(function (a, b) { var A = boxOf([a]), B = boxOf([b]); return B.w * B.h - A.w * A.h; })[0];
+      var lp = labelPoint(big), bb = boxOf([big]);
+      var p = o.p, nm = String(nameOf(p));
+      var bd = bdefOf(p);
+      var lines = [fmtNum(p.area, 2) + ' ' + tt('דונם', 'ไร่', 'دونم')];
+      if (bd.count && p.tree_count) lines.push(fmtNum(p.tree_count) + ' ' + tt('עצים', 'ต้น', 'شجرة'));
+      else if (!bd.count && p.crop_type) lines.push(String(p.crop_type));
+      // Room actually available around the label point: the polygon's
+      // horizontal and vertical span through it, not its bounding box.
+      var spanW = 2 * Math.min(lp.x - spanEdge(big, lp, 'x', -1), spanEdge(big, lp, 'x', 1) - lp.x);
+      var spanH = 2 * Math.min(lp.y - spanEdge(big, lp, 'y', -1), spanEdge(big, lp, 'y', 1) - lp.y);
+      var longest = Math.max(nm.length, lines.reduce(function (m, l) { return Math.max(m, l.length); }, 0));
+      var fs = Math.min(13, (spanW - 10) / (longest * 0.56), (spanH - 6) / (lines.length + 2.4));
+      if (fs >= 8.5) {
+        // Badge + name + data lines, centred on the label point. direction="rtl"
+        // on each <text> keeps Hebrew/number runs in reading order; the <svg>
+        // itself stays pinned ltr so text-anchor keeps its normal meaning.
+        var total = (lines.length + 1) * fs * 1.15 + fs * 1.4;
+        var y0 = lp.y - total / 2;
+        labels += numBadge(lp.x, y0 + fs * 0.55, o.no, c2);
+        var y = y0 + fs * 1.4 + fs;
+        labels += '<text x="' + lp.x.toFixed(1) + '" y="' + y.toFixed(1) + '" text-anchor="middle" direction="rtl" ' +
+          'font-size="' + fs.toFixed(1) + '" font-weight="700" fill="' + c1 + '" paint-order="stroke" stroke="#fff" stroke-width="3" stroke-linejoin="round">' + escH(nm) + '</text>';
+        lines.forEach(function (ln) {
+          y += fs * 1.15;
+          labels += '<text x="' + lp.x.toFixed(1) + '" y="' + y.toFixed(1) + '" text-anchor="middle" direction="rtl" ' +
+            'font-size="' + (fs * 0.88).toFixed(1) + '" fill="#3f3a36" paint-order="stroke" stroke="#fff" stroke-width="3" stroke-linejoin="round">' + escH(ln) + '</text>';
+        });
+      } else {
+        labels += numBadge(lp.x, lp.y, o.no, c2);
+      }
+    });
+
+    // Scale bar + north arrow, bottom-left / top-left.
+    var mPerPx = 1 / s, len = niceLen(mPerPx, W * 0.22), barPx = len / mPerPx;
+    var lenTxt = len >= 1000 ? (len / 1000) + ' km' : len + ' m';
+    var deco = '<g transform="translate(14,' + (H - 16) + ')">' +
+        '<rect x="0" y="-5" width="' + barPx.toFixed(1) + '" height="5" fill="' + c1 + '"/>' +
+        '<rect x="0" y="-5" width="' + (barPx / 2).toFixed(1) + '" height="5" fill="#fff" stroke="' + c1 + '" stroke-width="1"/>' +
+        '<text x="' + (barPx + 6).toFixed(1) + '" y="0" font-size="10" fill="' + c1 + '" text-anchor="start">' + lenTxt + '</text></g>' +
+      '<g transform="translate(22,22)"><path d="M0 -12 L6 6 L0 2 L-6 6 Z" fill="' + c1 + '"/>' +
+        '<text x="0" y="18" font-size="9" font-weight="700" fill="' + c1 + '" text-anchor="middle">N</text></g>';
+
+    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + W + ' ' + H + '" style="direction:ltr;" ' +
+      'font-family="Rubik, Heebo, Arial, sans-serif" role="img">' +
+      '<rect width="' + W + '" height="' + H + '" fill="#fbfcfa"/>' + shapes + labels + deco + '</svg>';
+  }
+
+  function numBadge(x, y, no, c2) {
+    var r = String(no).length > 1 ? 10 : 8.5;
+    return '<circle cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="' + r + '" fill="' + c2 + '" stroke="#fff" stroke-width="1.6"/>' +
+      '<text x="' + x.toFixed(1) + '" y="' + (y + 3.6).toFixed(1) + '" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">' + no + '</text>';
+  }
+
+  // Collage card: the plot alone, fitted to its card, with its data below.
+  function cardHtml(o, c1, c2) {
+    var p = o.p, W = 200, H = 136, pad = 12, padB = 24, svg = '';
+    if (o.pts && o.pts.length) {
+      var b = boxOf(o.pts);
+      var s = Math.min((W - 2 * pad) / b.w, (H - pad - padB) / b.h);
+      var offX = (W - b.w * s) / 2 - b.x0 * s, offY = pad + (H - pad - padB - b.h * s) / 2 - b.y0 * s;
+      var shapes = o.pts.map(function (r) {
+        return '<path d="' + ringPath(r.map(function (q) { return { x: q.x * s + offX, y: q.y * s + offY }; })) +
+          '" fill="' + c2 + '" fill-opacity="0.15" stroke="' + c2 + '" stroke-width="1.8" stroke-linejoin="round"/>';
+      }).join('');
+      var len = niceLen(1 / s, W * 0.3), barPx = len * s;
+      var deco = '<g transform="translate(8,' + (H - 8) + ')"><rect x="0" y="-3" width="' + barPx.toFixed(1) + '" height="3" fill="' + c1 + '"/>' +
+        '<text x="' + (barPx + 4).toFixed(1) + '" y="0" font-size="8" fill="' + c1 + '" text-anchor="start">' + (len >= 1000 ? (len / 1000) + ' km' : len + ' m') + '</text></g>';
+      svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + W + ' ' + H + '" style="direction:ltr;" font-family="Rubik, Heebo, Arial, sans-serif">' +
+        shapes + deco + '</svg>';
+    } else {
+      svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + W + ' ' + H + '" style="direction:ltr;">' +
+        '<text x="' + W / 2 + '" y="' + H / 2 + '" text-anchor="middle" direction="rtl" font-size="11" fill="#8a8580">' +
+        escH(tt('אין גבולות במפה', 'ไม่มีขอบเขต', 'لا حدود')) + '</text></svg>';
+    }
+    var crop = cropOf(p);
+    return '<div class="ps-card">' + svg +
+      '<div class="ps-cn"><span class="ps-no">' + o.no + '</span>' + escH(nameOf(p)) + '</div>' +
+      '<div class="ps-cd">' + dataBits(p).join(' · ') + (crop ? '<br>' + crop : '') + '</div></div>';
+  }
+
+
   return {
     // Synchronous read for generatePdfHtml — never triggers work.
     getCached: function (arg) {
@@ -528,6 +935,8 @@ var ReportMap = (function () {
                 '\u0635\u0648\u0631\u0629 \u0642\u0645\u0631 \u0635\u0646\u0627\u0639\u064a');
     },
     attribution: ATTRIBUTION,
+    plotSheet: plotSheet,
+    plotSheetCss: plotSheetCss,
     // Test seam.
     _project: project
   };

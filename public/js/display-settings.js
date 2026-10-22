@@ -1,11 +1,14 @@
 // ── DISPLAY SETTINGS MODULE ──
-// Lets each user pick one of three colour themes (the soft design, Oct 2026).
+// Colour theme (three soft palettes) plus per-device fine-tuning: colour
+// strength, hue, press effect, shadows, borders, text size.
 // Persists to localStorage under 'shorashim-display-settings'.
 //
-// The palettes themselves live in css/theme-soft.css as body classes; this
-// module only switches classes. The same switch runs earlier, from the inline
-// bootstrap at the top of <body> in index.html, so the saved theme is in
-// place before first paint — keep THEME_CLASSES there in step with THEMES.
+// The palettes live in css/theme-soft.css as body classes; the fine-tuning
+// is body classes (press/shadow/border/text) plus recomputed palette
+// variables (strength/hue). The same switch runs earlier, from the inline
+// bootstrap at the top of <body> in index.html, so everything is in place
+// before first paint — keep THEME_CLASSES there in step with THEMES, and the
+// tune classes in step with tuneClasses() below.
 
 var DisplaySettings = (function() {
   'use strict';
@@ -35,9 +38,22 @@ var DisplaySettings = (function() {
     }
   };
   var DEFAULT_THEME = 'valleyMorning';
-  var ALL_CLASSES = ['soft-dark', 'soft-earth', 'theme-neon', 'theme-classic'];
+  var THEME_CLASSES = ['soft-dark', 'soft-earth', 'theme-neon', 'theme-classic'];
 
-  var DEFAULTS = { theme: DEFAULT_THEME };
+  // ── Fine-tuning ──
+  var TUNE_DEFAULTS = { sat: 1, hue: 0, press: 'soft', shadow: 'none', border: 'thin', text: 'md' };
+  var TUNE_OPTIONS = {
+    press:  ['none', 'soft', 'strong'],
+    shadow: ['none', 'soft', 'strong'],
+    border: ['none', 'thin', 'bold'],
+    text:   ['sm', 'md', 'lg', 'xl']
+  };
+  // Palette variables recomputed by strength/hue. Neutral page/text tones
+  // are left alone so text contrast never drifts.
+  var TUNED_VARS = ['--primary', '--primary-dim', '--primary-soft', '--primary-faded',
+    '--g1', '--g2', '--g3', '--g4', '--g5', '--g6', '--tonal', '--line', '--border', '--border-light',
+    '--surface-input', '--bg', '--gradient-header', '--gradient-deep', '--accent', '--accent-light'];
+  var VARS_CACHE_KEY = 'shorashim-display-vars';
 
   // ── Translation helper ──
   function tt(he, th, ar) {
@@ -54,35 +70,117 @@ var DisplaySettings = (function() {
   // ── Storage ──
   // Older builds saved one of six themes (classic + five neon) plus effect
   // and glow settings. Anything that is not a current theme falls back to
-  // the default; the old keys are simply dropped on the next save.
+  // the default; unknown keys are dropped on the next save.
+  function cleanTune(t) {
+    var out = {};
+    t = t || {};
+    var sat = Number(t.sat), hue = Number(t.hue);
+    out.sat = (isFinite(sat) && sat >= 0.3 && sat <= 1.7) ? Math.round(sat * 100) / 100 : TUNE_DEFAULTS.sat;
+    out.hue = (isFinite(hue) && hue >= -45 && hue <= 45) ? Math.round(hue) : TUNE_DEFAULTS.hue;
+    Object.keys(TUNE_OPTIONS).forEach(function(k) {
+      out[k] = TUNE_OPTIONS[k].indexOf(t[k]) !== -1 ? t[k] : TUNE_DEFAULTS[k];
+    });
+    return out;
+  }
+
   function loadSettings() {
-    var out = { theme: DEFAULT_THEME };
+    var out = { theme: DEFAULT_THEME, tune: cleanTune(null) };
     try {
       var saved = JSON.parse(localStorage.getItem('shorashim-display-settings') || 'null');
       if (saved && THEMES[saved.theme]) out.theme = saved.theme;
+      if (saved && saved.tune) out.tune = cleanTune(saved.tune);
     } catch (e) { console.warn('Failed to load display settings:', e); }
     return out;
   }
 
   function saveSettings(settings) {
     try {
-      localStorage.setItem('shorashim-display-settings', JSON.stringify({ theme: settings.theme }));
+      localStorage.setItem('shorashim-display-settings',
+        JSON.stringify({ theme: settings.theme, tune: cleanTune(settings.tune) }));
     } catch (e) { console.warn('Failed to save display settings:', e); }
   }
 
-  // ── Apply Theme ──
-  function applyTheme(themeKey) {
+  // ── Colour maths (strength + hue) ──
+  function parseColor(str) {
+    str = String(str || '').trim();
+    var m;
+    if ((m = str.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i))) {
+      var h = m[1];
+      if (h.length === 3) h = h.replace(/(.)/g, '$1$1');
+      return { r: parseInt(h.substr(0, 2), 16), g: parseInt(h.substr(2, 2), 16), b: parseInt(h.substr(4, 2), 16), a: 1 };
+    }
+    if ((m = str.match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,\s/]+([\d.]+))?\s*\)$/i))) {
+      return { r: +m[1], g: +m[2], b: +m[3], a: m[4] !== undefined ? +m[4] : 1 };
+    }
+    return null;
+  }
+  function toHsl(c) {
+    var r = c.r / 255, g = c.g / 255, b = c.b / 255;
+    var max = Math.max(r, g, b), min = Math.min(r, g, b), h = 0, s = 0, l = (max + min) / 2;
+    if (max !== min) {
+      var d = max - min;
+      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+      if (max === r) h = (g - b) / d + (g < b ? 6 : 0);
+      else if (max === g) h = (b - r) / d + 2;
+      else h = (r - g) / d + 4;
+      h *= 60;
+    }
+    return { h: h, s: s, l: l };
+  }
+  function fromHsl(h, s, l) {
+    h = ((h % 360) + 360) % 360;
+    var c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs((h / 60) % 2 - 1)), m = l - c / 2;
+    var rgb = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
+    return rgb.map(function(v) { return Math.round((v + m) * 255); });
+  }
+  function tuneColor(str, sat, hue) {
+    var c = parseColor(str);
+    if (!c) return null;
+    var hsl = toHsl(c);
+    var rgb = fromHsl(hsl.h + hue, Math.max(0, Math.min(1, hsl.s * sat)), hsl.l);
+    if (c.a < 1) return 'rgba(' + rgb.join(',') + ',' + c.a + ')';
+    return '#' + rgb.map(function(v) { return ('0' + v.toString(16)).slice(-2); }).join('');
+  }
+
+  // Recompute the active palette's chromatic variables. Base values are read
+  // from the stylesheet (inline overrides cleared first), so this works for
+  // every theme without a second copy of the palettes.
+  function applyColorTune(tune, themeKey) {
+    var body = document.body;
+    TUNED_VARS.forEach(function(v) { body.style.removeProperty(v); });
+    var vars = {};
+    if (tune.sat !== 1 || tune.hue !== 0) {
+      var cs = getComputedStyle(body);
+      TUNED_VARS.forEach(function(v) {
+        var t2 = tuneColor(cs.getPropertyValue(v), tune.sat, tune.hue);
+        if (t2) { vars[v] = t2; body.style.setProperty(v, t2); }
+      });
+    }
+    try { localStorage.setItem(VARS_CACHE_KEY, JSON.stringify({ theme: themeKey, vars: vars })); } catch (e) {}
+  }
+
+  function tuneClasses(tune) {
+    return ['press-' + tune.press, 'shadow-' + tune.shadow, 'border-' + tune.border, 'text-' + tune.text];
+  }
+
+  // ── Apply ──
+  function applyTheme(themeKey, tune) {
     var key = THEMES[themeKey] ? themeKey : DEFAULT_THEME;
     var theme = THEMES[key];
     var body = document.body;
     if (!body) return;
+    tune = cleanTune(tune || loadSettings().tune);
 
-    ALL_CLASSES.forEach(function(c) { body.classList.remove(c); });
+    THEME_CLASSES.forEach(function(c) { body.classList.remove(c); });
+    Array.prototype.slice.call(body.classList).forEach(function(c) {
+      if (/^(press|shadow|border|text)-/.test(c)) body.classList.remove(c);
+    });
     body.classList.add('theme-soft');
     if (theme.cls) body.classList.add(theme.cls);
     // Light themes keep the light stylesheet's classic hooks; the dark one
     // turns on the dark adapter and its body.theme-neon hooks in style.css.
     body.classList.add(theme.dark ? 'theme-neon' : 'theme-classic');
+    tuneClasses(tune).forEach(function(c) { body.classList.add(c); });
 
     var darkCss = document.querySelector('link[href*="theme-neon"]');
     if (darkCss) darkCss.disabled = !theme.dark;
@@ -92,12 +190,15 @@ var DisplaySettings = (function() {
     var login = document.getElementById('loginScreen');
     if (login) login.style.background = '';
 
+    applyColorTune(tune, key);
+
     var meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', theme.meta);
+    if (meta) meta.setAttribute('content', (tune.sat !== 1 || tune.hue !== 0) ? (tuneColor(theme.meta, tune.sat, tune.hue) || theme.meta) : theme.meta);
   }
 
   function applyAll(settings) {
-    applyTheme((settings || loadSettings()).theme);
+    settings = settings || loadSettings();
+    applyTheme(settings.theme, settings.tune);
   }
 
   function init() {
@@ -106,9 +207,10 @@ var DisplaySettings = (function() {
 
   // ── Settings UI ──
   // Built from the active theme's CSS variables, so the panel itself always
-  // matches whatever theme is on screen.
+  // matches whatever is on screen. Every control applies live.
   function showSettings() {
     var settings = loadSettings();
+    var tune = settings.tune;
     var modal = document.getElementById('modalContainer');
     if (!modal) return;
 
@@ -125,39 +227,95 @@ var DisplaySettings = (function() {
         '</button>';
     }).join('');
 
+    function seg(key, labels) {
+      return '<div class="ds-seg" data-tune="' + key + '">' + TUNE_OPTIONS[key].map(function(v, i) {
+        return '<button type="button" data-val="' + v + '" class="' + (tune[key] === v ? 'on' : '') + '">' + labels[i] + '</button>';
+      }).join('') + '</div>';
+    }
+    function satLabel(v) {
+      return v < 0.85 ? tt('רך', 'อ่อน', 'خافت') : v > 1.15 ? tt('עז', 'สด', 'زاهٍ') : tt('רגיל', 'ปกติ', 'عادي');
+    }
+    function hueLabel(v) {
+      return v === 0 ? tt('מקורי', 'เดิม', 'أصلي') : (v > 0 ? '+' : '') + v + '°';
+    }
+
     modal.innerHTML =
       '<div class="modal-overlay" id="dsOverlay">' +
-        '<div class="modal" style="max-width:420px;padding:22px 18px;">' +
+        '<div class="modal" style="max-width:440px;padding:22px 18px;">' +
           '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">' +
             '<h2 style="margin:0;">' + tt('הגדרות תצוגה', 'การตั้งค่าการแสดงผล', 'إعدادات العرض') + '</h2>' +
             '<button type="button" id="dsClose" aria-label="' + tt('סגור', 'ปิด', 'إغلاق') + '" style="background:var(--tonal);border:none;color:var(--text);width:34px;height:34px;border-radius:50%;font-size:1rem;cursor:pointer;">✕</button>' +
           '</div>' +
-          '<div style="font-size:0.85rem;font-weight:600;color:var(--text);margin-bottom:10px;">' + tt('ערכת צבעים', 'ชุดสี', 'نظام الألوان') + '</div>' +
+          '<div class="ds-lbl">' + tt('ערכת צבעים', 'ชุดสี', 'نظام الألوان') + '</div>' +
           '<div id="dsThemeList" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">' + cards + '</div>' +
-          '<div style="text-align:center;margin-top:14px;font-size:0.72rem;color:var(--text-muted);">' +
+
+          '<div class="ds-sec"><div class="ds-lbl">' + tt('עוצמת צבע', 'ความเข้มของสี', 'شدة اللون') +
+            '<span id="dsSatV">' + satLabel(tune.sat) + '</span></div>' +
+            '<input type="range" class="ds-range" id="dsSat" min="0.3" max="1.7" step="0.05" value="' + tune.sat + '"></div>' +
+          '<div class="ds-sec"><div class="ds-lbl">' + tt('גוון', 'โทนสี', 'درجة اللون') +
+            '<span id="dsHueV">' + hueLabel(tune.hue) + '</span></div>' +
+            '<input type="range" class="ds-range" id="dsHue" min="-45" max="45" step="1" value="' + tune.hue + '"></div>' +
+
+          '<div class="ds-sec"><div class="ds-lbl">' + tt('אפקט לחיצה', 'เอฟเฟกต์การกด', 'تأثير الضغط') + '</div>' +
+            seg('press', [tt('כבוי', 'ปิด', 'مطفأ'), tt('עדין', 'เบา', 'خفيف'), tt('בולט', 'ชัด', 'واضح')]) + '</div>' +
+          '<div class="ds-sec"><div class="ds-lbl">' + tt('צלליות', 'เงา', 'الظلال') + '</div>' +
+            seg('shadow', [tt('ללא', 'ไม่มี', 'بدون'), tt('עדינות', 'เบา', 'خفيفة'), tt('בולטות', 'ชัด', 'واضحة')]) + '</div>' +
+          '<div class="ds-sec"><div class="ds-lbl">' + tt('מסגרות', 'กรอบ', 'الإطارات') + '</div>' +
+            seg('border', [tt('ללא', 'ไม่มี', 'بدون'), tt('דקות', 'บาง', 'رفيعة'), tt('בולטות', 'หนา', 'بارزة')]) + '</div>' +
+          '<div class="ds-sec"><div class="ds-lbl">' + tt('גודל טקסט', 'ขนาดตัวอักษร', 'حجم النص') + '</div>' +
+            seg('text', [tt('קטן', 'เล็ก', 'صغير'), tt('רגיל', 'ปกติ', 'عادي'), tt('גדול', 'ใหญ่', 'كبير'), tt('ענק', 'ใหญ่มาก', 'كبير جدًا')]) + '</div>' +
+
+          '<button type="button" class="ds-reset" id="dsReset">' + tt('איפוס להגדרות ברירת המחדל', 'รีเซ็ตเป็นค่าเริ่มต้น', 'إعادة التعيين للافتراضي') + '</button>' +
+          '<div style="text-align:center;margin-top:12px;font-size:0.72rem;color:var(--text-muted);">' +
             tt('הבחירה נשמרת במכשיר הזה', 'บันทึกไว้ในอุปกรณ์นี้', 'يُحفظ الاختيار على هذا الجهاز') +
           '</div>' +
         '</div>' +
       '</div>';
 
     function close() { modal.innerHTML = ''; }
+    function commit(redraw) {
+      saveSettings(settings);
+      applyTheme(settings.theme, settings.tune);
+      if (redraw) showSettings();
+    }
     document.getElementById('dsClose').addEventListener('click', close);
     document.getElementById('dsOverlay').addEventListener('click', function(e) { if (e.target === this) close(); });
 
     document.querySelectorAll('#dsThemeList button[data-theme]').forEach(function(btn) {
       btn.addEventListener('click', function() {
-        var key = this.getAttribute('data-theme');
-        settings.theme = key;
-        saveSettings(settings);
-        applyTheme(key);
-        showSettings(); // redraw so the panel picks up the new palette
+        settings.theme = this.getAttribute('data-theme');
+        commit(true); // redraw so the panel picks up the new palette
       });
     });
+
+    var sat = document.getElementById('dsSat'), hue = document.getElementById('dsHue');
+    sat.addEventListener('input', function() {
+      settings.tune.sat = Number(this.value);
+      document.getElementById('dsSatV').textContent = satLabel(settings.tune.sat);
+      commit(false);
+    });
+    hue.addEventListener('input', function() {
+      settings.tune.hue = Number(this.value);
+      document.getElementById('dsHueV').textContent = hueLabel(settings.tune.hue);
+      commit(false);
+    });
+
+    document.querySelectorAll('.ds-seg[data-tune] button').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var key = this.parentNode.getAttribute('data-tune');
+        settings.tune[key] = this.getAttribute('data-val');
+        this.parentNode.querySelectorAll('button').forEach(function(b) { b.classList.remove('on'); });
+        this.classList.add('on');
+        commit(false);
+      });
+    });
+
+    document.getElementById('dsReset').addEventListener('click', resetDefaults);
   }
 
   // ── Reset ──
   function resetDefaults() {
-    var fresh = { theme: DEFAULT_THEME };
+    var fresh = { theme: DEFAULT_THEME, tune: cleanTune(null) };
     saveSettings(fresh);
     applyAll(fresh);
     showSettings();

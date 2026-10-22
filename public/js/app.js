@@ -1026,6 +1026,43 @@
     'ציוד ורכבים': { th: 'อุปกรณ์และยานพาหนะ', ar: 'معدات ومركبات' },
     'ציוד': { th: 'อุปกรณ์', ar: 'معدات' },
     'ציוד עודכן': { th: 'อัปเดตอุปกรณ์แล้ว', ar: 'تم تحديث المعدات' },
+    'כרם': { th: 'ไร่องุ่น', ar: 'كرم' },
+    'גד"ש': { th: 'พืชไร่', ar: 'محاصيل حقلية' },
+    'ירקות שטח פתוח': { th: 'ผักแปลงเปิด', ar: 'خضار مكشوفة' },
+    'בתי צמיחה': { th: 'โรงเรือน', ar: 'دفيئات' },
+    'מספר גפנים': { th: 'จำนวนต้นองุ่น', ar: 'عدد الكروم' },
+    'מספר צמחים': { th: 'จำนวนต้นพืช', ar: 'عدد النباتات' },
+    'גפנים צעירות': { th: 'องุ่นต้นอ่อน', ar: 'كروم صغيرة' },
+    'גפנים חסרות': { th: 'องุ่นที่ขาด', ar: 'كروم ناقصة' },
+    'תאריך זריעה': { th: 'วันที่หว่าน', ar: 'تاريخ البذر' },
+    'תאריך זריעה / שתילה': { th: 'วันที่หว่าน/ปลูก', ar: 'تاريخ البذر / الزراعة' },
+    'תאריך שתילה': { th: 'วันที่ปลูก', ar: 'تاريخ الزراعة' },
+    'נתוני גידול': { th: 'ข้อมูลการปลูก', ar: 'بيانات الزراعة' },
+    'ענף': { th: 'สาขา', ar: 'الفرع' },
+    'אין לך הרשאה להעביר חלקה למטע זה': { th: 'คุณไม่มีสิทธิ์ย้ายแปลงไปยังสวนนี้', ar: 'ليس لديك صلاحية نقل القطعة إلى هذا البستان' },
+    'להעביר את החלקה': { th: 'ย้ายแปลง', ar: 'نقل القطعة' },
+    'ממטע': { th: 'จากสวน', ar: 'من بستان' },
+    'למטע': { th: 'ไปยังสวน', ar: 'إلى بستان' },
+    'סוג המרסס': { th: 'ประเภทเครื่องพ่น', ar: 'نوع الرشاش' },
+    'נפח': { th: 'ปริมาตร', ar: 'الحجم' },
+    'נפח מרסס לא תקין': { th: 'ปริมาตรถังไม่ถูกต้อง', ar: 'حجم الرشاش غير صالح' },
+    'למרססים: נפח המכל משמש לחישוב מספר המילויים בדוח תוכנית הטיפול': { th: 'ปริมาตรถังใช้คำนวณจำนวนถังในรายงานแผน', ar: 'يُستخدم حجم الخزان لحساب عدد التعبئات في تقرير الخطة' },
+    'מרסס מפוח (תותח)': { th: 'เครื่องพ่นลม (ปืนใหญ่)', ar: 'رشاش هوائي (مدفع)' },
+    'מרסס רובה / צינור': { th: 'เครื่องพ่นแบบปืน/สายยาง', ar: 'رشاش مسدس / خرطوم' },
+    'מרסס מוט': { th: 'เครื่องพ่นแบบบูม', ar: 'رشاش ذراع' },
+    'מרסס גב': { th: 'เครื่องพ่นสะพายหลัง', ar: 'رشاش ظهري' },
+    'מכל הגמעה': { th: 'ถังรดโคน', ar: 'خزان سقي' },
+    'תמונת תווית': { th: 'รูปฉลาก', ar: 'صورة الملصق' },
+    'התמונה תודפס בעמוד החומרים של תוכנית הטיפול': { th: 'รูปจะพิมพ์ในหน้าสารของแผน', ar: 'ستُطبع الصورة في صفحة المواد في الخطة' },
+    'אין תמונת תווית': { th: 'ไม่มีรูปฉลาก', ar: 'لا توجد صورة ملصق' },
+    'מעלה...': { th: 'กำลังอัปโหลด...', ar: 'جارٍ الرفع...' },
+    'החלף תמונה': { th: 'เปลี่ยนรูป', ar: 'استبدال الصورة' },
+    'צלם או בחר תמונה': { th: 'ถ่ายหรือเลือกรูป', ar: 'التقط أو اختر صورة' },
+    'הסר תמונה': { th: 'ลบรูป', ar: 'إزالة الصورة' },
+    'אין חיבור לאחסון': { th: 'ไม่มีการเชื่อมต่อที่เก็บ', ar: 'لا اتصال بالتخزين' },
+    'תמונת התווית נשמרה': { th: 'บันทึกรูปฉลากแล้ว', ar: 'تم حفظ صورة الملصق' },
+    'העלאת התמונה נכשלה': { th: 'อัปโหลดรูปไม่สำเร็จ', ar: 'فشل رفع الصورة' },
+    'תמונת התווית הוסרה': { th: 'ลบรูปฉลากแล้ว', ar: 'تمت إزالة صورة الملصق' },
     'פעולות אחרונות': { th: 'กิจกรรมล่าสุด', ar: 'أنشطة أخيرة' },
     'רכב': { th: 'ยานพาหนะ', ar: 'مركبة' },
     'מרסס': { th: 'เครื่องพ่น', ar: 'رشاش' },
@@ -2196,6 +2233,7 @@
       sprayEvents = _reconcile(sprayEvents, data.sprayEvents || []);
       pesticides = data.pesticides ? _reconcile(pesticides, data.pesticides) : getDefaultPesticides();
       farms = _reconcile(farms, data.farms || []);
+      cropBranches = (data.cropBranches && typeof data.cropBranches === 'object') ? data.cropBranches : {};
       worklogEntries = _reconcile(worklogEntries, data.worklogEntries || []);
       
       // Clear map
@@ -2290,6 +2328,7 @@
           missing_trees: p.missing_trees || 0,
           young_trees: p.young_trees || 0,
           male_trees: p.male_trees || 0,
+          planting_date: p.planting_date || '',
           geofenceRadiusM: (p.geofenceRadiusM != null ? p.geofenceRadiusM : null),
           latlngs: ll,
           // Detached parts of the same plot — an orchard split by a wadi or a
@@ -2306,7 +2345,10 @@
       sprayEvents: sprayEvents || [],
       pesticides: pesticides || [],
       farms: farms || [],
-      worklogEntries: worklogEntries || []
+      worklogEntries: worklogEntries || [],
+      // crop name -> farming branch (orchard / vineyard / field / veg /
+      // greenhouse), set in ניהול סוגי גידולים; drives the plot card.
+      cropBranches: cropBranches || {}
     };
     DB.save('plotMapperSprayData', data);
   }
@@ -2419,6 +2461,15 @@
         new Date().toISOString().split('T')[0] + '.html';
       window.Util.exportReport(html, fname);
       return { ok: true };
+    },
+    // Active sprayers with a tank volume on a farm — for the plan's fills.
+    getFarmSprayers: function(farmId) {
+      var f = (farms || []).find(function(x) { return x.id === farmId; });
+      return ((f && f.equipment) || []).filter(function(e) {
+        return e && e.type === 'sprayer' && e.status !== 'broken' && Number(e.capacityL) > 0;
+      }).map(function(e) {
+        return { name: locName(e), capacityL: Number(e.capacityL), kind: e.kind || '', kindLabel: sprayerKindLabel(e.kind) };
+      }).sort(function(a, b) { return b.capacityL - a.capacityL; });
     },
     getFarms: function() {
       var accessible = (typeof getAccessiblePlots === 'function') ? getAccessiblePlots() : plots;
@@ -3481,7 +3532,73 @@
     if (!id || !MALE_ROWS[id]) return;
     var row = document.getElementById(MALE_ROWS[id]);
     if (row) row.style.display = isDatePalmCrop(e.target.value) ? '' : 'none';
+    // The rest of the form follows the crop's farming branch.
+    applyBranchUI(e.target.closest('.modal') || document, e.target.value);
   });
+
+  // ── Farming branch per crop (ענף) ──
+  // A plot card shows what matters for its branch: tree spacing and
+  // density only for orchards; vines for a vineyard; sowing date for field
+  // crops and vegetables; planting date and plant count in greenhouses.
+  // The branch belongs to the crop (set once in ניהול סוגי גידולים); an
+  // unassigned crop is inferred from its name, orchard by default.
+  var BRANCHES = [
+    { v: 'orchard',    he: 'מטעים',          count: 'מספר עצים',   spacing: true,  ym: true,  young: 'עצים צעירים',  missing: 'עצים חסרים',  plant: '' },
+    { v: 'vineyard',   he: 'כרם',            count: 'מספר גפנים',  spacing: false, ym: true,  young: 'גפנים צעירות', missing: 'גפנים חסרות', plant: '' },
+    { v: 'field',      he: 'גד"ש',           count: '',            spacing: false, ym: false, plant: 'תאריך זריעה' },
+    { v: 'veg',        he: 'ירקות שטח פתוח', count: '',            spacing: false, ym: false, plant: 'תאריך זריעה / שתילה' },
+    { v: 'greenhouse', he: 'בתי צמיחה',      count: 'מספר צמחים',  spacing: false, ym: false, plant: 'תאריך שתילה' }
+  ];
+  var cropBranches = {};
+  function branchDef(v) {
+    return BRANCHES.find(function(b) { return b.v === v; }) || BRANCHES[0];
+  }
+  function inferBranch(crop) {
+    var c = String(crop || '');
+    if (/חממה|בית צמיחה|בתי צמיחה/.test(c)) return 'greenhouse';
+    if (/גפן|ענב|כרם/.test(c)) return 'vineyard';
+    if (/חיטה|שעורה|תירס|כותנה|תלתן|חמני|סורגום|אספסת|בקיה|שיבולת|חומוס|אפונה|פול|קנולה|גד"ש|גדש/.test(c)) return 'field';
+    if (/עגבני|מלפפון|פלפל|חסה|בצל|שום|דלעת|אבטיח|מלון|תפוח אדמה|תפו"א|גזר|כרוב|קישוא|חציל|תות|שעועית|סלק|צנון|ברוקולי|כרובית|ירק/.test(c)) return 'veg';
+    return 'orchard';
+  }
+  function branchOfCrop(crop) {
+    var c = String(crop || '').trim();
+    if (!c) return 'orchard';
+    return (cropBranches && cropBranches[c] && branchDef(cropBranches[c]).v === cropBranches[c]) ? cropBranches[c] : inferBranch(c);
+  }
+  window.PlotBranch = {
+    list: function() { return BRANCHES.map(function(b) { return { v: b.v, label: t(b.he) }; }); },
+    ofCrop: branchOfCrop,
+    forPlot: function(p) { return branchOfCrop(p && p.crop_type); },
+    def: function(v) { var d = branchDef(v); return { v: d.v, label: t(d.he), count: d.count ? t(d.count) : '', spacing: d.spacing, ym: d.ym, plant: d.plant ? t(d.plant) : '' }; },
+    isExplicit: function(crop) { return !!(cropBranches && cropBranches[String(crop || '').trim()]); },
+    setForCrop: function(crop, v) {
+      var c = String(crop || '').trim();
+      if (!c) return;
+      if (BRANCHES.some(function(b) { return b.v === v; })) cropBranches[c] = v;
+      else delete cropBranches[c];
+      saveData();
+    }
+  };
+
+  // Show/hide the branch-specific parts of a plot form (new-plot modal and
+  // the plot card's edit section). Hidden inputs keep their values, so a
+  // crop switched by mistake loses nothing.
+  function applyBranchUI(root, crop) {
+    if (!root) return;
+    var d = branchDef(branchOfCrop(crop));
+    function each(sel, fn) { root.querySelectorAll(sel).forEach(fn); }
+    each('.br-sp', function(el) { el.style.display = d.spacing ? '' : 'none'; });
+    each('.br-cnt', function(el) { el.style.display = d.count ? '' : 'none'; });
+    each('.br-cnt-lbl', function(el) { el.textContent = d.count ? t(d.count) : ''; });
+    each('.br-ym', function(el) { el.style.display = d.ym ? '' : 'none'; });
+    each('.br-y-lbl', function(el) { if (d.young) el.textContent = t(d.young); });
+    each('.br-m-lbl', function(el) { if (d.missing) el.textContent = t(d.missing); });
+    each('.br-pd', function(el) { el.style.display = d.plant ? '' : 'none'; });
+    each('.br-pd-lbl', function(el) { el.textContent = d.plant ? t(d.plant) : ''; });
+    each('.br-name', function(el) { el.textContent = t(d.he); });
+    each('.br-box', function(el) { el.style.display = (d.spacing || d.count) ? '' : 'none'; });
+  }
 
   // ── Variety + notes helpers (plot fields `variety`, `notes`) ──
   function escAttrPlot(v) {
@@ -3569,10 +3686,10 @@
             plotVarietyDatalist('plotVarietyList') +
           '</div>' +
           
-          '<div style="background: var(--g6); border-radius: 12px; padding: 14px; margin-bottom: 14px;">' +
-            '<div style="font-size: 0.82rem; font-weight: 700; color: var(--g1); margin-bottom: 8px;">🌴 ' + t('צפיפות צמחים') + '</div>' +
-            '<div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 10px;">' + t('בחר שיטת חישוב') + '</div>' +
-            '<div style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px;">' +
+          '<div class="br-box" style="background: var(--g6); border-radius: 12px; padding: 14px; margin-bottom: 14px;">' +
+            '<div class="br-sp" style="font-size: 0.82rem; font-weight: 700; color: var(--g1); margin-bottom: 8px;">🌴 ' + t('צפיפות צמחים') + '</div>' +
+            '<div class="br-sp" style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 10px;">' + t('בחר שיטת חישוב') + '</div>' +
+            '<div class="br-sp" style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px;">' +
               presetsHtml +
               '<button class="btn-admin spacing-preset" data-row="-1" data-tree="-1" style="padding: 8px 16px; font-size: 0.85rem; border-radius: 10px;">📊 ' + t('צמחים לדונם') + '</button>' +
             '</div>' +
@@ -3593,13 +3710,13 @@
               '<label style="font-size: 0.7rem; color: var(--text-muted);">' + t('צמחים לדונם') + '</label>' +
               '<input type="number" class="form-input" id="plotPlantsPerDunam" min="1" step="1" value="" placeholder="156" style="padding: 8px; font-size: 0.85rem;">' +
             '</div>' +
-            '<div id="treeEstimateResult" style="background: linear-gradient(135deg, var(--g1), var(--g2)); border-radius: 10px; padding: 12px; color: white; text-align: center;">' +
+            '<div id="treeEstimateResult" class="br-sp" style="background: linear-gradient(135deg, var(--g1), var(--g2)); border-radius: 10px; padding: 12px; color: white; text-align: center;">' +
               '<div style="font-size: 0.72rem; opacity: 0.8;">' + t('מספר צמחים משוער') + '</div>' +
               '<div style="font-size: 1.8rem; font-weight: 700;" id="treeEstimateNum">—</div>' +
               '<div style="font-size: 0.7rem; opacity: 0.7;" id="treeEstimateMeta"></div>' +
             '</div>' +
-            '<div class="form-group" style="margin-top: 10px; margin-bottom: 0;">' +
-              '<label style="font-size: 0.7rem; color: var(--text-muted);">' + t('מספר צמחים סופי (ניתן לעריכה)') + '</label>' +
+            '<div class="form-group br-cnt" style="margin-top: 10px; margin-bottom: 0;">' +
+              '<label style="font-size: 0.7rem; color: var(--text-muted);"><span class="br-cnt-lbl">' + t('מספר צמחים סופי (ניתן לעריכה)') + '</span></label>' +
               '<input type="number" class="form-input" id="plotTreeCount" min="0" step="1" value="" style="padding: 8px; font-size: 0.95rem; font-weight: 700; text-align: center;">' +
             '</div>' +
             '<div class="form-group" id="plotMaleTreesRow" style="margin-top: 8px; margin-bottom: 0; display: none;">' +
@@ -3608,13 +3725,17 @@
             '</div>' +
           '</div>' +
           
-          '<div style="display:flex;gap:8px;">' +
+          '<div class="form-group br-pd" style="display:none;">' +
+            '<label class="form-label">📅 <span class="br-pd-lbl"></span></label>' +
+            '<input type="date" id="plotPlantingDate" class="form-input">' +
+          '</div>' +
+          '<div class="br-ym" style="display:flex;gap:8px;">' +
             '<div class="form-group" style="flex:1;">' +
-              '<label class="form-label">' + t('עצים חסרים') + '</label>' +
+              '<label class="form-label"><span class="br-m-lbl">' + t('עצים חסרים') + '</span></label>' +
               '<input type="number" id="plotMissingTrees" class="form-input" min="0" step="1" style="text-align:center;">' +
             '</div>' +
             '<div class="form-group" style="flex:1;">' +
-              '<label class="form-label">' + t('עצים צעירים') + '</label>' +
+              '<label class="form-label"><span class="br-y-lbl">' + t('עצים צעירים') + '</span></label>' +
               '<input type="number" id="plotYoungTrees" class="form-input" min="0" step="1" style="text-align:center;">' +
             '</div>' +
           '</div>' +
@@ -3630,6 +3751,7 @@
       '</div>';
 
     var input = document.getElementById('plotNameInput');
+    applyBranchUI(container, '');
     var rowInput = document.getElementById('plotRowSpacing');
     var treeInput = document.getElementById('plotTreeSpacing');
     var treeCountInput = document.getElementById('plotTreeCount');
@@ -3764,6 +3886,7 @@
         missing_trees: missingTrees,
         young_trees: youngTrees,
         male_trees: maleTrees,
+        planting_date: (document.getElementById('plotPlantingDate') || { value: '' }).value || '',
         layer: layer, 
         labelMarker: labelMarker, 
         vertices: vertices 
@@ -4711,21 +4834,26 @@
     html += '<meta charset="UTF-8">\n';
     html += '<meta name="viewport" content="width=device-width,initial-scale=1">\n';
     html += '<title>' + t('יומן ריסוסים') + '</title>\n';
+    html += '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700&display=swap">\n';
+    // Soft letterhead (Oct 2026): tinted band instead of a saturated
+    // gradient, so the defaults below are literal colours for older themes.
+    var SOFT = TH.soft || '#e4eee8', LINE = TH.line || '#c6d8cd', INK = TH.ink || TH.c1;
     html += '<style>\n';
     html += '@page { margin: 15mm 10mm; size: A4 ' + TH.orientation + '; }\n';
-    html += 'body { font-family: -apple-system, "Segoe UI", Arial, sans-serif; direction: rtl; padding: 0; margin: 0; color: #2b2520; line-height: 1.5; }\n';
-    html += '.header { background: linear-gradient(135deg, ' + TH.c1 + ', ' + TH.c2 + ', ' + TH.c3 + '); color: ' + TH.headText + '; padding: 22px 28px; border-radius: 0 0 ' + TH.radius + 'px ' + TH.radius + 'px; margin-bottom: 18px; display:flex; align-items:center; gap:18px; }\n';
+    html += 'body { font-family: Rubik, -apple-system, "Segoe UI", Arial, sans-serif; direction: rtl; padding: 0; margin: 0; color: #2b2520; line-height: 1.5; }\n';
+    html += '.header { background: ' + SOFT + '; color: ' + INK + '; padding: 20px 26px; border-radius: ' + TH.radius + 'px; margin: 10px 16px 18px; display: flex; align-items: center; gap: 18px; }\n';
+    html += '.header .bmark { flex: 0 0 auto; }\n';
     html += '.header .logo { max-height: 58px; max-width: 130px; flex:0 0 auto; }\n';
     html += '.header .htext { flex:1; }\n';
     html += '.sigrow { margin: 22px 16px 0; display:flex; gap:40px; font-size:0.78rem; color:#5a5048; }\n';
     html += '.sigrow div { flex:1; border-top:1px solid #b8ada2; padding-top:5px; }\n';
     html += '.farm-footer { margin: 14px 16px 0; font-size:0.72rem; color:#8a8078; white-space:pre-line; }\n';
-    html += '.header h1 { font-size: 1.5rem; font-weight: 800; margin: 0 0 4px 0; letter-spacing: -0.02em; }\n';
-    html += '.header .sub { font-size: 0.85rem; opacity: 0.9; }\n';
+    html += '.header h1 { font-size: 1.45rem; font-weight: 700; margin: 0 0 3px 0; letter-spacing: -0.01em; color: ' + INK + '; }\n';
+    html += '.header .sub { font-size: 0.85rem; color: #5f5a55; }\n';
     html += '.meta-row { padding: 0 24px 8px; font-size: 0.78rem; color: #8a8078; }\n';
-    html += 'table { width: calc(100% - 32px); margin: 0 16px 20px; border-collapse: separate; border-spacing: 0; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 12px rgba(43,37,32,0.07); }\n';
-    html += 'th { background: ' + TH.accent + '; color: white; padding: 10px 10px; text-align: right; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.02em; }\n';
-    html += 'td { padding: 11px 10px; border-bottom: 1px solid #f0ebe6; font-size: 0.85rem; vertical-align: top; }\n';
+    html += 'table { width: calc(100% - 32px); margin: 0 16px 20px; border-collapse: separate; border-spacing: 0; border-radius: 14px; overflow: hidden; border: 1px solid ' + LINE + '; }\n';
+    html += 'th { background: ' + SOFT + '; color: ' + INK + '; padding: 9px 10px; text-align: right; font-size: 0.76rem; font-weight: 700; border-bottom: 1.5px solid ' + LINE + '; }\n';
+    html += 'td { padding: 10px 10px; border-bottom: 1px solid #eeebe6; font-size: 0.84rem; vertical-align: top; }\n';
     html += 'tr.row-reconstructed td { background: #fdf6e8; }\n';
     html += '.recon-tag { display:inline-block; margin-top:4px; padding:2px 7px; border-radius:5px; background:#b45309; color:#fff; font-size:0.66rem; font-weight:700; }\n';
     html += '.recon-basis { margin-top:6px; padding-top:5px; border-top:1px dotted #d8c9a8; font-size:0.7rem; color:#7a6a4a; }\n';
@@ -4737,20 +4865,22 @@
     html += '.recon-legend { margin:0 16px 14px; padding:9px 12px; border-inline-start:3px solid #b45309; background:#fdf6e8; font-size:0.72rem; color:#7a6a4a; border-radius:6px; }\n';
     html += 'tr:last-child td { border-bottom: none; }\n';
     html += 'tr:nth-child(even) td { background: #faf8f5; }\n';
-    html += '.event-date { font-weight: 800; font-size: 0.95rem; color: #1a5632; white-space: nowrap; }\n';
+    html += '.event-date { font-weight: 700; font-size: 0.92rem; color: ' + INK + '; white-space: nowrap; }\n';
     html += '.pest-list { display: flex; flex-direction: column; gap: 4px; }\n';
-    html += '.pest-item { background: #e8f5e9; border-right: 3px solid #2d6a4f; padding: 4px 8px; border-radius: 4px; font-size: 0.82rem; }\n';
-    html += '.pest-name { font-weight: 700; color: #1a5632; }\n';
+    html += '.pest-item { background: ' + SOFT + '; border-right: 3px solid ' + TH.c2 + '; padding: 4px 8px; border-radius: 6px; font-size: 0.82rem; }\n';
+    html += '.pest-name { font-weight: 700; color: ' + INK + '; }\n';
     html += '.pest-meta { color: #5a7060; font-size: 0.76rem; }\n';
     html += '.footer { text-align: center; padding: 18px; margin-top: 16px; font-size: 0.78rem; color: #8a8078; border-top: 1px solid #f0ebe6; }\n';
-    html += '.footer .brand { color: #2d6a4f; font-weight: 700; }\n';
+    html += '.footer .brand { color: ' + INK + '; font-weight: 700; }\n';
+    html += '.footer .brand svg { margin-inline-end: 4px; }\n';
+    if (window.ReportMap && window.ReportMap.plotSheetCss) html += window.ReportMap.plotSheetCss(TH) + '\n';
     // break-inside keeps the image and its caption on one printed page — a
     // plot map split across a page break is useless.
     // Corner thumbnail, not a poster: 74mm on a 297mm-wide page is roughly
     // 7% of the sheet, and sitting inside the header band it costs the log
     // no vertical space at all.
     html += '.header .mapcard { flex: 0 0 auto; width: 74mm; max-width: 30%; order: -1; }\n';
-    html += '.header .mapcard img { width: 100%; height: auto; display: block; border-radius: 6px; border: 1px solid rgba(255,255,255,0.5); }\n';
+    html += '.header .mapcard img { width: 100%; height: auto; display: block; border-radius: 10px; border: 1px solid ' + LINE + '; }\n';
     html += '.header .mapcard .mapcap { font-size: 0.6rem; opacity: 0.85; padding: 3px 1px 0; text-align: center; }\n';
     // The band grew a corner image, so it no longer needs poster padding.
     html += '.header:has(.mapcard) { padding: 12px 20px; align-items: flex-start; }\n';
@@ -4760,11 +4890,12 @@
     html += '</head>\n<body>\n';
     html += '<div class="header">\n';
     if (TH.logo) html += '<img class="logo" src="' + TH.logo + '" alt="">\n';
+    else if (TH.brand && window.ReportTheme && window.ReportTheme.brandMark) html += '<span class="bmark">' + window.ReportTheme.brandMark(44) + '</span>\n';
     html += '<div class="htext">';
     // A grower exporting a log for their own client should not have to send
     // out our brand. TH.brand off = a plain title and no footer credit.
     html += '<h1>' + (TH.title || (TH.brand
-      ? ('🌿 ' + t('יומן ריסוסים - שורשים פלוס'))
+      ? t('יומן ריסוסים - שורשים פלוס')
       : t('יומן ריסוסים'))) + '</h1>\n';
     html += '<div class="sub">' +
       (farmObj ? locName(farmObj) + ' · ' : '') +
@@ -4912,8 +5043,22 @@
         '<div>' + t('תאריך') + '</div>' +
         '</div>\n';
     }
+    // One extra page per מטע: its plots, drawn, with their data.
+    if (window.ReportMap && window.ReportMap.plotSheet) {
+      var sheetFarms = farmId ? [farmId] : (function () {
+        var seen = {}, out = [];
+        sorted.forEach(function (e) {
+          (e.plotIds || []).forEach(function (id) {
+            var pp = plots.find(function (x) { return x.id === id; });
+            if (pp && pp.farm_id && !seen[pp.farm_id]) { seen[pp.farm_id] = true; out.push(pp.farm_id); }
+          });
+        });
+        return out;
+      })();
+      sheetFarms.forEach(function (fid) { html += window.ReportMap.plotSheet(fid, TH); });
+    }
     html += '<div class="footer">' +
-      (TH.brand ? '<span class="brand">🌿 ' + t('שורשים פלוס') + '</span> · ' : '') +
+      (TH.brand ? '<span class="brand">' + (window.ReportTheme && window.ReportTheme.brandMark ? window.ReportTheme.brandMark(14) : '') + t('שורשים פלוס') + '</span> · ' : '') +
       t('יומן ריסוסים') + ' · ' + new Date().getFullYear() + '</div>\n';
     html += '</body>\n</html>';
 
@@ -4939,6 +5084,92 @@
         .filter(Boolean).join(' ').toLowerCase();
       return hay.indexOf(q) !== -1;
     });
+  }
+
+  // ── Label photo per catalogue material ──
+  // A photo of the product label, printed on the treatment plan's materials
+  // page. Stored in Firebase Storage (pesticide-labels/), with only its URL
+  // on the catalogue item — the image never enters the Firestore document.
+  function compressLabelPhoto(file, maxSide, quality) {
+    return new Promise(function(resolve, reject) {
+      var img = new Image();
+      var url = URL.createObjectURL(file);
+      img.onload = function() {
+        var sc = Math.min(1, maxSide / Math.max(img.width, img.height));
+        var cv = document.createElement('canvas');
+        cv.width = Math.round(img.width * sc); cv.height = Math.round(img.height * sc);
+        cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+        URL.revokeObjectURL(url);
+        cv.toBlob(function(b) { b ? resolve(b) : reject(new Error('encode')); }, 'image/jpeg', quality);
+      };
+      img.onerror = function() { URL.revokeObjectURL(url); reject(new Error('decode')); };
+      img.src = url;
+    });
+  }
+
+  function showLabelPhotoModal(pestId) {
+    var pest = pesticides.find(function(p) { return p.id === pestId; });
+    if (!pest) return;
+    var container = document.getElementById('modalContainer');
+    function close() { container.innerHTML = ''; }
+    function draw(busy) {
+      container.innerHTML =
+        '<div class="modal-overlay" id="lblOverlay"><div class="modal" style="max-width: 440px;">' +
+          '<h2>🏷️ ' + t('תמונת תווית') + ' — ' + escAttrPlot(pest.productName || '') + '</h2>' +
+          '<p>' + t('התמונה תודפס בעמוד החומרים של תוכנית הטיפול') + '</p>' +
+          (pest.labelImage
+            ? '<img src="' + escAttrPlot(pest.labelImage) + '" alt="" style="width: 100%; max-height: 50vh; object-fit: contain; border-radius: 12px; background: var(--g6); margin-bottom: 12px;">'
+            : '<div class="empty-state" style="padding: 18px;"><p>' + t('אין תמונת תווית') + '</p></div>') +
+          (busy ? '<div style="text-align: center; padding: 8px; color: var(--text-muted);">⏳ ' + t('מעלה...') + '</div>' : '') +
+          '<input type="file" id="lblFile" accept="image/*" style="display: none;">' +
+          '<div style="display: flex; flex-direction: column; gap: 8px;">' +
+            '<button class="btn btn-primary" id="lblPick"' + (busy ? ' disabled' : '') + '>📷 ' + (pest.labelImage ? t('החלף תמונה') : t('צלם או בחר תמונה')) + '</button>' +
+            (pest.labelImage ? '<button class="btn btn-secondary" id="lblRemove"' + (busy ? ' disabled' : '') + '>🗑️ ' + t('הסר תמונה') + '</button>' : '') +
+            (pest.labelUrl ? '<a href="' + escAttrPlot(pest.labelUrl) + '" target="_blank" rel="noopener" class="btn btn-secondary" style="text-align: center; text-decoration: none;">📄 ' + t('צפה בתווית הרשמית') + '</a>' : '') +
+            '<button class="btn btn-secondary" id="lblClose">' + t('סגור') + '</button>' +
+          '</div>' +
+        '</div></div>';
+      document.getElementById('lblOverlay').addEventListener('click', function(e) { if (e.target === this) close(); });
+      document.getElementById('lblClose').addEventListener('click', close);
+      document.getElementById('lblPick').addEventListener('click', function() { document.getElementById('lblFile').click(); });
+      document.getElementById('lblFile').addEventListener('change', function() {
+        var f = this.files && this.files[0];
+        if (!f) return;
+        if (typeof firebase === 'undefined' || !firebase.storage) { showToast('❌ ' + t('אין חיבור לאחסון')); return; }
+        draw(true);
+        var oldPath = pest.labelImagePath;
+        var path = 'pesticide-labels/' + pest.id + '_' + Date.now() + '.jpg';
+        var ref = firebase.storage().ref(path);
+        compressLabelPhoto(f, 1600, 0.82).then(function(blob) {
+          return ref.put(blob, { contentType: 'image/jpeg' });
+        }).then(function() { return ref.getDownloadURL(); }).then(function(url) {
+          pest.labelImage = url;
+          pest.labelImagePath = path;
+          saveData();
+          if (oldPath) firebase.storage().ref(oldPath).delete().catch(function() {});
+          showToast('✅ ' + t('תמונת התווית נשמרה'));
+          renderPesticideAdminList();
+          draw(false);
+        }).catch(function(err) {
+          console.warn('label upload failed', err);
+          showToast('❌ ' + t('העלאת התמונה נכשלה'));
+          draw(false);
+        });
+      });
+      var rm = document.getElementById('lblRemove');
+      if (rm) rm.addEventListener('click', function() {
+        if (pest.labelImagePath && typeof firebase !== 'undefined' && firebase.storage) {
+          firebase.storage().ref(pest.labelImagePath).delete().catch(function() {});
+        }
+        delete pest.labelImage;
+        delete pest.labelImagePath;
+        saveData();
+        showToast('🗑️ ' + t('תמונת התווית הוסרה'));
+        renderPesticideAdminList();
+        draw(false);
+      });
+    }
+    draw(false);
   }
 
   function renderPesticideAdminList() {
@@ -4984,6 +5215,7 @@
       html += '<div class="pesticide-admin-details">' + pest.activeIngredient + ' • ' + pest.defaultConcentration + '% • ' + pest.commonTargets + (extra.length ? ' • ' + extra.join(' • ') : '') + '</div>';
       html += '</div>';
       html += '<div class="pesticide-admin-actions">';
+      html += '<button class="btn-icon edit pest-label-btn" data-label-id="' + pest.id + '" title="' + t('תמונת תווית') + '" style="' + (pest.labelImage ? 'background: var(--accent-light);' : '') + '">🏷️</button>';
       html += '<button class="btn-icon edit" data-edit-id="' + pest.id + '">✏️</button>';
       html += '<button class="btn-icon delete" data-delete-id="' + pest.id + '">🗑️</button>';
       html += '</div>';
@@ -5002,10 +5234,15 @@
       });
     });
 
-    container.querySelectorAll('.btn-icon.edit').forEach(function(btn) {
+    container.querySelectorAll('.btn-icon.edit[data-edit-id]').forEach(function(btn) {
       btn.addEventListener('click', function() {
         var id = parseInt(this.getAttribute('data-edit-id'));
         showPesticideModal(id);
+      });
+    });
+    container.querySelectorAll('.pest-label-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        showLabelPhotoModal(parseInt(this.getAttribute('data-label-id'), 10));
       });
     });
 
@@ -7109,6 +7346,7 @@
         var icon = item.type === 'vehicle' ? '🚜' : item.type === 'sprayer' ? '💨' : '🔧';
         equipHtml += '<span style="display: inline-flex; align-items: center; gap: 4px; padding: 5px 10px; background: var(--g6); border-radius: 8px; font-size: 0.78rem; font-weight: 500;">' +
           icon + ' ' + locName(item) +
+          (item.type === 'sprayer' && item.capacityL ? ' <span style="color: var(--text-muted);">· ' + Number(item.capacityL).toLocaleString() + ' ' + t('ליטר') + '</span>' : '') +
           (item.status === 'broken' ? ' <span style="color: var(--danger);">⛔</span>' : '') +
         '</span>';
       });
@@ -7289,27 +7527,60 @@
   }
   
   // ── Equipment Editor (Admin) ──
+  // Sprayers carry a tank volume and a kind: the treatment-plan report turns
+  // them into fills per מטע (agriplan.js → loadsHtml). Rows keep every field
+  // an item already had (Thai/Arabic names, status) — the editor only
+  // changes what it shows.
+  var SPRAYER_KINDS = [
+    { v: 'airblast', he: 'מרסס מפוח (תותח)' },
+    { v: 'gun',      he: 'מרסס רובה / צינור' },
+    { v: 'boom',     he: 'מרסס מוט' },
+    { v: 'backpack', he: 'מרסס גב' },
+    { v: 'drench',   he: 'מכל הגמעה' }
+  ];
+  function sprayerKindLabel(v) {
+    var k = SPRAYER_KINDS.find(function(x) { return x.v === v; });
+    return k ? t(k.he) : '';
+  }
+
   function showEquipmentEditor(farm) {
     var equipment = farm.equipment || [];
     var container = document.getElementById('modalContainer');
-    
-    var listHtml = '';
-    equipment.forEach(function(item, idx) {
-      listHtml += '<div style="display: flex; gap: 6px; align-items: center; margin-bottom: 8px;" data-equip-idx="' + idx + '">' +
-        '<select class="form-input equip-type" style="flex: 0 0 90px; padding: 8px; font-size: 0.82rem;">' +
-          '<option value="vehicle"' + (item.type === 'vehicle' ? ' selected' : '') + '>🚜 ' + t('רכב') + '</option>' +
-          '<option value="sprayer"' + (item.type === 'sprayer' ? ' selected' : '') + '>💨 ' + t('מרסס') + '</option>' +
-          '<option value="tool"' + (item.type === 'tool' ? ' selected' : '') + '>🔧 ' + t('כלי') + '</option>' +
-        '</select>' +
-        '<input type="text" class="form-input equip-name" value="' + item.name + '" style="flex: 1; padding: 8px; font-size: 0.82rem;">' +
-        '<button class="btn-icon delete equip-remove" style="flex-shrink: 0;">✕</button>' +
+
+    function rowHtml(item, idx) {
+      item = item || { type: 'vehicle', name: '' };
+      var isSp = item.type === 'sprayer';
+      var kinds = SPRAYER_KINDS.map(function(k) {
+        return '<option value="' + k.v + '"' + (item.kind === k.v ? ' selected' : '') + '>' + t(k.he) + '</option>';
+      }).join('');
+      return '<div class="equip-row" data-equip-idx="' + idx + '" style="margin-bottom: 10px; padding: 8px; background: var(--g6); border-radius: 12px;">' +
+        '<div style="display: flex; gap: 6px; align-items: center;">' +
+          '<select class="form-input equip-type" style="flex: 0 0 100px; padding: 8px; font-size: 0.82rem;">' +
+            '<option value="vehicle"' + (item.type === 'vehicle' ? ' selected' : '') + '>🚜 ' + t('רכב') + '</option>' +
+            '<option value="sprayer"' + (isSp ? ' selected' : '') + '>💨 ' + t('מרסס') + '</option>' +
+            '<option value="tool"' + (item.type === 'tool' ? ' selected' : '') + '>🔧 ' + t('כלי') + '</option>' +
+          '</select>' +
+          '<input type="text" class="form-input equip-name" value="' + escAttrPlot(item.name || '') + '" style="flex: 1; padding: 8px; font-size: 0.82rem;">' +
+          '<button class="btn-icon delete equip-remove" style="flex-shrink: 0;">✕</button>' +
+        '</div>' +
+        '<div class="equip-sprayer" style="display: ' + (isSp ? 'flex' : 'none') + '; gap: 6px; margin-top: 6px;">' +
+          '<select class="form-input equip-kind" style="flex: 1; padding: 8px; font-size: 0.8rem;">' +
+            '<option value="">' + t('סוג המרסס') + '</option>' + kinds + '</select>' +
+          '<div style="flex: 0 0 120px; display: flex; align-items: center; gap: 4px;">' +
+            '<input type="number" class="form-input equip-cap" min="0" step="1" value="' + (item.capacityL || '') + '" placeholder="' + t('נפח') + '" style="padding: 8px; font-size: 0.82rem; text-align: center;">' +
+            '<span style="font-size: 0.75rem; color: var(--text-muted);">' + t('ליטר') + '</span>' +
+          '</div>' +
+        '</div>' +
       '</div>';
-    });
-    
+    }
+
+    var listHtml = equipment.map(function(item, idx) { return rowHtml(item, idx); }).join('');
+
     container.innerHTML =
       '<div class="modal-overlay" onclick="if(event.target===this) document.getElementById(\'modalContainer\').innerHTML=\'\'">' +
-        '<div class="modal" style="max-width: 500px;">' +
+        '<div class="modal" style="max-width: 520px;">' +
           '<h2>🚜 ' + t('ציוד ורכבים') + ' — ' + locName(farm) + '</h2>' +
+          '<p>' + t('למרססים: נפח המכל משמש לחישוב מספר המילויים בדוח תוכנית הטיפול') + '</p>' +
           '<div id="equipList">' + listHtml + '</div>' +
           '<button class="btn-admin" id="equipAdd" style="width: 100%; margin-top: 8px;">➕ ' + t('הוסף') + '</button>' +
           '<div class="modal-buttons" style="margin-top: 14px;">' +
@@ -7318,46 +7589,59 @@
           '</div>' +
         '</div>' +
       '</div>';
-    
-    // Add new row
+
+    var list = document.getElementById('equipList');
+
     document.getElementById('equipAdd').addEventListener('click', function() {
-      var list = document.getElementById('equipList');
-      var idx = list.children.length;
-      var row = document.createElement('div');
-      row.style.cssText = 'display: flex; gap: 6px; align-items: center; margin-bottom: 8px;';
-      row.setAttribute('data-equip-idx', idx);
-      row.innerHTML = '<select class="form-input equip-type" style="flex: 0 0 90px; padding: 8px; font-size: 0.82rem;">' +
-        '<option value="vehicle">🚜 ' + t('רכב') + '</option>' +
-        '<option value="sprayer">💨 ' + t('מרסס') + '</option>' +
-        '<option value="tool">🔧 ' + t('כלי') + '</option>' +
-      '</select>' +
-      '<input type="text" class="form-input equip-name" value="" placeholder="" style="flex: 1; padding: 8px; font-size: 0.82rem;">' +
-      '<button class="btn-icon delete equip-remove" style="flex-shrink: 0;">✕</button>';
-      list.appendChild(row);
+      var wrap = document.createElement('div');
+      wrap.innerHTML = rowHtml({ type: 'sprayer', name: '' }, 'new');
+      list.appendChild(wrap.firstChild);
     });
-    
-    // Remove row
-    container.addEventListener('click', function(e) {
-      if (e.target.classList.contains('equip-remove')) {
-        e.target.closest('[data-equip-idx]').remove();
+
+    list.addEventListener('change', function(e) {
+      if (e.target.classList.contains('equip-type')) {
+        var box = e.target.closest('.equip-row').querySelector('.equip-sprayer');
+        if (box) box.style.display = e.target.value === 'sprayer' ? 'flex' : 'none';
       }
     });
-    
-    // Save
+    list.addEventListener('click', function(e) {
+      if (e.target.classList.contains('equip-remove')) e.target.closest('.equip-row').remove();
+    });
+
     document.getElementById('equipSave').addEventListener('click', function() {
       var newEquipment = [];
-      container.querySelectorAll('[data-equip-idx]').forEach(function(row) {
+      var bad = false;
+      list.querySelectorAll('.equip-row').forEach(function(row) {
+        var idx = row.getAttribute('data-equip-idx');
+        var orig = (idx !== 'new' && equipment[parseInt(idx, 10)]) ? equipment[parseInt(idx, 10)] : null;
         var type = row.querySelector('.equip-type').value;
         var name = row.querySelector('.equip-name').value.trim();
-        if (name) newEquipment.push({ type: type, name: name, status: 'active' });
+        if (!name) return;
+        // Start from the original item so fields this form does not show
+        // (name_th, name_ar, status) survive the save.
+        var item = orig ? JSON.parse(JSON.stringify(orig)) : { status: 'active' };
+        item.type = type;
+        if (orig && orig.name !== name) { delete item.name_th; delete item.name_ar; }
+        item.name = name;
+        if (type === 'sprayer') {
+          var cap = Math.round(parseFloat(row.querySelector('.equip-cap').value));
+          if (row.querySelector('.equip-cap').value.trim() !== '' && (!isFinite(cap) || cap <= 0 || cap > 100000)) bad = true;
+          item.capacityL = (isFinite(cap) && cap > 0) ? cap : 0;
+          item.kind = row.querySelector('.equip-kind').value || '';
+        } else {
+          delete item.capacityL;
+          delete item.kind;
+        }
+        newEquipment.push(item);
       });
+      if (bad) { showToast('⚠️ ' + t('נפח מרסס לא תקין')); return; }
       farm.equipment = newEquipment;
       saveData();
       showToast('✅ ' + t('ציוד עודכן'));
       showFarmDetails(farm.id);
     });
   }
-  
+
   // ── Vehicle Management ──
   function showVehicleList(farm) {
     var vehicles = farm.vehicles || [];
@@ -7925,12 +8209,20 @@
       return e.plot_id === plot.id;
     }).length;
 
-    // Farm selector
+    // Farm selector — only the farms this user may work in. Offering every
+    // farm let an operator move a plot into someone else's farm by mistake
+    // and lose sight of it the moment it saved.
     var farmOptions = '';
-    farms.forEach(function(f) {
+    var selectable = currentUser ? getUserFarms(currentUser) : farms;
+    if (plot.farm_id && !selectable.some(function(f) { return f.id === plot.farm_id; })) {
+      var curFarm = farms.find(function(f) { return f.id === plot.farm_id; });
+      if (curFarm) selectable = [curFarm].concat(selectable);
+    }
+    selectable.forEach(function(f) {
       farmOptions += '<option value="' + f.id + '"' + (f.id === plot.farm_id ? ' selected' : '') + '>' + locName(f) + '</option>';
     });
     if (!plot.farm_id) farmOptions = '<option value="" selected>—</option>' + farmOptions;
+    var bDef = branchDef(branchOfCrop(plot.crop_type));
     
     var container = document.getElementById('modalContainer');
     container.innerHTML =
@@ -7950,19 +8242,27 @@
               '<div style="font-size: 0.65rem; color: var(--text-muted);">' + t('נקודות') + '</div>' +
               '<div style="font-size: 1rem; font-weight: 700; color: var(--g1);">' + plot.vertices + '</div>' +
             '</div>' +
-            '<div style="background: ' + (plot.tree_count ? '#e8f5e9' : 'var(--g6)') + '; padding: 10px; border-radius: 10px; text-align: center;">' +
-              '<div style="font-size: 0.65rem; color: var(--text-muted);">🌴 ' + t('עצים') + '</div>' +
-              '<div style="font-size: 1rem; font-weight: 700; color: var(--g1);">' + (plot.tree_count || '—') + '</div>' +
-              (plot.row_spacing && plot.tree_spacing ? '<div style="font-size: 0.6rem; color: var(--text-muted);">' + plot.row_spacing + '×' + plot.tree_spacing + '</div>' : '') +
-            '</div>' +
+            // Third tile follows the crop's branch: plant count (with spacing
+            // for orchards only) or, for annual crops, the sowing/planting date.
+            (bDef.count
+              ? '<div style="background: ' + (plot.tree_count ? '#e8f5e9' : 'var(--g6)') + '; padding: 10px; border-radius: 10px; text-align: center;">' +
+                  '<div style="font-size: 0.65rem; color: var(--text-muted);">🌴 ' + t(bDef.count) + '</div>' +
+                  '<div style="font-size: 1rem; font-weight: 700; color: var(--g1);">' + (plot.tree_count || '—') + '</div>' +
+                  (bDef.spacing && plot.row_spacing && plot.tree_spacing ? '<div style="font-size: 0.6rem; color: var(--text-muted);">' + plot.row_spacing + '×' + plot.tree_spacing + '</div>' : '') +
+                '</div>'
+              : '<div style="background: var(--g6); padding: 10px; border-radius: 10px; text-align: center;">' +
+                  '<div style="font-size: 0.65rem; color: var(--text-muted);">📅 ' + t(bDef.plant || 'תאריך זריעה') + '</div>' +
+                  '<div style="font-size: 0.92rem; font-weight: 700; color: var(--g1);">' + (plot.planting_date ? new Date(plot.planting_date).toLocaleDateString('he-IL') : '—') + '</div>' +
+                '</div>') +
           '</div>' +
-          (plot.crop_type ? '<div style="background:#e8f5e9;border-radius:8px;padding:6px 12px;margin-bottom:14px;font-size:0.85rem;font-weight:600;text-align:center;">🌱 ' + plot.crop_type + '</div>' : '') +
+          (plot.crop_type ? '<div style="background:#e8f5e9;border-radius:8px;padding:6px 12px;margin-bottom:14px;font-size:0.85rem;font-weight:600;text-align:center;">🌱 ' + plot.crop_type + ' · ' + t(bDef.he) +
+            '</div>' : '') +
           (plot.variety ? '<div style="background:#fff8e1;border-radius:8px;padding:6px 12px;margin-bottom:14px;font-size:0.85rem;font-weight:600;text-align:center;">🌴 ' + t('זן') + ': ' + escAttrPlot(plot.variety) + '</div>' : '') +
-          ((plot.missing_trees || plot.young_trees || (plot.male_trees && isDatePalmCrop(plot.crop_type)))
+          (bDef.ym && (plot.missing_trees || plot.young_trees || (plot.male_trees && isDatePalmCrop(plot.crop_type)))
             ? '<div style="display:flex;gap:8px;margin-bottom:14px;">' +
                 ((plot.male_trees && isDatePalmCrop(plot.crop_type)) ? '<div style="flex:1;background:#fff3e0;border-radius:8px;padding:6px 10px;font-size:0.85rem;font-weight:600;text-align:center;">♂ ' + t('זכרים') + ': ' + plot.male_trees + '</div>' : '') +
-                (plot.young_trees ? '<div style="flex:1;background:#e3f2fd;border-radius:8px;padding:6px 10px;font-size:0.85rem;font-weight:600;text-align:center;">🌱 ' + t('עצים צעירים') + ': ' + plot.young_trees + '</div>' : '') +
-                (plot.missing_trees ? '<div style="flex:1;background:#ffebee;border-radius:8px;padding:6px 10px;font-size:0.85rem;font-weight:600;text-align:center;">⭕ ' + t('עצים חסרים') + ': ' + plot.missing_trees + '</div>' : '') +
+                (plot.young_trees ? '<div style="flex:1;background:#e3f2fd;border-radius:8px;padding:6px 10px;font-size:0.85rem;font-weight:600;text-align:center;">🌱 ' + t(bDef.young || 'עצים צעירים') + ': ' + plot.young_trees + '</div>' : '') +
+                (plot.missing_trees ? '<div style="flex:1;background:#ffebee;border-radius:8px;padding:6px 10px;font-size:0.85rem;font-weight:600;text-align:center;">⭕ ' + t(bDef.missing || 'עצים חסרים') + ': ' + plot.missing_trees + '</div>' : '') +
               '</div>'
             : '') +
           (plot.notes ? '<div style="background:var(--g6);border-radius:8px;padding:8px 12px;margin-bottom:14px;font-size:0.82rem;white-space:pre-wrap;line-height:1.45;">📝 ' + escAttrPlot(plot.notes) + '</div>' : '') +
@@ -8021,7 +8321,14 @@
               '<label class="form-label" style="font-size: 0.78rem;">🌱 ' + t('סוג גידול') + '</label>' +
               '<select class="form-input" id="pdEditCrop" style="cursor: pointer;">' +
                 '<option value="">' + t('בחר גידול') + '</option>' +
-                (function() { var cropList = JSON.parse(localStorage.getItem('shorashim-crop-types') || '[]'); return cropList.map(function(c) { return '<option value="' + c + '"' + (plot.crop_type === c ? ' selected' : '') + '>' + c + '</option>'; }).join(''); })() +
+                (function() {
+                  var cropList = JSON.parse(localStorage.getItem('shorashim-crop-types') || '[]');
+                  // A crop no longer (or never) in the list must still be offered and
+                  // selected — otherwise the select shows "בחר גידול" and saving the
+                  // form for any other reason silently erased the plot's crop.
+                  if (plot.crop_type && cropList.indexOf(plot.crop_type) === -1) cropList = [plot.crop_type].concat(cropList);
+                  return cropList.map(function(c) { return '<option value="' + escAttrPlot(c) + '"' + (plot.crop_type === c ? ' selected' : '') + '>' + escAttrPlot(c) + '</option>'; }).join('');
+                })() +
               '</select>' +
             '</div>' +
             '<div class="form-group" style="margin-bottom: 10px;">' +
@@ -8034,8 +8341,8 @@
               '<textarea class="form-input" id="pdEditNotes" rows="3" style="font-size: 0.88rem;resize:vertical;">' + escAttrPlot(plot.notes || '') + '</textarea>' +
             '</div>' +
             '<div style="border-top: 1px solid var(--g5, rgba(255,255,255,0.12)); margin: 12px 0 10px;"></div>' +
-            '<div style="font-size: 0.78rem; font-weight: 700; color: var(--g1); margin-bottom: 8px;">🌴 ' + t('צפיפות ומספר עצים') + '</div>' +
-            '<div style="display: flex; gap: 8px; margin-bottom: 10px;">' +
+            '<div style="font-size: 0.78rem; font-weight: 700; color: var(--g1); margin-bottom: 8px;">🌱 ' + t('נתוני גידול') + ' · <span class="br-name"></span></div>' +
+            '<div class="br-sp" style="display: flex; gap: 8px; margin-bottom: 10px;">' +
               '<div style="flex: 1;">' +
                 '<label class="form-label" style="font-size: 0.72rem;">' + t('בין שורות') + ' (' + t('מ\'') + ')</label>' +
                 '<input type="number" class="form-input" id="pdEditRowSpacing" value="' + (plot.row_spacing || '') + '" min="0.5" max="30" step="0.5" style="font-size: 0.88rem;">' +
@@ -8046,7 +8353,7 @@
               '</div>' +
             '</div>' +
             '<div style="display: flex; gap: 8px; margin-bottom: 10px;">' +
-              '<div style="flex: 1;">' +
+              '<div class="br-sp" style="flex: 1;">' +
                 '<label class="form-label" style="font-size: 0.72rem;">' + t('צמחים לדונם') + '</label>' +
                 '<input type="number" class="form-input" id="pdEditPlantsPerDunam" value="' + (plot.plants_per_dunam || '') + '" min="1" step="1" style="font-size: 0.88rem;">' +
               '</div>' +
@@ -8055,27 +8362,31 @@
                 '<input type="number" class="form-input" id="pdEditArea" value="' + (plot.area != null ? Number(plot.area).toFixed(2) : '') + '" min="0.01" step="0.01" style="font-size: 0.88rem;">' +
               '</div>' +
             '</div>' +
-            '<div class="form-group" style="margin-bottom: 8px;">' +
-              '<label class="form-label" style="font-size: 0.72rem;">🌴 ' + t('מספר עצים') + '</label>' +
+            '<div class="form-group br-cnt" style="margin-bottom: 8px;">' +
+              '<label class="form-label" style="font-size: 0.72rem;">🌴 <span class="br-cnt-lbl">' + t('מספר עצים') + '</span></label>' +
               '<input type="number" class="form-input" id="pdEditTreeCount" value="' + (plot.tree_count || '') + '" min="0" step="1" style="font-size: 1.05rem; font-weight: 700; text-align: center;">' +
+            '</div>' +
+            '<div class="form-group br-pd" style="margin-bottom: 8px; display: none;">' +
+              '<label class="form-label" style="font-size: 0.72rem;">📅 <span class="br-pd-lbl"></span></label>' +
+              '<input type="date" class="form-input" id="pdEditPlantingDate" value="' + escAttrPlot(plot.planting_date || '') + '" style="font-size: 0.9rem;">' +
             '</div>' +
             '<div class="form-group" id="pdEditMaleTreesRow" style="margin-bottom: 8px;' + (isDatePalmCrop(plot.crop_type) ? '' : ' display: none;') + '">' +
               '<label class="form-label" style="font-size: 0.72rem;">♂ ' + t('מתוכם זכרים') + '</label>' +
               '<input type="number" class="form-input" id="pdEditMaleTrees" value="' + (plot.male_trees || '') + '" min="0" step="1" style="font-size: 0.95rem; text-align: center;">' +
             '</div>' +
-            '<div style="display: flex; gap: 8px; margin-bottom: 8px;">' +
+            '<div class="br-ym" style="display: flex; gap: 8px; margin-bottom: 8px;">' +
               '<div style="flex: 1;">' +
-                '<label class="form-label" style="font-size: 0.72rem;">🌱 ' + t('עצים צעירים') + '</label>' +
+                '<label class="form-label" style="font-size: 0.72rem;">🌱 <span class="br-y-lbl">' + t('עצים צעירים') + '</span></label>' +
                 '<input type="number" class="form-input" id="pdEditYoungTrees" value="' + (plot.young_trees || '') + '" min="0" step="1" style="font-size: 0.95rem; text-align: center;">' +
               '</div>' +
               '<div style="flex: 1;">' +
-                '<label class="form-label" style="font-size: 0.72rem;">⭕ ' + t('עצים חסרים') + '</label>' +
+                '<label class="form-label" style="font-size: 0.72rem;">⭕ <span class="br-m-lbl">' + t('עצים חסרים') + '</span></label>' +
                 '<input type="number" class="form-input" id="pdEditMissingTrees" value="' + (plot.missing_trees || '') + '" min="0" step="1" style="font-size: 0.95rem; text-align: center;">' +
               '</div>' +
             '</div>' +
             '<div style="display: flex; gap: 6px; margin-bottom: 12px;">' +
-              '<button class="btn-admin" id="pdCalcFromSpacing" style="flex: 1; font-size: 0.7rem; padding: 7px 4px;">📐 ' + t('חשב לפי מרווחים') + '</button>' +
-              '<button class="btn-admin" id="pdCalcFromDensity" style="flex: 1; font-size: 0.7rem; padding: 7px 4px;">📊 ' + t('חשב לפי צמחים לדונם') + '</button>' +
+              '<button class="btn-admin br-sp" id="pdCalcFromSpacing" style="flex: 1; font-size: 0.7rem; padding: 7px 4px;">📐 ' + t('חשב לפי מרווחים') + '</button>' +
+              '<button class="btn-admin br-sp" id="pdCalcFromDensity" style="flex: 1; font-size: 0.7rem; padding: 7px 4px;">📊 ' + t('חשב לפי צמחים לדונם') + '</button>' +
               '<button class="btn-admin" id="pdRecalcArea" style="flex: 1; font-size: 0.7rem; padding: 7px 4px;">↺ ' + t('שטח מהמפה') + '</button>' +
             '</div>' +
             '<div style="display: flex; gap: 8px;">' +
@@ -8219,6 +8530,7 @@
     if (pdRegisterBtn) pdRegisterBtn.addEventListener('click', function () {
       if (window.PlotRegister) PlotRegister.pickFor('edit', plotArea(plot));
     });
+    applyBranchUI(document.getElementById('modalContainer'), plot.crop_type);
     document.getElementById('pdSaveEdit').addEventListener('click', function() {
       // Same farm-permission gate as delete: an operator scoped to certain
       // farms must not be able to rename or re-measure someone else's plot.
@@ -8234,6 +8546,25 @@
       var newNameAr = (document.getElementById('pdEditNameAr') || { value: '' }).value.trim();
       var newFarmId = parseInt(document.getElementById('pdEditFarm').value);
       var newCropType = document.getElementById('pdEditCrop').value || null;
+      // Moving a plot between farms: allowed only into a farm the user has
+      // permission for (the selector already limits this; the check covers
+      // a stale form), and always confirmed — it changes who sees the plot.
+      if (newFarmId && newFarmId !== plot.farm_id) {
+        if (currentUser && currentUser.role !== 'admin') {
+          var allowedFarms = getUserFarms(currentUser).map(function(f) { return f.id; });
+          if (allowedFarms.indexOf(newFarmId) === -1) {
+            showToast('⛔ ' + t('אין לך הרשאה להעביר חלקה למטע זה'));
+            return;
+          }
+        }
+        var fromFarm = farms.find(function(f) { return f.id === plot.farm_id; });
+        var toFarm = farms.find(function(f) { return f.id === newFarmId; });
+        if (!confirm(t('להעביר את החלקה') + ' "' + locName(plot) + '" ' +
+            (fromFarm ? t('ממטע') + ' "' + locName(fromFarm) + '" ' : '') +
+            t('למטע') + ' "' + (toFarm ? locName(toFarm) : '') + '"?')) {
+          return;
+        }
+      }
       var geofenceEl = document.getElementById('pdEditGeofence');
       var newGeofence = geofenceEl ? parseInt(geofenceEl.value) : null;
       if (newGeofence != null && (isNaN(newGeofence) || newGeofence < 20 || newGeofence > 500)) {
@@ -8287,6 +8618,8 @@
       var newNotes = (document.getElementById('pdEditNotes') || { value: '' }).value.trim();
       if (newVariety !== (plot.variety || '')) { plot.variety = newVariety; changed = true; }
       if (newNotes !== (plot.notes || '')) { plot.notes = newNotes; changed = true; }
+      var newPlanting = (document.getElementById('pdEditPlantingDate') || { value: '' }).value || '';
+      if (newPlanting !== (plot.planting_date || '')) { plot.planting_date = newPlanting; changed = true; }
       var pdRowId = (document.getElementById('pdRegisterRowId') || { value: '' }).value;
       if (pdRowId && window.PlotRegister) PlotRegister.markUsed(pdRowId, plot.id);
 
