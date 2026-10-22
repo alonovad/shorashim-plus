@@ -673,6 +673,15 @@ var AgriPlan = (function () {
         'box-sizing:border-box;min-width:0;}' +
       '.ap-lbl{font-size:.7rem;color:var(--text-muted,#888);font-weight:700;margin-bottom:2px;}' +
       '.ap-rowgrid{display:grid;grid-template-columns:1.4fr 1fr .8fr .8fr .9fr 1fr 34px;gap:5px;align-items:end;}' +
+      '.ap-mat-n{display:flex;gap:4px;min-width:0;}.ap-mat-n .ap-in{flex:1;min-width:0;}' +
+      '.ap-mat-pick{flex:none;width:34px;border:1px solid var(--line,#dde5da);border-radius:10px;background:var(--card,#fff);color:var(--primary,#1d5a2c);cursor:pointer;font-size:1rem;}' +
+      '.apmp-back{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9500;display:flex;align-items:center;justify-content:center;padding:14px;}' +
+      '.apmp{background:var(--card,#fff);color:var(--text,#1b2a1f);border-radius:22px;width:100%;max-width:520px;max-height:86vh;display:flex;flex-direction:column;box-shadow:0 18px 40px rgba(0,0,0,.25);}' +
+      '.apmp-h{padding:14px 16px 8px;display:flex;gap:8px;align-items:center;}.apmp-h b{flex:1;font-size:1rem;}' +
+      '.apmp-h button{border:0;background:var(--tonal,#f1f4ee);border-radius:50%;width:32px;height:32px;cursor:pointer;color:inherit;}' +
+      '.apmp-s{margin:0 16px 8px;width:auto !important;box-sizing:border-box;}.apmp-l{overflow-y:auto;padding:0 10px 12px;}' +
+      '.apmp-i{display:block;width:100%;text-align:right;border:0;background:none;padding:9px 8px;border-bottom:1px solid var(--line,#eef1ec);cursor:pointer;color:inherit;font:inherit;}' +
+      '.apmp-i:hover{background:var(--tonal,#f1f4ee);}.apmp-i b{font-size:.9rem;}.apmp-i small{display:block;color:var(--text-muted,#777);font-size:.72rem;margin-top:2px;}' +
       '.ap-mat{display:grid;grid-template-columns:1.4fr .7fr .8fr .8fr 30px;gap:5px;margin-top:4px;align-items:center;}' +
       '.ap-out{background:var(--surface,#fff);border-radius:8px;padding:6px 9px;margin-top:6px;font-size:.78rem;' +
         'font-weight:700;color:var(--primary,#2d6a4f);}' +
@@ -1289,9 +1298,10 @@ var AgriPlan = (function () {
     (r.materials || []).forEach(function (m, mi) {
       var litres = rowMaterialL(r, m);
       mats += '<div class="ap-mat">' +
-        '<input class="ap-in" list="apMats" data-k="m' + i + '-' + mi + '-n" value="' + esc(m.name) + '" placeholder="' +
+        '<span class="ap-mat-n"><input class="ap-in" list="apMats" data-k="m' + i + '-' + mi + '-n" value="' + esc(m.name) + '" placeholder="' +
           tt('חומר', 'สาร', 'مادة') + '" ' +
           'oninput="AgriPlan._setMat(' + pid + ',' + i + ',' + mi + ',\'name\',this.value)">' +
+          '<button type="button" class="ap-mat-pick" title="' + tt('כל החומרים', 'สารทั้งหมด', 'كل المواد') + '" onclick="AgriPlan._pickMat(' + pid + ',' + i + ',' + mi + ')">☰</button></span>' +
         '<select class="ap-in" onchange="AgriPlan._setMat(' + pid + ',' + i + ',' + mi + ',\'mode\',this.value)">' +
           '<option value="pct"' + (m.mode === 'pct' ? ' selected' : '') + '>%</option>' +
           '<option value="cc"' + (m.mode === 'cc' ? ' selected' : '') + '>' +
@@ -1712,6 +1722,65 @@ var AgriPlan = (function () {
     save();
     showPlan(pid);
   }
+  // Every material in our lists — the whole catalogue, whatever crop it is
+  // registered for — plus names already used in plans. The datalist only
+  // offers names matching what is typed; this lists them all, searchable.
+  function allMaterialsInfo() {
+    var by = {};
+    ((window.SprayStore && SprayStore.getPesticides) ? SprayStore.getPesticides() : []).forEach(function (x) {
+      var n = String(x.productName || '').trim();
+      if (!n) return;
+      var e = by[n] || (by[n] = { name: n, act: {}, crops: {} });
+      String(x.activeIngredient || '').split(/\s*[+,،]\s*/).forEach(function (a) { a = a.trim(); if (a) e.act[a] = 1; });
+      String(x.crop || '').split(/[,،]/).forEach(function (c) { c = c.trim(); if (c) e.crops[c] = 1; });
+    });
+    knownMaterials().forEach(function (n) { if (!by[n]) by[n] = { name: n, act: {}, crops: {} }; });
+    return Object.keys(by).sort(function (a, b) { return a.localeCompare(b, 'he'); }).map(function (k) {
+      var e = by[k];
+      return { name: e.name, act: Object.keys(e.act).join(' + '), crops: Object.keys(e.crops).join(', ') };
+    });
+  }
+  function _pickMat(pid, i, mi) {
+    var list = allMaterialsInfo();
+    var old = document.getElementById('apmpBack');
+    if (old) old.remove();
+    var back = document.createElement('div');
+    back.id = 'apmpBack';
+    back.className = 'apmp-back';
+    back.innerHTML = '<div class="apmp"><div class="apmp-h"><b>' + tt('כל חומרי ההדברה', 'สารกำจัดศัตรูพืชทั้งหมด', 'كل المبيدات') + ' (' + list.length + ')</b>' +
+      '<button type="button" data-x="1">✕</button></div>' +
+      '<input class="ap-in apmp-s" id="apmpQ" placeholder="🔍 ' + tt('חיפוש לפי שם, חומר פעיל או גידול', 'ค้นหา', 'بحث بالاسم أو المادة أو المحصول') + '">' +
+      '<div class="apmp-l" id="apmpL"></div></div>';
+    document.body.appendChild(back);
+    function draw(q) {
+      q = String(q || '').trim().toLowerCase();
+      var rows = list.filter(function (m) { return !q || (m.name + ' ' + m.act + ' ' + m.crops).toLowerCase().indexOf(q) !== -1; });
+      document.getElementById('apmpL').innerHTML = rows.map(function (m, k) {
+        return '<button type="button" class="apmp-i" data-n="' + esc(m.name) + '"><b>' + esc(m.name) + '</b>' +
+          ((m.act || m.crops) ? '<small>' + esc(m.act) + (m.act && m.crops ? ' · ' : '') + (m.crops ? '🌱 ' + esc(m.crops) : '') + '</small>' : '') + '</button>';
+      }).join('') || '<div style="padding:14px;color:var(--text-muted,#777);">' + tt('לא נמצא', 'ไม่พบ', 'لا نتائج') + '</div>';
+    }
+    draw('');
+    var q = document.getElementById('apmpQ');
+    q.addEventListener('input', function () { draw(this.value); });
+    setTimeout(function () { try { q.focus(); } catch (e) {} }, 30);
+    back.addEventListener('click', function (e) {
+      if (e.target === back || e.target.getAttribute('data-x')) return back.remove();
+      var b = e.target.closest('.apmp-i');
+      if (!b) return;
+      var name = b.getAttribute('data-n');
+      back.remove();
+      if (pid === null || pid === undefined) {
+        var inp = document.getElementById('apBulkName');
+        if (inp) { inp.value = name; inp.dispatchEvent(new Event('input', { bubbles: true })); }
+        return;
+      }
+      _setMat(pid, i, mi, 'name', name);
+      save();
+      showPlan(pid);
+    });
+  }
+
   function _setMat(pid, i, mi, k, v) {
     var p = editable(pid);
     if (!p || !p.rows[i] || !p.rows[i].materials[mi]) return;
@@ -1785,7 +1854,8 @@ var AgriPlan = (function () {
         '<datalist id="apBulkMats">' + mats + '</datalist>' +
         '<div class="ap-rowgrid" style="grid-template-columns:1.4fr .8fr .7fr .7fr;">' +
           '<div><div class="ap-lbl">' + tt('חומר', 'สาร', 'مادة') + '</div>' +
-            '<input class="ap-in" id="apBulkName" list="apBulkMats"></div>' +
+            '<span class="ap-mat-n"><input class="ap-in" id="apBulkName" list="apBulkMats">' +
+            '<button type="button" class="ap-mat-pick" title="' + tt('כל החומרים', 'สารทั้งหมด', 'كل المواد') + '" onclick="AgriPlan._pickMat(null)">☰</button></span></div>' +
           '<div><div class="ap-lbl">' + tt('אופן מינון', 'โหมด', 'الوضع') + '</div>' +
             '<select class="ap-in" id="apBulkMode">' +
               '<option value="pct">% ' + tt('מהתמיסה', 'ของสารละลาย', 'من المحلول') + '</option>' +
@@ -2978,6 +3048,7 @@ var AgriPlan = (function () {
     _delRow: _delRow,
     _addMat: _addMat,
     _delMat: _delMat,
-    _setMat: _setMat
+    _setMat: _setMat,
+    _pickMat: _pickMat
   };
 })();

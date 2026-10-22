@@ -128,22 +128,47 @@ var Home = (function () {
   }
 
   // ── pieces ──
-  function hubHtml() {
-    var names = ['drop', 'tractor', 'spray', 'map', 'signal', 'pin'];
-    var cx = 50, cy = 50, R = 36, lines = '', dots = '';
-    names.forEach(function (n, k) {
-      var a = 2 * Math.PI * k / names.length - Math.PI / 2;
+  // The hub on the hero is a shortcut ring for the selected farm: each
+  // circle opens that farm's view of irrigation, vehicles, spraying, map,
+  // weather or navigation; the centre opens the farm card.
+  var HUB = [
+    { k: 'irr', ic: 'drop', he: 'השקיה', th: 'ให้น้ำ', ar: 'ري' },
+    { k: 'veh', ic: 'tractor', he: 'כלים', th: 'ยานพาหนะ', ar: 'مركبات' },
+    { k: 'spray', ic: 'spray', he: 'ריסוס', th: 'พ่นยา', ar: 'رش' },
+    { k: 'wx', ic: 'sun', he: 'תחזית', th: 'พยากรณ์', ar: 'توقعات' },
+    { k: 'nav', ic: 'pin', he: 'ניווט', th: 'นำทาง', ar: 'ملاحة' },
+    { k: 'map', ic: 'map', he: 'מפה', th: 'แผนที่', ar: 'خريطة' }
+  ];
+  function hubHtml(f) {
+    var cx = 50, cy = 50, R = 37, lines = '', dots = '';
+    var fl = (f && window.Fleet && Fleet.farmAlerts && S().canEditFarm && S().canEditFarm(f.id)) ? Fleet.farmAlerts(f.id).length : 0;
+    HUB.forEach(function (h, k) {
+      var a = 2 * Math.PI * k / HUB.length - Math.PI / 2;
       var x = cx + R * Math.cos(a), y = cy + R * Math.sin(a);
       lines += '<line x1="' + cx + '%" y1="' + cy + '%" x2="' + x.toFixed(1) + '%" y2="' + y.toFixed(1) + '%"/>';
-      dots += '<span class="hm-hub-c" style="left:' + x.toFixed(1) + '%;top:' + y.toFixed(1) + '%">' + ic(n, '#fff', 15, 1.5) + '</span>';
+      var badge = (h.k === 'veh' && fl) ? '<i class="hm-hub-b">' + fl + '</i>' : '';
+      dots += '<button type="button" class="hm-hub-c" data-hub="' + h.k + '" style="left:' + x.toFixed(1) + '%;top:' + y.toFixed(1) + '%" aria-label="' + tt(h.he, h.th, h.ar) + '">' +
+        ic(h.ic, '#fff', 15, 1.6) + badge + '<span>' + tt(h.he, h.th, h.ar) + '</span></button>';
     });
-    return '<div class="hm-hub" aria-hidden="true"><svg width="100%" height="100%">' + lines + '<circle cx="50%" cy="50%" r="16%" /></svg>' + dots +
-      '<span class="hm-hub-m">' + ic('leaf', G, 22, 1.8) + '</span></div>';
+    return '<div class="hm-hub"><svg width="100%" height="100%" aria-hidden="true">' + lines + '<circle cx="50%" cy="50%" r="16%" /></svg>' + dots +
+      '<button type="button" class="hm-hub-m" data-hub="farm" aria-label="' + tt('פרטי משק', 'รายละเอียดฟาร์ม', 'تفاصيل المزرعة') + '">' + ic('leaf', G, 22, 1.8) + '</button></div>';
+  }
+  function hubGo(k, fid) {
+    if (k === 'farm' || k === 'veh') { if (typeof window.showFarmDetailsGlobal === 'function') window.showFarmDetailsGlobal(fid); return; }
+    if (k === 'irr') return go('irrigation');
+    if (k === 'spray') return go('spray');
+    if (k === 'wx') return go('weather');
+    if (k === 'map') { if (S().zoomToFarm) { S().zoomToFarm(fid); syncNav(); } else go('map'); return; }
+    if (k === 'nav') {
+      var pt = (window.Weather && Weather._points ? Weather._points() : []).find(function (p) { return p.id === fid; });
+      if (!pt) { if (typeof showToast === 'function') showToast(tt('אין חלקה ראשית ממופה למשק', 'ไม่มีแปลงหลัก', 'لا توجد قطعة رئيسية')); return; }
+      window.open('https://www.google.com/maps/dir/?api=1&destination=' + pt.lat + ',' + pt.lon, '_blank');
+    }
   }
 
   function heroHtml(f) {
     if (!f) return '<div class="hm-hero"><div class="hm-hero-t"><b>' + tt('אין משקים זמינים', 'ไม่มีฟาร์ม', 'لا توجد مزارع') + '</b></div></div>';
-    return '<div class="hm-hero" id="hmHero" data-farm="' + f.id + '">' + hubHtml() +
+    return '<div class="hm-hero" id="hmHero" data-farm="' + f.id + '">' + hubHtml(f) +
       '<div class="hm-hero-t"><b>' + esc(f.name) + '</b>' +
         '<small>' + f.plots.length + ' ' + tt('חלקות', 'แปลง', 'قطع') + ' · ' + fmt(f.area) + ' ' + tt('דונם', 'ไร่', 'دونم') +
         (f.trees ? ' · ' + fmt(f.trees, 0) + ' ' + tt('עצים', 'ต้น', 'شجرة') : '') + '</small></div>' +
@@ -254,6 +279,13 @@ var Home = (function () {
   }
 
   function bind(root) {
+    root.querySelectorAll('[data-hub]').forEach(function (b) {
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var hero = document.getElementById('hmHero');
+        hubGo(this.getAttribute('data-hub'), hero ? Number(hero.getAttribute('data-farm')) : null);
+      });
+    });
     root.querySelectorAll('[data-hm-act]').forEach(function (b) {
       b.addEventListener('click', function () { runAction(this.getAttribute('data-hm-act')); });
     });
@@ -399,10 +431,14 @@ var Home = (function () {
       '.hm-wx-load{font-size:.78rem;opacity:.85;}' +
       '.hm-tag{display:inline-flex;align-items:center;gap:5px;font-size:.74rem;font-weight:700;padding:5px 10px;border-radius:10px;}' +
       '.hm-tag.ok{background:var(--lime);color:var(--lime-ink);}.hm-tag.mid{background:rgba(255,255,255,.9);color:#7a4a00;}.hm-tag.bad{background:rgba(255,255,255,.9);color:#b3261e;}' +
-      '.hm-hub{position:absolute;left:10px;top:50%;width:170px;height:170px;transform:translateY(-50%);}' +
-      '.hm-hub svg{position:absolute;inset:0;overflow:visible;}.hm-hub line{stroke:rgba(255,255,255,.35);stroke-width:1;}.hm-hub circle{fill:none;stroke:rgba(255,255,255,.28);stroke-dasharray:3 4;}' +
-      '.hm-hub-c{position:absolute;width:34px;height:34px;margin:-17px 0 0 -17px;border-radius:50%;border:1.4px solid rgba(255,255,255,.7);background:rgba(255,255,255,.1);display:grid;place-items:center;}' +
-      '.hm-hub-m{position:absolute;left:50%;top:50%;width:50px;height:50px;margin:-25px 0 0 -25px;border-radius:50%;background:var(--lime);display:grid;place-items:center;box-shadow:0 6px 18px rgba(0,0,0,.18);}' +
+      '.hm-hub{position:absolute;left:8px;top:50%;width:178px;height:178px;transform:translateY(-52%);z-index:2;}' +
+      '.hm-hub>svg{position:absolute;inset:0;overflow:visible;}.hm-hub line{stroke:rgba(255,255,255,.35);stroke-width:1;}.hm-hub circle{fill:none;stroke:rgba(255,255,255,.28);stroke-dasharray:3 4;}' +
+      '.hm-hub-c{position:absolute;width:36px;height:36px;margin:-18px 0 0 -18px;padding:0;border-radius:50%;border:1.4px solid rgba(255,255,255,.75);background:rgba(255,255,255,.12);display:grid;place-items:center;cursor:pointer;transition:transform .12s,background .12s;}' +
+      '.hm-hub-c:hover{background:rgba(255,255,255,.26);}.hm-hub-c:active{transform:scale(.9);}' +
+      '.hm-hub-c span{position:absolute;top:100%;left:50%;transform:translateX(-50%);margin-top:2px;font-size:.58rem;font-weight:600;color:#fff;white-space:nowrap;text-shadow:0 1px 3px rgba(0,0,0,.45);}' +
+      '.hm-hub-b{position:absolute;top:-5px;right:-5px;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:#e0645a;color:#fff;font-size:.6rem;font-style:normal;font-weight:700;line-height:16px;}' +
+      '.hm-hub-m{position:absolute;left:50%;top:50%;width:50px;height:50px;margin:-25px 0 0 -25px;padding:0;border:0;border-radius:50%;background:var(--lime);display:grid;place-items:center;box-shadow:0 6px 18px rgba(0,0,0,.18);cursor:pointer;}' +
+      '.hm-hub-m:active{transform:scale(.92);}' +
       '.hm-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;}' +
       '.hm-kpi{background:var(--tonal);border-radius:18px;padding:10px 12px;min-width:0;}.hm-kpi small{display:block;color:var(--text-muted);font-size:.7rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}.hm-kpi b{font-size:1.2rem;}' +
       '.hm-kpi.l{background:var(--primary-soft);}.hm-kpi.r b{color:#b3261e;}.hm-kpi.o b{color:#b06a12;}' +
@@ -431,7 +467,7 @@ var Home = (function () {
       '.hm-chip{font-size:.7rem;padding:2px 8px;border-radius:8px;background:var(--primary-soft);color:var(--primary);font-weight:500;white-space:nowrap;}.hm-chip.o{background:#fff4e2;color:#b06a12;}.hm-chip.r{background:#fde9e7;color:#b3261e;}' +
       '.hm-empty{font-size:.8rem;color:var(--text-muted);padding:4px 0;}' +
       'body.soft-dark .hm-chip.o{background:rgba(226,176,116,.15);}body.soft-dark .hm-chip.r{background:rgba(232,150,139,.15);}' +
-      '@media (max-width:420px){.hm-hub{width:140px;height:140px;left:4px;}.hm-kpis{grid-template-columns:repeat(2,1fr);}}' +
+      '@media (max-width:420px){.hm-hub{width:156px;height:156px;left:2px;}.hm-kpis{grid-template-columns:repeat(2,1fr);}}' +
       '@media (min-width:900px){.hm{padding:18px 22px 30px;}.hm-top{grid-template-columns:1.35fr 1fr;align-items:stretch;}' +
         '.hm-kpis{grid-template-columns:1fr 1fr;}.hm-kpi{padding:14px 16px;border-radius:20px;display:flex;flex-direction:column;justify-content:center;}.hm-kpi b{font-size:1.5rem;}' +
         '.hm-acts{grid-template-columns:repeat(auto-fill,minmax(88px,1fr));margin:20px 0 8px;}.hm-act-r{width:62px;height:62px;}' +

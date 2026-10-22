@@ -3270,6 +3270,17 @@
       activeTab = 'map';
       setTimeout(function () { try { map.invalidateSize(); } catch (e) {} }, 50);
     },
+    // Map tab framed on one farm's plots (Home hero shortcut).
+    zoomToFarm: function (farmId) {
+      SprayStore.goToMap();
+      setTimeout(function () {
+        try {
+          var b = L.latLngBounds([]);
+          getAccessiblePlots().forEach(function (p) { if (p.farm_id === farmId && p.layer) b.extend(p.layer.getBounds()); });
+          if (b.isValid()) map.fitBounds(b, { padding: [50, 50], maxZoom: 17 });
+        } catch (e) {}
+      }, 120);
+    },
     setExternalDraw: function (on) {
       if (on) {
         if (drawMode && drawMode !== 'external') return false;  // never steal an active draw
