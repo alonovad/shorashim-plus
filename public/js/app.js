@@ -2637,6 +2637,108 @@
       saveData();
       return { ok: true, move: mv };
     },
+    // ── Vehicles (fleet.js) ──
+    // A vehicle lives in its home farm's `vehicles`. A loan to another farm
+    // sets v.loan and is logged, with the same id, in both farms'
+    // `vehicle_loans`, so each side sees it and the monthly report can count
+    // the days a vehicle worked away from home.
+    canEditFarm: function(farmId) {
+      var u = window.currentUser || {};
+      if (u.role === 'admin') return true;
+      return u.role === 'operator' && getUserFarms(u).some(function(f) { return f.id === farmId; });
+    },
+    getVehicles: function(farmId) {
+      var f = (farms || []).find(function(x) { return x.id === farmId; });
+      var own = JSON.parse(JSON.stringify((f && f.vehicles) || [])).map(function(v) { delete v.image; v.home = farmId; return v; });
+      var inbound = [];
+      (farms || []).forEach(function(o) {
+        if (o.id === farmId) return;
+        (o.vehicles || []).forEach(function(v) {
+          if (v.loan && v.loan.to === farmId) {
+            var c = JSON.parse(JSON.stringify(v)); delete c.image;
+            c.home = o.id; c.homeName = locName(o); inbound.push(c);
+          }
+        });
+      });
+      return { own: own, inbound: inbound, farmName: f ? locName(f) : '' };
+    },
+    saveVehicle: function(farmId, data) {
+      if (!SprayStore.canEditFarm(farmId)) return { ok: false, err: 'forbidden' };
+      var f = (farms || []).find(function(x) { return x.id === farmId; });
+      if (!f) return { ok: false, err: 'not-found' };
+      if (!f.vehicles) f.vehicles = [];
+      var i = f.vehicles.findIndex(function(v) { return v.id === data.id; });
+      var keep = ['image', 'loan', 'year', 'last_service', 'location'];
+      var clean = JSON.parse(JSON.stringify(data));
+      delete clean.home; delete clean.homeName;
+      if (i === -1) { clean.id = clean.id || Date.now(); f.vehicles.push(clean); }
+      else {
+        keep.forEach(function(k) { if (clean[k] === undefined && f.vehicles[i][k] !== undefined) clean[k] = f.vehicles[i][k]; });
+        f.vehicles[i] = clean;
+      }
+      saveData();
+      return { ok: true, id: clean.id };
+    },
+    deleteVehicle: function(farmId, vid) {
+      if (!SprayStore.canEditFarm(farmId)) return { ok: false };
+      var f = (farms || []).find(function(x) { return x.id === farmId; });
+      if (!f || !f.vehicles) return { ok: false };
+      var v = f.vehicles.find(function(x) { return x.id === vid; });
+      if (v && v.loan) return { ok: false, err: 'on-loan' };
+      f.vehicles = f.vehicles.filter(function(x) { return x.id !== vid; });
+      saveData();
+      return { ok: true };
+    },
+    loanVehicle: function(homeId, vid, toId, meta) {
+      if (!SprayStore.canTransfer(homeId, toId) || homeId === toId) return { ok: false, err: 'forbidden' };
+      var home = (farms || []).find(function(x) { return x.id === homeId; });
+      var to = (farms || []).find(function(x) { return x.id === toId; });
+      var v = home && (home.vehicles || []).find(function(x) { return x.id === vid; });
+      if (!v || !to) return { ok: false, err: 'not-found' };
+      if (v.loan) return { ok: false, err: 'already' };
+      var u = window.currentUser || {};
+      var rec = {
+        id: Date.now(), vid: vid, vname: v.name || '', plate: v.plate || '',
+        from: homeId, fromName: locName(home), to: toId, toName: locName(to),
+        start: (meta && meta.start) || new Date().toISOString().slice(0, 10), end: '',
+        note: String((meta && meta.note) || '').slice(0, 200), docPath: (meta && meta.docPath) || '',
+        by: u.email || u.username || ''
+      };
+      v.loan = { id: rec.id, to: toId, toName: rec.toName, start: rec.start, note: rec.note };
+      [home, to].forEach(function(f) {
+        if (!f.vehicle_loans) f.vehicle_loans = [];
+        f.vehicle_loans.unshift(JSON.parse(JSON.stringify(rec)));
+        f.vehicle_loans = f.vehicle_loans.slice(0, 300);
+      });
+      saveData();
+      return { ok: true, loan: rec };
+    },
+    returnVehicle: function(homeId, vid, endDate) {
+      var home = (farms || []).find(function(x) { return x.id === homeId; });
+      var v = home && (home.vehicles || []).find(function(x) { return x.id === vid; });
+      if (!v || !v.loan) return { ok: false, err: 'not-on-loan' };
+      if (!SprayStore.canEditFarm(homeId) && !SprayStore.canEditFarm(v.loan.to)) return { ok: false, err: 'forbidden' };
+      var end = endDate || new Date().toISOString().slice(0, 10);
+      if (end < v.loan.start) end = v.loan.start;
+      var lid = v.loan.id, toId = v.loan.to;
+      [home, (farms || []).find(function(x) { return x.id === toId; })].forEach(function(f) {
+        ((f && f.vehicle_loans) || []).forEach(function(l) { if (l.id === lid) l.end = end; });
+      });
+      delete v.loan;
+      saveData();
+      return { ok: true };
+    },
+    // Every loan visible to this user (both sides logged it — de-duplicated).
+    getVehicleLoans: function() {
+      var u = window.currentUser || {};
+      var mine = getUserFarms(u).map(function(f) { return f.id; });
+      var seen = {}, out = [];
+      (farms || []).forEach(function(f) {
+        if (mine.indexOf(f.id) === -1) return;
+        (f.vehicle_loans || []).forEach(function(l) { if (!seen[l.id]) { seen[l.id] = 1; out.push(JSON.parse(JSON.stringify(l))); } });
+      });
+      return out;
+    },
     // Admin correction of a stock line (quantity 0 removes it).
     setStockQty: function(farmId, stockId, qty) {
       var u = window.currentUser || {};
@@ -7779,6 +7881,7 @@
           '<div class="section-title" style="margin-top: 4px;">🚜 ' + t('ציוד ורכבים') + '</div>' +
           equipHtml +
           (window.FarmIntake && FarmIntake.movesHtml ? FarmIntake.movesHtml(farm.id) : '') +
+          (window.Fleet ? Fleet.sectionHtml(farm.id) : '') +
           
           '<div class="section-title" style="margin-top: 14px;">📋 ' + t('פעולות אחרונות') + '</div>' +
           activitiesHtml +
@@ -7846,10 +7949,11 @@
         document.getElementById('fdEditEquipment').addEventListener('click', function() { showEquipmentEditor(farm); });
       }
       if (document.getElementById('fdVehicles')) {
-        document.getElementById('fdVehicles').addEventListener('click', function() { showVehicleList(farm); });
+        document.getElementById('fdVehicles').addEventListener('click', function() { if (window.Fleet) Fleet.open(farm.id); else showVehicleList(farm); });
       }
     }
     if (window.FarmIntake) FarmIntake.bind(farm.id);
+    if (window.Fleet) Fleet.bind(farm.id);
   }
   window.showFarmDetailsGlobal = function(fid) { showFarmDetails(fid); };
   

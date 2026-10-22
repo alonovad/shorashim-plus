@@ -276,6 +276,9 @@ var MonthlyReport = (function() {
           '<h3 style="font-weight:700;margin:0;">📅 ' + tt('דוח חודשי','รายงานรายเดือน','التقرير الشهري') + '</h3>' +
           empSel +
           '<span style="background:#e3f4ee;color:#0f8a6e;font-size:0.7rem;font-weight:700;padding:3px 9px;border-radius:999px;">' + CONTRACT.name + '</span>' +
+          // Admin: add or rename the events the אירוע column offers.
+          ((window.currentUser && window.currentUser.role === 'admin' && typeof Payroll !== 'undefined' && Payroll.showEvents)
+            ? '<button onclick="Payroll.showEvents(function(){MonthlyReport.show();})" style="border:1px solid #ddd;background:#fff;border-radius:999px;padding:4px 10px;cursor:pointer;font-family:inherit;font-size:0.72rem;font-weight:600;">⚙️ ' + tt('אירועים','เหตุการณ์','الأحداث') + '</button>' : '') +
           '<span style="margin-inline-start:auto;display:flex;align-items:center;gap:6px;">' +
             '<button onclick="MonthlyReport._nav(-1)" style="border:1px solid #ddd;background:#fff;border-radius:8px;width:30px;height:30px;cursor:pointer;font-family:inherit;">›</button>' +
             '<span id="mrMonth" style="font-weight:700;min-width:120px;text-align:center;"></span>' +

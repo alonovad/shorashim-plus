@@ -326,6 +326,8 @@ var HoursReport = (function() {
             '<button onclick="HoursReport._nav(1)" style="border:none;background:var(--g6,#eef3ee);border-radius:8px;padding:6px 12px;cursor:pointer;font-family:inherit;font-size:1rem;">‹</button>' +
           '</div>' +
 
+          (isAdminRole() && typeof Payroll !== 'undefined' && Payroll.showEvents
+            ? '<div style="text-align:left;margin:-4px 0 8px;"><button onclick="Payroll.showEvents(function(){HoursReport.show();})" style="border:1px solid var(--line,#ddd);background:transparent;border-radius:999px;padding:4px 10px;cursor:pointer;font-family:inherit;font-size:0.72rem;font-weight:600;">⚙️ ' + tt('ניהול אירועים','จัดการเหตุการณ์','إدارة الأحداث') + '</button></div>' : '') +
           '<div style="display:flex;gap:6px;margin-bottom:12px;">' +
             tabBtn('worker', '👤 ' + tt('לפי עובד','ตามพนักงาน','حسب الموظف')) +
             tabBtn('farm',   '🌳 ' + tt('לפי משק','ตามฟาร์ม','حسب المزرعة')) +

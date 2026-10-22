@@ -442,50 +442,71 @@ var Payroll = (function() {
 
   function eventsView() {
     var list = _data().eventTypes;
-    var lines = list.map(function(e) {
-      return e.he + (e.paid === false ? ' | 0' : '');
-    }).join('\n');
+    var rows = list.map(function(e, i) {
+      return '<div class="py-ev" data-i="' + i + '" style="display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap;">' +
+        '<input class="form-input py-ev-he" value="' + esc(e.he) + '" style="flex:2 1 140px;margin:0;padding:8px;" dir="rtl">' +
+        '<input class="form-input py-ev-th" value="' + esc(e.th && e.th !== e.he ? e.th : '') + '" placeholder="ไทย" style="flex:1 1 90px;margin:0;padding:8px;">' +
+        '<input class="form-input py-ev-ar" value="' + esc(e.ar && e.ar !== e.he ? e.ar : '') + '" placeholder="عربي" style="flex:1 1 90px;margin:0;padding:8px;" dir="rtl">' +
+        '<label style="display:inline-flex;gap:4px;align-items:center;font-size:.78rem;white-space:nowrap;"><input type="checkbox" class="py-ev-paid"' + (e.paid === false ? '' : ' checked') + '> ' +
+          tt('בתשלום', 'ได้รับเงิน', 'مدفوع') + '</label>' +
+        '<button type="button" class="btn-icon delete" onclick="Payroll._delEvent(' + i + ')" title="' + esc(tt('הסר', 'ลบ', 'إزالة')) + '">✕</button>' +
+      '</div>';
+    }).join('');
     return '<p style="font-size:0.74rem;color:var(--text-muted,#888);margin-bottom:8px;">' +
-      tt('אירוע לכל שורה. הוסף " | 0" בסוף שורה כדי לסמן אירוע לא בתשלום.',
-         'หนึ่งเหตุการณ์ต่อบรรทัด เติม " | 0" สำหรับวันไม่ได้รับเงิน',
-         'حدث في كل سطر. أضف " | 0" لحدث غير مدفوع.') + '</p>' +
-      '<textarea id="pyEvents" class="form-input" style="width:100%;height:220px;font-size:0.85rem;line-height:1.6;" dir="rtl">' + esc(lines) + '</textarea>' +
-      '<div style="display:flex;gap:8px;margin-top:10px;">' +
+      tt('אירועים שאפשר לסמן ליום בדוח השעות החודשי ובדוח הרוחבי. שם בעברית חובה; תאילנדית וערבית לא חובה. אירוע שנמחק נשאר בימים שכבר סומנו בו.',
+         'เหตุการณ์สำหรับรายงานชั่วโมง', 'أحداث لتقارير الساعات') + '</p>' +
+      '<div id="pyEvList">' + rows + '</div>' +
+      '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">' +
+        '<button class="btn-admin" onclick="Payroll._addEvent()" style="flex:1;">➕ ' + tt('אירוע חדש','เพิ่มเหตุการณ์','حدث جديد') + '</button>' +
         '<button class="btn-admin" onclick="Payroll._resetEvents()" style="flex:1;">↺ ' + tt('ברירת מחדל','ค่าเริ่มต้น','افتراضي') + '</button>' +
         '<button class="btn-admin" onclick="Payroll._saveEvents()" style="flex:1;background:var(--g2,#4caf50);color:#fff;">💾 ' + tt('שמור','บันทึก','حفظ') + '</button>' +
       '</div>';
   }
 
-  function _saveEvents() {
-    var raw = (document.getElementById('pyEvents') || {}).value || '';
-    var out = [];
-    raw.split('\n').forEach(function(line) {
-      var paid = true;
-      var text = line;
-      var bar = line.lastIndexOf('|');
-      if (bar !== -1) {
-        var flag = line.slice(bar + 1).trim();
-        if (flag === '0') { paid = false; text = line.slice(0, bar); }
-      }
-      text = text.trim();
-      if (!text) return;
-      // Keep the translations of any event we already know by its Hebrew
-      // label, so editing the list doesn't silently wipe Thai/Arabic.
-      var prior = null;
-      var known = _data().eventTypes.concat(DEFAULT_EVENTS);
-      for (var i = 0; i < known.length; i++) { if (known[i].he === text) { prior = known[i]; break; } }
-      out.push({
-        v: prior ? prior.v : text,
-        he: text,
-        th: prior ? prior.th : text,
-        ar: prior ? prior.ar : text,
-        paid: paid
-      });
+  // Reads the editor rows back. Codes (v) of existing events are kept, so
+  // days already marked with an event keep pointing at it after a rename.
+  function readEventRows() {
+    var cur = _data().eventTypes, out = [], used = {};
+    Array.prototype.forEach.call(document.querySelectorAll('#pyEvList .py-ev'), function(row) {
+      var i = Number(row.getAttribute('data-i'));
+      var he = row.querySelector('.py-ev-he').value.trim();
+      if (!he) return;
+      var th = row.querySelector('.py-ev-th').value.trim(), ar = row.querySelector('.py-ev-ar').value.trim();
+      var prior = (i >= 0 && cur[i]) ? cur[i] : null;
+      var v = prior ? prior.v : ('ev_' + Date.now().toString(36) + '_' + out.length);
+      if (used[v]) v = v + '_' + out.length;
+      used[v] = 1;
+      out.push({ v: v, he: he, th: th || he, ar: ar || he, paid: row.querySelector('.py-ev-paid').checked });
     });
+    return out;
+  }
+
+  function _addEvent() {
+    var list = document.getElementById('pyEvList');
+    if (!list) return;
+    var d = document.createElement('div');
+    d.innerHTML = '<div class="py-ev" data-i="-1" style="display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap;">' +
+      '<input class="form-input py-ev-he" placeholder="' + esc(tt('שם האירוע', 'ชื่อ', 'الاسم')) + '" style="flex:2 1 140px;margin:0;padding:8px;" dir="rtl">' +
+      '<input class="form-input py-ev-th" placeholder="ไทย" style="flex:1 1 90px;margin:0;padding:8px;">' +
+      '<input class="form-input py-ev-ar" placeholder="عربي" style="flex:1 1 90px;margin:0;padding:8px;" dir="rtl">' +
+      '<label style="display:inline-flex;gap:4px;align-items:center;font-size:.78rem;white-space:nowrap;"><input type="checkbox" class="py-ev-paid" checked> ' + tt('בתשלום', 'ได้รับเงิน', 'مدفوع') + '</label>' +
+      '<button type="button" class="btn-icon delete" onclick="this.parentNode.remove()">✕</button></div>';
+    list.appendChild(d.firstChild);
+    var last = list.lastChild.querySelector('.py-ev-he');
+    if (last) last.focus();
+  }
+  function _delEvent(i) {
+    var row = document.querySelector('#pyEvList .py-ev[data-i="' + i + '"]');
+    if (row) row.remove();
+  }
+
+  function _saveEvents() {
+    var out = readEventRows();
     if (!out.length) { toast('⚠️ ' + tt('הרשימה ריקה','รายการว่าง','القائمة فارغة')); return; }
     _data().eventTypes = out;
     save();
     toast('✅ ' + out.length + ' ' + tt('אירועים נשמרו','เหตุการณ์ถูกบันทึก','أحداث محفوظة'));
+    if (_eventsBack) { var cb = _eventsBack; _eventsBack = null; cb(); return; }
     render();
   }
 
@@ -494,6 +515,16 @@ var Payroll = (function() {
     _data().eventTypes = JSON.parse(JSON.stringify(DEFAULT_EVENTS));
     save();
     render();
+  }
+
+  // Opens the event list editor directly (from the hours reports). onBack
+  // runs after a save, so the report that opened it can repaint with the
+  // new events.
+  var _eventsBack = null;
+  function showEvents(onBack) {
+    if (!isAdminRole()) { toast('⛔ ' + tt('למנהל מערכת בלבד', 'สำหรับผู้ดูแลระบบเท่านั้น', 'للمسؤول فقط')); return; }
+    _eventsBack = typeof onBack === 'function' ? onBack : null;
+    load().then(function() { view = 'events'; render(); });
   }
 
   function toast(m) { if (typeof showToast === 'function') showToast(m); }
@@ -513,6 +544,9 @@ var Payroll = (function() {
     getEmployee: getEmployee,
     getEventTypes: getEventTypes,
     eventLabel: eventLabel,
+    showEvents: showEvents,
+    _addEvent: _addEvent,
+    _delEvent: _delEvent,
     isPaidEvent: isPaidEvent,
     estimatePay: estimatePay,
     DEFAULT_CONTRACT: DEFAULT_CONTRACT,
