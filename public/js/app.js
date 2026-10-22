@@ -1848,6 +1848,9 @@
     'הערות לחלקה': { th: 'หมายเหตุแปลง', ar: 'ملاحظات القطعة' },
     'עצים חסרים': { th: 'ต้นที่ขาด', ar: 'أشجار ناقصة' },
     'עצים צעירים': { th: 'ต้นอ่อน', ar: 'أشجار صغيرة' },
+    'מתוכם זכרים': { th: 'ในจำนวนนี้เป็นต้นตัวผู้', ar: 'منها ذكور' },
+    'זכרים': { th: 'ต้นตัวผู้', ar: 'ذكور' },
+    'מספר הזכרים גדול ממספר העצים': { th: 'จำนวนต้นตัวผู้มากกว่าจำนวนต้นทั้งหมด', ar: 'عدد الذكور أكبر من عدد الأشجار' },
     'מספר לא תקין': { th: 'ตัวเลขไม่ถูกต้อง', ar: 'رقم غير صالح' },
 
   };
@@ -2286,6 +2289,7 @@
           notes: p.notes || '',
           missing_trees: p.missing_trees || 0,
           young_trees: p.young_trees || 0,
+          male_trees: p.male_trees || 0,
           geofenceRadiusM: (p.geofenceRadiusM != null ? p.geofenceRadiusM : null),
           latlngs: ll,
           // Detached parts of the same plot — an orchard split by a wadi or a
@@ -3463,6 +3467,22 @@
 
   undoBarBtn.addEventListener('click', function(e) { e.stopPropagation(); performUndo(); });
 
+  // ── Date-palm males (plot field `male_trees`) ──
+  // "מתוכם זכרים" — how many of the plot's tree_count are male palms. Only
+  // meaningful for date palms; crop names are admin-defined, so match on the
+  // root (תמר / תמרים / דקל תמרים). One delegated listener covers both the
+  // new-plot modal and the plot edit form, including PlotRegister fills.
+  function isDatePalmCrop(c) {
+    return /תמר/.test(String(c || ''));
+  }
+  var MALE_ROWS = { plotCropType: 'plotMaleTreesRow', pdEditCrop: 'pdEditMaleTreesRow' };
+  document.addEventListener('change', function(e) {
+    var id = e.target && e.target.id;
+    if (!id || !MALE_ROWS[id]) return;
+    var row = document.getElementById(MALE_ROWS[id]);
+    if (row) row.style.display = isDatePalmCrop(e.target.value) ? '' : 'none';
+  });
+
   // ── Variety + notes helpers (plot fields `variety`, `notes`) ──
   function escAttrPlot(v) {
     return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) {
@@ -3582,6 +3602,10 @@
               '<label style="font-size: 0.7rem; color: var(--text-muted);">' + t('מספר צמחים סופי (ניתן לעריכה)') + '</label>' +
               '<input type="number" class="form-input" id="plotTreeCount" min="0" step="1" value="" style="padding: 8px; font-size: 0.95rem; font-weight: 700; text-align: center;">' +
             '</div>' +
+            '<div class="form-group" id="plotMaleTreesRow" style="margin-top: 8px; margin-bottom: 0; display: none;">' +
+              '<label style="font-size: 0.7rem; color: var(--text-muted);">♂ ' + t('מתוכם זכרים') + '</label>' +
+              '<input type="number" class="form-input" id="plotMaleTrees" min="0" step="1" value="" style="padding: 8px; font-size: 0.95rem; text-align: center;">' +
+            '</div>' +
           '</div>' +
           
           '<div style="display:flex;gap:8px;">' +
@@ -3682,6 +3706,16 @@
         showToast('❌ ' + t('חובה לבחור מטע'));
         return;
       }
+      var maleTrees = 0;
+      if (isDatePalmCrop(document.getElementById('plotCropType').value)) {
+        var mRaw = Math.round(parseFloat((document.getElementById('plotMaleTrees') || { value: '' }).value));
+        maleTrees = (isFinite(mRaw) && mRaw > 0) ? mRaw : 0;
+        var tcNow = parseInt(treeCountInput.value) || 0;
+        if (maleTrees && tcNow && maleTrees > tcNow) {
+          showToast('⚠️ ' + t('מספר הזכרים גדול ממספר העצים'));
+          return;
+        }
+      }
       
       var selectedFarm = farms.find(function(f) { return f.id === farmId; });
       var color = selectedFarm ? selectedFarm.color : COLORS[colorIdx % COLORS.length];
@@ -3729,6 +3763,7 @@
         notes: plotNotes,
         missing_trees: missingTrees,
         young_trees: youngTrees,
+        male_trees: maleTrees,
         layer: layer, 
         labelMarker: labelMarker, 
         vertices: vertices 
@@ -7025,6 +7060,8 @@
     var treeSub = [];
     if (plotMissing) treeSub.push(t('עצים חסרים') + ' ' + plotMissing.toLocaleString());
     if (plotYoung) treeSub.push(t('עצים צעירים') + ' ' + plotYoung.toLocaleString());
+    var plotMale = farmPlots.reduce(function(s, p) { return s + (isDatePalmCrop(p.crop_type) ? (Number(p.male_trees) || 0) : 0); }, 0);
+    if (plotMale) treeSub.push(t('זכרים') + ' ' + plotMale.toLocaleString());
     
     var matrixHtml = '<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px;">' +
       '<div style="background: var(--g6); padding: 10px 6px; border-radius: 10px; text-align: center;">' +
@@ -7711,6 +7748,9 @@
     var count  = num('pdEditTreeCount');
     var missing = num('pdEditMissingTrees');
     var young   = num('pdEditYoungTrees');
+    var male    = num('pdEditMaleTrees');
+    var cropEl  = document.getElementById('pdEditCrop');
+    if (cropEl && !isDatePalmCrop(cropEl.value)) male = 0;   // not a date palm → no males
 
     if (bad(area,   0.01, 100000)) { showToast('⚠️ ' + t('שטח לא תקין')); return null; }
     if (bad(rowSp,  0.5,  30))     { showToast('⚠️ ' + t('מרווח בין שורות לא תקין')); return null; }
@@ -7719,6 +7759,9 @@
     if (bad(count,  0,    1000000)){ showToast('⚠️ ' + t('מספר עצים לא תקין')); return null; }
     if (bad(missing, 0,   1000000)){ showToast('⚠️ ' + t('עצים חסרים') + ': ' + t('מספר לא תקין')); return null; }
     if (bad(young,   0,   1000000)){ showToast('⚠️ ' + t('עצים צעירים') + ': ' + t('מספר לא תקין')); return null; }
+    if (bad(male,    0,   1000000)){ showToast('⚠️ ' + t('זכרים') + ': ' + t('מספר לא תקין')); return null; }
+    var countForMale = (count !== undefined) ? count : ((plot && plot.tree_count) || 0);
+    if (male && countForMale && male > countForMale) { showToast('⚠️ ' + t('מספר הזכרים גדול ממספר העצים')); return null; }
 
     var out = {};
     // Area: the form shows 2dp, so a plot stored as 12.3456 renders "12.35".
@@ -7737,6 +7780,7 @@
     if (count  !== undefined) out.tree_count       = Math.round(count);
     if (missing !== undefined) out.missing_trees   = Math.round(missing);
     if (young   !== undefined) out.young_trees     = Math.round(young);
+    if (male    !== undefined) out.male_trees      = Math.round(male);
     return out;
   }
 
@@ -7914,8 +7958,9 @@
           '</div>' +
           (plot.crop_type ? '<div style="background:#e8f5e9;border-radius:8px;padding:6px 12px;margin-bottom:14px;font-size:0.85rem;font-weight:600;text-align:center;">🌱 ' + plot.crop_type + '</div>' : '') +
           (plot.variety ? '<div style="background:#fff8e1;border-radius:8px;padding:6px 12px;margin-bottom:14px;font-size:0.85rem;font-weight:600;text-align:center;">🌴 ' + t('זן') + ': ' + escAttrPlot(plot.variety) + '</div>' : '') +
-          ((plot.missing_trees || plot.young_trees)
+          ((plot.missing_trees || plot.young_trees || (plot.male_trees && isDatePalmCrop(plot.crop_type)))
             ? '<div style="display:flex;gap:8px;margin-bottom:14px;">' +
+                ((plot.male_trees && isDatePalmCrop(plot.crop_type)) ? '<div style="flex:1;background:#fff3e0;border-radius:8px;padding:6px 10px;font-size:0.85rem;font-weight:600;text-align:center;">♂ ' + t('זכרים') + ': ' + plot.male_trees + '</div>' : '') +
                 (plot.young_trees ? '<div style="flex:1;background:#e3f2fd;border-radius:8px;padding:6px 10px;font-size:0.85rem;font-weight:600;text-align:center;">🌱 ' + t('עצים צעירים') + ': ' + plot.young_trees + '</div>' : '') +
                 (plot.missing_trees ? '<div style="flex:1;background:#ffebee;border-radius:8px;padding:6px 10px;font-size:0.85rem;font-weight:600;text-align:center;">⭕ ' + t('עצים חסרים') + ': ' + plot.missing_trees + '</div>' : '') +
               '</div>'
@@ -8013,6 +8058,10 @@
             '<div class="form-group" style="margin-bottom: 8px;">' +
               '<label class="form-label" style="font-size: 0.72rem;">🌴 ' + t('מספר עצים') + '</label>' +
               '<input type="number" class="form-input" id="pdEditTreeCount" value="' + (plot.tree_count || '') + '" min="0" step="1" style="font-size: 1.05rem; font-weight: 700; text-align: center;">' +
+            '</div>' +
+            '<div class="form-group" id="pdEditMaleTreesRow" style="margin-bottom: 8px;' + (isDatePalmCrop(plot.crop_type) ? '' : ' display: none;') + '">' +
+              '<label class="form-label" style="font-size: 0.72rem;">♂ ' + t('מתוכם זכרים') + '</label>' +
+              '<input type="number" class="form-input" id="pdEditMaleTrees" value="' + (plot.male_trees || '') + '" min="0" step="1" style="font-size: 0.95rem; text-align: center;">' +
             '</div>' +
             '<div style="display: flex; gap: 8px; margin-bottom: 8px;">' +
               '<div style="flex: 1;">' +

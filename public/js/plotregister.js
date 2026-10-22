@@ -587,6 +587,8 @@ var PlotRegister = (function () {
       hit = v;
     }
     s.value = hit;
+    // Let listeners react (e.g. the date-palm "males" row follows the crop).
+    s.dispatchEvent(new Event('change', { bubbles: true }));
     return true;
   }
   function areaInfo(boxId, r, drawn) {
