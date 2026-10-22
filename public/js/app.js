@@ -1046,6 +1046,7 @@
     'ציוד': { th: 'อุปกรณ์', ar: 'معدات' },
     'ציוד עודכן': { th: 'อัปเดตอุปกรณ์แล้ว', ar: 'تم تحديث المعدات' },
     'תוצאות מיון/קטיף': { th: 'ผลคัดแยก/เก็บเกี่ยว', ar: 'نتائج الفرز/القطف' },
+    'מזג אוויר': { th: 'สภาพอากาศ', ar: 'الطقس' },
     'כרם': { th: 'ไร่องุ่น', ar: 'كرم' },
     'גד"ש': { th: 'พืชไร่', ar: 'محاصيل حقلية' },
     'ירקות שטח פתוח': { th: 'ผักแปลงเปิด', ar: 'خضار مكشوفة' },
@@ -3365,6 +3366,8 @@
         renderIrrigationTab();
       } else if (targetTab === 'harvest' && window.HarvestResults) {
         window.HarvestResults.render();
+      } else if (targetTab === 'weather' && window.Weather) {
+        window.Weather.render();
       }
     });
   });
@@ -10460,6 +10463,8 @@
       renderPesticideAdminList();
     } else if (activeTab === 'harvest' && window.HarvestResults) {
       window.HarvestResults.render();
+    } else if (activeTab === 'weather' && window.Weather) {
+      window.Weather.render();
     }
     
     // Translate static HTML section titles and form labels that aren't in render functions

@@ -1298,3 +1298,73 @@ exports.inventoryExtract = onCall(
     };
   }
 );
+
+// ═══════════════════════════════════════════
+// IMS WEATHER — nearest Israel Meteorological Service station per farm
+// (Oct 2026, weather.js). The IMS Envista API needs a personal token
+// (ims.gov.il/en/ObservationDataAPI); it is kept as a secret here, never in
+// the browser. Set once with:
+//   firebase functions:secrets:set IMS_TOKEN
+// then deploy this function. Until then the weather tab shows the forecast
+// only. Stations are cached for 12 h, latest readings for 10 min.
+// ═══════════════════════════════════════════
+const IMS_TOKEN = defineSecret("IMS_TOKEN");
+const IMS_BASE = "https://api.ims.gov.il/v1/envista";
+let _imsStations = null, _imsStationsAt = 0;
+const _imsLatest = {};
+
+exports.imsWeather = onCall(
+  { region: "us-central1", secrets: [IMS_TOKEN], memory: "256MiB", timeoutSeconds: 30, maxInstances: 3 },
+  async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Sign in required");
+    const pts = Array.isArray((request.data || {}).points) ? request.data.points.slice(0, 60) : [];
+    const headers = { Authorization: "ApiToken " + IMS_TOKEN.value() };
+    const get = async (path) => {
+      const r = await fetch(IMS_BASE + path, { headers });
+      if (!r.ok) throw new HttpsError("unavailable", "IMS " + r.status);
+      return r.json();
+    };
+    if (!_imsStations || Date.now() - _imsStationsAt > 12 * 3600 * 1000) {
+      const all = await get("/stations");
+      _imsStations = (Array.isArray(all) ? all : []).filter((s) => s && s.active !== false && s.location &&
+        isFinite(s.location.latitude) && isFinite(s.location.longitude));
+      _imsStationsAt = Date.now();
+    }
+    const rad = (d) => d * Math.PI / 180;
+    const km = (a, b, c, d) => {
+      const x = Math.sin(rad(c - a) / 2) ** 2 + Math.cos(rad(a)) * Math.cos(rad(c)) * Math.sin(rad(d - b) / 2) ** 2;
+      return 6371 * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+    };
+    const out = {};
+    for (const p of pts) {
+      const lat = Number(p.lat), lon = Number(p.lon);
+      if (!isFinite(lat) || !isFinite(lon)) continue;
+      let best = null, bd = Infinity;
+      for (const s of _imsStations) {
+        const d = km(lat, lon, Number(s.location.latitude), Number(s.location.longitude));
+        if (d < bd) { bd = d; best = s; }
+      }
+      if (!best) continue;
+      const sid = best.stationId;
+      let latest = _imsLatest[sid];
+      if (!latest || Date.now() - latest.at > 10 * 60 * 1000) {
+        try {
+          const j = await get("/stations/" + sid + "/data/latest");
+          const row = (j && j.data && j.data[0]) || {};
+          const ch = {};
+          (row.channels || []).forEach((c) => { if (c && c.valid !== false) ch[c.name] = c.value; });
+          latest = { at: Date.now(), dt: row.datetime || "", ch };
+        } catch (e) { latest = { at: Date.now(), dt: "", ch: {} }; }
+        _imsLatest[sid] = latest;
+      }
+      const ch = latest.ch;
+      out[p.id] = {
+        id: sid, name: String(best.name || ""), dist_km: Math.round(bd * 10) / 10, at: latest.dt,
+        temp: ch.TD != null ? ch.TD : null, rh: ch.RH != null ? ch.RH : null,
+        ws: ch.WS != null ? Math.round(ch.WS * 3.6 * 10) / 10 : null, wd: ch.WD != null ? ch.WD : null,
+        rain: ch.Rain != null ? ch.Rain : null
+      };
+    }
+    return { stations: out };
+  }
+);
