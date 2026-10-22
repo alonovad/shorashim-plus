@@ -283,6 +283,15 @@
   .undo-bar-btn:active { transform: scale(0.95); background: rgba(255,255,255,0.3); }
 
   /* ── Spray Tab ── */
+  /* Home / weather roots are filled by JS; like .spray-container they are
+     the tab's own scroller (tab-content is absolute + overflow:hidden). */
+  #homeRoot, #weatherRoot {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+  }
   .spray-container {
     flex: 1;
     min-height: 0;

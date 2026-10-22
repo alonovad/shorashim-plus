@@ -1062,7 +1062,9 @@ body:not(.layout-fresh) #hmNav { display: none !important; }
   body.layout-fresh .tab-bar-wrap { display: none !important; }
   body.layout-fresh #fabQuick,
   body.layout-fresh #fabQuickOptions:not(.show) { display: none !important; }
-  body.layout-fresh .tabs-wrapper { padding-bottom: calc(84px + env(safe-area-inset-bottom, 0px)); }
+  /* The bar takes its own strip: the tabs area ends above it, so every
+     tab's scroller reaches its last line instead of hiding it under the bar. */
+  body.layout-fresh .tabs-wrapper { margin-bottom: calc(70px + env(safe-area-inset-bottom, 0px)); }
   body.layout-fresh .panel { bottom: calc(70px + env(safe-area-inset-bottom, 0px)) !important; }
   body.layout-fresh .map-float-bar { bottom: calc(146px + env(safe-area-inset-bottom, 0px)) !important; }
   body.layout-fresh .fab-options { bottom: calc(262px + env(safe-area-inset-bottom, 0px)) !important; }
