@@ -600,7 +600,7 @@ var ReportMap = (function () {
   }
 
   function plotSheetCss(TH) {
-    var c1 = TH.c1 || '#1d3d2e', c2 = TH.c2 || '#2f6a4f';
+    var c1 = TH.c1 || '#0c3b30', c2 = TH.c2 || '#16785c';
     var soft = TH.soft || '#e4eee8', line = TH.line || '#c6d8cd';
     return '' +
       '.ps-page{break-before:page;page-break-before:always;padding:4mm 6mm 0;break-inside:avoid;page-break-inside:avoid;}' +
@@ -692,7 +692,7 @@ var ReportMap = (function () {
     });
     chosen.forEach(function (o, i) { o.no = i + 1; });
 
-    var c1 = TH.c1 || '#1d3d2e', c2 = TH.c2 || '#2f6a4f';
+    var c1 = TH.c1 || '#0c3b30', c2 = TH.c2 || '#16785c';
     var portrait = TH.orientation === 'portrait';
     var anyDate = chosen.some(function (o) { return isDate(o.p); });
 

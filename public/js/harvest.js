@@ -531,7 +531,7 @@ var HarvestResults = (function () {
   // ── printed report (soft letterhead, literal colours for print) ──
   function printReport(r) {
     var TH = (window.ReportTheme && window.ReportTheme.resolve) ? window.ReportTheme.resolve(null) : {};
-    var ink = TH.ink || '#1d3d2e', soft = TH.soft || '#e4eee8', line = TH.line || '#c6d8cd', c2 = TH.c2 || '#2f6a4f';
+    var ink = TH.ink || '#0c3b30', soft = TH.soft || '#e1eee8', line = TH.line || '#c2dccf', c2 = TH.c2 || '#16785c';
     var fmt = FORMATS[r.format] || FORMATS['dates-sorting'];
     var t = totals(r);
     var intake = fmt.intake.map(function (row) {

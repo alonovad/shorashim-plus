@@ -22,7 +22,7 @@ var DisplaySettings = (function() {
       name: { he: 'בוקר בבקעה', th: 'เช้าในหุบเขา', ar: 'صباح الوادي' },
       hint: { he: 'בהיר · ירוק עלה הדקל', th: 'สว่าง · เขียวใบปาล์ม', ar: 'فاتح · أخضر سعف النخيل' },
       cls: '', dark: false, meta: '#f1f4ef',
-      preview: ['#f1f4ef', '#2f6a4f', '#ffffff', '#dbe3d8']
+      preview: ['#f1f4ef', '#16785c', '#ffffff', '#dbe3d8']
     },
     valleyNight: {
       name: { he: 'לילה בבקעה', th: 'คืนในหุบเขา', ar: 'ليل الوادي' },
