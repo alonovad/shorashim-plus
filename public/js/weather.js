@@ -189,6 +189,7 @@ var Weather = (function () {
       '.wx-now .big{font-size:2.2rem;font-weight:700;line-height:1;}' +
       '.wx-now .ic{font-size:2rem;}' +
       '.wx-now .meta{font-size:.78rem;color:var(--text-muted,#666);line-height:1.6;}' +
+      '.wx-src{display:block;font-size:.64rem;color:var(--text-muted,#888);margin-top:3px;}' +
       '.wx-strip{display:grid;grid-template-columns:repeat(24,1fr);gap:2px;margin:6px 0 2px;direction:rtl;}' +
       '.wx-strip i{height:16px;border-radius:3px;display:block;}' +
       '.wx-strip i.good{background:#3fae7a;}.wx-strip i.mid{background:#f0b33c;}.wx-strip i.bad{background:#e0645a;}' +
@@ -216,7 +217,10 @@ var Weather = (function () {
       return '<div class="wx-st">📡 ' + tt('תחנה', 'สถานี', 'محطة') + ' ' + esc(s.name) + ' (' + r1(s.dist_km) + ' ' + tt('ק״מ', 'กม.', 'كم') + ')' +
         (s.at ? ' · ' + esc(String(s.at).slice(11, 16)) : '') + ': ' +
         [s.temp != null ? r1(s.temp) + '°' : '', s.rh != null ? r0(s.rh) + '%' : '', s.ws != null ? r0(s.ws) + ' ' + tt('קמ״ש', 'กม./ชม.', 'كم/س') : '', s.rain ? r1(s.rain) + ' ' + tt('מ״מ', 'มม.', 'مم') : '']
-          .filter(Boolean).join(' · ') + '</div>';
+          .filter(Boolean).join(' · ') +
+        '<small class="wx-src">' + tt('מקור: השירות המטאורולוגי (IMS). השירות המטאורולוגי אינו אחראי למידע ואינו צד לפרסומו.',
+          'ที่มา: กรมอุตุนิยมวิทยาอิสราเอล (IMS) ซึ่งไม่รับผิดชอบต่อข้อมูลนี้',
+          'المصدر: خدمة الأرصاد الجوية الإسرائيلية (IMS)، وهي غير مسؤولة عن المعلومات') + '</small></div>';
     }
     return '';
   }
