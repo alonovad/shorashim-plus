@@ -288,6 +288,7 @@
     <div class="tab" data-tab="irrigation" data-t-key="השקיה">💧 השקיה</div>
     <div class="tab" data-tab="profile" data-t-key="אישי">👤 אישי</div>
     <div class="tab" data-tab="farms" data-t-key="מטעים">🌳 מטעים</div>
+    <div class="tab" data-tab="harvest" data-t-key="תוצאות מיון/קטיף">📦 תוצאות מיון/קטיף</div>
     <div class="tab admin-only" data-tab="users" data-t-key="משתמשים" style="display: none;">👥 משתמשים</div>
   </div>
 </div>
@@ -724,6 +725,11 @@
 <!-- End tabPestsearch -->
 
 <!-- Irrigation Tab -->
+<!-- תוצאות מיון / קטיף — rendered by js/harvest.js -->
+<div class="tab-content" id="tabHarvest">
+  <div id="harvestRoot" style="height:100%;"></div>
+</div>
+
 <div class="tab-content" id="tabIrrigation">
   <div class="admin-container">
     <!-- Admin: Talgil Connection Settings -->
@@ -879,6 +885,7 @@
 <script src="js/pestmonitor.js"></script>
 <script src="js/orders.js"></script>
 <script src="js/agriplan.js"></script>
+<script src="js/harvest.js"></script>
 <script src="js/plotedit.js"></script>
 <script src="js/geoedit.js"></script>
 <script src="js/plotimport.js"></script>

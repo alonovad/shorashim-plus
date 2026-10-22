@@ -131,6 +131,12 @@ service cloud.firestore {
       allow write: if isOperatorOrAbove() &&
                       docId.matches('shorashim-agri-plan-[0-9]{4}');
 
+      // Operator+: sorting / harvest results, one document per season
+      // (shorashim-harvest-2026, ...). harvest.js — packing-house statements
+      // per orchard. Same prefix trick: a new season needs no rules deploy.
+      allow write: if isOperatorOrAbove() &&
+                      docId.matches('shorashim-harvest-[0-9]{4}');
+
       // Admin only: treatment-plan approvals, one document per growing year
       // (shorashim-agri-approvals-2026, ...). Kept apart from the plan
       // document above so an operator — who writes the plans — cannot write
