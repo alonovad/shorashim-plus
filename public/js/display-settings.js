@@ -20,9 +20,9 @@ var DisplaySettings = (function() {
   var THEMES = {
     valleyMorning: {
       name: { he: 'בוקר בבקעה', th: 'เช้าในหุบเขา', ar: 'صباح الوادي' },
-      hint: { he: 'בהיר · ירוק עלה הדקל', th: 'สว่าง · เขียวใบปาล์ม', ar: 'فاتح · أخضر سعف النخيل' },
-      cls: '', dark: false, meta: '#f1f4ef',
-      preview: ['#f1f4ef', '#16785c', '#ffffff', '#dbe3d8']
+      hint: { he: 'בהיר · ירוק יער וליים', th: 'สว่าง · เขียวป่าและเขียวมะนาว', ar: 'فاتح · أخضر غابي وليموني' },
+      cls: '', dark: false, meta: '#ffffff',
+      preview: ['#f8faf6', '#1d5a2c', '#ffffff', '#c5e663']
     },
     valleyNight: {
       name: { he: 'לילה בבקעה', th: 'คืนในหุบเขา', ar: 'ليل الوادي' },

@@ -2501,8 +2501,8 @@ var AgriPlan = (function () {
   function brandMark(size) {
     var n = ++_brandSeq;
     return '<svg class="mark" viewBox="0 0 118 100" width="' + Math.round(size * 1.18) + '" height="' + size + '" aria-hidden="true">' +
-      '<defs><linearGradient id="spA-ag' + n + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0b6e5a"/><stop offset="0.3" stop-color="#139a72"/><stop offset="1" stop-color="#9fdc8a"/></linearGradient>' +
-      '<linearGradient id="spB-ag' + n + '" x1="0.22" y1="0" x2="0.9" y2="1"><stop offset="0" stop-color="#108566"/><stop offset="0.5" stop-color="#2fb07e"/><stop offset="1" stop-color="#bfe8a0"/></linearGradient></defs>' +
+      '<defs><linearGradient id="spA-ag' + n + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#12401f"/><stop offset="0.3" stop-color="#2c6e2a"/><stop offset="1" stop-color="#b5dc55"/></linearGradient>' +
+      '<linearGradient id="spB-ag' + n + '" x1="0.22" y1="0" x2="0.9" y2="1"><stop offset="0" stop-color="#1d5a2c"/><stop offset="0.5" stop-color="#5e9c35"/><stop offset="1" stop-color="#cfe97a"/></linearGradient></defs>' +
       '<path fill="url(#spA-ag' + n + ')" d="M56 6 L117.4 94 L30.9 94 L68.3 34.6 L27.7 94 L21.2 94 L63.7 26.5 L18 94 L11 94 L57.7 19.9 L7.8 94 L0.6 94 Z"/>' +
       '<path fill="url(#spB-ag' + n + ')" d="M72 28.8 L117.4 94 L30.9 94 Z"/></svg>';
   }

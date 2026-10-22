@@ -15,43 +15,51 @@
 
 /* ── Palettes ── */
 body.theme-soft {
-  --bg: #f1f4ef;
+  --bg: #f8faf6;
   --card: #ffffff;
   --card-solid: #ffffff;
-  --tonal: #e5ece3;
-  --line: #dbe3d8;
-  --g1: #0c3b30;
-  --g2: #0f634b;
-  --g3: #16785c;
-  --g4: #3f9a7a;
-  --g5: #b3dccb;
-  --g6: #e1eee8;
-  --primary: #16785c;
-  --primary-dim: #0f634b;
+  --tonal: #f1f4ee;
+  --line: #e6ebe2;
+  --g1: #12401f;
+  --g2: #1d5a2c;
+  --g3: #2c6e2a;
+  --g4: #5e9c35;
+  --g5: #cfe97a;
+  --g6: #eef7d4;
+  --primary: #1d5a2c;
+  --primary-dim: #12401f;
   --on-primary: #ffffff;
-  --primary-soft: #d9efe6;
-  --primary-faded: rgba(22,120,92,0.10);
+  --primary-soft: #eef7d4;
+  --primary-faded: rgba(29,90,44,0.09);
   --primary-glow: transparent;
   --primary-glow-sm: transparent;
+  --lime: #c5e663;
+  --lime-ink: #12401f;
+  --grad-primary: linear-gradient(145deg, #2a6b36 0%, #1d5a2c 45%, #12401f 100%);
+  --grad-hero: radial-gradient(120% 110% at 85% 10%, #9cc94a 0%, #4f8f2f 30%, #1d5a2c 62%, #12401f 100%);
   --accent: #a8682a;
-  --accent-light: #f3e5d4;
+  --accent-light: #f6ead9;
   --water: #3b7fa6;
-  --danger: #b4483c;
-  --danger-light: #f6e1dd;
-  --dark: #1d2a22;
-  --text: #1d2a22;
-  --text-muted: #66756b;
-  --border: #dbe3d8;
-  --border-light: #e5ece3;
-  --surface-input: #e5ece3;
+  --danger: #b3261e;
+  --danger-light: #fde9e7;
+  --dark: #1b2a1f;
+  --text: #1b2a1f;
+  --text-muted: #6f7b72;
+  --border: #e6ebe2;
+  --border-light: #f1f4ee;
+  --surface-input: #f1f4ee;
   --surface-glass: #ffffff;
-  --shadow: 0 1px 2px rgba(29,42,34,0.05);
-  --shadow-lg: 0 10px 30px rgba(29,42,34,0.12);
-  --radius: 16px;
-  --gradient-deep: #f1f4ef;
-  --gradient-header: #f1f4ef;
+  --shadow: 0 1px 3px rgba(18,64,31,0.05);
+  --shadow-lg: 0 18px 40px rgba(18,64,31,0.14);
+  --radius: 20px;
+  --gradient-deep: #f8faf6;
+  --gradient-header: #ffffff;
 }
 body.theme-soft.soft-earth {
+  --lime: #e2c48a;
+  --lime-ink: #3d2514;
+  --grad-primary: linear-gradient(145deg, #7d5330 0%, #6b4226 45%, #553219 100%);
+  --grad-hero: radial-gradient(120% 110% at 85% 10%, #c9a26b 0%, #8a5d3d 35%, #553219 100%);
   --bg: #f2f0ec;
   --tonal: #e9e4dd;
   --line: #e0d9cf;
@@ -82,6 +90,10 @@ body.theme-soft.soft-earth {
   --gradient-header: #f2f0ec;
 }
 body.theme-soft.soft-dark {
+  --lime: #c5e663;
+  --lime-ink: #12241a;
+  --grad-primary: linear-gradient(145deg, #a7d3b3 0%, #93c7a4 100%);
+  --grad-hero: radial-gradient(120% 110% at 85% 10%, #4f8f2f 0%, #1d5a2c 45%, #10241a 100%);
   --bg: #141b18;
   --card: #1d2622;
   --card-solid: #1d2622;
@@ -866,4 +878,133 @@ body.theme-soft .ds-reset { width: 100%; margin-top: 16px; padding: 9px; border:
 
 @media (prefers-reduced-motion: reduce) {
   body.theme-soft * { transition: none !important; animation: none !important; }
+}
+
+/* ════════════════════════════════════════════════════════════════
+   Fresh look (v148) — white surfaces, deep forest green, lime accent.
+   Shapes: soft squares (12–14px) instead of long pills; the dark
+   gradient marks the one primary action / active item on a screen;
+   lime marks status and selection. Applies to all three palettes
+   through the variables above (--grad-primary, --lime, --lime-ink).
+   ════════════════════════════════════════════════════════════════ */
+
+/* Header + clock bar: white, one hairline */
+body.theme-soft .header {
+  background: var(--card) !important;
+  border-bottom: 1px solid var(--line) !important;
+  padding: 10px 16px 8px !important;
+}
+body.theme-soft .hdr-btn { border-radius: 14px !important; background: var(--tonal) !important; }
+body.theme-soft .clock-bar {
+  background: var(--card) !important;
+  color: var(--text) !important;
+  border-bottom: 1px solid var(--line) !important;
+}
+
+/* Tabs: soft-square chips; the active one is the dark gradient */
+body.theme-soft .tab-bar {
+  background: var(--card) !important;
+  border-bottom: 1px solid var(--line) !important;
+  padding: 6px 8px 8px !important;
+  gap: 4px;
+}
+body.theme-soft .tab {
+  border-radius: 12px !important;
+  padding: 8px 13px !important;
+  color: var(--text-muted) !important;
+}
+body.theme-soft .tab.active {
+  background: var(--grad-primary) !important;
+  color: var(--on-primary) !important;
+  font-weight: 600 !important;
+  box-shadow: 0 4px 12px rgba(18,64,31,0.20) !important;
+}
+body.theme-soft.soft-dark .tab.active { color: var(--on-primary) !important; }
+body.theme-soft .tab:not(.active):hover { background: var(--tonal) !important; color: var(--text) !important; }
+
+/* Cards: white, hairline, rounder */
+body.theme-soft .section-card,
+body.theme-soft .plot-card,
+body.theme-soft .history-item {
+  background: var(--card) !important;
+  border: 1px solid var(--line) !important;
+  border-radius: var(--radius) !important;
+  box-shadow: var(--shadow) !important;
+}
+/* farm/material rows keep their inline colour stripe on the right */
+body.theme-soft .pesticide-admin-item {
+  background: var(--card) !important;
+  border-top: 1px solid var(--line) !important;
+  border-bottom: 1px solid var(--line) !important;
+  border-left: 1px solid var(--line) !important;
+  border-radius: var(--radius) !important;
+  box-shadow: var(--shadow) !important;
+  transition: box-shadow .15s;
+}
+body.theme-soft .pesticide-admin-item:hover { box-shadow: 0 8px 22px rgba(18,64,31,0.10) !important; }
+body.theme-soft .modal { border-radius: 26px !important; }
+
+/* Inputs */
+body.theme-soft .form-input,
+body.theme-soft .modal input,
+body.theme-soft .modal textarea,
+body.theme-soft .modal select { border-radius: 14px !important; }
+
+/* Buttons: primary = dark gradient soft-square; secondary = white outline */
+body.theme-soft .btn-submit,
+body.theme-soft .btn-primary,
+body.theme-soft .btn-admin,
+body.theme-soft .pm-btn {
+  background: var(--grad-primary) !important;
+  color: var(--on-primary) !important;
+  border: none !important;
+  border-radius: 14px !important;
+  box-shadow: 0 6px 16px rgba(18,64,31,0.22) !important;
+}
+body.theme-soft .btn-submit:active,
+body.theme-soft .btn-primary:active,
+body.theme-soft .btn-admin:active { transform: translateY(1px); box-shadow: 0 2px 8px rgba(18,64,31,0.22) !important; }
+body.theme-soft .btn-secondary {
+  background: var(--card) !important;
+  color: var(--primary) !important;
+  border: 1.5px solid var(--line) !important;
+  border-radius: 14px !important;
+}
+body.theme-soft .btn-icon { border-radius: 12px !important; }
+body.theme-soft .ds-seg, body.theme-soft .ds-seg button,
+body.theme-soft .ds-reset { border-radius: 12px !important; }
+body.theme-soft .ds-seg button.on, body.theme-soft .ds-seg button[aria-pressed="true"] {
+  background: var(--card) !important; color: var(--primary) !important; font-weight: 600 !important;
+  box-shadow: 0 2px 8px rgba(18,64,31,0.10) !important;
+}
+
+/* Selected states use the lime family */
+body.theme-soft .plot-farm-group.has-selected { background: var(--primary-soft); }
+body.theme-soft .plot-farm-summary { color: var(--primary) !important; }
+body.theme-soft .calc-results { background: var(--grad-primary) !important; border-radius: var(--radius) !important; }
+
+/* Floating action: dark circle, lime glyph */
+body.theme-soft .fab-main {
+  background: var(--grad-primary) !important;
+  color: var(--lime) !important;
+  border-radius: 50% !important;
+  border: 4px solid var(--card) !important;
+  box-shadow: 0 10px 22px rgba(18,64,31,0.35) !important;
+}
+body.theme-soft .fab-quick { border-radius: 50% !important; background: var(--primary-soft) !important; color: var(--primary) !important; }
+body.theme-soft .fab-farms, body.theme-soft .mf-btn, body.theme-soft .layer-toggle { border-radius: 14px !important; }
+
+/* Lime tag helper for status pills in modules */
+body.theme-soft .tag-lime { background: var(--lime); color: var(--lime-ink); font-weight: 700; border-radius: 10px; padding: 3px 9px; font-size: .75rem; }
+
+/* Desktop: use the width — lists become card grids, tabs one centred row */
+@media (min-width: 900px) {
+  body.theme-soft .tab-bar { justify-content: center !important; flex-wrap: wrap; }
+  body.theme-soft #farmsAdminList {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px;
+  }
+  body.theme-soft #farmsAdminList .pesticide-admin-item { margin-bottom: 0 !important; }
+}
+@media (min-width: 1280px) {
+  body.theme-soft #farmsAdminList { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
 }
