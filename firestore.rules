@@ -46,10 +46,11 @@ service cloud.firestore {
 
     // ── appData collection ──
     match /appData/{docId} {
-      // Prices (shorashim-prices-YYYY) are commercial data: operator+ only,
-      // so a worker cannot read what each supplier charges.
+      // Prices (shorashim-prices-YYYY) and operation costing
+      // (shorashim-prices-ops) are commercial data: operator+ only, so a
+      // worker cannot read what suppliers charge or what a crew costs.
       allow read: if isSignedIn() &&
-                     (!docId.matches('shorashim-prices-[0-9]{4}') || isOperatorOrAbove());
+                     (!docId.matches('shorashim-prices-.*') || isOperatorOrAbove());
 
       // TEMPORARY (broad grant): any signed-in user may write
       // shorashim-users. The app writes the WHOLE users blob for ordinary
@@ -145,6 +146,10 @@ service cloud.firestore {
       // document intake; read restricted to operator+ above.
       allow write: if isOperatorOrAbove() &&
                       docId.matches('shorashim-prices-[0-9]{4}');
+
+      // Admin only: operation costing — budget per line, required output,
+      // hourly rate per worker group (opcost.js).
+      allow write: if isAdmin() && docId == 'shorashim-prices-ops';
 
       // Admin only: treatment-plan approvals, one document per growing year
       // (shorashim-agri-approvals-2026, ...). Kept apart from the plan

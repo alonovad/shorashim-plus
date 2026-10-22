@@ -137,11 +137,22 @@ var Payroll = (function() {
     return _data().employees[username] || null;
   }
 
-  function getEventTypes() { return _data().eventTypes.slice(); }
+  // Every farm (משק) is also an event, Meckano-style — "worked at X" —
+  // coded farm:<id>, paid, and always current with the farm list. Custom
+  // events with the same name win.
+  function farmEvents() {
+    var fs = (window.SprayStore && SprayStore.allFarms) ? SprayStore.allFarms() : [];
+    var names = {};
+    _data().eventTypes.forEach(function(e) { names[e.he] = 1; });
+    return fs.filter(function(f) { return f.name && !names[f.name]; }).map(function(f) {
+      return { v: 'farm:' + f.id, he: f.name, th: f.name_th || f.name, ar: f.name_ar || f.name, paid: true, farm: true };
+    });
+  }
+  function getEventTypes() { return _data().eventTypes.slice().concat(farmEvents()); }
 
   function eventLabel(v) {
     if (!v) return '—';
-    var list = _data().eventTypes;
+    var list = getEventTypes();
     for (var i = 0; i < list.length; i++) {
       if (list[i].v === v) return tt(list[i].he, list[i].th, list[i].ar);
     }
@@ -150,6 +161,7 @@ var Payroll = (function() {
 
   function isPaidEvent(v) {
     if (!v) return true;
+    if (String(v).indexOf('farm:') === 0) return true;
     var list = _data().eventTypes;
     for (var i = 0; i < list.length; i++) if (list[i].v === v) return list[i].paid !== false;
     return true;
@@ -456,6 +468,8 @@ var Payroll = (function() {
       tt('אירועים שאפשר לסמן ליום בדוח השעות החודשי ובדוח הרוחבי. שם בעברית חובה; תאילנדית וערבית לא חובה. אירוע שנמחק נשאר בימים שכבר סומנו בו.',
          'เหตุการณ์สำหรับรายงานชั่วโมง', 'أحداث لتقارير الساعات') + '</p>' +
       '<div id="pyEvList">' + rows + '</div>' +
+      '<p style="font-size:0.72rem;color:var(--text-muted,#888);margin:6px 0 0;">🌳 ' +
+        tt('כל המשקים מופיעים אוטומטית כאירועים בדוח (בתשלום).', 'ฟาร์มทั้งหมดจะแสดงเป็นเหตุการณ์อัตโนมัติ', 'كل المزارع تظهر تلقائياً كأحداث') + '</p>' +
       '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">' +
         '<button class="btn-admin" onclick="Payroll._addEvent()" style="flex:1;">➕ ' + tt('אירוע חדש','เพิ่มเหตุการณ์','حدث جديد') + '</button>' +
         '<button class="btn-admin" onclick="Payroll._resetEvents()" style="flex:1;">↺ ' + tt('ברירת מחדל','ค่าเริ่มต้น','افتراضي') + '</button>' +

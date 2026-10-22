@@ -2280,6 +2280,7 @@
       pesticides = data.pesticides ? _reconcile(pesticides, data.pesticides) : getDefaultPesticides();
       farms = _reconcile(farms, data.farms || []);
       cropBranches = (data.cropBranches && typeof data.cropBranches === 'object') ? data.cropBranches : {};
+      cropPrograms = (data.cropPrograms && typeof data.cropPrograms === 'object') ? data.cropPrograms : {};
       worklogEntries = _reconcile(worklogEntries, data.worklogEntries || []);
       
       // Clear map
@@ -2377,6 +2378,14 @@
           planting_date: p.planting_date || '',
           // Farming branch override; empty = follow the crop's branch.
           branch: p.branch || '',
+          // Irrigation system of the plot (irrigation-sys.js): head, line,
+          // valves, emitter layout, measured flow.
+          irr: (p.irr && typeof p.irr === 'object') ? JSON.parse(JSON.stringify(p.irr)) : null,
+          // Growth stage, programme coefficient and status (cropprog.js).
+          stage: p.stage || '',
+          coef: (p.coef != null && p.coef !== '') ? Number(p.coef) : null,
+          status_note: p.status_note || '',
+          status_date: p.status_date || '',
           geofenceRadiusM: (p.geofenceRadiusM != null ? p.geofenceRadiusM : null),
           latlngs: ll,
           // Detached parts of the same plot — an orchard split by a wadi or a
@@ -2396,7 +2405,9 @@
       worklogEntries: worklogEntries || [],
       // crop name -> farming branch (orchard / vineyard / field / veg /
       // greenhouse), set in ניהול סוגי גידולים; drives the plot card.
-      cropBranches: cropBranches || {}
+      cropBranches: cropBranches || {},
+      // crop name -> fertilization / recommendation programme (cropprog.js)
+      cropPrograms: cropPrograms || {}
     };
     DB.save('plotMapperSprayData', data);
   }
@@ -2636,6 +2647,72 @@
       });
       saveData();
       return { ok: true, move: mv };
+    },
+    // ── Plot agronomy / irrigation fields (irrigation-sys.js, cropprog.js) ──
+    // Only these fields can be patched from the modules, by staff holding
+    // the plot's farm.
+    updatePlot: function(plotId, patch) {
+      var p = (plots || []).find(function(x) { return x.id === plotId; });
+      if (!p || !SprayStore.canEditFarm(p.farm_id)) return { ok: false, err: 'forbidden' };
+      var allowed = ['irr', 'stage', 'coef', 'status_note', 'status_date'];
+      Object.keys(patch || {}).forEach(function(k) {
+        if (allowed.indexOf(k) === -1) return;
+        p[k] = (patch[k] && typeof patch[k] === 'object') ? JSON.parse(JSON.stringify(patch[k])) : patch[k];
+      });
+      saveData();
+      return { ok: true };
+    },
+    getFarmPlots: function(farmId) {
+      return (plots || []).filter(function(p) { return p.farm_id === farmId; }).map(function(p) {
+        return {
+          id: p.id, name: locName(p), area: Number(p.area) || 0, crop_type: p.crop_type || '', variety: p.variety || '',
+          tree_count: Number(p.tree_count) || 0, male_trees: Number(p.male_trees) || 0, young_trees: Number(p.young_trees) || 0,
+          row_spacing: Number(p.row_spacing) || 0, tree_spacing: Number(p.tree_spacing) || 0, planting_date: p.planting_date || '',
+          irr: p.irr ? JSON.parse(JSON.stringify(p.irr)) : null, stage: p.stage || '', coef: (p.coef != null ? p.coef : null),
+          status_note: p.status_note || '', status_date: p.status_date || '', branch: branchOfPlot(p)
+        };
+      });
+    },
+    getIrrHeads: function(farmId) {
+      var f = (farms || []).find(function(x) { return x.id === farmId; });
+      return JSON.parse(JSON.stringify((f && f.irr_heads) || []));
+    },
+    setIrrHeads: function(farmId, heads) {
+      if (!SprayStore.canEditFarm(farmId)) return { ok: false };
+      var f = (farms || []).find(function(x) { return x.id === farmId; });
+      if (!f) return { ok: false };
+      f.irr_heads = JSON.parse(JSON.stringify(heads || []));
+      saveData();
+      return { ok: true };
+    },
+    getCropPrograms: function() { return JSON.parse(JSON.stringify(cropPrograms || {})); },
+    setCropProgram: function(crop, prog) {
+      var u = window.currentUser || {};
+      if (u.role !== 'admin' && u.role !== 'operator') return { ok: false };
+      var c = String(crop || '').trim();
+      if (!c) return { ok: false };
+      if (prog) cropPrograms[c] = JSON.parse(JSON.stringify(prog)); else delete cropPrograms[c];
+      saveData();
+      return { ok: true };
+    },
+    // Every farm, id + names — for labels (e.g. farm events in the hours reports).
+    allFarms: function() {
+      return (farms || []).map(function(f) { return { id: f.id, name: f.name || '', name_th: f.name_th || '', name_ar: f.name_ar || '' }; });
+    },
+    getCropTypes: function() {
+      try { return JSON.parse(localStorage.getItem('shorashim-crop-types') || '[]'); } catch (e) { return []; }
+    },
+    // Work log for costing (opcost.js): only farms this user may see.
+    getWorklog: function() {
+      var u = window.currentUser || {};
+      var mine = getUserFarms(u).map(function(f) { return f.id; });
+      return JSON.parse(JSON.stringify((worklogEntries || []).filter(function(e) { return mine.indexOf(e.farm_id) !== -1; })));
+    },
+    getWorkActions: function() { return (typeof WL_ACTIONS !== 'undefined' ? WL_ACTIONS : []).slice(); },
+    getWorkerGroups: function() { return (typeof WL_WORKER_GROUPS !== 'undefined' ? WL_WORKER_GROUPS : []).slice(); },
+    plotArea: function(plotId) {
+      var p = (plots || []).find(function(x) { return x.id === plotId; });
+      return p ? (Number(p.area) || 0) : 0;
     },
     // ── Vehicles (fleet.js) ──
     // A vehicle lives in its home farm's `vehicles`. A loan to another farm
@@ -3850,6 +3927,7 @@
     { v: 'greenhouse', he: 'בתי צמיחה',      count: 'מספר צמחים',  spacing: false, ym: false, plant: 'תאריך שתילה' }
   ];
   var cropBranches = {};
+  var cropPrograms = {};
   function branchDef(v) {
     return BRANCHES.find(function(b) { return b.v === v; }) || BRANCHES[0];
   }
@@ -7882,6 +7960,8 @@
           equipHtml +
           (window.FarmIntake && FarmIntake.movesHtml ? FarmIntake.movesHtml(farm.id) : '') +
           (window.Fleet ? Fleet.sectionHtml(farm.id) : '') +
+          (window.IrrigSys ? IrrigSys.sectionHtml(farm.id) : '') +
+          (window.CropProgram ? CropProgram.sectionHtml(farm.id) : '') +
           
           '<div class="section-title" style="margin-top: 14px;">📋 ' + t('פעולות אחרונות') + '</div>' +
           activitiesHtml +
@@ -7954,6 +8034,8 @@
     }
     if (window.FarmIntake) FarmIntake.bind(farm.id);
     if (window.Fleet) Fleet.bind(farm.id);
+    if (window.IrrigSys) IrrigSys.bind(farm.id);
+    if (window.CropProgram) CropProgram.bind(farm.id);
   }
   window.showFarmDetailsGlobal = function(fid) { showFarmDetails(fid); };
   
@@ -8840,7 +8922,7 @@
           
           '<details class="pd-sec" data-pdsec="irrigation">' +
             '<summary>💧 ' + t('השקיה') + '</summary>' +
-            '<div class="pd-sec-body">' + getPlotIrrigationHtml(plot.id) + '</div>' +
+            '<div class="pd-sec-body">' + (window.IrrigSys && plot.farm_id ? IrrigSys.plotHtml(plot.id, plot.farm_id) : '') + getPlotIrrigationHtml(plot.id) + '</div>' +
           '</details>' +
 
           '<details class="pd-sec" data-pdsec="worklog">' +

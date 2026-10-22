@@ -768,6 +768,8 @@ var TimeClock = (function() {
       // invoices and delivery notes; flags prices above the period's cheapest.
       html += '<button onclick="PriceBook.open();TimeClock.closeMenu()" style="' + menuBtn + 'background:#fff8e1;">' + tt('💲 מאגר מחירים', '💲 ฐานข้อมูลราคา', '💲 قاعدة الأسعار') + '</button>';
       // Vehicle loans between farms — days per vehicle per month (fleet.js).
+      // Operation costing from the work log — cost vs budget, output vs target (opcost.js).
+      html += '<button onclick="OpCost.open();TimeClock.closeMenu()" style="' + menuBtn + 'background:#f1f8e9;">' + tt('💹 תמחיר ועמידה ביעדים', '💹 ต้นทุนและเป้าหมาย', '💹 التكلفة والأهداف') + '</button>';
       html += '<button onclick="Fleet.report();TimeClock.closeMenu()" style="' + menuBtn + 'background:#e3f2fd;">' + tt('🚛 דוח ניוד כלים', '🚛 รายงานการย้ายยานพาหนะ', '🚛 تقرير نقل المركبات') + '</button>';
     }
 
