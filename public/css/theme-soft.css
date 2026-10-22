@@ -1069,7 +1069,9 @@ body:not(.layout-fresh) #hmNav { display: none !important; }
   body.layout-fresh .map-float-bar { bottom: calc(146px + env(safe-area-inset-bottom, 0px)) !important; }
   body.layout-fresh .fab-options { bottom: calc(262px + env(safe-area-inset-bottom, 0px)) !important; }
   body.layout-fresh .mf-btn { bottom: calc(204px + env(safe-area-inset-bottom, 0px)) !important; }
-  body.layout-fresh .toast { bottom: calc(90px + env(safe-area-inset-bottom, 0px)) !important; }
+  /* Toast sits above the bottom bar. It is top-anchored in style.css, so
+     top must be released too — top+bottom together stretched it into a tall empty box. */
+  body.layout-fresh .toast { top: auto !important; bottom: calc(90px + env(safe-area-inset-bottom, 0px)) !important; }
 }
 /* The home screen has its own farm list — the floating farm picker steps aside there. */
 body.layout-fresh.hm-home #fabFarms,
