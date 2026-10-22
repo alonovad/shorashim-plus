@@ -2261,13 +2261,26 @@ var AgriPlan = (function () {
     // Each grower sheet is followed by one plots page per מטע it covers
     // (never repeated within a document); the materials page closes it.
     var shown = {};
+    // Only the plots actually exported appear on a מטע's plots page. A row
+    // with no plot (a whole-farm row) brings the whole farm.
+    var sheetIds = {};
+    pages.forEach(function (pg) {
+      (pg.rows || []).forEach(function (r) {
+        var pl = r.plotId ? plotById(r.plotId) : null;
+        var fid = r.farmId != null ? r.farmId : (pl ? pl.farm_id : null);
+        if (!fid) return;
+        if (!pl) { sheetIds[fid] = 'all'; return; }
+        if (sheetIds[fid] === 'all') return;
+        (sheetIds[fid] = sheetIds[fid] || []).push(pl.id);
+      });
+    });
     var body = pages.map(function (pg) {
       var out = pageHtml(p, pg.rows, th, { unit: pg.unit, prices: o.prices });
       if (RM && RM.plotSheet) {
         farmIdsOf(pg.rows).forEach(function (fid) {
           if (shown[fid]) return;
           shown[fid] = true;
-          out += RM.plotSheet(fid, th);
+          out += RM.plotSheet(fid, th, { plotIds: sheetIds[fid] === 'all' ? null : sheetIds[fid] });
         });
       }
       return out;

@@ -5058,7 +5058,15 @@
         });
         return out;
       })();
-      sheetFarms.forEach(function (fid) { html += window.ReportMap.plotSheet(fid, TH); });
+      // Only the plots these records cover, not the whole מטע.
+      var sheetIds = {};
+      sorted.forEach(function (e) {
+        (e.plotIds || []).forEach(function (id) {
+          var pp = plots.find(function (x) { return x.id === id; });
+          if (pp && pp.farm_id) (sheetIds[pp.farm_id] = sheetIds[pp.farm_id] || []).push(id);
+        });
+      });
+      sheetFarms.forEach(function (fid) { html += window.ReportMap.plotSheet(fid, TH, { plotIds: sheetIds[fid] || null }); });
     }
     html += '<div class="footer">' +
       (TH.brand ? '<span class="brand">' + (window.ReportTheme && window.ReportTheme.brandMark ? window.ReportTheme.brandMark(14) : '') + t('שורשים פלוס') + '</span> · ' : '') +

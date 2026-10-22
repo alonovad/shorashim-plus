@@ -462,20 +462,12 @@ var ReportMap = (function () {
 
   // ════════════════════════════════════════════════════════════════
   // Per-orchard plots page (Oct 2026)
-  // One printed page per מטע: the list of its plots with a clear picture of
-  // their polygons and the data on them. Pure vector SVG — prints sharp,
-  // needs no network, and so can never hold an export up the way satellite
-  // tiles can.
-  //
-  // Two layouts, chosen per farm:
-  //   overview — all plots drawn to scale on one map, every plot numbered,
-  //              name + area + trees written on the polygons that have room,
-  //              full data table beside the map;
-  //   collage  — when the plots are scattered far apart an overview shrinks
-  //              them to dots, so each plot gets its own card instead, drawn
-  //              to fit, with its data under it.
-  // Colours arrive literal from the report theme (TH): a print window has
-  // no stylesheet, so no CSS variables here.
+  // One printed page per מטע: a square satellite map of its plots with each
+  // plot's name and data written on its polygon, and the full data table
+  // beside it. Plots that lie far apart are clustered, and each cluster gets
+  // its own cell inside the square (see satSquareSvg). Colours arrive literal
+  // from the report theme (TH): a print window has no stylesheet, so no CSS
+  // variables here.
   // ════════════════════════════════════════════════════════════════
 
   function escH(s) {
@@ -611,7 +603,10 @@ var ReportMap = (function () {
     var c1 = TH.c1 || '#1d3d2e', c2 = TH.c2 || '#2f6a4f';
     var soft = TH.soft || '#e4eee8', line = TH.line || '#c6d8cd';
     return '' +
-      '.ps-page{break-before:page;page-break-before:always;padding:4mm 6mm 0;}' +
+      '.ps-page{break-before:page;page-break-before:always;padding:4mm 6mm 0;break-inside:avoid;page-break-inside:avoid;}' +
+      // Consecutive orchard sheets share a page when they fit — a two-plot
+      // orchard does not earn a page of its own.
+      '.ps-page+.ps-page{break-before:auto;page-break-before:auto;margin-top:9mm;}' +
       '.ps-head{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap;' +
         'border-bottom:2px solid ' + line + ';padding-bottom:7px;margin-bottom:10px;}' +
       '.ps-head h2{margin:0;font-size:1.25rem;font-weight:700;color:' + c1 + ';}' +
@@ -620,9 +615,11 @@ var ReportMap = (function () {
       '.ps-kpi{background:' + soft + ';color:' + c1 + ';border-radius:99px;padding:4px 11px;font-size:.76rem;font-weight:600;white-space:nowrap;}' +
       '.ps-body{display:flex;gap:12px;align-items:flex-start;}' +
       '.ps-portrait .ps-body{flex-direction:column;}' +
-      '.ps-map{flex:1.35 1 0;min-width:0;border:1px solid ' + line + ';border-radius:14px;overflow:hidden;background:#fbfcfa;}' +
-      '.ps-map svg{display:block;width:100%;height:auto;}' +
-      '.ps-portrait .ps-map{width:100%;}' +
+      // The frame sizes itself (width set on the <svg> in mm).
+      '.ps-map{flex:0 0 auto;max-width:58%;border-radius:14px;overflow:hidden;background:#cfd8c8;' +
+        'break-inside:avoid;page-break-inside:avoid;-webkit-print-color-adjust:exact;print-color-adjust:exact;}' +
+      '.ps-map svg{display:block;max-width:100%;height:auto;}' +
+      '.ps-portrait .ps-map{flex:none;max-width:100%;margin:0 auto;}' +
       '.ps-tbl{flex:1 1 0;min-width:0;}' +
       '.ps-portrait .ps-tbl{width:100%;}' +
       '.ps-tbl table{width:100%;border-collapse:collapse;margin:0;box-shadow:none;border-radius:0;}' +
@@ -632,101 +629,105 @@ var ReportMap = (function () {
       '.ps-tbl td.n{font-variant-numeric:tabular-nums;white-space:nowrap;}' +
       '.ps-no{display:inline-block;min-width:18px;height:18px;line-height:18px;border-radius:9px;background:' + c2 + ';color:#fff;' +
         'font-size:.64rem;font-weight:700;text-align:center;padding:0 4px;}' +
+      '.ps-tbl tr.ps-env td{color:#7a756f;background:#fff;border-top:1px dashed ' + line + ';}' +
+      '.ps-envtag{font-size:.6rem;font-weight:500;color:#8a8580;white-space:nowrap;}' +
       '.ps-tbl tfoot td{font-weight:700;background:' + soft + ';color:' + c1 + ';border-bottom:none;}' +
-      '.ps-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;}' +
-      '.ps-portrait .ps-grid{grid-template-columns:repeat(3,1fr);}' +
-      '.ps-card{border:1px solid ' + line + ';border-radius:12px;padding:6px 7px 7px;break-inside:avoid;page-break-inside:avoid;background:#fff;}' +
-      '.ps-card svg{display:block;width:100%;height:auto;background:#fbfcfa;border-radius:8px;}' +
-      '.ps-card .ps-cn{display:flex;align-items:center;gap:5px;font-weight:700;font-size:.8rem;color:' + c1 + ';margin:5px 0 2px;}' +
-      '.ps-card .ps-cd{font-size:.68rem;color:#4b4642;line-height:1.45;}' +
-      '.ps-card .ps-cd b{color:' + c1 + ';font-weight:600;}' +
       '.ps-note{font-size:.66rem;color:#8a8580;margin-top:6px;}' +
       '@media print{.ps-page{padding:0;}}';
   }
 
   // farmId: number. TH: resolved report theme. Returns '' when the farm has
   // no plots with geometry and no plots at all.
-  function plotSheet(farmId, TH) {
+  // opts.plotIds: only these plots (the ones a plan or log covers); null
+  // or absent means every plot of the farm.
+  function plotSheet(farmId, TH, opts) {
     TH = TH || {};
+    var only = (opts && opts.plotIds && opts.plotIds.length) ? opts.plotIds.map(Number) : null;
     var api = storeApi();
     var farms = api.getFarms ? api.getFarms() : [];
     var farm = farms.find(function (f) { return f.id === farmId; }) || null;
     var all = api.getPlots ? api.getPlots() : [];
-    var list = all.filter(function (p) { return p.farm_id === farmId; });
-    if (!list.length) return '';
-    list.sort(function (a, b) {
-      return String(nameOf(a)).localeCompare(String(nameOf(b)), 'he', { numeric: true, sensitivity: 'base' });
+    var farmPlots = all.filter(function (p) { return p.farm_id === farmId; });
+    if (!farmPlots.length) return '';
+
+    // Geometry for the whole farm first: envelope detection has to see every
+    // plot, not only the selected ones.
+    var objs = farmPlots.map(function (p) { return { p: p, rings: sheetRings(p) }; });
+    var geo = objs.filter(function (o) { return o.rings.length; });
+    if (geo.length) {
+      var allRings = [];
+      geo.forEach(function (o) { o.rings.forEach(function (r) { allRings.push(r); }); });
+      var proj = projector(allRings);
+      geo.forEach(function (o) {
+        o.mpts = o.rings.map(function (r) { return r.map(proj); });
+        o.box = boxOf(o.mpts);
+        o.anchor = labelPoint(o.mpts.slice().sort(function (a, b) {
+          var A = boxOf([a]), B = boxOf([b]); return B.w * B.h - A.w * A.h; })[0]);
+      });
+      // An envelope plot ("כל החלקות", a whole-block outline) encloses other
+      // plots. Filled and labelled it would bury them, so it is drawn as a
+      // dashed outline underneath, kept out of the totals (its area is the
+      // sum of the plots inside it), and listed last in the table.
+      geo.forEach(function (o) {
+        o.inner = geo.filter(function (q) {
+          return q !== o && o.mpts.some(function (r) { return inside(q.anchor, r); });
+        });
+        o.container = o.inner.length >= 2;
+      });
+    }
+
+    // Selection: the plots the plan / log covers. Choosing an envelope plot
+    // means "all of these", so it brings every plot it encloses with it.
+    var pick = {};
+    objs.forEach(function (o) {
+      if (only && only.indexOf(Number(o.p.id)) === -1) return;
+      pick[o.p.id] = true;
+      if (o.container) o.inner.forEach(function (q) { pick[q.p.id] = true; });
     });
+    var chosen = objs.filter(function (o) { return pick[o.p.id]; });
+    if (!chosen.length) return '';
+    chosen.sort(function (a, b) {
+      if (!!a.container !== !!b.container) return a.container ? 1 : -1;
+      return String(nameOf(a.p)).localeCompare(String(nameOf(b.p)), 'he', { numeric: true, sensitivity: 'base' });
+    });
+    chosen.forEach(function (o, i) { o.no = i + 1; });
 
     var c1 = TH.c1 || '#1d3d2e', c2 = TH.c2 || '#2f6a4f';
     var portrait = TH.orientation === 'portrait';
-    var anyDate = list.some(isDate);
+    var anyDate = chosen.some(function (o) { return isDate(o.p); });
 
-    var totArea = 0, totTrees = 0;
-    list.forEach(function (p) { totArea += Number(p.area) || 0; if (bdefOf(p).count) totTrees += Number(p.tree_count) || 0; });
+    var totArea = 0, totTrees = 0, nPlots = 0;
+    chosen.forEach(function (o) {
+      if (o.container) return;
+      nPlots++;
+      totArea += Number(o.p.area) || 0;
+      if (bdefOf(o.p).count) totTrees += Number(o.p.tree_count) || 0;
+    });
 
-    var withGeo = list.map(function (p, i) { return { p: p, no: i + 1, rings: sheetRings(p) }; });
-    var drawn = withGeo.filter(function (o) { return o.rings.length; });
+    var drawn = chosen.filter(function (o) { return o.rings.length; });
 
     var head = '<div class="ps-head"><div>' +
         '<h2>' + escH(farm ? nameOf(farm) : '') + ' — ' + tt('חלקות המטע', 'แปลงในสวน', 'قطع البستان') + '</h2>' +
         '<div class="ps-sub">' + tt('מצב לתאריך', 'ข้อมูล ณ วันที่', 'حتى تاريخ') + ' ' +
           new Date().toLocaleDateString('he-IL') + '</div>' +
       '</div><div class="ps-kpis">' +
-        '<span class="ps-kpi">' + list.length + ' ' + tt('חלקות', 'แปลง', 'قطع') + '</span>' +
+        '<span class="ps-kpi">' + nPlots + ' ' + tt('חלקות', 'แปลง', 'قطع') + '</span>' +
         '<span class="ps-kpi">' + fmtNum(totArea, 2) + ' ' + tt('דונם', 'ไร่', 'دونم') + '</span>' +
         (totTrees ? '<span class="ps-kpi">' + fmtNum(totTrees) + ' ' + tt('עצים', 'ต้น', 'شجرة') + '</span>' : '') +
       '</div></div>';
 
-    // Readability test for the overview: how big does a typical plot come
-    // out at map scale? Below ~70 px across, labels stop fitting — collage.
-    var mode = 'overview';
-    var proj = null, mapW = portrait ? 760 : 640, mapH = portrait ? 470 : 440, pad = 26;
-    if (drawn.length) {
-      var allRings = [];
-      drawn.forEach(function (o) { o.rings.forEach(function (r) { allRings.push(r); }); });
-      proj = projector(allRings);
-      drawn.forEach(function (o) {
-        o.pts = o.rings.map(function (r) { return r.map(proj); });
-        o.box = boxOf(o.pts);
-      });
-      var fb = boxOf(drawn.reduce(function (acc, o) { return acc.concat(o.pts); }, []));
-      var sc = Math.min((mapW - 2 * pad) / fb.w, (mapH - 2 * pad) / fb.h);
-      var sizes = drawn.map(function (o) { return Math.max(o.box.w, o.box.h) * sc; }).sort(function (a, b) { return a - b; });
-      var median = sizes[Math.floor(sizes.length / 2)];
-      if (drawn.length > 1 && median < 70) mode = 'collage';
-    } else {
-      mode = 'table';
-    }
+    var body = drawn.length
+      ? '<div class="ps-body"><div class="ps-map">' + satSquareSvg(drawn, c1, c2) + '</div>' +
+          '<div class="ps-tbl">' + tableHtml(chosen, anyDate, totArea, totTrees) + '</div></div>'
+      : '<div class="ps-tbl">' + tableHtml(chosen, anyDate, totArea, totTrees) + '</div>';
 
-    var body = '';
-    if (mode === 'overview') {
-      body = '<div class="ps-body"><div class="ps-map">' + overviewSvg(drawn, mapW, mapH, pad, c1, c2) + '</div>' +
-        '<div class="ps-tbl">' + tableHtml(withGeo, anyDate, totArea, totTrees) + '</div></div>';
-    } else if (mode === 'collage') {
-      body = '<div class="ps-grid">' + withGeo.map(function (o) { return cardHtml(o, c1, c2); }).join('') + '</div>';
-    } else {
-      body = '<div class="ps-tbl">' + tableHtml(withGeo, anyDate, totArea, totTrees) + '</div>';
-    }
-
-    var missingGeo = withGeo.length - drawn.length;
+    var missingGeo = chosen.length - drawn.length;
     var note = missingGeo
       ? '<div class="ps-note">' + missingGeo + ' ' + tt('חלקות ללא גבולות מסומנים במפה — מופיעות ברשימה בלבד',
           'แปลงที่ไม่มีขอบเขตบนแผนที่ — แสดงในรายการเท่านั้น', 'قطع بلا حدود على الخريطة — تظهر في القائمة فقط') + '</div>'
       : '';
 
     return '<section class="ps-page' + (portrait ? ' ps-portrait' : '') + '">' + head + body + note + '</section>';
-  }
-
-  function dataBits(p) {
-    var bits = [], bd = bdefOf(p);
-    bits.push('<b>' + fmtNum(p.area, 2) + '</b> ' + tt('דונם', 'ไร่', 'دونم'));
-    if (bd.count && p.tree_count) bits.push('<b>' + fmtNum(p.tree_count) + '</b> ' + escH(bd.count.replace(/^מספר /, '')));
-    if (bd.ym && p.young_trees) bits.push(fmtNum(p.young_trees) + ' ' + tt('צעירים', 'ต้นอ่อน', 'صغيرة'));
-    if (bd.ym && p.missing_trees) bits.push(fmtNum(p.missing_trees) + ' ' + tt('חסרים', 'ขาด', 'ناقصة'));
-    if (bd.plant && p.planting_date) bits.push(escH(bd.plant) + ' ' + fmtDay(p.planting_date));
-    if (isDate(p) && p.male_trees) bits.push(fmtNum(p.male_trees) + ' ' + tt('זכרים', 'ตัวผู้', 'ذكور'));
-    return bits;
   }
 
   function cropOf(p) {
@@ -751,8 +752,9 @@ var ReportMap = (function () {
       '</tr></thead><tbody>';
     rows.forEach(function (o) {
       var p = o.p, bd = bdefOf(p);
-      h += '<tr><td><span class="ps-no">' + o.no + '</span></td>' +
-        '<td><b>' + escH(nameOf(p)) + '</b></td>' +
+      h += '<tr' + (o.container ? ' class="ps-env"' : '') + '><td><span class="ps-no">' + o.no + '</span></td>' +
+        '<td><b>' + escH(nameOf(p)) + '</b>' + (o.container ? ' <span class="ps-envtag">' +
+          tt('מעטפת · לא נספר בסה"כ', 'ขอบเขตรวม · ไม่นับรวม', 'إطار · لا يُحتسب') + '</span>' : '') + '</td>' +
         '<td>' + (cropOf(p) || '—') + '</td>' +
         '<td class="n">' + fmtNum(p.area, 2) + '</td>' +
         (anyCount ? '<td class="n">' + (bd.count && p.tree_count ? fmtNum(p.tree_count) : '—') + '</td>' : '') +
@@ -770,100 +772,253 @@ var ReportMap = (function () {
     return h;
   }
 
-  // Overview: all plots to scale, numbered; name + data on plots with room.
-  function overviewSvg(drawn, W, H, pad, c1, c2) {
-    var fb = boxOf(drawn.reduce(function (acc, o) { return acc.concat(o.pts); }, []));
-    var s = Math.min((W - 2 * pad) / fb.w, (H - 2 * pad) / fb.h);
-    var offX = (W - fb.w * s) / 2 - fb.x0 * s, offY = (H - fb.h * s) / 2 - fb.y0 * s;
-    function tp(q) { return { x: q.x * s + offX, y: q.y * s + offY }; }
+  // ── Satellite square (Oct 2026) ──
+  // One compact frame per orchard on Esri imagery, cut to the orchard's own
+  // shape (at most ~12.5 cm) so the page carries data, not empty ground.
+  // Plots that sit far apart are grouped into clusters and each cluster
+  // gets its own cell inside a square, so a scattered orchard still reads
+  // as plots, not dots. Tiles
+  // are plain <image> elements inside the SVG: synchronous to build, no
+  // canvas, no CORS — the print window loads them itself, and if imagery
+  // is unreachable the polygons and data still print over a plain ground.
+  // SVG units are tied to print: 8 units = 1 mm, so label sizes below are
+  // real legibility limits (16 units = 2 mm).
+  var U_MM = 8, MAX_W_MM = 125, MAX_H_MM = 125, MIN_H_MM = 62;
+  var SQ_GAP = 10, SAT_Z = 18, CLUSTER_GAP_M = 450, FILL = 0.9;
 
-    var shapes = '', labels = '';
-    drawn.forEach(function (o, i) {
-      var px = o.pts.map(function (r) { return r.map(tp); });
-      px.forEach(function (r) {
-        shapes += '<path d="' + ringPath(r) + '" fill="' + (i % 2 ? c2 : c1) + '" fill-opacity="0.13" stroke="' + c2 +
-          '" stroke-width="1.6" stroke-linejoin="round"/>';
-      });
-      // Label in the largest ring.
-      var big = px.slice().sort(function (a, b) { var A = boxOf([a]), B = boxOf([b]); return B.w * B.h - A.w * A.h; })[0];
-      var lp = labelPoint(big), bb = boxOf([big]);
-      var p = o.p, nm = String(nameOf(p));
-      var bd = bdefOf(p);
-      var lines = [fmtNum(p.area, 2) + ' ' + tt('דונם', 'ไร่', 'دونم')];
-      if (bd.count && p.tree_count) lines.push(fmtNum(p.tree_count) + ' ' + tt('עצים', 'ต้น', 'شجرة'));
-      else if (!bd.count && p.crop_type) lines.push(String(p.crop_type));
-      // Room actually available around the label point: the polygon's
-      // horizontal and vertical span through it, not its bounding box.
-      var spanW = 2 * Math.min(lp.x - spanEdge(big, lp, 'x', -1), spanEdge(big, lp, 'x', 1) - lp.x);
-      var spanH = 2 * Math.min(lp.y - spanEdge(big, lp, 'y', -1), spanEdge(big, lp, 'y', 1) - lp.y);
-      var longest = Math.max(nm.length, lines.reduce(function (m, l) { return Math.max(m, l.length); }, 0));
-      var fs = Math.min(13, (spanW - 10) / (longest * 0.56), (spanH - 6) / (lines.length + 2.4));
-      if (fs >= 8.5) {
-        // Badge + name + data lines, centred on the label point. direction="rtl"
-        // on each <text> keeps Hebrew/number runs in reading order; the <svg>
-        // itself stays pinned ltr so text-anchor keeps its normal meaning.
-        var total = (lines.length + 1) * fs * 1.15 + fs * 1.4;
-        var y0 = lp.y - total / 2;
-        labels += numBadge(lp.x, y0 + fs * 0.55, o.no, c2);
-        var y = y0 + fs * 1.4 + fs;
-        labels += '<text x="' + lp.x.toFixed(1) + '" y="' + y.toFixed(1) + '" text-anchor="middle" direction="rtl" ' +
-          'font-size="' + fs.toFixed(1) + '" font-weight="700" fill="' + c1 + '" paint-order="stroke" stroke="#fff" stroke-width="3" stroke-linejoin="round">' + escH(nm) + '</text>';
-        lines.forEach(function (ln) {
-          y += fs * 1.15;
-          labels += '<text x="' + lp.x.toFixed(1) + '" y="' + y.toFixed(1) + '" text-anchor="middle" direction="rtl" ' +
-            'font-size="' + (fs * 0.88).toFixed(1) + '" fill="#3f3a36" paint-order="stroke" stroke="#fff" stroke-width="3" stroke-linejoin="round">' + escH(ln) + '</text>';
-        });
-      } else {
-        labels += numBadge(lp.x, lp.y, o.no, c2);
+  function clusterize(drawn) {
+    var parent = drawn.map(function (_, i) { return i; });
+    function find(i) { return parent[i] === i ? i : (parent[i] = find(parent[i])); }
+    for (var i = 0; i < drawn.length; i++) {
+      for (var j = i + 1; j < drawn.length; j++) {
+        var A = drawn[i].box, B = drawn[j].box;   // metres (projector)
+        var gx = Math.max(0, Math.max(A.x0, B.x0) - Math.min(A.x1, B.x1));
+        var gy = Math.max(0, Math.max(A.y0, B.y0) - Math.min(A.y1, B.y1));
+        if (Math.sqrt(gx * gx + gy * gy) < CLUSTER_GAP_M) parent[find(i)] = find(j);
       }
+    }
+    var groups = {};
+    drawn.forEach(function (o, i) { var r = find(i); (groups[r] = groups[r] || []).push(o); });
+    return Object.keys(groups).map(function (k) { return groups[k]; })
+      .sort(function (a, b) { return a[0].no - b[0].no; });
+  }
+
+  // Mercator pixels at SAT_Z for every ring of a cluster.
+  function mercOf(group) {
+    group.forEach(function (o) {
+      o.merc = o.rings.map(function (r) { return r.map(function (q) { return project(q.lat, q.lng, SAT_Z); }); });
+    });
+    return boxOf(group.reduce(function (acc, o) { return acc.concat(o.merc); }, []));
+  }
+
+  // Grid that gives the smallest cluster the most room.
+  function layoutCells(groups, VW, VH) {
+    var n = groups.length, best = null;
+    var boxes = groups.map(mercOf);
+    if (n === 1) return [{ group: groups[0], box: boxes[0], x: 0, y: 0, w: VW, h: VH }];
+    for (var cols = 1; cols <= n; cols++) {
+      var rows = Math.ceil(n / cols);
+      var cw = (VW - SQ_GAP * (cols - 1)) / cols, ch = (VH - SQ_GAP * (rows - 1)) / rows;
+      var worst = Infinity;
+      boxes.forEach(function (b) {
+        var bw = Math.max(b.w, 60), bh = Math.max(b.h, 60);
+        worst = Math.min(worst, Math.min(cw / bw, ch / bh) * Math.sqrt(bw * bh));
+      });
+      if (!best || worst > best.score) best = { score: worst, cols: cols, rows: rows, cw: cw, ch: ch };
+    }
+    return groups.map(function (g, i) {
+      var r = Math.floor(i / best.cols), c = i % best.cols;
+      // The last row is centred when it is short.
+      var inRow = (r === best.rows - 1) ? (n - r * best.cols) : best.cols;
+      var shift = (best.cols - inRow) * (best.cw + SQ_GAP) / 2;
+      return { group: g, box: boxes[i], x: shift + c * (best.cw + SQ_GAP), y: r * (best.ch + SQ_GAP), w: best.cw, h: best.ch };
+    });
+  }
+
+  function satSquareSvg(drawn, c1, c2) {
+    var groups = clusterize(drawn);
+    // Frame size: a lone cluster gets a frame of its own proportions; a
+    // collage of clusters shares one square.
+    // The frame grows with the number of plots it has to explain: one or
+    // two plots need a thumbnail-sized map, not a poster.
+    var nReal = drawn.filter(function (o) { return !o.container; }).length;
+    var cap = nReal <= 2 ? 80 : (nReal <= 5 ? 100 : MAX_W_MM);
+    var wmm = cap, hmm = cap;
+    if (groups.length === 1) {
+      var gb = mercOf(groups[0]);
+      var a = Math.max(gb.w, 90) / Math.max(gb.h, 90);
+      wmm = Math.min(cap, Math.min(MAX_H_MM, cap) * a);
+      hmm = Math.max(MIN_H_MM, Math.min(MAX_H_MM, cap, wmm / a));
+    }
+    var VW = Math.round(wmm * U_MM), VH = Math.round(hmm * U_MM);
+    var cells = layoutCells(groups, VW, VH);
+    var defs = '', body = '', uid = 'ps' + Math.random().toString(36).slice(2, 8);
+    var attr = '';
+
+    cells.forEach(function (cell, ci) {
+      var b = cell.box;
+      // Keep surrounding ground in view: 14% margin, and never zoom past
+      // ~60 m across so a single small plot still shows its surroundings.
+      var bw = Math.max(b.w, 90), bh = Math.max(b.h, 90);
+      var s = Math.min(cell.w * FILL / bw, cell.h * FILL / bh);
+      var cxM = b.x0 + b.w / 2, cyM = b.y0 + b.h / 2;
+      var ox = cxM - cell.w / 2 / s, oy = cyM - cell.h / 2 / s;      // merc px at cell's top-left
+      function tp(q) { return { x: cell.x + (q.x - ox) * s, y: cell.y + (q.y - oy) * s }; }
+
+      // Tile zoom: ~1.6 image px per SVG unit (≈ 330 dpi in print).
+      var zt = Math.round(SAT_Z + Math.log(1.6 * s) / Math.LN2);
+      zt = Math.max(MIN_Z, Math.min(SAT_Z, zt));
+      var tileM = TILE * Math.pow(2, SAT_Z - zt);                    // one tile in SAT_Z px
+      var tx0 = Math.floor(ox / tileM), ty0 = Math.floor(oy / tileM);
+      var tx1 = Math.floor((ox + cell.w / s) / tileM), ty1 = Math.floor((oy + cell.h / s) / tileM);
+      while ((tx1 - tx0 + 1) * (ty1 - ty0 + 1) > 48 && zt > MIN_Z) {
+        zt--; tileM *= 2;
+        tx0 = Math.floor(ox / tileM); ty0 = Math.floor(oy / tileM);
+        tx1 = Math.floor((ox + cell.w / s) / tileM); ty1 = Math.floor((oy + cell.h / s) / tileM);
+      }
+      var span = Math.pow(2, zt), tiles = '';
+      var sz = tileM * s;
+      for (var tx = tx0; tx <= tx1; tx++) {
+        for (var ty = ty0; ty <= ty1; ty++) {
+          if (ty < 0 || ty >= span) continue;
+          var url = TILE_URL.replace('{z}', zt).replace('{y}', ty).replace('{x}', ((tx % span) + span) % span);
+          // +0.6 overlap hides hairline seams between tiles in print.
+          tiles += '<image href="' + url + '" xlink:href="' + url + '" x="' + (cell.x + (tx * tileM - ox) * s).toFixed(2) +
+            '" y="' + (cell.y + (ty * tileM - oy) * s).toFixed(2) + '" width="' + (sz + 0.6).toFixed(2) +
+            '" height="' + (sz + 0.6).toFixed(2) + '" preserveAspectRatio="none"/>';
+        }
+      }
+
+      var clip = uid + 'c' + ci;
+      defs += '<clipPath id="' + clip + '"><rect x="' + cell.x.toFixed(1) + '" y="' + cell.y.toFixed(1) + '" width="' +
+        cell.w.toFixed(1) + '" height="' + cell.h.toFixed(1) + '" rx="14"/></clipPath>';
+
+      var shapes = '', labels = '', placed = [];
+      cell.group.filter(function (o) { return o.container; }).forEach(function (o) {
+        o.merc.map(function (r) { return r.map(tp); }).forEach(function (r) {
+          shapes += '<path d="' + ringPath(r) + '" fill="none" stroke="#ffffff" stroke-width="3" stroke-dasharray="10 7" stroke-linejoin="round" stroke-opacity="0.9"/>';
+        });
+      });
+      cell.group.filter(function (o) { return !o.container; }).forEach(function (o) {
+        var px = o.merc.map(function (r) { return r.map(tp); });
+        px.forEach(function (r) {
+          shapes += '<path d="' + ringPath(r) + '" fill="' + c2 + '" fill-opacity="0.22" stroke="#ffffff" stroke-width="4.5" stroke-linejoin="round" stroke-opacity="0.9"/>' +
+            '<path d="' + ringPath(r) + '" fill="none" stroke="#ffd84a" stroke-width="2.2" stroke-linejoin="round"/>';
+        });
+        labels += polyLabel(o, px, c1, c2, placed);
+      });
+
+      // Scale bar per cell (each cell has its own scale).
+      var mPerUnit = 156543.03392 * Math.cos(((drawn[0].rings[0][0] || {}).lat || 31.8) * Math.PI / 180) / Math.pow(2, SAT_Z) / s;
+      var len = niceLen(mPerUnit, Math.min(cell.w * 0.28, 220)), barPx = len / mPerUnit;
+      var lenTxt = len >= 1000 ? (len / 1000) + ' km' : len + ' m';
+      var bx = cell.x + 14, by = cell.y + cell.h - 14;
+      var bar = '<g>' +
+        '<rect x="' + (bx - 7) + '" y="' + (by - 24) + '" width="' + (barPx + 64).toFixed(1) + '" height="32" rx="8" fill="#000" fill-opacity="0.45"/>' +
+        '<rect x="' + bx + '" y="' + (by - 8) + '" width="' + barPx.toFixed(1) + '" height="6" fill="#fff"/>' +
+        '<rect x="' + bx + '" y="' + (by - 8) + '" width="' + (barPx / 2).toFixed(1) + '" height="6" fill="#222" stroke="#fff" stroke-width="1"/>' +
+        '<text x="' + (bx + barPx + 8).toFixed(1) + '" y="' + (by - 1) + '" font-size="15" font-weight="700" fill="#fff" text-anchor="start">' + lenTxt + '</text></g>';
+
+      body += '<g clip-path="url(#' + clip + ')">' +
+        '<rect x="' + cell.x.toFixed(1) + '" y="' + cell.y.toFixed(1) + '" width="' + cell.w.toFixed(1) + '" height="' + cell.h.toFixed(1) + '" fill="#cfd8c8"/>' +
+        tiles + shapes + labels + bar + '</g>' +
+        '<rect x="' + cell.x.toFixed(1) + '" y="' + cell.y.toFixed(1) + '" width="' + cell.w.toFixed(1) + '" height="' + cell.h.toFixed(1) +
+          '" rx="14" fill="none" stroke="#ffffff" stroke-width="3"/>';
     });
 
-    // Scale bar + north arrow, bottom-left / top-left.
-    var mPerPx = 1 / s, len = niceLen(mPerPx, W * 0.22), barPx = len / mPerPx;
-    var lenTxt = len >= 1000 ? (len / 1000) + ' km' : len + ' m';
-    var deco = '<g transform="translate(14,' + (H - 16) + ')">' +
-        '<rect x="0" y="-5" width="' + barPx.toFixed(1) + '" height="5" fill="' + c1 + '"/>' +
-        '<rect x="0" y="-5" width="' + (barPx / 2).toFixed(1) + '" height="5" fill="#fff" stroke="' + c1 + '" stroke-width="1"/>' +
-        '<text x="' + (barPx + 6).toFixed(1) + '" y="0" font-size="10" fill="' + c1 + '" text-anchor="start">' + lenTxt + '</text></g>' +
-      '<g transform="translate(22,22)"><path d="M0 -12 L6 6 L0 2 L-6 6 Z" fill="' + c1 + '"/>' +
-        '<text x="0" y="18" font-size="9" font-weight="700" fill="' + c1 + '" text-anchor="middle">N</text></g>';
+    var north = '<g transform="translate(' + (VW - 34) + ',36)"><circle r="22" fill="#000" fill-opacity="0.45"/>' +
+      '<path d="M0 -14 L8 8 L0 3 L-8 8 Z" fill="#fff"/><text x="0" y="19" font-size="11" font-weight="700" fill="#fff" text-anchor="middle">N</text></g>';
+    attr = '<text x="' + (VW - 10) + '" y="' + (VH - 8) + '" font-size="12" fill="#fff" fill-opacity="0.85" text-anchor="end" paint-order="stroke" stroke="#000" stroke-opacity="0.5" stroke-width="3">' +
+      escH(ATTRIBUTION) + '</text>';
 
-    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + W + ' ' + H + '" style="direction:ltr;" ' +
-      'font-family="Rubik, Heebo, Arial, sans-serif" role="img">' +
-      '<rect width="' + W + '" height="' + H + '" fill="#fbfcfa"/>' + shapes + labels + deco + '</svg>';
+    return '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ' + VW + ' ' + VH + '" width="' + wmm.toFixed(1) + 'mm" ' +
+      'style="direction:ltr;" font-family="Rubik, Heebo, Arial, sans-serif" role="img"><defs>' + defs + '</defs>' +
+      body + north + attr + '</svg>';
   }
 
-  function numBadge(x, y, no, c2) {
-    var r = String(no).length > 1 ? 10 : 8.5;
-    return '<circle cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="' + r + '" fill="' + c2 + '" stroke="#fff" stroke-width="1.6"/>' +
-      '<text x="' + x.toFixed(1) + '" y="' + (y + 3.6).toFixed(1) + '" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">' + no + '</text>';
-  }
+  // Name and data written on the polygon itself, sized to the room the
+  // polygon really has. Falls back to fewer lines, then to the numbered
+  // badge alone (the table beside the map carries the rest).
+  function polyLabel(o, px, c1, c2, placed) {
+    var big = px.slice().sort(function (a, b) { var A = boxOf([a]), B = boxOf([b]); return B.w * B.h - A.w * A.h; })[0];
+    var lp = labelPoint(big);
+    var spanW = 2 * Math.min(lp.x - spanEdge(big, lp, 'x', -1), spanEdge(big, lp, 'x', 1) - lp.x);
+    var spanH = 2 * Math.min(lp.y - spanEdge(big, lp, 'y', -1), spanEdge(big, lp, 'y', 1) - lp.y);
+    var p = o.p, bd = bdefOf(p), nm = String(nameOf(p));
+    var l2 = fmtNum(p.area, 2) + ' ' + tt('דונם', 'ไร่', 'دونم');
+    var l3 = '';
+    if (bd.count && p.tree_count) l3 = fmtNum(p.tree_count) + ' ' + tt('עצים', 'ต้น', 'شجرة');
+    else if (p.crop_type) l3 = String(p.crop_type);
+    var l4 = (p.crop_type && bd.count && p.tree_count) ? [p.crop_type, p.variety].filter(Boolean).join(' · ') : (p.variety || '');
 
-  // Collage card: the plot alone, fitted to its card, with its data below.
-  function cardHtml(o, c1, c2) {
-    var p = o.p, W = 200, H = 136, pad = 12, padB = 24, svg = '';
-    if (o.pts && o.pts.length) {
-      var b = boxOf(o.pts);
-      var s = Math.min((W - 2 * pad) / b.w, (H - pad - padB) / b.h);
-      var offX = (W - b.w * s) / 2 - b.x0 * s, offY = pad + (H - pad - padB - b.h * s) / 2 - b.y0 * s;
-      var shapes = o.pts.map(function (r) {
-        return '<path d="' + ringPath(r.map(function (q) { return { x: q.x * s + offX, y: q.y * s + offY }; })) +
-          '" fill="' + c2 + '" fill-opacity="0.15" stroke="' + c2 + '" stroke-width="1.8" stroke-linejoin="round"/>';
-      }).join('');
-      var len = niceLen(1 / s, W * 0.3), barPx = len * s;
-      var deco = '<g transform="translate(8,' + (H - 8) + ')"><rect x="0" y="-3" width="' + barPx.toFixed(1) + '" height="3" fill="' + c1 + '"/>' +
-        '<text x="' + (barPx + 4).toFixed(1) + '" y="0" font-size="8" fill="' + c1 + '" text-anchor="start">' + (len >= 1000 ? (len / 1000) + ' km' : len + ' m') + '</text></g>';
-      svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + W + ' ' + H + '" style="direction:ltr;" font-family="Rubik, Heebo, Arial, sans-serif">' +
-        shapes + deco + '</svg>';
-    } else {
-      svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + W + ' ' + H + '" style="direction:ltr;">' +
-        '<text x="' + W / 2 + '" y="' + H / 2 + '" text-anchor="middle" direction="rtl" font-size="11" fill="#8a8580">' +
-        escH(tt('אין גבולות במפה', 'ไม่มีขอบเขต', 'لا حدود')) + '</text></svg>';
+    // The plot names itself: name + as many data lines as the polygon has
+    // room for, at a size that stays legible in print.
+    var l2s = fmtNum(p.area, 1) + ' ' + tt('ד׳', 'ไร่', 'د');
+    var options = [[l2, l3, l4], [l2, l3], [l2], [l2s]];
+    for (var k = 0; k < options.length; k++) {
+      var lines = options[k].filter(Boolean);
+      var longest = Math.max(nm.length * 1.12, lines.reduce(function (m, l) { return Math.max(m, String(l).length); }, 0));
+      var rowsN = 1.15 + lines.length;
+      var fs = Math.min(22, (spanW - 8) / (longest * 0.56), (spanH - 6) / (rowsN * 1.2));
+      if (fs < 15) continue;
+      var y = lp.y - (rowsN * fs * 1.2) / 2 + fs * 1.05;
+      var out = labelText(lp.x, y, nm, fs * 1.12, true);
+      lines.forEach(function (ln) { y += fs * 1.18; out += labelText(lp.x, y, ln, fs * 0.9, false); });
+      return out;
     }
-    var crop = cropOf(p);
-    return '<div class="ps-card">' + svg +
-      '<div class="ps-cn"><span class="ps-no">' + o.no + '</span>' + escH(nameOf(p)) + '</div>' +
-      '<div class="ps-cd">' + dataBits(p).join(' · ') + (crop ? '<br>' + crop : '') + '</div></div>';
+    // No room for data: a name pill, or for a long name the table number.
+    // Narrow strips sit side by side, so the marker slides along its own
+    // strip until it clears the markers already placed.
+    var short = nm.length <= 10;
+    var mw = short ? Math.max(28, nm.length * 15 * 0.6 + 14) : 26, mh = short ? 24 : 26;
+    var pt = freeSpot(big, lp, mw, mh, placed);
+    placed.push({ x0: pt.x - mw / 2 - 2, x1: pt.x + mw / 2 + 2, y0: pt.y - mh / 2 - 2, y1: pt.y + mh / 2 + 2 });
+    return short ? namePill(pt.x, pt.y, nm, c2) : numBadge(pt.x, pt.y, o.no, c2, 13);
+  }
+
+  // Candidate points along the polygon's long axis, nearest the label
+  // point first; the first whose marker box overlaps nothing wins.
+  function freeSpot(pts, lp, w, h, placed) {
+    var b = boxOf([pts]), cands = [lp];
+    var horiz = b.w >= b.h;
+    [0.18, -0.18, 0.32, -0.32, 0.42, -0.42].forEach(function (f) {
+      var q = horiz ? { x: lp.x + b.w * f, y: lp.y } : { x: lp.x, y: lp.y + b.h * f };
+      // Follow a slanted strip: slide across to the polygon's middle there.
+      var lo = spanEdge(pts, q, horiz ? 'y' : 'x', -1), hi = spanEdge(pts, q, horiz ? 'y' : 'x', 1);
+      if (horiz) q.y = (lo + hi) / 2; else q.x = (lo + hi) / 2;
+      if (inside(q, pts)) cands.push(q);
+    });
+    function clear(q) {
+      return !placed.some(function (r) {
+        return q.x - w / 2 < r.x1 && q.x + w / 2 > r.x0 && q.y - h / 2 < r.y1 && q.y + h / 2 > r.y0;
+      });
+    }
+    for (var i = 0; i < cands.length; i++) if (clear(cands[i])) return cands[i];
+    return lp;
+  }
+
+  function namePill(x, y, nm, c2) {
+    var fs = 15, w = Math.max(28, nm.length * fs * 0.6 + 14), h = fs + 9;
+    return '<rect x="' + (x - w / 2).toFixed(1) + '" y="' + (y - h / 2).toFixed(1) + '" width="' + w.toFixed(1) + '" height="' + h +
+      '" rx="' + (h / 2) + '" fill="' + c2 + '" stroke="#fff" stroke-width="2"/>' +
+      '<text x="' + x.toFixed(1) + '" y="' + (y + fs * 0.36).toFixed(1) + '" text-anchor="middle" direction="rtl" font-size="' + fs +
+      '" font-weight="700" fill="#fff">' + escH(nm) + '</text>';
+  }
+
+  // White on a dark halo — readable over bright soil and dark canopy alike.
+  // direction="rtl" on the <text> keeps Hebrew + numbers in reading order;
+  // the <svg> stays pinned ltr so text-anchor keeps its meaning.
+  function labelText(x, y, txt, fs, bold) {
+    return '<text x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" text-anchor="middle" direction="rtl" font-size="' + fs.toFixed(1) +
+      '" font-weight="' + (bold ? 700 : 600) + '" fill="#ffffff" paint-order="stroke" stroke="#0d1a12" stroke-opacity="0.82" stroke-width="' +
+      (fs * 0.26).toFixed(1) + '" stroke-linejoin="round">' + escH(txt) + '</text>';
+  }
+
+  function numBadge(x, y, no, c2, r) {
+    r = Math.max(r || 9, String(no).length > 1 ? 11 : 9.5);
+    return '<circle cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="' + r.toFixed(1) + '" fill="' + c2 + '" stroke="#fff" stroke-width="2"/>' +
+      '<text x="' + x.toFixed(1) + '" y="' + (y + r * 0.38).toFixed(1) + '" text-anchor="middle" font-size="' + (r * 1.1).toFixed(1) +
+      '" font-weight="700" fill="#fff">' + no + '</text>';
   }
 
 
