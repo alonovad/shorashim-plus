@@ -2018,6 +2018,7 @@
     'משוך מהמאגר': { th: 'ดึงจากคลัง', ar: 'اسحب من المخزن' },
     'הערות לחלקה': { th: 'หมายเหตุแปลง', ar: 'ملاحظات القطعة' },
     'עצים חסרים': { th: 'ต้นที่ขาด', ar: 'أشجار ناقصة' },
+    'מצב הצמחייה מהלוויין': { th: 'สภาพพืชจากดาวเทียม', ar: 'حالة الغطاء النباتي من القمر الصناعي' },
     'ענפים': { th: 'สาขาการเกษตร', ar: 'الفروع' },
     'גפנים': { th: 'ต้นองุ่น', ar: 'كروم' },
     'צעירים': { th: 'ต้นอ่อน', ar: 'صغيرة' },
@@ -7991,6 +7992,7 @@
       '</div>' +
     '</div>';
     matrixHtml += farmBranchSummary(farmPlots);
+    if (window.Satellite && farmPlots.length) matrixHtml += '<button type="button" class="fd-sat-btn" onclick="Satellite.open(' + farm.id + ')">🛰️ ' + t('מצב הצמחייה מהלוויין') + ' <span>NDVI</span></button>';
     var farmQty = wlQtyTotals(farmWorklog);
     if (Object.keys(farmQty).length) {
       matrixHtml += '<div style="background: #fff8e1; padding: 8px 10px; border-radius: 10px; margin: -8px 0 16px; font-size: 0.8rem; text-align: center; color: #e65100;">' +

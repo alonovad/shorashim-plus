@@ -60,6 +60,7 @@ var Home = (function () {
     users: '<circle cx="9" cy="8" r="3.5"/><path d="M2 20c0-4 3-6 7-6s7 2 7 6"/><path d="M16 4a3.5 3.5 0 0 1 0 7M18 14c2.5.5 4 2.5 4 6"/>',
     chev: '<path d="M14 6l-6 6 6 6"/>',
     book: '<path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19V5M8 7h7"/>',
+    sat: '<rect x="9" y="9" width="6" height="6" rx="1" transform="rotate(45 12 12)"/><path d="M4 4l4 4M16 16l4 4M7 3L3 7l3 3 4-4zM17 13l-4 4 3 3 4-4zM15 9l2-2"/>',
     bug: '<ellipse cx="12" cy="13" rx="5" ry="6"/><path d="M12 7V4M9 4l1.5 2M15 4l-1.5 2M7 11H3M7 15H3M17 11h4M17 15h4M12 9v10"/>'
   };
   function ic(n, c, s, w) {
@@ -84,6 +85,7 @@ var Home = (function () {
     { k: 'receipt', ic: 'cam', he: 'צלם תעודה', th: 'ถ่ายใบส่งของ', ar: 'تصوير مستند', fn: function () { clickId('qaCaptureReceipt'); }, need: 'qaCaptureReceipt' },
     { k: 'library', ic: 'book', he: 'מידע שימושי', th: 'คู่มือ', ar: 'معلومات', fn: function () { if (window.Knowledge) Knowledge.open(); }, need: '__Knowledge' },
     { k: 'traps', ic: 'bug', he: 'לכידות חדקונית', th: 'กับดักด้วง', ar: 'مصائد السوسة', fn: function () { if (window.Traps) Traps.open(); }, need: '__Traps' },
+    { k: 'sat', ic: 'sat', he: 'לוויין', th: 'ดาวเทียม', ar: 'القمر الصناعي', fn: function () { if (window.Satellite) Satellite.open(); }, need: '__Satellite' },
     { k: 'profile', ic: 'person', he: 'אישי', th: 'ส่วนตัว', ar: 'شخصي', tab: 'profile' },
     { k: 'users', ic: 'users', he: 'משתמשים', th: 'ผู้ใช้', ar: 'المستخدمون', tab: 'users' },
     { k: 'menu', ic: 'menu', he: 'תפריט ודוחות', th: 'เมนู', ar: 'القائمة', fn: function () { if (window.TimeClock && TimeClock.toggleMenu) TimeClock.toggleMenu(); } }
@@ -93,6 +95,7 @@ var Home = (function () {
       if (a.tab) return tabAvail(a.tab);
       if (a.need === '__Knowledge') return !!window.Knowledge;
       if (a.need === '__Traps') return !!window.Traps;
+      if (a.need === '__Satellite') return !!window.Satellite;
       if (a.need) return !!document.getElementById(a.need);
       return true;
     });

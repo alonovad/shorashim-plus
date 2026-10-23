@@ -2401,3 +2401,5 @@ body.theme-classic #registerOpenLink { color: #2e7d32 !important; text-shadow: n
 .fd-br-n small{font-size:.7rem;font-weight:600;}
 .fd-br-crop{display:flex;justify-content:space-between;gap:8px;font-size:.76rem;padding-top:4px;margin-top:4px;border-top:1px dashed rgba(0,0,0,.08);}
 .fd-br-crop span:last-child{color:var(--text-muted);text-align:end;}
+.fd-sat-btn{display:flex;align-items:center;gap:8px;width:100%;margin:-8px 0 16px;padding:10px 12px;border-radius:12px;border:1.5px solid var(--line,#e6ebe2);background:linear-gradient(90deg,#e8f5e9,#e3f2fd);font:inherit;font-weight:700;font-size:.86rem;color:var(--g1,#1d5a2c);cursor:pointer;text-align:start;}
+.fd-sat-btn span{margin-inline-start:auto;font-size:.68rem;font-weight:700;background:#fff;border-radius:99px;padding:2px 8px;color:#2e7d32;}

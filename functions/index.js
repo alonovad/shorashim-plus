@@ -1368,3 +1368,139 @@ exports.imsWeather = onCall(
     return { stations: out };
   }
 );
+
+// ═══════════════════════════════════════════
+// SENTINEL-2 VEGETATION INDEX per plot (Oct 2026, satellite.js).
+// Copernicus Data Space Ecosystem, Sentinel Hub Statistical API: for each
+// plot polygon, the mean NDVI (vigour) and NDMI (canopy moisture) of every
+// clear Sentinel-2 L2A pass, clouds / shadows / water / snow masked out by
+// the scene classification (SCL). Free for commercial use.
+// Needs an OAuth client from the CDSE dashboard (User settings → OAuth
+// clients), kept as two secrets, never in the browser:
+//   firebase functions:secrets:set CDSE_CLIENT_ID
+//   firebase functions:secrets:set CDSE_CLIENT_SECRET
+// Operator/admin only (each call spends the account's monthly quota); the
+// browser caches the results in appData/shorashim-sentinel-<farmId> so
+// workers read them without calling here.
+// ═══════════════════════════════════════════
+const CDSE_CLIENT_ID = defineSecret("CDSE_CLIENT_ID");
+const CDSE_CLIENT_SECRET = defineSecret("CDSE_CLIENT_SECRET");
+const CDSE_TOKEN_URL = "https://identity.dataspace.copernicus.eu/auth/realms/CDSE/protocol/openid-connect/token";
+const CDSE_STATS_URL = "https://sh.dataspace.copernicus.eu/api/v1/statistics";
+let _cdseTok = null, _cdseTokExp = 0;
+const S2_EVALSCRIPT = `//VERSION=3
+function setup() {
+  return {
+    input: [{ bands: ["B04", "B08", "B8A", "B11", "SCL", "dataMask"] }],
+    output: [{ id: "ndvi", bands: 1 }, { id: "ndmi", bands: 1 }, { id: "dataMask", bands: 1 }]
+  };
+}
+// SCL: 0 no data, 1 saturated, 3 cloud shadow, 6 water, 8/9 cloud, 10 cirrus, 11 snow
+var BAD = [0, 1, 3, 6, 8, 9, 10, 11];
+function evaluatePixel(s) {
+  var d1 = s.B08 + s.B04, d2 = s.B8A + s.B11;
+  var ok = s.dataMask === 1 && BAD.indexOf(s.SCL) < 0 && d1 > 0 && d2 > 0;
+  return {
+    ndvi: [ok ? (s.B08 - s.B04) / d1 : 0],
+    ndmi: [ok ? (s.B8A - s.B11) / d2 : 0],
+    dataMask: [ok ? 1 : 0]
+  };
+}`;
+
+async function cdseToken() {
+  if (_cdseTok && Date.now() < _cdseTokExp - 60000) return _cdseTok;
+  const body = new URLSearchParams({
+    grant_type: "client_credentials",
+    client_id: CDSE_CLIENT_ID.value(),
+    client_secret: CDSE_CLIENT_SECRET.value()
+  });
+  const r = await fetch(CDSE_TOKEN_URL, { method: "POST", body, headers: { "Content-Type": "application/x-www-form-urlencoded" } });
+  if (!r.ok) throw new HttpsError("failed-precondition", "CDSE login " + r.status + " — check CDSE_CLIENT_ID / CDSE_CLIENT_SECRET");
+  const j = await r.json();
+  _cdseTok = j.access_token;
+  _cdseTokExp = Date.now() + (Number(j.expires_in) || 300) * 1000;
+  return _cdseTok;
+}
+
+exports.sentinelNdvi = onCall(
+  { region: "us-central1", secrets: [CDSE_CLIENT_ID, CDSE_CLIENT_SECRET], memory: "256MiB", timeoutSeconds: 120, maxInstances: 3 },
+  async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Sign in required");
+    const tok = request.auth.token || {};
+    if ((tok.firebase || {}).sign_in_provider === "phone") throw new HttpsError("permission-denied", "Not for recovery sessions");
+    if (tok.role !== undefined && tok.role !== null && !["admin", "operator"].includes(tok.role)) {
+      throw new HttpsError("permission-denied", "Operator or admin required");
+    }
+    const data = request.data || {};
+    const day = /^\d{4}-\d{2}-\d{2}$/;
+    const to = day.test(data.to) ? data.to : new Date().toISOString().slice(0, 10);
+    const from = day.test(data.from) ? data.from : new Date(Date.now() - 400 * 864e5).toISOString().slice(0, 10);
+    if (from >= to) throw new HttpsError("invalid-argument", "from must be before to");
+    if ((Date.parse(to) - Date.parse(from)) / 864e5 > 800) throw new HttpsError("invalid-argument", "at most 800 days per call");
+    const plots = (Array.isArray(data.plots) ? data.plots : []).slice(0, 30);
+    // rings: [[[lon,lat],...], ...] — first ring the plot, others extra parts
+    const geomOf = (p) => {
+      const rings = (Array.isArray(p.rings) ? p.rings : []).map((r) => (Array.isArray(r) ? r : [])
+        .map((c) => [Number(c[0]), Number(c[1])])
+        .filter((c) => isFinite(c[0]) && isFinite(c[1]) && Math.abs(c[0]) <= 180 && Math.abs(c[1]) <= 90))
+        .filter((r) => r.length >= 3)
+        .slice(0, 20)
+        .map((r) => {
+          const c = r.slice(0, 500);
+          const a = c[0], b = c[c.length - 1];
+          if (a[0] !== b[0] || a[1] !== b[1]) c.push([a[0], a[1]]);
+          return c;
+        });
+      if (!rings.length) return null;
+      return rings.length === 1 ? { type: "Polygon", coordinates: [rings[0]] }
+                                : { type: "MultiPolygon", coordinates: rings.map((r) => [r]) };
+    };
+    const access = await cdseToken();
+    const one = async (p) => {
+      const geometry = geomOf(p);
+      if (!geometry) return [String(p.id), { err: "no polygon" }];
+      const req = {
+        input: {
+          bounds: { geometry, properties: { crs: "http://www.opengis.net/def/crs/OGC/1.3/CRS84" } },
+          data: [{ type: "sentinel-2-l2a", dataFilter: { maxCloudCoverage: 80 } }]
+        },
+        aggregation: {
+          timeRange: { from: from + "T00:00:00Z", to: to + "T23:59:59Z" },
+          aggregationInterval: { of: "P1D" },
+          evalscript: S2_EVALSCRIPT,
+          resx: 0.0001, resy: 0.0001
+        }
+      };
+      const r = await fetch(CDSE_STATS_URL, {
+        method: "POST",
+        headers: { Authorization: "Bearer " + access, "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify(req)
+      });
+      if (r.status === 429) return [String(p.id), { err: "quota" }];
+      if (!r.ok) return [String(p.id), { err: "CDSE " + r.status }];
+      const j = await r.json();
+      const pts = [];
+      (j.data || []).forEach((iv) => {
+        const o = iv && iv.outputs;
+        if (!o || !o.ndvi || iv.error) return;
+        const sv = (o.ndvi.bands.B0 || {}).stats || {}, sm = ((o.ndmi || {}).bands || {}).B0 || {};
+        const n = Number(sv.sampleCount) || 0, nd = Number(sv.noDataCount) || 0;
+        if (!n || (n - nd) / n < 0.5 || !isFinite(Number(sv.mean))) return;
+        pts.push({
+          d: String(iv.interval.from).slice(0, 10),
+          v: Math.round(Number(sv.mean) * 1000) / 1000,
+          m: isFinite(Number((sm.stats || {}).mean)) ? Math.round(Number(sm.stats.mean) * 1000) / 1000 : null,
+          c: Math.round((n - nd) / n * 100) / 100
+        });
+      });
+      return [String(p.id), { pts }];
+    };
+    const out = {};
+    // four at a time — gentle on the per-minute request limit
+    for (let i = 0; i < plots.length; i += 4) {
+      const res = await Promise.all(plots.slice(i, i + 4).map((p) => one(p).catch((e) => [String(p.id), { err: String(e.message || e).slice(0, 80) }])));
+      res.forEach(([id, v]) => { out[id] = v; });
+    }
+    return { from, to, plots: out };
+  }
+);
