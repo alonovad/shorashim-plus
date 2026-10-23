@@ -163,6 +163,7 @@ var Traps = (function () {
         (staff() ? '<button class="tr-btn" data-a="trap">📍 ' + tt('מלכודת חדשה', 'กับดักใหม่', 'مصيدة جديدة') + '</button>' : '') +
         (staff() ? '<button class="tr-btn" data-a="bulk">➕ ' + tt('כמה מלכודות', 'หลายกับดัก', 'عدة مصائد') + '</button>' : '') +
         '<button class="tr-btn ghost" data-a="map">🗺 ' + tt('מפה', 'แผนที่', 'خريطة') + '</button>' +
+        '<button class="tr-btn ghost" data-a="chart">📈 ' + tt('גרפים והשוואה בין שנים', 'กราฟและเปรียบเทียบปี', 'رسوم ومقارنة سنوات') + '</button>' +
         '<button class="tr-btn ghost" data-a="print">🖨 ' + tt('הדפסה', 'พิมพ์', 'طباعة') + '</button>' +
       '</div>' +
       '<div id="trBody">' +
@@ -173,6 +174,7 @@ var Traps = (function () {
       '</div></div></div>';
     var root = document.getElementById('trRoot');
     root.addEventListener('click', onClick);
+    root.addEventListener('change', function (e) { if (e.target.closest('[data-chs],[data-chy]')) onChartChange(e); });
     document.getElementById('trYear').onchange = function () { year = this.value; open(); };
   }
 
@@ -532,6 +534,170 @@ var Traps = (function () {
     };
   }
 
+  // ── charts: captures over time, the same weeks compared across years ──
+  // Weeks are counted from 1 January (Sunday-based), so week 14 of 2026 and
+  // week 14 of 2025 are the same time of year. Other years' documents are
+  // read on demand (they are separate docs: shorashim-traps-YYYY).
+  var CH = { type: 'line', zone: '', metric: 'sum', years: null, from: null, to: null };
+  var otherYears = {};
+  function woy(iso) {
+    var d = new Date(iso + 'T12:00:00'), j = new Date(d.getFullYear() + '-01-01T12:00:00');
+    return Math.floor((Math.round((d - j) / 864e5) + j.getDay()) / 7) + 1;
+  }
+  function yearDoc(y) {
+    if (String(y) === year) return Promise.resolve(D);
+    if (otherYears[y]) return Promise.resolve(otherYears[y]);
+    return DB.loadAsync(PREFIX + y).then(function (d) { otherYears[y] = norm(d); return otherYears[y]; }, function () { return norm(null); });
+  }
+  // Per week of year: catches and how many traps were checked (for the
+  // per-trap average, which stays fair when the number of traps changes).
+  function weekly(doc, zone) {
+    var ids = {};
+    doc.traps.forEach(function (t) { if (!zone || (t.zone || '') === zone) ids[t.id] = 1; });
+    var sum = [], traps = [], has = [];
+    for (var i = 0; i <= 53; i++) { sum.push(0); traps.push({}); has.push(false); }
+    doc.checks.forEach(function (c) {
+      if (!ids[c.trapId] || !/^\d{4}-\d{2}-\d{2}$/.test(c.date || '')) return;
+      var w = woy(c.date);
+      sum[w] += Number(c.count) || 0; traps[w][c.trapId] = 1; has[w] = true;
+    });
+    return { sum: sum, n: traps.map(function (o) { return Object.keys(o).length; }), has: has };
+  }
+  function chartView() {
+    var body = document.getElementById('trBody');
+    var cur = Number(year), ys = [cur, cur - 1, cur - 2, cur - 3];
+    body.innerHTML = '<div class="tr-muted">⏳</div>';
+    Promise.all(ys.map(yearDoc)).then(function (docs) {
+      var avail = ys.filter(function (y, i) { return docs[i].checks.length; });
+      if (!CH.years) CH.years = avail.slice(0, 2).length ? avail.slice(0, 2) : [cur];
+      var nowW = woy(today());
+      if (CH.from == null) { CH.from = Math.max(1, (String(cur) === String(new Date().getFullYear()) ? nowW : 52) - 15); CH.to = Math.min(53, CH.from + 15); }
+      var zs = {}; docs.forEach(function (d) { d.traps.forEach(function (t) { if (t.zone) zs[t.zone] = 1; }); });
+      var zoneNames = Object.keys(zs).sort(function (a, b) { return a.localeCompare(b, 'he'); });
+      var types = [['line', '📈 ' + tt('קווים', 'เส้น', 'خطوط')], ['bar', '📊 ' + tt('עמודות', 'แท่ง', 'أعمدة')], ['cum', '📈 ' + tt('מצטבר', 'สะสม', 'تراكمي')], ['heat', '🟥 ' + tt('מפת חום לפי אזור', 'แผนที่ความร้อน', 'خريطة حرارية')]];
+      var html = '<button class="tr-btn ghost" data-a="back">→ ' + tt('חזרה', 'กลับ', 'رجوع') + '</button>' +
+        '<div class="tr-chbar">' +
+          '<span class="tr-seg">' + types.map(function (t) { return '<button class="tr-btn' + (CH.type === t[0] ? ' pri' : '') + '" data-ch="type" data-v="' + t[0] + '">' + t[1] + '</button>'; }).join('') + '</span>' +
+          (CH.type !== 'heat' ? '<select class="form-input tr-y" data-chs="zone"><option value="">' + tt('כל האזורים', 'ทุกโซน', 'كل المناطق') + '</option>' +
+            zoneNames.map(function (z) { return '<option' + (z === CH.zone ? ' selected' : '') + '>' + esc(z) + '</option>'; }).join('') + '</select>' : '') +
+          '<select class="form-input tr-y" data-chs="metric"><option value="sum"' + (CH.metric === 'sum' ? ' selected' : '') + '>' + tt('סה״כ לכידות', 'จับรวม', 'مجموع الصيد') + '</option>' +
+            '<option value="avg"' + (CH.metric === 'avg' ? ' selected' : '') + '>' + tt('ממוצע למלכודת', 'เฉลี่ยต่อกับดัก', 'متوسط لكل مصيدة') + '</option></select>' +
+        '</div>' +
+        '<div class="tr-chbar">' +
+          (CH.type !== 'heat' ? '<span class="tr-muted" style="margin:0">' + tt('שנים להשוואה', 'ปีที่เปรียบเทียบ', 'سنوات للمقارنة') + ':</span>' +
+            ys.map(function (y) { var ok = avail.indexOf(y) !== -1; return '<label class="tr-chk' + (ok ? '' : ' off') + '"><input type="checkbox" data-chy="' + y + '"' + (CH.years.indexOf(y) !== -1 ? ' checked' : '') + (ok ? '' : ' disabled') + '> ' + y + '</label>'; }).join('') : '') +
+          '<span class="tr-muted" style="margin:0">' + tt('שבועות', 'สัปดาห์', 'الأسابيع') + '</span>' +
+          '<input class="form-input tr-wk" type="number" min="1" max="53" data-chs="from" value="' + CH.from + '"> – <input class="form-input tr-wk" type="number" min="1" max="53" data-chs="to" value="' + CH.to + '">' +
+          '<button class="tr-btn ghost" data-ch="range" data-v="16">' + tt('16 אחרונים', '16 ล่าสุด', 'آخر 16') + '</button>' +
+          '<button class="tr-btn ghost" data-ch="range" data-v="all">' + tt('כל השנה', 'ทั้งปี', 'كل السنة') + '</button>' +
+        '</div>' +
+        '<div class="tr-chart">' + (CH.type === 'heat' ? heatSvg(docs[0], zoneNames) : lineSvg(ys, docs)) + '</div>' +
+        '<div class="tr-muted">' + tt('שבוע = מיום א׳; אותו מספר שבוע בשנים שונות = אותה תקופה בשנה. ממוצע למלכודת = לכידות ÷ מלכודות שנבדקו באותו שבוע.', 'สัปดาห์เริ่มวันอาทิตย์', 'الأسبوع يبدأ الأحد') + '</div>';
+      body.innerHTML = html;
+    });
+  }
+  var YCOL = ['#c62828', '#1565c0', '#2e7d32', '#ef6c00'];
+  function wkLabel(w, y) {
+    var j = new Date(y + '-01-01T12:00:00'); j.setDate(j.getDate() - j.getDay() + (w - 1) * 7);
+    return String(j.getDate()).padStart(2, '0') + '/' + String(j.getMonth() + 1).padStart(2, '0');
+  }
+  function lineSvg(ys, docs) {
+    var W = 760, H = 300, Lm = 44, Rm = 12, Tm = 14, Bm = 44;
+    var from = Math.max(1, Math.min(CH.from, CH.to)), to = Math.min(53, Math.max(CH.from, CH.to)), nW = to - from + 1;
+    var series = [];
+    ys.forEach(function (y, i) {
+      if (CH.years.indexOf(y) === -1) return;
+      var wk = weekly(docs[i], CH.zone), vals = [], acc = 0;
+      for (var w = from; w <= to; w++) {
+        var v = CH.metric === 'avg' ? (wk.n[w] ? wk.sum[w] / wk.n[w] : 0) : wk.sum[w];
+        acc += v;
+        vals.push({ w: w, v: CH.type === 'cum' ? acc : v, has: wk.has[w] });
+      }
+      series.push({ y: y, col: YCOL[ys.indexOf(y)], vals: vals, total: acc });
+    });
+    if (!series.length) return '<div class="tr-empty">' + tt('בחר שנה', 'เลือกปี', 'اختر سنة') + '</div>';
+    var max = 0; series.forEach(function (s) { s.vals.forEach(function (p) { if (p.v > max) max = p.v; }); });
+    max = max <= 0 ? 1 : max * 1.1;
+    var x = function (k) { return Lm + (nW === 1 ? (W - Lm - Rm) / 2 : k * (W - Lm - Rm) / (nW - 1)); };
+    var yy = function (v) { return Tm + (1 - v / max) * (H - Tm - Bm); };
+    var g = '';
+    for (var t = 0; t <= 4; t++) {
+      var v = max * t / 4, py = yy(v).toFixed(1);
+      g += '<line x1="' + Lm + '" x2="' + (W - Rm) + '" y1="' + py + '" y2="' + py + '" stroke="#e6ebe2"/>' +
+        '<text x="' + (Lm - 6) + '" y="' + (Number(py) + 4) + '" font-size="11" fill="#7a857c" text-anchor="end">' + (CH.metric === 'avg' ? v.toFixed(1) : Math.round(v)) + '</text>';
+    }
+    var step = Math.max(1, Math.ceil(nW / 12));
+    for (var k = 0; k < nW; k += step) g += '<text x="' + x(k).toFixed(1) + '" y="' + (H - Bm + 16) + '" font-size="11" fill="#7a857c" text-anchor="middle">' + (from + k) + '</text>' +
+      '<text x="' + x(k).toFixed(1) + '" y="' + (H - Bm + 30) + '" font-size="9.5" fill="#9aa39b" text-anchor="middle">' + wkLabel(from + k, ys[0]) + '</text>';
+    var marks = '';
+    if (CH.type === 'bar') {
+      var bw = Math.max(3, Math.min(22, ((W - Lm - Rm) / nW - 4) / series.length));
+      series.forEach(function (s, si) {
+        s.vals.forEach(function (p, k) {
+          var cx = x(k) - (series.length * bw) / 2 + si * bw, top = yy(p.v);
+          marks += '<rect x="' + cx.toFixed(1) + '" y="' + top.toFixed(1) + '" width="' + (bw - 1).toFixed(1) + '" height="' + Math.max(0, H - Bm - top).toFixed(1) + '" fill="' + s.col + '" opacity="' + (p.has || CH.type === 'cum' ? 0.9 : 0.25) + '"><title>' + s.y + ' · ' + tt('שבוע', 'สัปดาห์', 'أسبوع') + ' ' + p.w + ': ' + (Math.round(p.v * 10) / 10) + '</title></rect>';
+        });
+      });
+    } else {
+      series.forEach(function (s, si) {
+        var pts = s.vals.filter(function (p) { return p.has || CH.type === 'cum'; });
+        var d = pts.map(function (p) { var k = p.w - from; return x(k).toFixed(1) + ',' + yy(p.v).toFixed(1); }).join(' ');
+        marks += '<polyline points="' + d + '" fill="none" stroke="' + s.col + '" stroke-width="' + (si === 0 ? 3 : 2.2) + '"' + (si === 0 ? '' : ' stroke-dasharray="6 4"') + ' stroke-linejoin="round"/>';
+        pts.forEach(function (p) { var k = p.w - from; marks += '<circle cx="' + x(k).toFixed(1) + '" cy="' + yy(p.v).toFixed(1) + '" r="3.2" fill="' + s.col + '"><title>' + s.y + ' · ' + tt('שבוע', 'สัปดาห์', 'أسبوع') + ' ' + p.w + ': ' + (Math.round(p.v * 10) / 10) + '</title></circle>'; });
+      });
+    }
+    var legend = series.map(function (s) {
+      return '<span class="tr-lg"><i style="background:' + s.col + '"></i>' + s.y + ' <b>' + (CH.type === 'cum' || CH.metric === 'sum' ? Math.round(s.total) : (Math.round(s.total / nW * 10) / 10)) + '</b></span>';
+    }).join('');
+    return '<div class="tr-lgs">' + legend + '<span class="tr-muted" style="margin:0">' + (CH.metric === 'sum' || CH.type === 'cum' ? tt('סה״כ בתקופה', 'รวมในช่วง', 'المجموع في الفترة') : tt('ממוצע שבועי', 'เฉลี่ยรายสัปดาห์', 'المتوسط الأسبوعي')) + '</span></div>' +
+      '<svg style="direction:ltr;width:100%;height:auto;display:block;" viewBox="0 0 ' + W + ' ' + H + '">' + g + marks + '</svg>';
+  }
+  function heatSvg(doc, zoneNames) {
+    var from = Math.max(1, Math.min(CH.from, CH.to)), to = Math.min(53, Math.max(CH.from, CH.to)), nW = to - from + 1;
+    var names = zoneNames.filter(function (z) { return doc.traps.some(function (t) { return t.zone === z; }); });
+    if (!names.length) return '<div class="tr-empty">' + tt('אין נתונים לשנה הזו', 'ไม่มีข้อมูล', 'لا بيانات') + '</div>';
+    var rowsV = names.map(function (z) {
+      var wk = weekly(doc, z), r = [];
+      for (var w = from; w <= to; w++) r.push({ v: CH.metric === 'avg' ? (wk.n[w] ? wk.sum[w] / wk.n[w] : null) : (wk.has[w] ? wk.sum[w] : null), w: w });
+      return r;
+    });
+    var max = 0; rowsV.forEach(function (r) { r.forEach(function (c) { if (c.v > max) max = c.v; }); }); max = max || 1;
+    var LW = 130, cw = Math.max(12, Math.min(34, 620 / nW)), chh = 26, W = LW + nW * cw + 10, H = names.length * chh + 40;
+    var heat = function (v) { if (v == null) return '#f1f3ef'; var t = v / max; var r = Math.round(255 - t * 57), gg = Math.round(240 - t * 200), b = Math.round(220 - t * 180); return 'rgb(' + r + ',' + gg + ',' + b + ')'; };
+    var o = '';
+    names.forEach(function (z, i) {
+      o += '<text x="' + (LW - 8) + '" y="' + (i * chh + 18) + '" font-size="12" text-anchor="end" fill="#1b2a1f">' + esc(z) + '</text>';
+      rowsV[i].forEach(function (c, k) {
+        o += '<rect x="' + (LW + k * cw) + '" y="' + (i * chh + 2) + '" width="' + (cw - 2) + '" height="' + (chh - 4) + '" rx="4" fill="' + heat(c.v) + '"><title>' + esc(z) + ' · ' + tt('שבוע', 'สัปดาห์', 'أسبوع') + ' ' + c.w + ': ' + (c.v == null ? '—' : Math.round(c.v * 10) / 10) + '</title></rect>';
+        if (c.v != null && cw >= 20) o += '<text x="' + (LW + k * cw + (cw - 2) / 2) + '" y="' + (i * chh + 18) + '" font-size="10" text-anchor="middle" fill="' + (c.v / max > 0.55 ? '#fff' : '#3b2a1f') + '">' + (CH.metric === 'avg' ? c.v.toFixed(1) : c.v) + '</text>';
+      });
+    });
+    for (var k = 0; k < nW; k += Math.max(1, Math.ceil(nW / 14))) o += '<text x="' + (LW + k * cw + cw / 2) + '" y="' + (names.length * chh + 16) + '" font-size="10" text-anchor="middle" fill="#7a857c">' + (from + k) + '</text>';
+    return '<svg style="direction:ltr;width:100%;height:auto;display:block;" viewBox="0 0 ' + W + ' ' + H + '">' + o + '</svg>' +
+      '<div class="tr-muted">' + year + ' · ' + tt('צבע כהה = יותר לכידות; אפור = לא נבדק', 'สีเข้ม = จับมาก; เทา = ไม่ได้ตรวจ', 'أغمق = صيد أكثر؛ رمادي = لم يُفحص') + '</div>';
+  }
+  function onChart(e) {
+    var b = e.target.closest('[data-ch]');
+    if (b) {
+      var k = b.getAttribute('data-ch'), v = b.getAttribute('data-v');
+      if (k === 'type') CH.type = v;
+      if (k === 'range') { if (v === 'all') { CH.from = 1; CH.to = 53; } else { var nw = woy(today()); CH.to = Math.min(53, nw); CH.from = Math.max(1, CH.to - 15); } }
+      chartView(); return true;
+    }
+    return false;
+  }
+  function onChartChange(e) {
+    var s = e.target.getAttribute('data-chs'), y = e.target.getAttribute('data-chy');
+    if (s) { if (s === 'from' || s === 'to') CH[s] = Math.max(1, Math.min(53, Number(e.target.value) || 1)); else CH[s] = e.target.value; chartView(); return; }
+    if (y) {
+      y = Number(y);
+      CH.years = CH.years.filter(function (x) { return x !== y; });
+      if (e.target.checked) CH.years.push(y);
+      CH.years.sort(function (a, b) { return b - a; });
+      chartView();
+    }
+  }
+
   function printReport() {
     var weeks = lastWeeks(8), z = zones(), names = Object.keys(z).sort(function (a, b) { return a.localeCompare(b, 'he'); });
     var html = '<!DOCTYPE html><html dir="' + (document.documentElement.dir || 'rtl') + '" lang="' + (document.documentElement.lang || 'he') + '"><head><meta charset="utf-8"><title>' + esc(tt('לכידות חדקונית', 'การจับด้วงงวง', 'صيد السوسة')) + ' ' + year + '</title><style>' +
@@ -546,6 +712,7 @@ var Traps = (function () {
 
   function onClick(e) {
     var t = e.target;
+    if (onChart(e)) return;
     if (t.id === 'trRoot') return close();
     var a = t.closest('[data-a]');
     if (a) {
@@ -558,6 +725,7 @@ var Traps = (function () {
       if (k === 'scan') return scanForm();
       if (k === 'bulk') return bulkForm();
       if (k === 'print') return printReport();
+      if (k === 'chart') return chartView();
     }
     var mt = t.closest('[data-m]'); if (mt) return onMapTool(mt.getAttribute('data-m'));
     var ed = t.closest('[data-edit]'); if (ed) return trapForm(ed.getAttribute('data-edit'));
@@ -596,6 +764,10 @@ var Traps = (function () {
       '.tr-fz{font-weight:700;margin:10px 0 4px;}.tr-fr{flex-direction:row !important;align-items:center;justify-content:space-between;gap:10px;font-size:.86rem !important;color:var(--text,#1b2a1f) !important;}' +
       '.tr-fr .form-input{width:90px;margin:0;}' +
       '.tr-ck{display:grid;grid-template-columns:60px 1fr 50px 1.5fr 34px;gap:6px;align-items:center;padding:6px 2px;border-top:1px solid var(--line,#eef1ec);font-size:.82rem;}' +
+      '.tr-chbar{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:8px 0;}.tr-seg{display:inline-flex;gap:4px;flex-wrap:wrap;}' +
+      '.tr-wk{width:64px !important;margin:0 !important;}.tr-chk{display:inline-flex;align-items:center;gap:4px;font-size:.82rem;}.tr-chk.off{opacity:.45;}' +
+      '.tr-chart{border:1px solid var(--line,#e6ebe2);border-radius:14px;padding:8px;background:var(--card,#fff);}' +
+      '.tr-lgs{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin:0 4px 6px;}.tr-lg{font-size:.82rem;}.tr-lg i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-inline-end:5px;vertical-align:-1px;}' +
       '.tr-mode{background:#fffbea;border-radius:12px;padding:8px 10px;font-size:.84rem;margin-top:6px;}.tr-mode .tr-bar{margin:6px 0 0;}' +
       '.tr-ztip{background:rgba(255,255,255,.88);border:0;border-radius:8px;font-size:.72rem;padding:2px 6px;box-shadow:none;}' +
       '.ts-tbl{min-width:0;}.ts-tbl .form-input{margin:0;}.ts-tbl tr.lo td{background:#fff8d6;}.ts-c{width:80px;}' +
