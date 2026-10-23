@@ -79,9 +79,19 @@ service cloud.firestore {
         'shorashim-map-region'
       ];
 
+      // Plots and farms (plotMapperSprayData) — Oct 2026 ownership rule:
+      // only admin creates or deletes plots and farms. An operator still
+      // writes this document (sprays, work-log lines, fertilizer given are
+      // stored in it), but only while the number of plots and farms stays
+      // exactly as it was. That also stops a device holding a stale copy
+      // from wiping a plot admin has just added.
+      allow write: if isAdmin() && docId == 'plotMapperSprayData';
+      allow update: if isOperatorOrAbove() && docId == 'plotMapperSprayData' &&
+                       request.resource.data.value.get('plots', []).size() == resource.data.value.get('plots', []).size() &&
+                       request.resource.data.value.get('farms', []).size() == resource.data.value.get('farms', []).size();
+
       // Operator+: operational data
       allow write: if isOperatorOrAbove() && docId in [
-        'plotMapperSprayData',
         'shorashim-tasks',
         'shorashim-field-reports',
         'shorashim-pest-lists',
@@ -276,6 +286,24 @@ service cloud.firestore {
     match /attendance-events/{docId} {
       allow read: if isSignedIn();
       allow write: if isOperatorOrAbove();
+    }
+
+    // ── comments (comments.js, Oct 2026) ──
+    // One document per comment, so authorship is checked here: anyone signed
+    // in (viewer included) may comment as themselves; only the author edits;
+    // the author or admin deletes.
+    match /comments/{cid} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() &&
+                       request.resource.data.uid == request.auth.uid &&
+                       request.resource.data.key is string && request.resource.data.key.size() <= 100 &&
+                       request.resource.data.text is string && request.resource.data.text.size() > 0 &&
+                       request.resource.data.text.size() <= 2000;
+      allow update: if isSignedIn() && resource.data.uid == request.auth.uid &&
+                       request.resource.data.uid == resource.data.uid &&
+                       request.resource.data.key == resource.data.key &&
+                       request.resource.data.text is string && request.resource.data.text.size() <= 2000;
+      allow delete: if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
     }
 
     // Deny everything else
