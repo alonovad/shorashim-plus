@@ -1573,3 +1573,98 @@ exports.sentinelImage = onCall(
     return { date: data.date, bbox: [w, s, e, n], width, height, png: buf.toString("base64") };
   }
 );
+
+// ═══════════════════════════════════════════
+// TRAP COUNTS FROM A PHOTO / DOCUMENT (Oct 2026, traps.js)
+// A photo of the field sheet, a PDF or a spreadsheet print-out of red palm
+// weevil trap checks → date + one row per trap with its count, matched to
+// the farm's own trap list. Worker+ (whoever checks the traps enters the
+// counts); the person reviews every row before it is saved.
+// ═══════════════════════════════════════════
+const TRAPS_TOOL = {
+  name: "report_trap_counts",
+  description: "Report the trap checks found in the document.",
+  input_schema: {
+    type: "object",
+    properties: {
+      date: { type: "string", description: "Check date YYYY-MM-DD if written (one date for the sheet); empty if none" },
+      rows: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            label: { type: "string", description: "Trap name/number exactly as written" },
+            zone: { type: "string", description: "Zone/area as written, if any" },
+            count: { type: "number", description: "Number of weevils caught" },
+            date: { type: "string", description: "Row date YYYY-MM-DD if rows have their own dates; else empty" },
+            match_id: { type: "string", description: "id of the matching trap from the provided list, or empty if none matches" },
+            confidence: { type: "string", enum: ["high", "medium", "low"] }
+          },
+          required: ["label", "count"]
+        }
+      },
+      notes: { type: "string" }
+    },
+    required: ["rows"]
+  }
+};
+
+exports.trapsExtract = onCall(
+  { region: "us-central1", secrets: [ANTHROPIC_API_KEY], memory: "512MiB", timeoutSeconds: 180, maxInstances: 3 },
+  async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Sign in required");
+    const tok = request.auth.token || {};
+    if ((tok.firebase || {}).sign_in_provider === "phone") throw new HttpsError("permission-denied", "Not for recovery sessions");
+    if (!["admin", "operator", "worker"].includes(tok.role)) throw new HttpsError("permission-denied", "Worker or above required");
+    const { image, pdf, traps, hint, year } = request.data || {};
+    const b64ok = (s, max) => typeof s === "string" && s.length > 0 && s.length <= max && /^[A-Za-z0-9+/=]+$/.test(s.slice(0, 200));
+    let block;
+    if (pdf) {
+      if (!b64ok(pdf, 9 * 1024 * 1024)) throw new HttpsError("invalid-argument", "Bad or oversized PDF (max ~6.5 MB)");
+      block = { type: "document", source: { type: "base64", media_type: "application/pdf", data: pdf } };
+    } else {
+      if (!b64ok(image, 4 * 1024 * 1024)) throw new HttpsError("invalid-argument", "Bad or oversized image");
+      block = { type: "image", source: { type: "base64", media_type: "image/jpeg", data: image } };
+    }
+    const list = (Array.isArray(traps) ? traps : []).slice(0, 600).map((t) => ({
+      id: String(t && t.id || "").slice(0, 30), name: String(t && t.name || "").slice(0, 60), zone: String(t && t.zone || "").slice(0, 60)
+    })).filter((t) => t.id && t.name);
+    const ids = new Set(list.map((t) => t.id));
+    const y = /^\d{4}$/.test(String(year || "")) ? String(year) : String(new Date().getFullYear());
+    const userText = "This is a record of red palm weevil trap checks (Hebrew, Arabic, Thai or English; handwritten or printed). " +
+      "Report every trap row with its count through the tool. Dates written as day/month belong to " + y + ". " +
+      "Match each row to the farm's trap list below by name/number (and zone when it helps); leave match_id empty when unsure.\n" +
+      "Trap list (id | name | zone):\n" + list.map((t) => t.id + " | " + t.name + " | " + t.zone).join("\n") +
+      (typeof hint === "string" && hint.trim() ? "\nContext from the user: " + hint.trim().slice(0, 300) : "");
+    const modelId = PLAN_MODELS["sonnet-5"];
+    let res, text;
+    try {
+      res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_API_KEY.value(), "anthropic-version": "2023-06-01" },
+        body: JSON.stringify({
+          model: modelId, max_tokens: 8000,
+          system: "You read agricultural pest-trap check sheets accurately. Never invent rows or counts; a count you cannot read is reported with confidence low.",
+          tools: [TRAPS_TOOL], tool_choice: { type: "tool", name: "report_trap_counts" },
+          messages: [{ role: "user", content: [block, { type: "text", text: userText }] }]
+        })
+      });
+      text = await res.text();
+    } catch (err) { throw new HttpsError("unavailable", "Model call failed: " + err.message); }
+    if (!res.ok) throw new HttpsError("internal", modelId + " — " + res.status + ": " + text.slice(0, 200));
+    let body;
+    try { body = JSON.parse(text); } catch (e) { throw new HttpsError("internal", "Bad model response"); }
+    const call = (body.content || []).find((b) => b.type === "tool_use" && b.name === "report_trap_counts");
+    if (!call || !call.input) throw new HttpsError("internal", "No rows returned");
+    const day = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || "")) ? String(v) : "");
+    const rows = (Array.isArray(call.input.rows) ? call.input.rows : []).slice(0, 600).map((r) => ({
+      label: String(r.label || "").trim().slice(0, 60),
+      zone: String(r.zone || "").trim().slice(0, 60),
+      count: Math.max(0, Math.min(10000, Math.round(Number(r.count) || 0))),
+      date: day(r.date),
+      match_id: ids.has(String(r.match_id || "")) ? String(r.match_id) : "",
+      confidence: ["high", "medium", "low"].includes(r.confidence) ? r.confidence : "low"
+    })).filter((r) => r.label);
+    return { date: day(call.input.date), rows, notes: String(call.input.notes || "").slice(0, 300), model: modelId };
+  }
+);

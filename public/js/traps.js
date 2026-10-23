@@ -10,7 +10,10 @@
  * Oct 2026), so the data is ours: entered by whoever checks the traps.
  *
  * Data: appData/shorashim-traps-YYYY  { traps: [{id,name,zone,farmId,lat,lng}],
- *        checks: [{id,trapId,date,count,by,note}] }  — worker+ write (rules).
+ *        checks: [{id,trapId,date,count,by,note}], zones: [{name, ring:[{lat,lng}]}] }
+ * Counts can also be read from a photo / PDF of the field sheet (trapsExtract
+ * function) and reviewed row by row; many traps can be added at once, and
+ * zones are drawn on the map, traps placed by tapping.  — worker+ write (rules).
  * Public: Traps.open()
  */
 var Traps = (function () {
@@ -39,7 +42,7 @@ var Traps = (function () {
   function canWrite() { var r = (window.currentUser || {}).role; return r === 'admin' || r === 'operator' || r === 'worker'; }
   function norm(d) {
     d = d && typeof d === 'object' ? d : {};
-    return { traps: Array.isArray(d.traps) ? d.traps : [], checks: Array.isArray(d.checks) ? d.checks : [] };
+    return { traps: Array.isArray(d.traps) ? d.traps : [], checks: Array.isArray(d.checks) ? d.checks : [], zones: Array.isArray(d.zones) ? d.zones : [] };
   }
   function today() { return new Date().toISOString().slice(0, 10); }
   function fmtD(iso) { var m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})$/); return m ? m[3] + '/' + m[2] : iso; }
@@ -156,7 +159,9 @@ var Traps = (function () {
       (alerts.length ? '<div class="tr-warn">⚠️ ' + tt('עלייה חדה בלכידות השבוע באזור', 'จับได้เพิ่มขึ้นมากในโซน', 'ارتفاع حاد في الصيد في منطقة') + ': <b>' + alerts.map(esc).join(', ') + '</b></div>' : '') +
       '<div class="tr-bar">' +
         (canWrite() ? '<button class="tr-btn pri" data-a="check">＋ ' + tt('רישום ספירה', 'บันทึกการนับ', 'تسجيل عدّ') + '</button>' : '') +
+        (canWrite() ? '<button class="tr-btn" data-a="scan">📷 ' + tt('מתמונה / מסמך', 'จากรูป/เอกสาร', 'من صورة/مستند') + '</button>' : '') +
         (staff() ? '<button class="tr-btn" data-a="trap">📍 ' + tt('מלכודת חדשה', 'กับดักใหม่', 'مصيدة جديدة') + '</button>' : '') +
+        (staff() ? '<button class="tr-btn" data-a="bulk">➕ ' + tt('כמה מלכודות', 'หลายกับดัก', 'عدة مصائد') + '</button>' : '') +
         '<button class="tr-btn ghost" data-a="map">🗺 ' + tt('מפה', 'แผนที่', 'خريطة') + '</button>' +
         '<button class="tr-btn ghost" data-a="print">🖨 ' + tt('הדפסה', 'พิมพ์', 'طباعة') + '</button>' +
       '</div>' +
@@ -266,23 +271,246 @@ var Traps = (function () {
     };
   }
 
+  // ── map: zones drawn as areas, traps as dots, the farm's plots for context ──
+  // Staff draw a zone by tapping its corners, and place traps by tapping
+  // where each one hangs (the zone's unplaced traps, one after another).
+  var mapMode = null;   // { kind:'zone', name, pts:[] } | { kind:'place', zone, queue:[ids], i }
+  function zoneLevel(zn) {
+    var tz = zones()[zn] || [], sr = series(tz, lastWeeks(8)), k = -1;
+    for (var i = sr.v.length - 1; i >= 0; i--) if (sr.has[i]) { k = i; break; }
+    if (k < 0) return { col: '#9e9e9e', txt: '—' };
+    var per = tz.length ? sr.v[k] / tz.length : 0;
+    return { col: per === 0 ? '#2e7d32' : per <= 1 ? '#e0c000' : per <= 3 ? '#ef8a17' : '#c62828', txt: String(sr.v[k]) };
+  }
+  function trapCol(t) { var lc = lastCount(t), n = lc ? lc.count : null; return n == null ? '#999' : n === 0 ? '#2e7d32' : n <= 2 ? '#e0c000' : n <= 5 ? '#ef8a17' : '#c62828'; }
   function mapView() {
     var body = document.getElementById('trBody');
-    var pts = D.traps.filter(function (t) { return isFinite(Number(t.lat)) && isFinite(Number(t.lng)) && t.lat != null; });
-    if (!pts.length || typeof L === 'undefined') { body.innerHTML = '<button class="tr-btn ghost" data-a="back">→ ' + tt('חזרה', 'กลับ', 'رجوع') + '</button><div class="tr-empty">' + tt('אין מלכודות עם מיקום. ערוך מלכודת והוסף מיקום.', 'ไม่มีตำแหน่ง', 'لا مواقع') + '</div>'; return; }
-    body.innerHTML = '<button class="tr-btn ghost" data-a="back">→ ' + tt('חזרה', 'กลับ', 'رجوع') + '</button><div id="trMap" style="height:420px;border-radius:16px;margin-top:8px;"></div>' +
-      '<div class="tr-muted">' + tt('צבע לפי הספירה האחרונה: ירוק 0 · צהוב 1–2 · כתום 3–5 · אדום 6+', 'สีตามการนับล่าสุด', 'اللون حسب آخر عدّ') + '</div>';
+    if (typeof L === 'undefined') { body.innerHTML = '<div class="tr-empty">—</div>'; return; }
+    var znames = Object.keys(zones()).sort(function (a, b) { return a.localeCompare(b, 'he'); });
+    var tools = '';
+    if (mapMode && mapMode.kind === 'zone') {
+      tools = '<div class="tr-mode">✏️ ' + tt('מסמן את האזור', 'กำลังวาดโซน', 'رسم المنطقة') + ' <b>' + esc(mapMode.name) + '</b> — ' +
+        tt('הקש על הפינות שלו במפה', 'แตะมุมบนแผนที่', 'اضغط على زواياها في الخريطة') + ' (' + mapMode.pts.length + ')' +
+        '<span class="tr-bar"><button class="tr-btn pri" data-m="zdone">✔ ' + tt('סיום', 'เสร็จ', 'إنهاء') + '</button><button class="tr-btn" data-m="zundo">↩</button><button class="tr-btn ghost" data-m="cancel">' + tt('ביטול', 'ยกเลิก', 'إلغاء') + '</button></span></div>';
+    } else if (mapMode && mapMode.kind === 'place') {
+      var cur = trapById(mapMode.queue[mapMode.i]);
+      tools = '<div class="tr-mode">📍 ' + (cur ? tt('הקש היכן תלויה המלכודת', 'แตะตำแหน่งกับดัก', 'اضغط مكان المصيدة') + ' <b>' + esc(cur.name) + '</b> (' + (mapMode.i + 1) + '/' + mapMode.queue.length + ')' : '') +
+        '<span class="tr-bar"><button class="tr-btn" data-m="pskip">' + tt('דלג', 'ข้าม', 'تخطٍّ') + '</button><button class="tr-btn pri" data-m="cancel">✔ ' + tt('סיום', 'เสร็จ', 'إنهاء') + '</button></span></div>';
+    } else if (staff()) {
+      tools = '<div class="tr-bar">' +
+        '<select class="form-input tr-y" id="trMZone"><option value="">' + tt('אזור…', 'โซน…', 'منطقة…') + '</option>' + znames.map(function (z) { return '<option>' + esc(z) + '</option>'; }).join('') + '<option value="__new">＋ ' + tt('אזור חדש', 'โซนใหม่', 'منطقة جديدة') + '</option></select>' +
+        '<button class="tr-btn" data-m="zone">✏️ ' + tt('סמן אזור במפה', 'วาดโซน', 'ارسم المنطقة') + '</button>' +
+        '<button class="tr-btn" data-m="place">📍 ' + tt('מקם מלכודות', 'วางกับดัก', 'ضع المصائد') + '</button></div>';
+    }
+    body.innerHTML = '<button class="tr-btn ghost" data-a="back">→ ' + tt('חזרה', 'กลับ', 'رجوع') + '</button>' + tools +
+      '<div id="trMap" style="height:460px;border-radius:16px;margin-top:8px;"></div>' +
+      '<div class="tr-muted">' + tt('צבע האזור לפי ממוצע לכידות למלכודת בשבוע האחרון שנבדק · נקודה = מלכודת: ירוק 0 · צהוב 1–2 · כתום 3–5 · אדום 6+', 'สีโซนตามค่าเฉลี่ยต่อกับดัก', 'لون المنطقة حسب متوسط الصيد لكل مصيدة') + '</div>';
+    var keepView = map ? { c: map.getCenter(), z: map.getZoom() } : null;
+    if (map) { try { map.remove(); } catch (e) {} map = null; }
     map = L.map('trMap', { attributionControl: false });
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 }).addTo(map);
     var b = L.latLngBounds([]);
-    pts.forEach(function (t) {
-      var lc = lastCount(t), n = lc ? lc.count : null;
-      var col = n == null ? '#999' : n === 0 ? '#2e7d32' : n <= 2 ? '#e0c000' : n <= 5 ? '#ef8a17' : '#c62828';
-      L.circleMarker([t.lat, t.lng], { radius: 9, color: '#fff', weight: 2, fillColor: col, fillOpacity: 1 }).addTo(map)
-        .bindTooltip(esc(t.name) + ' · ' + esc(t.zone) + (lc ? ' · ' + n + ' (' + fmtD(lc.date) + ')' : ''), { direction: 'top' });
-      b.extend([t.lat, t.lng]);
+    // plots, thin, for orientation
+    var plots = (window.MapAccess && MapAccess.listPlotsWithRings) ? MapAccess.listPlotsWithRings() : [];
+    var trapFarms = {}; D.traps.forEach(function (t) { if (t.farmId) trapFarms[t.farmId] = 1; });
+    plots.forEach(function (p) {
+      p.rings.forEach(function (r) {
+        var ll = r.map(function (q) { return [Number(q.lat), Number(q.lng)]; });
+        L.polyline(ll.concat([ll[0]]), { color: '#ffffff', weight: 1, opacity: 0.55, interactive: false }).addTo(map);
+        if (trapFarms[p.farmId]) ll.forEach(function (x) { b.extend(x); });
+      });
     });
-    map.fitBounds(b, { padding: [30, 30], maxZoom: 16 });
+    (D.zones || []).forEach(function (z) {
+      if (!z.ring || z.ring.length < 3) return;
+      var lv = zoneLevel(z.name), ll = z.ring.map(function (q) { return [q.lat, q.lng]; });
+      L.polygon(ll, { color: lv.col, weight: 2.5, fillColor: lv.col, fillOpacity: 0.28 }).addTo(map)
+        .bindTooltip('<b>' + esc(z.name) + '</b> · ' + lv.txt, { permanent: true, direction: 'center', className: 'tr-ztip' });
+      ll.forEach(function (x) { b.extend(x); });
+    });
+    D.traps.forEach(function (t) {
+      if (t.lat == null || !isFinite(Number(t.lat)) || !isFinite(Number(t.lng))) return;
+      var lc = lastCount(t);
+      L.circleMarker([Number(t.lat), Number(t.lng)], { radius: 8, color: '#fff', weight: 2, fillColor: trapCol(t), fillOpacity: 1 }).addTo(map)
+        .bindTooltip(esc(t.name) + ' · ' + esc(t.zone) + (lc ? ' · ' + lc.count + ' (' + fmtD(lc.date) + ')' : ''), { direction: 'top' });
+      b.extend([Number(t.lat), Number(t.lng)]);
+    });
+    if (mapMode && mapMode.kind === 'zone' && mapMode.pts.length) {
+      var dl = mapMode.pts.map(function (q) { return [q.lat, q.lng]; });
+      L.polyline(dl.concat(dl.length > 2 ? [dl[0]] : []), { color: '#ffeb3b', weight: 3, dashArray: '6 4' }).addTo(map);
+      dl.forEach(function (x) { L.circleMarker(x, { radius: 5, color: '#ffeb3b', fillColor: '#ffeb3b', fillOpacity: 1 }).addTo(map); });
+    }
+    if (keepView) map.setView(keepView.c, keepView.z);
+    else if (b.isValid()) map.fitBounds(b, { padding: [30, 30], maxZoom: 16 });
+    else map.setView([32.03, 35.47], 13);
+    map.on('click', function (ev) {
+      if (!mapMode) return;
+      if (mapMode.kind === 'zone') { mapMode.pts.push({ lat: +ev.latlng.lat.toFixed(6), lng: +ev.latlng.lng.toFixed(6) }); mapView(); return; }
+      if (mapMode.kind === 'place') {
+        var t = trapById(mapMode.queue[mapMode.i]);
+        if (t) { t.lat = +ev.latlng.lat.toFixed(6); t.lng = +ev.latlng.lng.toFixed(6); }
+        mapMode.i++;
+        if (mapMode.i >= mapMode.queue.length) { mapMode = null; persist().then(function (ok) { if (ok) toast('✅ ' + tt('המיקומים נשמרו', 'บันทึกตำแหน่งแล้ว', 'حُفظت المواقع')); mapView(); }); }
+        else mapView();
+      }
+    });
+  }
+  function onMapTool(k) {
+    if (k === 'cancel') {
+      var placed = mapMode && mapMode.kind === 'place' && mapMode.i > 0;
+      mapMode = null;
+      if (placed) persist().then(mapView); else mapView();
+      return;
+    }
+    if (k === 'zundo') { if (mapMode && mapMode.pts.length) mapMode.pts.pop(); mapView(); return; }
+    if (k === 'pskip') { mapMode.i++; if (mapMode.i >= mapMode.queue.length) { onMapTool('cancel'); return; } mapView(); return; }
+    if (k === 'zdone') {
+      if (!mapMode || mapMode.pts.length < 3) { toast('⚠️ ' + tt('צריך לפחות 3 נקודות', 'ต้องมีอย่างน้อย 3 จุด', 'يلزم 3 نقاط على الأقل')); return; }
+      D.zones = (D.zones || []).filter(function (z) { return z.name !== mapMode.name; });
+      D.zones.push({ name: mapMode.name, ring: mapMode.pts });
+      mapMode = null;
+      persist().then(function (ok) { if (ok) toast('✅ ' + tt('האזור נשמר', 'บันทึกโซนแล้ว', 'حُفظت المنطقة')); mapView(); });
+      return;
+    }
+    var sel = document.getElementById('trMZone'), zn = sel ? sel.value : '';
+    if (zn === '__new') {
+      zn = (prompt(tt('שם האזור החדש', 'ชื่อโซนใหม่', 'اسم المنطقة الجديدة')) || '').trim();
+    }
+    if (!zn) { toast('⚠️ ' + tt('בחר אזור', 'เลือกโซน', 'اختر منطقة')); return; }
+    if (k === 'zone') { mapMode = { kind: 'zone', name: zn, pts: [] }; mapView(); return; }
+    if (k === 'place') {
+      var tz = zones()[zn] || [];
+      if (!tz.length) { toast('⚠️ ' + tt('אין מלכודות באזור הזה', 'ไม่มีกับดักในโซนนี้', 'لا مصائد في هذه المنطقة')); return; }
+      var unplaced = tz.filter(function (t) { return t.lat == null || t.lat === ''; });
+      var q = (unplaced.length ? unplaced : tz).map(function (t) { return t.id; });
+      mapMode = { kind: 'place', zone: zn, queue: q, i: 0 }; mapView();
+    }
+  }
+
+  // ── several traps at once ──
+  function bulkForm() {
+    var zs = Object.keys(zones()), farms = S().getFarms ? S().getFarms() : [];
+    var body = document.getElementById('trBody');
+    body.innerHTML = '<div class="tr-form"><h3>➕ ' + tt('הוספת מלכודות בבת אחת', 'เพิ่มกับดักหลายอัน', 'إضافة مصائد دفعة واحدة') + '</h3>' +
+      '<label>' + tt('אזור לכידה', 'โซน', 'منطقة الصيد') + '<input class="form-input" id="tbZone" list="tbZones" value="' + esc(ui.zone || '') + '"><datalist id="tbZones">' + zs.map(function (z) { return '<option value="' + esc(z) + '">'; }).join('') + '</datalist></label>' +
+      '<label>' + tt('משק (לא חובה)', 'ฟาร์ม', 'المزرعة') + '<select class="form-input" id="tbFarm"><option value="">—</option>' + farms.map(function (f) { return '<option value="' + f.id + '">' + esc(f.name) + '</option>'; }).join('') + '</select></label>' +
+      '<div class="tr-g2"><label>' + tt('קידומת', 'คำนำหน้า', 'بادئة') + '<input class="form-input" id="tbPre" value="M-"></label>' +
+      '<label>' + tt('ממספר', 'จากเลข', 'من رقم') + '<input class="form-input" id="tbFrom" type="number" min="0" value="1" inputmode="numeric"></label></div>' +
+      '<label>' + tt('עד מספר', 'ถึงเลข', 'إلى رقم') + '<input class="form-input" id="tbTo" type="number" min="0" value="10" inputmode="numeric"></label>' +
+      '<label>' + tt('או: רשימת שמות, שם בכל שורה', 'หรือ: รายชื่อ บรรทัดละชื่อ', 'أو: قائمة أسماء، اسم في كل سطر') + '<textarea class="form-input" id="tbList" rows="4" placeholder="A1&#10;A2&#10;…"></textarea></label>' +
+      '<div class="tr-muted" id="tbPrev"></div>' +
+      '<div class="tr-bar"><button class="tr-btn pri" id="tbSave">💾 ' + tt('הוסף', 'เพิ่ม', 'أضف') + '</button><button class="tr-btn ghost" data-a="back">' + tt('ביטול', 'ยกเลิก', 'إلغاء') + '</button></div>' +
+      '<div class="tr-muted">' + tt('אחרי ההוספה: מפה ← "מקם מלכודות" כדי להצמיד כל אחת למקום שלה בהקשה.', 'จากนั้น: แผนที่ ← "วางกับดัก"', 'بعدها: الخريطة ← "ضع المصائد"') + '</div></div>';
+    function names() {
+      var lst = document.getElementById('tbList').value.split(/\n|,/).map(function (s) { return s.trim(); }).filter(Boolean);
+      if (lst.length) return lst;
+      var pre = document.getElementById('tbPre').value, a = parseInt(document.getElementById('tbFrom').value, 10), z = parseInt(document.getElementById('tbTo').value, 10);
+      if (!isFinite(a) || !isFinite(z) || z < a || z - a > 499) return [];
+      var out = []; for (var i = a; i <= z; i++) out.push(pre + i); return out;
+    }
+    function prev() {
+      var n = names(), ex = {}; D.traps.forEach(function (t) { ex[t.name] = 1; });
+      var dup = n.filter(function (x) { return ex[x]; }).length;
+      document.getElementById('tbPrev').textContent = n.length ? n.length + ' ' + tt('מלכודות', 'กับดัก', 'مصائد') + ': ' + n.slice(0, 4).join(', ') + (n.length > 4 ? ' … ' + n[n.length - 1] : '') + (dup ? ' · ' + dup + ' ' + tt('כבר קיימות וידולגו', 'มีอยู่แล้ว จะข้าม', 'موجودة وستُتخطّى') : '') : '';
+    }
+    ['tbPre', 'tbFrom', 'tbTo', 'tbList'].forEach(function (id) { document.getElementById(id).oninput = prev; });
+    prev();
+    document.getElementById('tbSave').onclick = function () {
+      var zn = document.getElementById('tbZone').value.trim(), f = document.getElementById('tbFarm').value, n = names();
+      if (!zn) { toast('❌ ' + tt('חסר אזור', 'ขาดโซน', 'المنطقة ناقصة')); return; }
+      var ex = {}; D.traps.forEach(function (t) { ex[t.name] = 1; });
+      var add = n.filter(function (x) { return !ex[x]; });
+      if (!add.length) { toast('⚠️ ' + tt('אין מלכודות חדשות להוספה', 'ไม่มีกับดักใหม่', 'لا مصائد جديدة')); return; }
+      var base = uid();
+      add.forEach(function (nm, i) { D.traps.push({ id: base + i, name: nm, zone: zn, farmId: f ? Number(f) : null, lat: null, lng: null }); });
+      ui.zone = zn;
+      persist().then(function (ok) { if (ok) toast('✅ ' + add.length + ' ' + tt('מלכודות נוספו', 'เพิ่มกับดักแล้ว', 'أُضيفت مصائد')); render(); });
+    };
+  }
+
+  // ── counts from a photo / document ──
+  function fileB64(blob) {
+    return new Promise(function (res, rej) { var r = new FileReader(); r.onload = function () { res(String(r.result).split(',')[1]); }; r.onerror = rej; r.readAsDataURL(blob); });
+  }
+  function shrink(file) {
+    return new Promise(function (res) {
+      var img = new Image(), url = URL.createObjectURL(file);
+      img.onload = function () {
+        var k = Math.min(1, 2000 / Math.max(img.width, img.height)), cv = document.createElement('canvas');
+        cv.width = Math.round(img.width * k); cv.height = Math.round(img.height * k);
+        cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+        URL.revokeObjectURL(url);
+        cv.toBlob(function (b) { res(b || file); }, 'image/jpeg', 0.85);
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); res(file); };
+      img.src = url;
+    });
+  }
+  function scanForm() {
+    if (!D.traps.length) { toast('⚠️ ' + tt('הוסף קודם מלכודות', 'เพิ่มกับดักก่อน', 'أضف مصائد أولاً')); return; }
+    var body = document.getElementById('trBody');
+    body.innerHTML = '<div class="tr-form"><h3>📷 ' + tt('עדכון ספירות מתמונה או מסמך', 'อัปเดตจากรูป/เอกสาร', 'تحديث الأعداد من صورة أو مستند') + '</h3>' +
+      '<div class="tr-muted">' + tt('צלם את דף הבדיקה מהשטח או העלה PDF. כל שורה תוצג לאישורך לפני השמירה.', 'ถ่ายรูปแผ่นตรวจหรืออัปโหลด PDF', 'صوّر ورقة الفحص أو ارفع PDF') + '</div>' +
+      '<label>' + tt('קובץ', 'ไฟล์', 'ملف') + '<input type="file" class="form-input" id="tsFile" accept="image/*,application/pdf"></label>' +
+      '<label>' + tt('הערה לקורא (לא חובה)', 'หมายเหตุ', 'ملاحظة') + '<input class="form-input" id="tsHint" placeholder="' + esc(tt('למשל: אזור פצאל צפון, בדיקה של יום ראשון', 'เช่น โซน…', 'مثلاً…')) + '"></label>' +
+      '<div class="tr-muted" id="tsMsg"></div>' +
+      '<div class="tr-bar"><button class="tr-btn pri" id="tsRead">🔍 ' + tt('קרא', 'อ่าน', 'اقرأ') + '</button><button class="tr-btn ghost" data-a="back">' + tt('ביטול', 'ยกเลิก', 'إلغاء') + '</button></div></div>';
+    document.getElementById('tsRead').onclick = function () {
+      var f = (document.getElementById('tsFile').files || [])[0];
+      if (!f) { toast('⚠️ ' + tt('בחר קובץ', 'เลือกไฟล์', 'اختر ملفًا')); return; }
+      if (typeof firebase === 'undefined' || !firebase.app || !firebase.app().functions) { toast('❌ functions'); return; }
+      var isPdf = f.type === 'application/pdf' || /\.pdf$/i.test(f.name);
+      if (isPdf && f.size > 6.5 * 1024 * 1024) { toast('❌ ' + tt('PDF גדול מדי (עד 6.5MB)', 'PDF ใหญ่เกินไป', 'PDF كبير جدًا')); return; }
+      var btn = this; btn.disabled = true;
+      document.getElementById('tsMsg').textContent = '⏳ ' + tt('קורא…', 'กำลังอ่าน…', 'جارٍ القراءة…');
+      var hint = document.getElementById('tsHint').value;
+      (isPdf ? fileB64(f) : shrink(f).then(fileB64)).then(function (b64) {
+        var req = { traps: D.traps.map(function (t) { return { id: String(t.id), name: t.name, zone: t.zone }; }), hint: hint, year: year };
+        if (isPdf) req.pdf = b64; else req.image = b64;
+        return firebase.app().functions('us-central1').httpsCallable('trapsExtract', { timeout: 185000 })(req);
+      }).then(function (r) { scanReview(r.data || {}); }, function (e) {
+        btn.disabled = false;
+        document.getElementById('tsMsg').textContent = '❌ ' + ((e && e.message) || e);
+      });
+    };
+  }
+  function scanReview(res) {
+    var rows = res.rows || [], body = document.getElementById('trBody');
+    if (!rows.length) { toast('⚠️ ' + tt('לא נמצאו שורות בקובץ', 'ไม่พบข้อมูล', 'لم يُعثر على صفوف')); scanForm(); return; }
+    var opts = D.traps.slice().sort(function (a, b) { return (a.zone + a.name).localeCompare(b.zone + b.name, 'he'); });
+    function sel(r, i) {
+      return '<select class="form-input ts-t" data-i="' + i + '"><option value="">' + tt('— לא לשמור —', '— ไม่บันทึก —', '— لا تحفظ —') + '</option>' +
+        (staff() ? '<option value="__new">＋ ' + tt('מלכודת חדשה', 'กับดักใหม่', 'مصيدة جديدة') + ' "' + esc(r.label) + '"</option>' : '') +
+        opts.map(function (t) { return '<option value="' + esc(String(t.id)) + '"' + (String(t.id) === r.match_id ? ' selected' : '') + '>' + esc(t.name) + ' · ' + esc(t.zone) + '</option>'; }).join('') + '</select>';
+    }
+    var matched = rows.filter(function (r) { return r.match_id; }).length;
+    body.innerHTML = '<div class="tr-form"><h3>📷 ' + tt('אישור הספירות שנקראו', 'ตรวจการนับ', 'تأكيد الأعداد') + '</h3>' +
+      '<div class="tr-muted">' + rows.length + ' ' + tt('שורות', 'แถว', 'صفوف') + ' · ' + matched + ' ' + tt('הותאמו למלכודות קיימות', 'จับคู่แล้ว', 'طوبقت') + (res.notes ? ' · ' + esc(res.notes) : '') + '</div>' +
+      '<label>' + tt('תאריך הבדיקה', 'วันที่ตรวจ', 'تاريخ الفحص') + '<input type="date" class="form-input" id="tsDate" value="' + esc(res.date || today()) + '"></label>' +
+      '<div class="tr-wrap"><table class="tr-tbl ts-tbl"><thead><tr><th>' + tt('נקרא', 'อ่านได้', 'المقروء') + '</th><th>' + tt('מלכודת', 'กับดัก', 'مصيدة') + '</th><th>' + tt('לכידות', 'จำนวน', 'العدد') + '</th></tr></thead><tbody>' +
+      rows.map(function (r, i) {
+        return '<tr' + (r.confidence === 'low' ? ' class="lo"' : '') + '><td><b>' + esc(r.label) + '</b>' + (r.zone ? '<small>' + esc(r.zone) + '</small>' : '') + (r.date ? '<small>' + fmtD(r.date) + '</small>' : '') + '</td>' +
+          '<td>' + sel(r, i) + '</td><td><input type="number" min="0" class="form-input ts-c" data-i="' + i + '" value="' + r.count + '" inputmode="numeric"></td></tr>';
+      }).join('') + '</tbody></table></div>' +
+      '<div class="tr-muted">' + tt('שורות בצהוב — הקורא לא היה בטוח. בדוק אותן.', 'แถวสีเหลือง: ไม่แน่ใจ', 'الصفوف الصفراء: غير مؤكدة') + '</div>' +
+      '<div class="tr-bar"><button class="tr-btn pri" id="tsSave">💾 ' + tt('שמור ספירות', 'บันทึก', 'احفظ') + '</button><button class="tr-btn ghost" data-a="back">' + tt('ביטול', 'ยกเลิก', 'إلغاء') + '</button></div></div>';
+    document.getElementById('tsSave').onclick = function () {
+      var d0 = document.getElementById('tsDate').value || today(), u = window.currentUser || {}, n = 0, made = 0, base = uid();
+      rows.forEach(function (r, i) {
+        var v = document.querySelector('.ts-t[data-i="' + i + '"]').value, cnt = parseInt(document.querySelector('.ts-c[data-i="' + i + '"]').value, 10);
+        if (!v || !isFinite(cnt)) return;
+        var tid;
+        if (v === '__new') {
+          tid = base + 1000 + made++;
+          D.traps.push({ id: tid, name: r.label, zone: r.zone || ui.zone || tt('ללא אזור', 'ไม่มีโซน', 'بلا منطقة'), farmId: null, lat: null, lng: null });
+        } else tid = /^\d+$/.test(v) ? Number(v) : v;
+        var d = r.date || d0;
+        D.checks = D.checks.filter(function (c) { return !(String(c.trapId) === String(tid) && c.date === d); });
+        D.checks.push({ id: base + n, trapId: tid, date: d, count: Math.max(0, cnt), by: u.name || u.username || '', note: tt('מתמונה', 'จากรูป', 'من صورة') });
+        n++;
+      });
+      if (!n) { toast('⚠️ ' + tt('לא נבחרו שורות לשמירה', 'ไม่มีแถว', 'لا صفوف')); return; }
+      persist().then(function (ok) { if (ok) toast('✅ ' + n + ' ' + tt('ספירות נשמרו', 'บันทึกแล้ว', 'حُفظت')); render(); });
+    };
   }
 
   function printReport() {
@@ -304,12 +532,15 @@ var Traps = (function () {
     if (a) {
       var k = a.getAttribute('data-a');
       if (k === 'close') return close();
-      if (k === 'back') return render();
+      if (k === 'back') { mapMode = null; return render(); }
       if (k === 'check') return checkForm();
       if (k === 'trap') return trapForm(null);
-      if (k === 'map') return mapView();
+      if (k === 'map') { mapMode = null; return mapView(); }
+      if (k === 'scan') return scanForm();
+      if (k === 'bulk') return bulkForm();
       if (k === 'print') return printReport();
     }
+    var mt = t.closest('[data-m]'); if (mt) return onMapTool(mt.getAttribute('data-m'));
     var ed = t.closest('[data-edit]'); if (ed) return trapForm(ed.getAttribute('data-edit'));
     var dc = t.closest('[data-delck]');
     if (dc) {
@@ -345,6 +576,9 @@ var Traps = (function () {
       '.tr-fz{font-weight:700;margin:10px 0 4px;}.tr-fr{flex-direction:row !important;align-items:center;justify-content:space-between;gap:10px;font-size:.86rem !important;color:var(--text,#1b2a1f) !important;}' +
       '.tr-fr .form-input{width:90px;margin:0;}' +
       '.tr-ck{display:grid;grid-template-columns:60px 1fr 50px 1.5fr 34px;gap:6px;align-items:center;padding:6px 2px;border-top:1px solid var(--line,#eef1ec);font-size:.82rem;}' +
+      '.tr-mode{background:#fffbea;border-radius:12px;padding:8px 10px;font-size:.84rem;margin-top:6px;}.tr-mode .tr-bar{margin:6px 0 0;}' +
+      '.tr-ztip{background:rgba(255,255,255,.88);border:0;border-radius:8px;font-size:.72rem;padding:2px 6px;box-shadow:none;}' +
+      '.ts-tbl{min-width:0;}.ts-tbl .form-input{margin:0;}.ts-tbl tr.lo td{background:#fff8d6;}.ts-c{width:80px;}' +
       '.tr-ck small{color:var(--text-muted,#6f7b72);}.tr-cn{font-weight:700;text-align:center;}.tr-x{border:0;background:var(--tonal,#f1f4ee);border-radius:9px;height:30px;cursor:pointer;}';
     document.head.appendChild(st);
   }
