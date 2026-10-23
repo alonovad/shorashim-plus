@@ -78,7 +78,7 @@ var Home = (function () {
     { k: 'spray', ic: 'spray', he: 'ריסוס', th: 'พ่นยา', ar: 'رش', tab: 'spray' },
     { k: 'irrigation', ic: 'drop', he: 'השקיה', th: 'ให้น้ำ', ar: 'ري', tab: 'irrigation' },
     { k: 'worklog', ic: 'cal', he: 'יומן עבודה', th: 'บันทึกงาน', ar: 'سجل العمل', tab: 'worklog' },
-    { k: 'weather', ic: 'sun', he: 'מזג אוויר', th: 'สภาพอากาศ', ar: 'الطقس', tab: 'weather' },
+    { k: 'weather', gen: 1, ic: 'sun', he: 'מזג אוויר', th: 'สภาพอากาศ', ar: 'الطقس', tab: 'weather' },
     { k: 'map', ic: 'map', he: 'מפה', th: 'แผนที่', ar: 'خريطة', tab: 'map' },
     { k: 'farms', ic: 'leaf', he: 'שדות/מטעים', th: 'ไร่/สวน', ar: 'حقول/بساتين', tab: 'farms' },
     { k: 'harvest', ic: 'box', he: 'קטיף ומיון', th: 'เก็บเกี่ยว', ar: 'قطاف وفرز', tab: 'harvest' },
@@ -86,9 +86,9 @@ var Home = (function () {
     { k: 'library', ic: 'book', he: 'מידע שימושי', th: 'คู่มือ', ar: 'معلومات', fn: function () { if (window.Knowledge) Knowledge.open(); }, need: '__Knowledge' },
     { k: 'traps', ic: 'bug', he: 'לכידות חדקונית', th: 'กับดักด้วง', ar: 'مصائد السوسة', fn: function () { if (window.Traps) Traps.open(); }, need: '__Traps' },
     { k: 'sat', ic: 'sat', he: 'לוויין', th: 'ดาวเทียม', ar: 'القمر الصناعي', fn: function () { if (window.Satellite) Satellite.open(); }, need: '__Satellite' },
-    { k: 'profile', ic: 'person', he: 'אישי', th: 'ส่วนตัว', ar: 'شخصي', tab: 'profile' },
-    { k: 'users', ic: 'users', he: 'משתמשים', th: 'ผู้ใช้', ar: 'المستخدمون', tab: 'users' },
-    { k: 'menu', ic: 'menu', he: 'תפריט ודוחות', th: 'เมนู', ar: 'القائمة', fn: function () { if (window.TimeClock && TimeClock.toggleMenu) TimeClock.toggleMenu(); } }
+    { k: 'profile', gen: 1, ic: 'person', he: 'אישי', th: 'ส่วนตัว', ar: 'شخصي', tab: 'profile' },
+    { k: 'users', gen: 1, ic: 'users', he: 'משתמשים', th: 'ผู้ใช้', ar: 'المستخدمون', tab: 'users' },
+    { k: 'menu', gen: 1, ic: 'menu', he: 'תפריט ודוחות', th: 'เมนู', ar: 'القائمة', fn: function () { if (window.TimeClock && TimeClock.toggleMenu) TimeClock.toggleMenu(); } }
   ];
   function actionsAvail() {
     return ACTIONS.filter(function (a) {
@@ -146,7 +146,8 @@ var Home = (function () {
     { k: 'spray', ic: 'spray', he: 'ריסוס', th: 'พ่นยา', ar: 'رش' },
     { k: 'wx', ic: 'sun', he: 'תחזית', th: 'พยากรณ์', ar: 'توقعات' },
     { k: 'nav', ic: 'pin', he: 'ניווט', th: 'นำทาง', ar: 'ملاحة' },
-    { k: 'map', ic: 'map', he: 'מפה', th: 'แผนที่', ar: 'خريطة' }
+    { k: 'map', ic: 'map', he: 'מפה', th: 'แผนที่', ar: 'خريطة' },
+    { k: 'hv', ic: 'box', he: 'מיון/קטיף', th: 'คัดแยก', ar: 'فرز/قطف' }
   ];
   function hubHtml(f) {
     var cx = 50, cy = 50, R = 37, lines = '', dots = '';
@@ -164,6 +165,7 @@ var Home = (function () {
   }
   function hubGo(k, fid) {
     if (k === 'farm' || k === 'veh') { if (typeof window.showFarmDetailsGlobal === 'function') window.showFarmDetailsGlobal(fid); return; }
+    if (k === 'hv') { if (window.HarvestResults && HarvestResults.openFarm) HarvestResults.openFarm(fid); return; }
     if (k === 'irr') return go('irrigation');
     if (k === 'spray') return go('spray');
     if (k === 'wx') return go('weather');
@@ -212,7 +214,7 @@ var Home = (function () {
 
   function actsHtml() {
     return '<div class="hm-acts">' + actionsAvail().map(function (a, i) {
-      return '<button type="button" class="hm-act" data-hm-act="' + a.k + '"><span class="hm-act-r' + (i === 0 ? ' on' : '') + '">' + ic(a.ic, null, 24, 1.5) + '</span>' +
+      return '<button type="button" class="hm-act' + (a.gen ? ' hm-act-gen' : '') + '" data-hm-act="' + a.k + '"><span class="hm-act-r' + (i === 0 ? ' on' : '') + '">' + ic(a.ic, null, 24, 1.5) + '</span>' +
         '<span class="hm-act-l">' + tt(a.he, a.th, a.ar) + '</span></button>';
     }).join('') + '</div>';
   }

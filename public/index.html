@@ -284,15 +284,19 @@
 <div class="tab-bar-wrap" id="tabBarWrap">
   <div class="tab-scroll-hint start" aria-hidden="true">‹</div>
   <div class="tab-scroll-hint end" aria-hidden="true">›</div>
+  <button type="button" class="tb-handle" id="tbHandle" data-t-key="תפריט" aria-label="תפריט">☰ תפריט</button>
   <div class="tab-bar" id="tabBar">
-    <div class="tab tab-home" data-tab="home" data-t-key="בית">🏠 בית</div>
-    <div class="tab active" data-tab="map" data-t-key="מפה">🗺️ מפה</div>
-    <div class="tab" data-tab="spray" data-t-key="ריסוס"><i class="ico-spray" aria-hidden="true"></i> ריסוס</div>
-    <div class="tab" data-tab="worklog" data-t-key="יומן">📝 יומן</div>
-    <div class="tab" data-tab="irrigation" data-t-key="השקיה">💧 השקיה</div>
+    <button type="button" class="tb-fold tb-fold-r" data-fold="right" title="קפל ימינה" aria-label="קפל ימינה">⇥</button>
+    <button type="button" class="tb-fold tb-fold-l" data-fold="left" title="קפל שמאלה" aria-label="קפל שמאלה">⇤</button>
+    <div class="tab tab-home" data-tab="home" data-t-key="בית" title="בית" aria-label="בית">🏠 בית</div>
+    <div class="tab active tab-farmnav" data-tab="map" data-t-key="מפה">🗺️ מפה</div>
+    <div class="tab tab-farmnav" data-tab="spray" data-t-key="ריסוס"><i class="ico-spray" aria-hidden="true"></i> ריסוס</div>
+    <div class="tab tab-farmnav" data-tab="worklog" data-t-key="יומן">📝 יומן</div>
+    <div class="tab tab-farmnav" data-tab="irrigation" data-t-key="השקיה">💧 השקיה</div>
     <div class="tab" data-tab="profile" data-t-key="אישי">👤 אישי</div>
-    <div class="tab" data-tab="farms" data-t-key="שדות/מטעים">🌳 שדות/מטעים</div>
-    <div class="tab" data-tab="harvest" data-t-key="תוצאות מיון/קטיף">📦 תוצאות מיון/קטיף</div>
+    <div class="tab tab-farmnav" data-tab="farms" data-t-key="שדות/מטעים">🌳 שדות/מטעים</div>
+    <!-- Opened from each farm (farm card, home hub) — not a top-level tab -->
+    <div class="tab tab-internal tab-farmnav" data-tab="harvest" data-t-key="תוצאות מיון/קטיף">📦 תוצאות מיון/קטיף</div>
     <div class="tab" data-tab="weather" data-t-key="מזג אוויר">🌤️ מזג אוויר</div>
     <div class="tab admin-only" data-tab="users" data-t-key="משתמשים" style="display: none;">👥 משתמשים</div>
   </div>

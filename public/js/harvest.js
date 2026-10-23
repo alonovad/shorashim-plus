@@ -625,8 +625,18 @@ var HarvestResults = (function () {
     }
   }
 
+  // Opened from a farm (farm card / home hub): the results of that farm.
+  function openFarm(fid) {
+    farmFilter = fid != null ? String(fid) : '';
+    if (typeof closeModal === 'function') { try { closeModal(); } catch (e) {} }
+    var mc = document.getElementById('modalContainer'); if (mc && mc.querySelector('.modal-overlay')) mc.innerHTML = '';
+    var tab = document.querySelector('.tab[data-tab="harvest"]');
+    if (tab) tab.click(); else render();
+    window.scrollTo(0, 0);
+  }
   return {
     render: render,
+    openFarm: openFarm,
     open: openEditor,
     FORMATS: FORMATS
   };

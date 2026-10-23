@@ -3530,6 +3530,33 @@
     });
   });
 
+  // ── Tab bar: fold it away to the right or the left (Oct 2026) ──
+  // The home screen already offers every section, so the bar can step
+  // aside; a small handle stays on the side it was folded to.
+  (function wireTabFold() {
+    var wrap = document.getElementById('tabBarWrap'), handle = document.getElementById('tbHandle');
+    if (!wrap || !handle) return;
+    var KEY = 'shorashim-tabbar-fold';
+    function apply(side, animate) {
+      wrap.classList.remove('tb-folded', 'tb-folded-right', 'tb-folded-left');
+      if (side === 'right' || side === 'left') wrap.classList.add('tb-folded', 'tb-folded-' + side);
+      try { localStorage.setItem(KEY, side || ''); } catch (e) {}
+      if (animate && !side) { wrap.classList.add('tb-unfolding'); setTimeout(function () { wrap.classList.remove('tb-unfolding'); }, 260); }
+      if (map && map.invalidateSize) setTimeout(function () { map.invalidateSize(); }, 280);
+    }
+    wrap.querySelectorAll('[data-fold]').forEach(function (b) {
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var side = b.getAttribute('data-fold');
+        wrap.classList.add('tb-folding-' + side);
+        setTimeout(function () { wrap.classList.remove('tb-folding-' + side); apply(side); }, 220);
+      });
+    });
+    handle.addEventListener('click', function () { apply('', true); });
+    var saved = ''; try { saved = localStorage.getItem(KEY) || ''; } catch (e) {}
+    if (saved) apply(saved);
+  })();
+
   // ── Tab-bar scroll-hint affordance ──
   (function wireTabScrollHints() {
     var wrap = document.getElementById('tabBarWrap');
@@ -8022,6 +8049,7 @@
     '</div>';
     matrixHtml += farmBranchSummary(farmPlots);
     if (window.Satellite && farmPlots.length) matrixHtml += '<button type="button" class="fd-sat-btn" onclick="Satellite.open(' + farm.id + ')">🛰️ ' + t('מצב הצמחייה מהלוויין') + ' <span>NDVI</span></button>';
+    if (window.HarvestResults && HarvestResults.openFarm) matrixHtml += '<button type="button" class="fd-sat-btn fd-hv-btn" onclick="HarvestResults.openFarm(' + farm.id + ')">📦 ' + t('תוצאות מיון/קטיף') + '</button>';
     var farmQty = wlQtyTotals(farmWorklog);
     if (Object.keys(farmQty).length) {
       matrixHtml += '<div style="background: #fff8e1; padding: 8px 10px; border-radius: 10px; margin: -8px 0 16px; font-size: 0.8rem; text-align: center; color: #e65100;">' +
