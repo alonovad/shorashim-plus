@@ -694,6 +694,7 @@ var AgriPlan = (function () {
         'padding-bottom:10px;border-bottom:2px solid var(--border,#e0e0e0);flex-wrap:wrap;}' +
       '.ap-head h3{margin:0;font-weight:800;font-size:1.05rem;}' +
       '.ap-bar{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;}' +
+      '.ap-guides{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 8px;}.ap-guides .ap-btn{font-size:.8rem;}' +
       '.ap-btn{padding:9px 13px;border:none;border-radius:10px;background:var(--primary,#2d6a4f);color:#fff;' +
         'font-family:inherit;font-weight:700;font-size:.84rem;cursor:pointer;}' +
       '.ap-btn.ghost{background:var(--surface-glass,#eef1ee);color:var(--text,#333);}' +
@@ -1035,7 +1036,11 @@ var AgriPlan = (function () {
     }
     // The picker host sits outside that fieldset: exporting a plan you can
     // only view must still work.
-    body = filterBar + '<div id="apPicker"></div>' + body;
+    var guideBar = window.Knowledge && Knowledge.openItem ? '<div class="ap-guides">' +
+      '<button class="ap-btn ghost" onclick="Knowledge.openItem(\'g-spray-mix\')">\ud83d\udcd8 ' + tt('הכנת מיכל: סדר ערבוב', 'การเตรียมถัง: ลำดับการผสม', 'تحضير الخزان: ترتيب الخلط') + '</button>' +
+      '<button class="ap-btn ghost" onclick="Knowledge.openItem(\'g-spray-cal\')">\ud83d\udcd0 ' + tt('כיול מרסס', 'ปรับเทียบเครื่องพ่น', 'معايرة الرشاش') + '</button>' +
+      '<button class="ap-btn ghost" onclick="Knowledge.openItem(\'g-spray-safety\')">\ud83e\uddba ' + tt('בטיחות', 'ความปลอดภัย', 'السلامة') + '</button></div>' : '';
+    body = guideBar + filterBar + '<div id="apPicker"></div>' + body;
 
     var bar = ro ?
       ('<button class="ap-btn ghost" onclick="AgriPlan.printPlan(' + id + ')">\ud83d\udda8 ' +

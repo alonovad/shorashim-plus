@@ -841,5 +841,19 @@ var Satellite = (function () {
   document.addEventListener('shorashim:lang', function () { if (document.getElementById('satRoot') && D && !busy) render(); });
   document.addEventListener('shorashim:lang', function () { var b = document.getElementById('ndviBtn'); if (b) b.title = tt('מצב הצמחייה מהלוויין', 'สภาพพืชจากดาวเทียม', 'حالة الغطاء النباتي من القمر الصناعي'); });
 
-  return { open: open, close: close };
+  // Latest satellite reading and flags for one plot, from the cached doc
+  // (no quota). Used by the plot recommendations card.
+  function plotStatus(fid, pid) {
+    if (typeof DB === 'undefined') return Promise.resolve(null);
+    return DB.loadAsync(PREFIX + fid).then(function (d) {
+      if (!d || !d.plots) return null;
+      var sD = D, sF = farmId, sI = ui.idx;
+      D = norm(d); farmId = Number(fid); ui.idx = 'v';
+      var list = farmPlots(), st = stats(list)[pid] || null;
+      D = sD; farmId = sF; ui.idx = sI;
+      return st ? { cur: st.cur, d30: st.d30, yoy: st.yoy, rel: st.rel, flags: st.flags.slice() } : null;
+    }, function () { return null; });
+  }
+
+  return { open: open, close: close, plotStatus: plotStatus };
 })();

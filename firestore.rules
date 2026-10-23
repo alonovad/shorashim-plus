@@ -166,6 +166,11 @@ service cloud.firestore {
       allow write: if isOperatorOrAbove() &&
                       docId.matches('shorashim-cashflow-[0-9]{4}');
 
+      // Worker+: plot recommendations and their follow-up (plotrec.js) —
+      // tasks are marked done in the field; coefficients and imported
+      // sources are edited by operator+ in the UI.
+      allow write: if isWorkerOrAbove() && docId == 'shorashim-plotrec';
+
       // Worker+: red palm weevil traps and their counts, one doc per year
       // (traps.js). Whoever checks the traps in the field enters the counts.
       allow write: if isWorkerOrAbove() &&

@@ -1668,3 +1668,114 @@ exports.trapsExtract = onCall(
     return { date: day(call.input.date), rows, notes: String(call.input.notes || "").slice(0, 300), model: modelId };
   }
 );
+
+// ═══════════════════════════════════════════
+// GROWING RECOMMENDATIONS FROM A PHOTO / PDF / LINK (Oct 2026, plotrec.js)
+// An extension-service card or document (weekly irrigation by region,
+// monthly crop coefficients, seasonal tasks) → structured rows the operator
+// reviews before they are applied to a crop. A link is fetched here (https
+// only, PDF or HTML, ≤ 8 MB) so the browser never needs CORS access.
+// ═══════════════════════════════════════════
+const REC_TOOL = {
+  name: "report_recommendations",
+  description: "Report the growing recommendations found in the document.",
+  input_schema: {
+    type: "object",
+    properties: {
+      title: { type: "string" }, publisher: { type: "string", description: "Who issued it (e.g. שה\"ם, מו\"פ, a company)" },
+      crop: { type: "string", description: "Crop name in Hebrew" }, region: { type: "string", description: "The region row chosen (and soil type), per the user's context" },
+      period: { type: "string", description: "Dates / week / season the recommendation covers" },
+      months: {
+        type: "array", description: "Irrigation per calendar month for the chosen region/soil. One entry per month covered.",
+        items: { type: "object", properties: {
+          month: { type: "integer", minimum: 1, maximum: 12 },
+          value: { type: "number" },
+          unit: { type: "string", enum: ["frac", "ltmm", "m3d"], description: "frac = coefficient × evaporation (per area); ltmm = litres per tree per mm of evaporation; m3d = fixed m³ per dunam per day" }
+        }, required: ["month", "value", "unit"] }
+      },
+      irrigation_notes: { type: "string", description: "Frequency, soil adjustments, crop-to-crop ratios — short" },
+      fert_notes: { type: "string", description: "Fertilization guidance — short, with numbers as written" },
+      tasks: { type: "array", items: { type: "object", properties: {
+        title: { type: "string" }, text: { type: "string" }, month: { type: "integer", minimum: 1, maximum: 12 }
+      }, required: ["title"] } },
+      notes: { type: "string" }
+    },
+    required: ["months", "tasks"]
+  }
+};
+
+exports.recExtract = onCall(
+  { region: "us-central1", secrets: [ANTHROPIC_API_KEY], memory: "512MiB", timeoutSeconds: 180, maxInstances: 3 },
+  async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Sign in required");
+    const tok = request.auth.token || {};
+    if ((tok.firebase || {}).sign_in_provider === "phone") throw new HttpsError("permission-denied", "Not for recovery sessions");
+    if (!["admin", "operator"].includes(tok.role)) throw new HttpsError("permission-denied", "Operator or admin required");
+    const { image, pdf, url, hint, crops } = request.data || {};
+    const b64ok = (s, max) => typeof s === "string" && s.length > 0 && s.length <= max && /^[A-Za-z0-9+/=]+$/.test(s.slice(0, 200));
+    let block;
+    if (pdf) {
+      if (!b64ok(pdf, 9 * 1024 * 1024)) throw new HttpsError("invalid-argument", "Bad or oversized PDF (max ~6.5 MB)");
+      block = { type: "document", source: { type: "base64", media_type: "application/pdf", data: pdf } };
+    } else if (image) {
+      if (!b64ok(image, 4 * 1024 * 1024)) throw new HttpsError("invalid-argument", "Bad or oversized image");
+      block = { type: "image", source: { type: "base64", media_type: "image/jpeg", data: image } };
+    } else if (typeof url === "string" && /^https:\/\/[^\s]+$/.test(url) && url.length < 1000) {
+      let r;
+      try { r = await fetch(url, { redirect: "follow", headers: { "User-Agent": "ShorashimPlus/1.0" } }); }
+      catch (e) { throw new HttpsError("unavailable", "Could not fetch the link"); }
+      if (!r.ok) throw new HttpsError("unavailable", "Link returned " + r.status);
+      const type = String(r.headers.get("content-type") || "");
+      const buf = Buffer.from(await r.arrayBuffer());
+      if (buf.length > 8 * 1024 * 1024) throw new HttpsError("invalid-argument", "Linked file too large");
+      if (/pdf/i.test(type) || buf.slice(0, 4).toString() === "%PDF") {
+        block = { type: "document", source: { type: "base64", media_type: "application/pdf", data: buf.toString("base64") } };
+      } else if (/image\/(jpeg|png|webp)/i.test(type)) {
+        block = { type: "image", source: { type: "base64", media_type: type.match(/image\/(jpeg|png|webp)/i)[0].toLowerCase(), data: buf.toString("base64") } };
+      } else {
+        const text = buf.toString("utf8").replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").slice(0, 60000);
+        block = { type: "text", text: "Page content from " + url + ":\n" + text };
+      }
+    } else throw new HttpsError("invalid-argument", "image, pdf or https url required");
+    const cropList = (Array.isArray(crops) ? crops : []).filter((c) => typeof c === "string").map((c) => c.slice(0, 40)).slice(0, 60);
+    const userText = "Read these growing recommendations (usually Hebrew, from the Israeli extension service or a professional body) and report them through the tool. " +
+      "Irrigation: when the document gives a table by region and soil, choose the row matching the user's context below and say which in `region`; convert to calendar months (a weekly card → the month it falls in). " +
+      "Use unit m3d for fixed m³/dunam/day, ltmm for litres per tree per mm of evaporation, frac for a coefficient multiplied by evaporation. Never invent numbers; omit what is not written. " +
+      "Tasks: concrete actions with their month. Keep text short." +
+      (cropList.length ? " The farm's crops: " + cropList.join(", ") + "." : "") +
+      (typeof hint === "string" && hint.trim() ? " User's context (region, soil): " + hint.trim().slice(0, 300) : "");
+    const modelId = PLAN_MODELS["sonnet-5"];
+    let res, text;
+    try {
+      res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_API_KEY.value(), "anthropic-version": "2023-06-01" },
+        body: JSON.stringify({
+          model: modelId, max_tokens: 6000,
+          system: "You extract agronomic recommendations accurately for a farm-management app. Report only what the document states.",
+          tools: [REC_TOOL], tool_choice: { type: "tool", name: "report_recommendations" },
+          messages: [{ role: "user", content: [block, { type: "text", text: userText }] }]
+        })
+      });
+      text = await res.text();
+    } catch (err) { throw new HttpsError("unavailable", "Model call failed: " + err.message); }
+    if (!res.ok) throw new HttpsError("internal", modelId + " — " + res.status + ": " + text.slice(0, 200));
+    let body;
+    try { body = JSON.parse(text); } catch (e) { throw new HttpsError("internal", "Bad model response"); }
+    const call = (body.content || []).find((b) => b.type === "tool_use" && b.name === "report_recommendations");
+    if (!call || !call.input) throw new HttpsError("internal", "Nothing extracted");
+    const s = (v, n) => (typeof v === "string" ? v.trim().slice(0, n) : "");
+    const inp = call.input;
+    return {
+      title: s(inp.title, 120), publisher: s(inp.publisher, 60), crop: s(inp.crop, 40), region: s(inp.region, 80), period: s(inp.period, 60),
+      months: (Array.isArray(inp.months) ? inp.months : []).map((m) => ({
+        month: Math.round(Number(m.month)), value: Math.round(Number(m.value) * 1000) / 1000, unit: ["frac", "ltmm", "m3d"].includes(m.unit) ? m.unit : "frac"
+      })).filter((m) => m.month >= 1 && m.month <= 12 && isFinite(m.value) && m.value >= 0 && m.value < 1000).slice(0, 12),
+      irrigation_notes: s(inp.irrigation_notes, 300), fert_notes: s(inp.fert_notes, 300),
+      tasks: (Array.isArray(inp.tasks) ? inp.tasks : []).slice(0, 30).map((t) => ({
+        title: s(t.title, 120), text: s(t.text, 300), month: Number.isInteger(t.month) && t.month >= 1 && t.month <= 12 ? t.month : null
+      })).filter((t) => t.title),
+      notes: s(inp.notes, 300), model: modelId
+    };
+  }
+);

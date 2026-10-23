@@ -337,6 +337,7 @@ var CropProgram = (function () {
     });
   }
 
-  return { sectionHtml: sectionHtml, bind: bind, open: open, editProgram: editProgram, _coefOf: coefOf, _amount: amount };
+  return { sectionHtml: sectionHtml, bind: bind, open: open, editProgram: editProgram, _coefOf: coefOf, _amount: amount,
+           _program: program, _applied: applied, _manual: manualApplied, _logged: loggedApplied, _season: season, _unitTr: unitTr };
 })();
 window.CropProgram = CropProgram;

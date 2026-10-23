@@ -329,6 +329,7 @@ var Weather = (function () {
       var D = x.f.daily || {};
       cb({ farmId: farmId, temp: r0(now.temp), wind: r0(now.wind), rh: r0(now.rh), icon: wx(now.code)[0], label: wx(now.code)[1],
         spray: sp[0], goodIdx: gi, goodAt: gi > 0 ? hh(hs[gi].time) + ':00' : '', et0: D.et0_fao_evapotranspiration ? r1(D.et0_fao_evapotranspiration[0]) : null,
+        et0d: D.et0_fao_evapotranspiration ? D.et0_fao_evapotranspiration.slice(0, 7).map(function (v) { return Number(v) || 0; }) : [], days: (D.time || []).slice(0, 7),
         alerts: alerts(x.f), at: state.at });
     }
     if (state.data && Date.now() - state.at <= TTL) return done();

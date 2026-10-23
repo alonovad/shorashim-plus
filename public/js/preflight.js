@@ -307,7 +307,7 @@ const OWN = ['orders.js','agriplan.js',
              'shed3d.js','rebar.js','buildplan-ledger.js','buildplan-plan.js','stickyactions.js',
              'plotimport.js', 'plotregister.js', 'livingunit.js', 'livingedit.js', 'livingview3d.js', 'worklogedit.js', 'maintjournal.js', 'map-region.js',
              // Oct 2026 modules: every visible string through tt()
-             'home.js', 'weather.js', 'cashflow.js', 'knowledge.js', 'traps.js', 'satellite.js', 'pestmonitor.js', 'fleet.js',
+             'home.js', 'weather.js', 'cashflow.js', 'knowledge.js', 'traps.js', 'satellite.js', 'plotrec.js', 'pestmonitor.js', 'fleet.js',
              'irrigation-sys.js', 'cropprog.js', 'opcost.js', 'prices.js', 'farm-intake.js', 'display-settings.js'];
 OWN.forEach(f => {
   if (!src[f]) return;

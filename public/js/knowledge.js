@@ -102,6 +102,21 @@ var Knowledge = (function () {
   }
 
   // ── list ──
+  // Built-in guides (knowledge-guides.js) listed with the farm's own items;
+  // an edited copy saved under the same id replaces the built-in one.
+  function guides() {
+    var lang = (typeof currentLang !== 'undefined') ? currentLang : 'he';
+    return (window.KB_GUIDES || []).map(function (g) {
+      return { id: g.id, cat: g.cat, builtin: true, crops: g.crops || [], months: g.months || [], src: g.src || '', link: g.link || '',
+               title: (lang === 'th' && g.title_th) || g.title, body: (lang === 'th' && g.body_th) || g.body, tags: g.tags || [], files: [], at: 0 };
+    });
+  }
+  function all() {
+    var own = D.items || [], ids = {};
+    own.forEach(function (it) { ids[String(it.id)] = 1; });
+    return own.concat(guides().filter(function (g) { return !ids[g.id]; }));
+  }
+  function byId(id) { return all().find(function (x) { return String(x.id) === String(id); }); }
   function open(cat) {
     if (cat) ui.cat = cat;
     ensureCss();
@@ -112,11 +127,11 @@ var Knowledge = (function () {
 
   function filtered() {
     var q = ui.q.trim().toLowerCase();
-    return (D.items || []).filter(function (it) {
+    return all().filter(function (it) {
       if (ui.cat && it.cat !== ui.cat) return false;
       if (!q) return true;
       return (it.title + ' ' + it.body + ' ' + (it.tags || []).join(' ')).toLowerCase().indexOf(q) !== -1;
-    }).sort(function (a, b) { return (b.at || 0) - (a.at || 0); });
+    }).sort(function (a, b) { return (b.at || 0) - (a.at || 0) || String(a.title).localeCompare(String(b.title), 'he'); });
   }
 
   function render() {
@@ -124,7 +139,7 @@ var Knowledge = (function () {
     if (!m) return;
     var list = filtered();
     var counts = {};
-    (D.items || []).forEach(function (it) { counts[it.cat] = (counts[it.cat] || 0) + 1; });
+    all().forEach(function (it) { counts[it.cat] = (counts[it.cat] || 0) + 1; });
     var gallery = ui.cat === 'pests';
     var body = list.length ? (gallery ? '<div class="kb-gal">' + list.map(galCard).join('') + '</div>' : list.map(card).join(''))
       : '<div class="kb-empty">' + (staff() ? tt('עוד אין כאן תכנים. לחץ "הוספה" כדי להעלות מדריך, קובץ או תמונה.', 'ยังไม่มีเนื้อหา', 'لا يوجد محتوى بعد') : tt('עוד אין כאן תכנים.', 'ยังไม่มีเนื้อหา', 'لا يوجد محتوى بعد')) + '</div>';
@@ -133,7 +148,7 @@ var Knowledge = (function () {
         (staff() ? '<button class="kb-btn pri" data-a="new">＋ ' + tt('הוספה', 'เพิ่ม', 'إضافة') + '</button>' : '') +
         '<button class="kb-btn ghost" data-a="close">✕</button></div>' +
       '<input class="form-input kb-q" id="kbQ" placeholder="🔍 ' + tt('חיפוש במדריכים, בתגיות ובטקסט', 'ค้นหา', 'بحث') + '" value="' + esc(ui.q) + '">' +
-      '<div class="kb-cats"><button class="kb-cat' + (!ui.cat ? ' on' : '') + '" data-cat="">' + tt('הכל', 'ทั้งหมด', 'الكل') + ' <small>' + (D.items || []).length + '</small></button>' +
+      '<div class="kb-cats"><button class="kb-cat' + (!ui.cat ? ' on' : '') + '" data-cat="">' + tt('הכל', 'ทั้งหมด', 'الكل') + ' <small>' + all().length + '</small></button>' +
         CATS.map(function (c) { return '<button class="kb-cat' + (ui.cat === c[0] ? ' on' : '') + '" data-cat="' + c[0] + '">' + c[1] + ' ' + tt(c[2], c[3], c[4]) + (counts[c[0]] ? ' <small>' + counts[c[0]] + '</small>' : '') + '</button>'; }).join('') +
       '</div>' +
       '<div class="kb-list" id="kbList">' + body + '</div>' +
@@ -160,6 +175,7 @@ var Knowledge = (function () {
       ((it.files || []).length ? '<div class="kb-files">' + filesHtml(it) + '</div>' : '') +
       (it.link ? '<a class="kb-link" href="' + esc(it.link) + '" target="_blank" rel="noopener">🔗 ' + esc(it.link.replace(/^https?:\/\//, '').slice(0, 60)) + '</a>' : '') +
       ((it.tags || []).length ? '<div class="kb-tags">' + it.tags.map(function (t) { return '<span>#' + esc(t) + '</span>'; }).join('') + '</div>' : '') +
+      (it.src ? '<div class="kb-src">' + tt('מקור', 'ที่มา', 'المصدر') + ': ' + esc(it.src) + '</div>' : '') +
     '</div>';
   }
   function galCard(it) {
@@ -169,7 +185,7 @@ var Knowledge = (function () {
       '<div class="kb-gt"><b>' + esc(it.title) + '</b>' + (it.body ? '<small>' + esc(it.body.slice(0, 70)) + (it.body.length > 70 ? '…' : '') + '</small>' : '') + '</div></div>';
   }
   function view(id) {
-    var it = (D.items || []).find(function (x) { return String(x.id) === String(id); });
+    var it = byId(id);
     if (!it) return;
     var list = document.getElementById('kbList');
     list.innerHTML = '<button class="kb-btn ghost" data-a="back">→ ' + tt('חזרה לגלריה', 'กลับ', 'رجوع') + '</button>' + card(it);
@@ -196,7 +212,7 @@ var Knowledge = (function () {
   // ── editor (staff) ──
   function editor(id) {
     if (!staff()) return;
-    var it = id ? JSON.parse(JSON.stringify((D.items || []).find(function (x) { return String(x.id) === String(id); }) || {})) : { cat: ui.cat || 'general', files: [], tags: [] };
+    var it = id ? JSON.parse(JSON.stringify(byId(id) || {})) : { cat: ui.cat || 'general', files: [], tags: [] };
     var list = document.getElementById('kbList');
     function draw() {
       list.innerHTML = '<div class="kb-ed">' +
@@ -241,7 +257,8 @@ var Knowledge = (function () {
         var u = window.currentUser || {};
         it.at = Date.now(); it.by = u.name || u.username || '';
         if (!it.id) { it.id = uid(); D.items = (D.items || []).concat([it]); }
-        else D.items = D.items.map(function (x) { return String(x.id) === String(it.id) ? it : x; });
+        else if ((D.items || []).some(function (x) { return String(x.id) === String(it.id); })) D.items = D.items.map(function (x) { return String(x.id) === String(it.id) ? it : x; });
+        else { delete it.builtin; D.items = (D.items || []).concat([it]); }   // edited copy of a built-in guide
         ui.cat = it.cat;
         persist().then(function (ok) { if (ok) toast('✅ ' + tt('נשמר', 'บันทึกแล้ว', 'تم الحفظ')); render(); });
       };
@@ -266,7 +283,7 @@ var Knowledge = (function () {
       '.kb-ch{display:flex;align-items:center;gap:8px;}.kb-ch b{flex:1;font-size:.95rem;}' +
       '.kb-tag{font-size:.7rem;background:var(--primary-soft,#eef7d4);color:var(--primary,#1d5a2c);border-radius:8px;padding:2px 8px;white-space:nowrap;}' +
       '.kb-x{border:0;background:var(--tonal,#f1f4ee);border-radius:10px;width:32px;height:32px;cursor:pointer;}' +
-      '.kb-body{white-space:pre-line;font-size:.86rem;margin-top:8px;line-height:1.6;}' +
+      '.kb-src{font-size:.7rem;color:var(--text-muted,#6f7b72);margin-top:6px;}.kb-body{white-space:pre-line;font-size:.86rem;margin-top:8px;line-height:1.6;}' +
       '.kb-files{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;}' +
       '.kb-thumb img{width:120px;height:90px;object-fit:cover;border-radius:12px;display:block;border:1px solid var(--line,#e6ebe2);}' +
       '.kb-file{display:inline-flex;gap:4px;align-items:center;background:var(--tonal,#f1f4ee);border-radius:10px;padding:6px 10px;font-size:.8rem;color:var(--primary,#1d5a2c);text-decoration:none;}' +
@@ -287,6 +304,25 @@ var Knowledge = (function () {
 
   document.addEventListener('shorashim:lang', function () { if (document.getElementById('kbRoot') && !document.querySelector('#kbRoot .kb-ed')) render(); });
 
-  return { open: open, close: close, _cats: CATS };
+  // Open the library on one item.
+  function openItem(id) {
+    ensureCss();
+    (loaded ? Promise.resolve() : load()).then(function () { ui.cat = ''; ui.q = ''; render(); view(id); });
+  }
+  // Items for a crop (built-in and the farm's own tagged with it), the ones
+  // relevant this month first.
+  function forCrop(crop) {
+    return (loaded ? Promise.resolve() : load()).then(function () {
+      var c = String(crop || ''), m = new Date().getMonth() + 1;
+      return all().filter(function (it) {
+        var cs = it.crops || [];
+        if (cs.length) return cs.some(function (x) { return c.indexOf(x) !== -1; });
+        return (it.tags || []).some(function (t) { return c && c.indexOf(t) !== -1; }) || it.builtin;
+      }).map(function (it) { return { id: it.id, cat: it.cat, title: it.title, now: (it.months || []).indexOf(m) !== -1, src: it.src || '' }; })
+        .sort(function (a, b) { return (b.now ? 1 : 0) - (a.now ? 1 : 0); });
+    });
+  }
+
+  return { open: open, close: close, openItem: openItem, forCrop: forCrop, _cats: CATS };
 })();
 window.Knowledge = Knowledge;

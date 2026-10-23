@@ -2018,6 +2018,7 @@
     'משוך מהמאגר': { th: 'ดึงจากคลัง', ar: 'اسحب من المخزن' },
     'הערות לחלקה': { th: 'หมายเหตุแปลง', ar: 'ملاحظات القطعة' },
     'עצים חסרים': { th: 'ต้นที่ขาด', ar: 'أشجار ناقصة' },
+    'המלצות גידול ומעקב': { th: 'คำแนะนำการปลูกและติดตาม', ar: 'توصيات الزراعة والمتابعة' },
     'מצב הצמחייה מהלוויין': { th: 'สภาพพืชจากดาวเทียม', ar: 'حالة الغطاء النباتي من القمر الصناعي' },
     'ענפים': { th: 'สาขาการเกษตร', ar: 'الفروع' },
     'גפנים': { th: 'ต้นองุ่น', ar: 'كروم' },
@@ -8955,6 +8956,7 @@
                   '<div style="font-size: 0.92rem; font-weight: 700; color: var(--g1);">' + (plot.planting_date ? new Date(plot.planting_date).toLocaleDateString('he-IL') : '—') + '</div>' +
                 '</div>') +
           '</div>' +
+          (window.PlotRec ? '<button type="button" class="pr-open-btn" onclick="PlotRec.open(' + plot.id + ')">📋 ' + t('המלצות גידול ומעקב') + '</button>' : '') +
           (plot.crop_type ? '<div style="background:#e8f5e9;border-radius:8px;padding:6px 12px;margin-bottom:14px;font-size:0.85rem;font-weight:600;text-align:center;">🌱 ' + plot.crop_type + ' · ' + t(bDef.he) +
             '</div>' : '') +
           (plot.variety ? '<div style="background:#fff8e1;border-radius:8px;padding:6px 12px;margin-bottom:14px;font-size:0.85rem;font-weight:600;text-align:center;">🌴 ' + t('זן') + ': ' + escAttrPlot(plot.variety) + '</div>' : '') +
