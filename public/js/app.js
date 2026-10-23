@@ -11805,3 +11805,38 @@
     });
   }
   // (end startRealtimeSync)
+
+// ── Windows don't close on a stray tap outside them (Oct 2026) ──
+// Most windows closed when the dark backdrop around them was tapped, which
+// threw away whatever was being typed. A tap that lands on a full-screen
+// backdrop itself (not on anything inside it) is now swallowed before any
+// window's own handler sees it; windows close with their ✕ / cancel button.
+// A backdrop with no visible close control keeps the old behaviour, so no
+// window can trap the user.
+(function guardBackdrops() {
+  var hinted = 0;
+  function isBackdrop(el) {
+    if (!el || el.nodeType !== 1 || !el.children || !el.children.length) return false;
+    if (el.id === 'hamburgerOverlay' || el === document.body || el === document.documentElement) return false;
+    var cs = window.getComputedStyle(el);
+    if (cs.position !== 'fixed') return false;
+    return el.offsetWidth >= window.innerWidth * 0.9 && el.offsetHeight >= window.innerHeight * 0.85;
+  }
+  function hasCloser(el) {
+    if (el.querySelector('[data-a="close"],.modal-close,.close-btn,[aria-label="x"],[aria-label="close"],[aria-label="סגור"]')) return true;
+    var bs = el.querySelectorAll('button,.btn,[role="button"]');
+    for (var i = 0; i < bs.length && i < 400; i++) {
+      var tx = (bs[i].textContent || '').trim();
+      if (/^(✕|×|✖|x|X)$/.test(tx) || /^(סגור|ביטול|חזרה|close|cancel)/i.test(tx) || /^[→←]\s/.test(tx)) return true;
+    }
+    return false;
+  }
+  window.addEventListener('click', function (e) {
+    var t = e.target;
+    if (!isBackdrop(t) || !hasCloser(t)) return;
+    e.stopPropagation(); e.preventDefault();
+    var box = t.firstElementChild;
+    if (box && box.animate) box.animate([{ transform: 'translateX(0)' }, { transform: 'translateX(-6px)' }, { transform: 'translateX(6px)' }, { transform: 'translateX(0)' }], { duration: 220 });
+    if (hinted < 2 && typeof showToast === 'function') { hinted++; var lg = (typeof currentLang !== 'undefined') ? currentLang : 'he'; showToast(lg === 'th' ? 'ปิดด้วยปุ่ม ✕' : lg === 'ar' ? 'للإغلاق اضغط ✕' : 'לסגירה — כפתור ✕ או ביטול'); }
+  }, true);
+})();

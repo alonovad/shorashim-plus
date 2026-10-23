@@ -140,6 +140,7 @@ var Traps = (function () {
   function render() {
     var m = document.getElementById('modalContainer');
     if (!m || !D) return;
+    ui.view = 'zones';
     if (map) { try { map.remove(); } catch (e) {} map = null; }
     var weeks = lastWeeks(8), z = zones(), names = Object.keys(z).sort(function (a, b) { return a.localeCompare(b, 'he'); });
     var yrs = []; for (var y = new Date().getFullYear(); y >= new Date().getFullYear() - 3; y--) yrs.push(String(y));
@@ -185,7 +186,8 @@ var Traps = (function () {
     var body = document.getElementById('trBody');
     var weeks = lastWeeks(8);
     body.innerHTML = '<button class="tr-btn ghost" data-a="back">→ ' + tt('כל האזורים', 'ทุกโซน', 'كل المناطق') + '</button>' +
-      '<h3 style="margin:10px 0 6px;">' + esc(zn) + '</h3>' +
+      '<div class="tr-bar" style="align-items:center;"><h3 style="margin:4px 0;flex:1;">' + esc(zn) + '</h3>' +
+        (staff() && zmCan(zn) && zn !== tt('ללא אזור', 'ไม่มีโซน', 'بلا منطقة') ? '<button class="tr-btn ghost" data-zm="ren" data-zn="' + esc(zn) + '" data-from="zv">✎ ' + tt('שם', 'ชื่อ', 'الاسم') + '</button><button class="tr-btn ghost warn" data-zm="del" data-zn="' + esc(zn) + '">🗑 ' + tt('מחק אזור', 'ลบโซน', 'حذف المنطقة') + '</button>' : '') + '</div>' +
       '<div class="tr-wrap"><table class="tr-tbl"><thead><tr><th>' + tt('מלכודת', 'กับดัก', 'مصيدة') + '</th>' + heads(weeks) +
         '<th>' + tt('ספירה אחרונה', 'ล่าสุด', 'آخر عدّ') + '</th><th></th></tr></thead><tbody>' +
       traps.map(function (t) {
@@ -193,7 +195,7 @@ var Traps = (function () {
         return '<tr><td><b>' + esc(t.name) + '</b>' + (t.farmId ? '<small>' + esc(farmName(t.farmId)) + '</small>' : '') + '</td>' +
           cells(sr) +
           '<td>' + (lc ? '<b>' + lc.count + '</b> <small>' + fmtD(lc.date) + '</small>' : '—') + '</td>' +
-          '<td>' + (staff() && mine(t) ? '<button class="tr-x" data-edit="' + t.id + '">✏️</button>' : '') + '</td></tr>';
+          '<td>' + (staff() && mine(t) ? '<button class="tr-x" data-edit="' + t.id + '">✏️</button> <button class="tr-x" data-deltrap="' + t.id + '" title="' + esc(tt('מחק מלכודת', 'ลบกับดัก', 'حذف المصيدة')) + '">🗑</button>' : '') + '</td></tr>';
       }).join('') + '</tbody></table></div>' +
       '<h4 style="margin:12px 0 4px;">' + tt('ספירות אחרונות', 'การนับล่าสุด', 'آخر العدّات') + '</h4>' +
       D.checks.filter(function (c) { return traps.some(function (t) { return String(t.id) === String(c.trapId); }); })
@@ -277,7 +279,7 @@ var Traps = (function () {
       if (!confirm(tt('למחוק את המלכודת ואת הספירות שלה?', 'ลบกับดัก?', 'حذف المصيدة؟'))) return;
       D.traps = D.traps.filter(function (x) { return String(x.id) !== String(id); });
       D.checks = D.checks.filter(function (c) { return String(c.trapId) !== String(id); });
-      persist().then(render);
+      persist().then(function () { if (ui.ret === 'zm') zoneManager(); else render(); });
     };
     document.getElementById('trSaveT').onclick = function () {
       t.name = document.getElementById('trName').value.trim(); t.zone = document.getElementById('trZone').value.trim();
@@ -287,7 +289,7 @@ var Traps = (function () {
       if (!t.name || !t.zone) { toast('❌ ' + tt('חסר שם או אזור', 'ขาดชื่อหรือโซน', 'الاسم أو المنطقة ناقص')); return; }
       if (!t.id) { t.id = uid(); D.traps.push(stampIt(t)); } else D.traps = D.traps.map(function (x) { return String(x.id) === String(t.id) ? t : x; });
       ui.zone = t.zone;
-      persist().then(function (ok) { if (ok) toast('✅ ' + tt('נשמר', 'บันทึกแล้ว', 'تم الحفظ')); render(); });
+      persist().then(function (ok) { if (ok) toast('✅ ' + tt('נשמר', 'บันทึกแล้ว', 'تم الحفظ')); if (ui.ret === 'zm') zoneManager(); else render(); });
     };
   }
 
@@ -411,10 +413,17 @@ var Traps = (function () {
           (can ? '<button class="tr-btn" data-zm="draw" data-zn="' + esc(zn) + '">✏️ ' + (drawn ? tt('צייר מחדש', 'วาดใหม่', 'أعد الرسم') : tt('צייר', 'วาด', 'ارسم')) + '</button>' +
             '<button class="tr-btn" data-zm="plots" data-zn="' + esc(zn) + '">▦ ' + tt('מחלקות', 'จากแปลง', 'من القطع') + '</button>' : '') +
           '<button class="tr-btn" data-zm="add" data-zn="' + esc(zn) + '">➕ ' + tt('מלכודות', 'กับดัก', 'مصائد') + '</button>' +
+          (tz.length ? '<button class="tr-btn' + (ui.zopen === zn ? ' on' : '') + '" data-zm="list" data-zn="' + esc(zn) + '">☰ ' + tz.length + '</button>' : '') +
           (tz.length ? '<button class="tr-btn" data-zm="place" data-zn="' + esc(zn) + '">📍 ' + tt('מקם', 'วาง', 'ضع') + (tz.length - placed ? ' (' + (tz.length - placed) + ')' : '') + '</button>' : '') +
           (can ? '<button class="tr-btn ghost" data-zm="ren" data-zn="' + esc(zn) + '" title="' + esc(tt('שנה שם', 'เปลี่ยนชื่อ', 'إعادة تسمية')) + '">✎</button>' +
             '<button class="tr-btn ghost warn" data-zm="del" data-zn="' + esc(zn) + '" title="' + esc(tt('מחק אזור', 'ลบโซน', 'حذف المنطقة')) + '">🗑</button>' : '') +
-        '</div>') + '</div>';
+        '</div>') +
+        (!mm && ui.zopen === zn && tz.length ? '<div class="tr-ztl">' + tz.map(function (t) {
+          var pl = t.lat != null && t.lat !== '';
+          return '<div class="tr-ztr"><span>' + (pl ? '📍' : '⚪') + ' <b>' + esc(t.name) + '</b></span>' +
+            (mine(t) ? '<button class="tr-x" data-edit="' + t.id + '" title="' + esc(tt('ערוך', 'แก้ไข', 'تعديل')) + '">✏️</button><button class="tr-x" data-deltrap="' + t.id + '" title="' + esc(tt('מחק מלכודת', 'ลบกับดัก', 'حذف المصيدة')) + '">🗑</button>' : '') + '</div>';
+        }).join('') + (tz.every(mine) ? '<button class="tr-btn ghost warn" data-zm="deltraps" data-zn="' + esc(zn) + '">🗑 ' + tt('מחק את כל המלכודות באזור', 'ลบกับดักทั้งหมด', 'حذف كل المصائد') + '</button>' : '') + '</div>' : '') +
+        '</div>';
     }).join('');
     body.innerHTML = '<button class="tr-btn ghost" data-a="zmback">→ ' + tt('חזרה', 'กลับ', 'رجوع') + '</button>' +
       '<div class="tr-bar" style="align-items:center;"><b>🧭 ' + tt('אזורי לכידה של', 'โซนของ', 'مناطق') + '</b>' +
@@ -527,7 +536,23 @@ var Traps = (function () {
     }
   }
 
+  function zmBack() { if (ui.view === 'zm') zoneManager(); else render(); }
+  // Delete traps (and their counts) — only ones this user may change.
+  function delTraps(ids, after) {
+    var tr = D.traps.filter(function (t) { return ids.indexOf(String(t.id)) !== -1; });
+    if (!tr.length) return;
+    if (tr.some(function (t) { return !mine(t); })) { if (window.Own) Own.denied(); return; }
+    var nck = D.checks.filter(function (c) { return ids.indexOf(String(c.trapId)) !== -1; }).length;
+    var msg = (tr.length === 1 ? tt('למחוק את המלכודת', 'ลบกับดัก', 'حذف المصيدة') + ' "' + tr[0].name + '"?' : tt('למחוק', 'ลบ', 'حذف') + ' ' + tr.length + ' ' + tt('מלכודות?', 'กับดัก?', 'مصائد؟')) +
+      (nck ? '\n' + nck + ' ' + tt('ספירות שלהן יימחקו גם הן.', 'การนับจะถูกลบด้วย', 'ستُحذف عدّاتها أيضًا.') : '');
+    if (!confirm(msg)) return;
+    D.traps = D.traps.filter(function (t) { return ids.indexOf(String(t.id)) === -1; });
+    D.checks = D.checks.filter(function (c) { return ids.indexOf(String(c.trapId)) === -1; });
+    persist().then(function (ok) { if (ok) toast('🗑 ' + tt('נמחק', 'ลบแล้ว', 'تم الحذف')); after(); });
+  }
   function onZm(k, zn) {
+    if (k === 'list') { ui.zopen = ui.zopen === zn ? '' : zn; return zoneManager(); }
+    if (k === 'deltraps') { return delTraps(D.traps.filter(function (t) { return t.zone === zn; }).map(function (t) { return String(t.id); }), zoneManager); }
     if (k === 'newdraw' || k === 'newplots') {
       var nm = ((document.getElementById('trZNew') || {}).value || '').trim().slice(0, 60);
       if (!nm) { toast('⚠️ ' + tt('כתוב שם לאזור', 'ใส่ชื่อโซน', 'اكتب اسم المنطقة')); var inp = document.getElementById('trZNew'); if (inp) inp.focus(); return; }
@@ -549,7 +574,7 @@ var Traps = (function () {
       mapMode = { kind: 'place', zone: zn, queue: (un.length ? un : tz).map(function (t) { return t.id; }), i: 0 };
       return zoneManager();
     }
-    if (k === 'ren') { ui.zren = zn; zoneManager(); var r = document.getElementById('trZRen'); if (r) { r.focus(); r.select(); } return; }
+    if (k === 'ren') { ui.zren = zn; ui.zf = String(zoneFarm(zn) || ''); zoneManager(); var r = document.getElementById('trZRen'); if (r) { r.focus(); r.select(); } return; }
     if (k === 'rencancel') { ui.zren = ''; return zoneManager(); }
     if (k === 'rensave') {
       var nn = ((document.getElementById('trZRen') || {}).value || '').trim().slice(0, 60);
@@ -567,10 +592,16 @@ var Traps = (function () {
     if (k === 'del') {
       var tr2 = D.traps.filter(function (t) { return t.zone === zn; });
       if (!zmCan(zn) || tr2.some(function (t) { return !mine(t); })) { if (window.Own) Own.denied(); return; }
-      if (!confirm(tt('למחוק את האזור', 'ลบโซน', 'حذف المنطقة') + ' "' + zn + '"?' + (tr2.length ? '\n' + tr2.length + ' ' + tt('המלכודות שבו יישארו, בלי אזור', 'กับดักจะไม่มีโซน', 'ستبقى المصائد بلا منطقة') : ''))) return;
-      tr2.forEach(function (t) { t.zone = ''; });
+      if (!confirm(tt('למחוק את האזור', 'ลบโซน', 'حذف المنطقة') + ' "' + zn + '"?')) return;
+      var also = tr2.length && confirm(tt('למחוק גם את', 'ลบด้วย', 'حذف أيضًا') + ' ' + tr2.length + ' ' + tt('המלכודות שבאזור ואת הספירות שלהן?\n(ביטול = המלכודות יישארו, בלי אזור)', 'กับดักในโซน?', 'مصائد المنطقة؟'));
+      if (also) {
+        var ids = tr2.map(function (t) { return String(t.id); });
+        D.traps = D.traps.filter(function (t) { return ids.indexOf(String(t.id)) === -1; });
+        D.checks = D.checks.filter(function (c) { return ids.indexOf(String(c.trapId)) === -1; });
+      } else tr2.forEach(function (t) { t.zone = ''; });
       D.zones = (D.zones || []).filter(function (z) { return z.name !== zn; });
-      persist().then(function () { zoneManager(); });
+      ui.zopen = '';
+      persist().then(function (ok) { if (ok) toast('🗑 ' + tt('האזור נמחק', 'ลบโซนแล้ว', 'حُذفت المنطقة')); zmBack(); });
     }
   }
 
@@ -897,7 +928,9 @@ var Traps = (function () {
     }
     var mt = t.closest('[data-m]'); if (mt) return onMapTool(mt.getAttribute('data-m'));
     var zm = t.closest('[data-zm]'); if (zm) return onZm(zm.getAttribute('data-zm'), zm.getAttribute('data-zn'));
-    var ed = t.closest('[data-edit]'); if (ed) return trapForm(ed.getAttribute('data-edit'));
+    var dt = t.closest('[data-deltrap]');
+    if (dt) { var from = ui.view; return delTraps([dt.getAttribute('data-deltrap')], function () { if (from === 'zm') zoneManager(); else zoneView(ui.zone); }); }
+    var ed = t.closest('[data-edit]'); if (ed) { if (ui.view === 'zm') ui.ret = 'zm'; return trapForm(ed.getAttribute('data-edit')); }
     var dc = t.closest('[data-delck]');
     if (dc) {
       if (!confirm(tt('למחוק את הספירה?', 'ลบ?', 'حذف؟'))) return;
@@ -908,7 +941,7 @@ var Traps = (function () {
       return;
     }
     var row = t.closest('tr[data-zone]');
-    if (row) { ui.zone = row.getAttribute('data-zone'); return zoneView(ui.zone); }
+    if (row) { ui.zone = row.getAttribute('data-zone'); ui.view = 'zv'; return zoneView(ui.zone); }
   }
 
   function ensureCss() {
@@ -925,6 +958,7 @@ var Traps = (function () {
       '.tr-zc{border:1.5px solid var(--line,#e6ebe2);border-radius:14px;padding:9px 10px;background:var(--card,#fff);display:flex;flex-direction:column;gap:6px;}.tr-zc.on{border-color:#f9a825;box-shadow:0 0 0 3px rgba(249,168,37,.25);}' +
       '.tr-zch{display:flex;align-items:center;gap:6px;}.tr-zch i{width:12px;height:12px;border-radius:4px;flex:none;}.tr-zch b{font-size:.92rem;}.tr-zin{margin:0 !important;flex:1;}' +
       '.tr-zs{font-size:.74rem;color:var(--text-muted,#6f7b72);}.tr-zb{display:flex;gap:5px;flex-wrap:wrap;}.tr-zb .tr-btn{padding:6px 9px;font-size:.76rem;}' +
+      '.tr-ztl{display:flex;flex-direction:column;gap:3px;border-top:1px dashed var(--line,#e6ebe2);padding-top:6px;}.tr-ztr{display:flex;align-items:center;gap:6px;font-size:.8rem;}.tr-ztr span{flex:1;}.tr-btn.on{background:var(--primary-soft,#e2efe7);}' +
       '.tr-znew{background:var(--tonal,#f3f6ef);border-style:dashed;}.tr-znew .form-input{margin:0 !important;}' +
       '@media (max-width:720px){.tr-zm{grid-template-columns:1fr;}.tr-zmap{height:360px;position:static;order:-1;}.tr-zl{max-height:none;}}' +
       '.tr-warn{background:#fde9e7;color:#8c1d18;border-radius:14px;padding:10px 12px;font-size:.84rem;margin-bottom:6px;}' +
