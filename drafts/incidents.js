@@ -310,7 +310,8 @@ var Incidents = (function () {
       });
     });
     if (F.lat != null) {
-      L.marker([F.lat, F.lng]).addTo(fmap);
+      L.circleMarker([F.lat, F.lng], { radius: 10, color: '#fff', weight: 3, fillColor: '#b3261e', fillOpacity: 1 }).addTo(fmap);
+      L.circleMarker([F.lat, F.lng], { radius: 22, color: '#b3261e', weight: 2, fill: false, dashArray: '4 4', interactive: false }).addTo(fmap);
       fmap.setView([F.lat, F.lng], 18);
     } else if (b.isValid()) fmap.fitBounds(b, { padding: [16, 16], maxZoom: 17 });
     else fmap.setView([32.03, 35.47], 12);
