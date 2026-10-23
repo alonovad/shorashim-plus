@@ -1318,7 +1318,7 @@ exports.imsWeather = onCall(
   async (request) => {
     if (!request.auth) throw new HttpsError("unauthenticated", "Sign in required");
     const pts = Array.isArray((request.data || {}).points) ? request.data.points.slice(0, 60) : [];
-    const headers = { Authorization: "ApiToken " + IMS_TOKEN.value() };
+    const headers = { Authorization: "ApiToken " + String(IMS_TOKEN.value() || "").trim() };
     const get = async (path) => {
       const r = await fetch(IMS_BASE + path, { headers });
       if (!r.ok) throw new HttpsError("unavailable", "IMS " + r.status);
