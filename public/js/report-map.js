@@ -705,6 +705,10 @@ var ReportMap = (function () {
     });
 
     var drawn = chosen.filter(function (o) { return o.rings.length; });
+    // The farm's other plots (not in this plan / log), drawn faintly on the
+    // map so the whole orchard is in view; listed by name under the table.
+    var ghosts = only ? (geo || []).filter(function (o) { return !pick[o.p.id] && !o.container; }) : [];
+    var others = only ? objs.filter(function (o) { return !pick[o.p.id] && !o.container; }) : [];
 
     var head = '<div class="ps-head"><div>' +
         '<h2>' + escH(farm ? nameOf(farm) : '') + ' — ' + tt('חלקות המשק', 'แปลงในฟาร์ม', 'قطع المزرعة') + '</h2>' +
@@ -717,7 +721,7 @@ var ReportMap = (function () {
       '</div></div>';
 
     var body = drawn.length
-      ? '<div class="ps-body"><div class="ps-map">' + satSquareSvg(drawn, c1, c2) + '</div>' +
+      ? '<div class="ps-body"><div class="ps-map">' + satSquareSvg(drawn, c1, c2, ghosts) + '</div>' +
           '<div class="ps-tbl">' + tableHtml(chosen, anyDate, totArea, totTrees) + '</div></div>'
       : '<div class="ps-tbl">' + tableHtml(chosen, anyDate, totArea, totTrees) + '</div>';
 
@@ -727,6 +731,11 @@ var ReportMap = (function () {
           'แปลงที่ไม่มีขอบเขตบนแผนที่ — แสดงในรายการเท่านั้น', 'قطع بلا حدود على الخريطة — تظهر في القائمة فقط') + '</div>'
       : '';
 
+    if (others.length) {
+      note += '<div class="ps-note">' + tt('בדף הזה', 'ในหน้านี้', 'في هذه الصفحة') + ' ' + nPlots + ' ' + tt('מתוך', 'จาก', 'من') + ' ' + (nPlots + others.length) + ' ' +
+        tt('חלקות המשק. שאר החלקות (בקו מקווקו במפה, לא בתוכנית)', 'แปลงของฟาร์ม แปลงอื่น (เส้นประ ไม่อยู่ในแผน)', 'قطع المزرعة. الباقي (خط متقطع، ليست في الخطة)') + ': ' +
+        others.map(function (o) { return escH(nameOf(o.p)); }).join(' · ') + '</div>';
+    }
     return '<section class="ps-page' + (portrait ? ' ps-portrait' : '') + '">' + head + body + note + '</section>';
   }
 
@@ -835,7 +844,9 @@ var ReportMap = (function () {
     });
   }
 
-  function satSquareSvg(drawn, c1, c2) {
+  function satSquareSvg(drawn, c1, c2, ghosts) {
+    ghosts = ghosts || [];
+    ghosts.forEach(function (o) { o.merc = o.rings.map(function (r) { return r.map(function (q) { return project(q.lat, q.lng, SAT_Z); }); }); });
     var groups = clusterize(drawn);
     // Frame size: a lone cluster gets a frame of its own proportions; a
     // collage of clusters shares one square.
@@ -894,6 +905,19 @@ var ReportMap = (function () {
         cell.w.toFixed(1) + '" height="' + cell.h.toFixed(1) + '" rx="14"/></clipPath>';
 
       var shapes = '', labels = '', placed = [];
+      ghosts.forEach(function (o) {
+        var gp = o.merc.map(function (r) { return r.map(tp); });
+        gp.forEach(function (r) {
+          shapes += '<path d="' + ringPath(r) + '" fill="#ffffff" fill-opacity="0.06" stroke="#ffffff" stroke-width="2" stroke-dasharray="7 6" stroke-linejoin="round" stroke-opacity="0.75"/>';
+        });
+        var big = gp.slice().sort(function (a, b) { var A = boxOf([a]), B = boxOf([b]); return B.w * B.h - A.w * A.h; })[0];
+        var bb = boxOf([big]);
+        if (bb.w > 70 && bb.h > 22) {
+          var lp = labelPoint(big);
+          labels += '<text x="' + lp.x.toFixed(1) + '" y="' + (lp.y + 5).toFixed(1) + '" font-size="13" font-weight="600" fill="#fff" fill-opacity="0.85" text-anchor="middle" ' +
+            'paint-order="stroke" stroke="#000" stroke-opacity="0.45" stroke-width="3">' + escH(nameOf(o.p)) + '</text>';
+        }
+      });
       cell.group.filter(function (o) { return o.container; }).forEach(function (o) {
         o.merc.map(function (r) { return r.map(tp); }).forEach(function (r) {
           shapes += '<path d="' + ringPath(r) + '" fill="none" stroke="#ffffff" stroke-width="3" stroke-dasharray="10 7" stroke-linejoin="round" stroke-opacity="0.9"/>';
