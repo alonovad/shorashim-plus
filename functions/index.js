@@ -1411,8 +1411,8 @@ async function cdseToken() {
   if (_cdseTok && Date.now() < _cdseTokExp - 60000) return _cdseTok;
   const body = new URLSearchParams({
     grant_type: "client_credentials",
-    client_id: CDSE_CLIENT_ID.value(),
-    client_secret: CDSE_CLIENT_SECRET.value()
+    client_id: String(CDSE_CLIENT_ID.value() || "").trim(),
+    client_secret: String(CDSE_CLIENT_SECRET.value() || "").trim()
   });
   const r = await fetch(CDSE_TOKEN_URL, { method: "POST", body, headers: { "Content-Type": "application/x-www-form-urlencoded" } });
   if (!r.ok) throw new HttpsError("failed-precondition", "CDSE login " + r.status + " — check CDSE_CLIENT_ID / CDSE_CLIENT_SECRET");
