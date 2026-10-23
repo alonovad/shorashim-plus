@@ -1504,3 +1504,72 @@ exports.sentinelNdvi = onCall(
     return { from, to, plots: out };
   }
 );
+
+// Sentinel-2 pixel image of a set of plot polygons on one date (satellite.js
+// "pixel map"). Process API, clipped to the polygons, 10 m pixels. Returned
+// as an RGBA PNG that carries values, not colours, so the browser can colour
+// it either absolutely or relative to each plot without another call:
+//   R = NDVI, G = NDMI   (each (v + 0.2) / 1.2 * 254)
+//   B = 1 where the pixel is cloud / shadow / water that day
+//   A = 255 inside the plots, 0 outside
+const CDSE_PROCESS_URL = "https://sh.dataspace.copernicus.eu/api/v1/process";
+const S2_PX_EVALSCRIPT = `//VERSION=3
+function setup() {
+  return { input: [{ bands: ["B04", "B08", "B8A", "B11", "SCL", "dataMask"] }],
+           output: { bands: 4, sampleType: "UINT8" } };
+}
+var BAD = [0, 1, 3, 6, 8, 9, 10, 11];
+function sc(v) { return Math.max(0, Math.min(254, Math.round((v + 0.2) / 1.2 * 254))); }
+function evaluatePixel(s) {
+  var d1 = s.B08 + s.B04, d2 = s.B8A + s.B11;
+  if (s.dataMask !== 1 || d1 <= 0 || d2 <= 0) return [0, 0, 0, 0];
+  return [sc((s.B08 - s.B04) / d1), sc((s.B8A - s.B11) / d2), BAD.indexOf(s.SCL) >= 0 ? 1 : 0, 255];
+}`;
+
+exports.sentinelImage = onCall(
+  { region: "us-central1", secrets: [CDSE_CLIENT_ID, CDSE_CLIENT_SECRET], memory: "256MiB", timeoutSeconds: 60, maxInstances: 3 },
+  async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Sign in required");
+    const tok = request.auth.token || {};
+    if ((tok.firebase || {}).sign_in_provider === "phone") throw new HttpsError("permission-denied", "Not for recovery sessions");
+    if (tok.role !== undefined && tok.role !== null && !["admin", "operator"].includes(tok.role)) {
+      throw new HttpsError("permission-denied", "Operator or admin required");
+    }
+    const data = request.data || {};
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(data.date || "")) throw new HttpsError("invalid-argument", "date YYYY-MM-DD required");
+    const rings = (Array.isArray(data.rings) ? data.rings : []).slice(0, 300).map((r) => (Array.isArray(r) ? r : [])
+      .map((c) => [Number(c[0]), Number(c[1])])
+      .filter((c) => isFinite(c[0]) && isFinite(c[1]) && Math.abs(c[0]) <= 180 && Math.abs(c[1]) <= 90)
+      .slice(0, 500))
+      .filter((r) => r.length >= 3)
+      .map((r) => { const a = r[0], b = r[r.length - 1]; if (a[0] !== b[0] || a[1] !== b[1]) r.push([a[0], a[1]]); return r; });
+    if (!rings.length) throw new HttpsError("invalid-argument", "no polygons");
+    let w = 180, s = 90, e = -180, n = -90;
+    rings.forEach((r) => r.forEach(([x, y]) => { w = Math.min(w, x); e = Math.max(e, x); s = Math.min(s, y); n = Math.max(n, y); }));
+    const lat = (s + n) / 2;
+    const mx = (e - w) * 111320 * Math.cos(lat * Math.PI / 180), my = (n - s) * 110574;
+    if (mx > 25000 || my > 25000) throw new HttpsError("invalid-argument", "area too large");
+    const width = Math.max(1, Math.min(2500, Math.round(mx / 10))), height = Math.max(1, Math.min(2500, Math.round(my / 10)));
+    const geometry = rings.length === 1 ? { type: "Polygon", coordinates: [rings[0]] }
+                                        : { type: "MultiPolygon", coordinates: rings.map((r) => [r]) };
+    const body = {
+      input: {
+        bounds: { geometry, properties: { crs: "http://www.opengis.net/def/crs/OGC/1.3/CRS84" } },
+        data: [{ type: "sentinel-2-l2a", dataFilter: {
+          timeRange: { from: data.date + "T00:00:00Z", to: data.date + "T23:59:59Z" }, mosaickingOrder: "leastCC" } }]
+      },
+      output: { width, height, responses: [{ identifier: "default", format: { type: "image/png" } }] },
+      evalscript: S2_PX_EVALSCRIPT
+    };
+    const access = await cdseToken();
+    const r = await fetch(CDSE_PROCESS_URL, {
+      method: "POST",
+      headers: { Authorization: "Bearer " + access, "Content-Type": "application/json", Accept: "image/png" },
+      body: JSON.stringify(body)
+    });
+    if (r.status === 429) throw new HttpsError("resource-exhausted", "CDSE quota");
+    if (!r.ok) throw new HttpsError("unavailable", "CDSE " + r.status + " " + (await r.text()).slice(0, 120));
+    const buf = Buffer.from(await r.arrayBuffer());
+    return { date: data.date, bbox: [w, s, e, n], width, height, png: buf.toString("base64") };
+  }
+);

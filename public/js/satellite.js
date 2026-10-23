@@ -22,7 +22,7 @@ var Satellite = (function () {
 
   var PREFIX = 'shorashim-sentinel-';
   var FIRST_DAYS = 400, KEEP_DAYS = 760, OVERLAP_DAYS = 20;
-  var D = null, farmId = null, ui = { view: 'table', idx: 'v', plot: null }, busy = false, map = null;
+  var D = null, farmId = null, ui = { view: 'table', idx: 'v', plot: null, date: '', rel: true, pxr: false }, busy = false, map = null;
 
   function tt(he, th, ar) {
     var lang = (typeof currentLang !== 'undefined') ? currentLang : 'he';
@@ -178,11 +178,11 @@ var Satellite = (function () {
   }
 
   // ── screens ──
-  function open(fid) {
+  function open(fid, plotId) {
     ensureCss();
     var fs = farms();
     farmId = fid != null ? Number(fid) : (farmId != null ? farmId : (fs[0] ? fs[0].id : null));
-    ui.plot = null;
+    ui.plot = plotId != null ? Number(plotId) : null;
     if (farmId == null) { toast(tt('אין משקים', 'ไม่มีฟาร์ม', 'لا توجد مزارع')); return; }
     load().then(render);
   }
@@ -213,12 +213,14 @@ var Satellite = (function () {
         else if (k === 'view') { ui.view = a.getAttribute('data-v'); body(); }
         else if (k === 'idx') { ui.idx = a.getAttribute('data-v'); body(); }
         else if (k === 'back') { ui.plot = null; body(); }
+        else if (k === 'rel') { ui.rel = a.getAttribute('data-v') === '1'; body(); }
+        else if (k === 'pxr') { ui.pxr = !ui.pxr; body(); }
         return;
       }
       var row = e.target.closest('[data-plot]');
       if (row) { ui.plot = Number(row.getAttribute('data-plot')); body(); }
     });
-    document.getElementById('satFarm').onchange = function () { farmId = Number(this.value); ui.plot = null; load().then(body); };
+    document.getElementById('satFarm').onchange = function () { farmId = Number(this.value); ui.plot = null; ui.date = ''; load().then(body); };
     body();
   }
 
@@ -253,9 +255,26 @@ var Satellite = (function () {
         '</div>' + legendHelp();
       return;
     }
-    if (ui.plot != null) { el.innerHTML = bar() + detail(list); return; }
+    var dates = farmDates(D, list);
+    if (ui.plot != null) {
+      el.innerHTML = bar() + detail(list, dates);
+      loadImgs(farmId).then(function () {
+        var pb = document.getElementById('satPxBar'); if (!pb) return;
+        pb.innerHTML = dateBar(dates) + pxLegend(ui.idx, ui.rel !== false); bindPxBar();
+        drawPx('satPlotMap', list.filter(function (x) { return x.id === ui.plot; })[0]);
+      });
+      return;
+    }
     var st = stats(list);
-    if (ui.view === 'map') { el.innerHTML = bar() + '<div id="satMap"></div>' + legend(); drawMap(list, st); return; }
+    if (ui.view === 'map') {
+      el.innerHTML = bar() + '<div id="satPxBar"></div><div id="satMap"></div>';
+      loadImgs(farmId).then(function () {
+        var pb = document.getElementById('satPxBar'); if (!pb) return;
+        pb.innerHTML = dateBar(dates) + pxLegend(ui.idx, ui.rel !== false); bindPxBar();
+        drawPx('satMap', null);
+      });
+      return;
+    }
     el.innerHTML = bar() + table(list, st) + legend() + legendHelp();
   }
 
@@ -290,7 +309,7 @@ var Satellite = (function () {
       '</tr></thead><tbody>' + rows + '</tbody></table></div>';
   }
 
-  function detail(list) {
+  function detail(list, dates) {
     var p = list.filter(function (x) { return x.id === ui.plot; })[0];
     if (!p) { ui.plot = null; return ''; }
     var pts = series(p.id), st = stats(list)[p.id], end = pts.length ? pts[pts.length - 1].d : today();
@@ -301,6 +320,8 @@ var Satellite = (function () {
     return '<button class="sat-btn ghost" data-a="back">→ ' + tt('כל החלקות', 'ทุกแปลง', 'كل القطع') + '</button>' +
       '<h3 class="sat-pt">' + esc(p.name) + (p.crop ? ' <small>' + esc(p.crop) + '</small>' : '') + '</h3>' +
       (st.flags.length ? '<div class="sat-warn">⚠ ' + st.flags.map(esc).join(' · ') + '</div>' : '') +
+      '<div class="sat-card"><div class="sat-ct">🗺️ ' + tt('מפת החלקה — כל פיקסל 10×10 מ\'', 'แผนที่แปลง — พิกเซลละ 10×10 ม.', 'خريطة القطعة — كل بكسل 10×10 م') + '</div>' +
+        '<div id="satPxBar"></div><div id="satPlotMap"></div><div id="satZone" class="sat-zone"></div></div>' +
       '<div class="sat-card"><div class="sat-ct">🌿 NDVI — ' + tt('צפיפות ועוצמת הנוף', 'ความหนาแน่นของทรงพุ่ม', 'كثافة الغطاء') + '</div>' + bigChart(pts, end, 'v') + '</div>' +
       '<div class="sat-card"><div class="sat-ct">💧 NDMI — ' + tt('לחות הנוף', 'ความชื้นของทรงพุ่ม', 'رطوبة الغطاء') + '</div>' + bigChart(pts, end, 'm') + '</div>' +
       '<div class="sat-mut">' + tt('קו מלא: 12 החודשים האחרונים · קו מקווקו: השנה הקודמת', 'เส้นทึบ: 12 เดือนล่าสุด · เส้นประ: ปีก่อน', 'خط متصل: آخر 12 شهرًا · خط متقطع: العام السابق') + '</div>' +
@@ -322,22 +343,277 @@ var Satellite = (function () {
       '<br><small>' + tt('מקור: Copernicus Sentinel-2 (ESA), רזולוציה 10 מ\'.', 'ที่มา: Copernicus Sentinel-2 (ESA) ความละเอียด 10 ม.', 'المصدر: Copernicus Sentinel-2 (ESA)، دقة 10 م.') + '</small></div></details>';
   }
 
-  function drawMap(list, st) {
-    if (typeof L === 'undefined') return;
-    map = L.map('satMap', { attributionControl: false });
+  // satellite screen, map view: the pixel map of the whole farm
+  var pxm = null;
+  function pxOpts() { return { idx: ui.idx, rel: ui.rel !== false, pixelated: !!ui.pxr }; }
+  function dateBar(dates) {
+    if (!ui.date || dates.indexOf(ui.date) < 0) ui.date = dates[0] || '';
+    var cache = (imgDocs[farmId] || { imgs: {} }).imgs;
+    return '<div class="sat-bar">' +
+      '<select class="form-input sat-d" id="satDate">' + dates.slice(0, 40).map(function (d) {
+        return '<option value="' + d + '"' + (d === ui.date ? ' selected' : '') + '>' + fmtDY(d) + (cache[d] ? ' ✓' : '') + '</option>'; }).join('') + '</select>' +
+      '<span class="sat-seg"><button class="sat-btn' + (ui.rel !== false ? ' on' : '') + '" data-a="rel" data-v="1">' + tt('יחסי לחלקה', 'เทียบในแปลง', 'نسبي للقطعة') + '</button>' +
+      '<button class="sat-btn' + (ui.rel === false ? ' on' : '') + '" data-a="rel" data-v="0">' + tt('ערך מוחלט', 'ค่าจริง', 'قيمة مطلقة') + '</button></span>' +
+      '<button class="sat-btn' + (ui.pxr ? ' on' : '') + '" data-a="pxr" title="pixels">▦</button>' +
+      '<span class="sat-mut" id="satPxMsg"></span></div>';
+  }
+  function pxMsg(t) { var e = document.getElementById('satPxMsg'); if (e) e.innerHTML = t; }
+  // mapId: element id; plot: limit the view (and zone figures) to one plot
+  function drawPx(mapId, plot) {
+    if (typeof L === 'undefined' || !document.getElementById(mapId)) return;
+    map = L.map(mapId, { attributionControl: false });
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 }).addTo(map);
     var b = L.latLngBounds([]);
+    (plot ? [plot] : farmPlots()).forEach(function (p) { p.rings.forEach(function (r) { r.forEach(function (q) { b.extend([Number(q.lat), Number(q.lng)]); }); }); });
+    if (b.isValid()) map.fitBounds(b, { padding: [16, 16], maxZoom: 18 });
+    if (!ui.date) { pxMsg(tt('אין מעבר נקי', 'ไม่มีภาพ', 'لا صورة')); return; }
+    pxm = PxLayer(map);
+    pxMsg('⏳');
+    var o = pxOpts();
+    pxm.show({ fid: farmId, date: ui.date, idx: o.idx, rel: o.rel, pixelated: o.pixelated, highlight: plot ? plot.id : null,
+      onPick: function (p, h) {
+        if (!plot) { ui.plot = p.id; body(); return; }
+        pxMsg(h ? (h.cloud ? '☁' : idxName() + ' ' + ltr(h.v.toFixed(2))) : '');
+      },
+      onHover: function (p, h) { pxMsg(esc(p.name) + (h ? (h.cloud ? ' · ☁' : ' · ' + idxName() + ' ' + ltr(h.v.toFixed(2))) : '')); },
+      onDone: function (res, why) {
+        pxMsg(res ? '' : (why === 'nocache' ? tt('אין תמונה שמורה לתאריך הזה — מנהל יכול לטעון', 'ไม่มีภาพสำหรับวันนี้', 'لا صورة لهذا التاريخ') : tt('אין תמונה', 'ไม่มีภาพ', 'لا صورة')));
+        var zEl = document.getElementById('satZone');
+        if (plot && zEl) {
+          var z = res && res.zone[plot.id];
+          zEl.innerHTML = z ? '<b>' + tt('אזור חלש', 'โซนอ่อน', 'منطقة ضعيفة') + ': ' + Math.round(z.weakPct * 100) + '%</b> ' +
+            tt('מהחלקה', 'ของแปลง', 'من القطعة') + ' (' + ltr(z.weakDunam.toFixed(1)) + ' ' + tt('דונם', 'ไร่', 'دونم') + ') · ' +
+            tt('חציון', 'มัธยฐาน', 'الوسيط') + ' ' + idxName() + ' ' + ltr(z.med.toFixed(2)) +
+            '<div class="sat-mut">' + tt('אזור חלש = פיקסלים נמוכים בבירור מהחציון של החלקה באותו יום. כדאי לבדוק שם השקיה, עצים חסרים, מזיקים.',
+                                       'โซนอ่อน = พิกเซลที่ต่ำกว่าค่ามัธยฐานของแปลงอย่างชัดเจน ควรตรวจการให้น้ำ ต้นที่ขาด ศัตรูพืช',
+                                       'المنطقة الضعيفة = بكسلات أقل بوضوح من وسيط القطعة. افحص الري والأشجار المفقودة والآفات.') + '</div>' : '';
+        }
+      } });
+  }
+  function bindPxBar() {
+    var sd = document.getElementById('satDate');
+    if (sd) sd.onchange = function () { ui.date = this.value; body(); };
+  }
+
+  // ══ Pixel map — every 10 m pixel inside the plots ══
+  // One Process API image per farm per date (sentinelImage function), cached
+  // in appData/shorashim-sentinel-img-<farmId>. The PNG holds values, so the
+  // colouring — absolute, or relative to each plot (weak ↔ strong zones
+  // inside the plot) — happens here without another call.
+  var IMG_PREFIX = 'shorashim-sentinel-img-', IMG_KEEP = 8;
+  var imgDocs = {}, decoded = {};
+  var RAMP = [[0, [215, 48, 39]], [0.25, [252, 141, 89]], [0.5, [254, 224, 139]], [0.75, [145, 207, 96]], [1, [26, 152, 80]]];
+  var ABS = { v: [0.1, 0.7], m: [-0.2, 0.4] };
+  function ramp(t) {
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    for (var i = 1; i < RAMP.length; i++) if (t <= RAMP[i][0]) {
+      var a = RAMP[i - 1], b = RAMP[i], k = (t - a[0]) / (b[0] - a[0]);
+      return [Math.round(a[1][0] + (b[1][0] - a[1][0]) * k), Math.round(a[1][1] + (b[1][1] - a[1][1]) * k), Math.round(a[1][2] + (b[1][2] - a[1][2]) * k)];
+    }
+    return RAMP[RAMP.length - 1][1];
+  }
+  function rampCss() { return 'linear-gradient(90deg,' + RAMP.map(function (s) { return 'rgb(' + s[1].join(',') + ') ' + (s[0] * 100) + '%'; }).join(',') + ')'; }
+  function px2v(b) { return b / 254 * 1.2 - 0.2; }
+
+  function loadImgs(fid) {
+    if (imgDocs[fid]) return Promise.resolve(imgDocs[fid]);
+    if (typeof DB === 'undefined') return Promise.resolve({ imgs: {} });
+    return DB.loadAsync(IMG_PREFIX + fid).then(function (d) {
+      imgDocs[fid] = { imgs: (d && d.imgs && typeof d.imgs === 'object') ? d.imgs : {} };
+      return imgDocs[fid];
+    }, function () { imgDocs[fid] = { imgs: {} }; return imgDocs[fid]; });
+  }
+  // Dates on which most of the farm's plots had a clear pass, newest first.
+  function farmDates(doc, list) {
+    var cnt = {}, withData = 0;
     list.forEach(function (p) {
-      var c = st[p.id].cur, v = c && c.v;
-      p.rings.forEach(function (r) {
-        var ll = r.map(function (q) { return [Number(q.lat), Number(q.lng)]; });
-        var poly = L.polygon(ll, { color: st[p.id].flags.length ? '#b3261e' : '#ffffff', weight: st[p.id].flags.length ? 3 : 1.5, fillColor: col(v), fillOpacity: 0.72 }).addTo(map);
-        poly.bindTooltip(esc(p.name) + ' · ' + idxName() + ' ' + f2(v) + (c ? ' (' + fmtD(c.d) + ')' : ''), { sticky: true });
-        poly.on('click', function () { ui.plot = p.id; body(); });
-        ll.forEach(function (x) { b.extend(x); });
+      var s = (doc.plots || {})[p.id] || [];
+      if (s.length) withData++;
+      s.forEach(function (q) { cnt[q.d] = (cnt[q.d] || 0) + 1; });
+    });
+    var need = Math.max(1, Math.ceil(withData * 0.6));
+    return Object.keys(cnt).filter(function (d) { return cnt[d] >= need; }).sort().reverse();
+  }
+  function plotsOf(fid) { var sF = farmId; farmId = fid; var l = farmPlots(); farmId = sF; return l; }
+  // cached image, or (operator+) fetch it now
+  function getImage(fid, date, list) {
+    return loadImgs(fid).then(function (doc) {
+      if (doc.imgs[date]) return doc.imgs[date];
+      if (!staff()) return null;
+      if (typeof firebase === 'undefined' || !firebase.app || !firebase.app().functions) return null;
+      var fn = firebase.app().functions('us-central1').httpsCallable('sentinelImage', { timeout: 65000 });
+      var rings = [];
+      list.forEach(function (p) { p.rings.forEach(function (r) { rings.push(r.map(function (q) { return [Number(q.lng), Number(q.lat)]; })); }); });
+      return fn({ date: date, rings: rings }).then(function (res) {
+        var im = res && res.data;
+        if (!im || !im.png) return null;
+        doc.imgs[date] = { png: im.png, bbox: im.bbox, width: im.width, height: im.height };
+        var ds = Object.keys(doc.imgs).sort().reverse();
+        ds.slice(IMG_KEEP).forEach(function (d) { delete doc.imgs[d]; });
+        if (DB.saveAsync) DB.saveAsync(IMG_PREFIX + fid, JSON.parse(JSON.stringify(doc))).catch(function () {});
+        return doc.imgs[date];
+      }, function (e) {
+        var c = String((e && (e.code || '')) + ' ' + (e && e.message || ''));
+        toast('⚠️ ' + (/exhausted|quota/i.test(c) ? tt('נגמרה המכסה החודשית של Copernicus', 'โควตาหมด', 'نفدت الحصة') :
+                       tt('לא הצלחתי להביא את תמונת הלוויין', 'โหลดภาพดาวเทียมไม่ได้', 'تعذّر جلب صورة القمر')));
+        return null;
       });
     });
-    if (b.isValid()) map.fitBounds(b, { padding: [20, 20], maxZoom: 17 });
+  }
+  function decode(fid, date, im) {
+    var k = fid + '|' + date;
+    if (decoded[k]) return Promise.resolve(decoded[k]);
+    return new Promise(function (resolve) {
+      var img = new Image();
+      img.onload = function () {
+        var cv = document.createElement('canvas'); cv.width = im.width; cv.height = im.height;
+        var cx = cv.getContext('2d'); cx.drawImage(img, 0, 0);
+        decoded[k] = { w: im.width, h: im.height, bbox: im.bbox, px: cx.getImageData(0, 0, im.width, im.height).data, owner: null, ownerFor: '' };
+        resolve(decoded[k]);
+      };
+      img.onerror = function () { resolve(null); };
+      img.src = 'data:image/png;base64,' + im.png;
+    });
+  }
+  function inRing(x, y, r) {
+    var ins = false;
+    for (var i = 0, j = r.length - 1; i < r.length; j = i++) {
+      var xi = Number(r[i].lng), yi = Number(r[i].lat), xj = Number(r[j].lng), yj = Number(r[j].lat);
+      if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) ins = !ins;
+    }
+    return ins;
+  }
+  // which plot each pixel belongs to (index into list, -1 none)
+  function owners(dec, list) {
+    var sig = list.map(function (p) { return p.id; }).join(',');
+    if (dec.owner && dec.ownerFor === sig) return dec.owner;
+    var o = new Int16Array(dec.w * dec.h).fill(-1), b = dec.bbox;
+    var bx = list.map(function (p) {
+      var w = 180, s = 90, e = -180, n = -90;
+      p.rings.forEach(function (r) { r.forEach(function (q) { var x = Number(q.lng), y = Number(q.lat); if (x < w) w = x; if (x > e) e = x; if (y < s) s = y; if (y > n) n = y; }); });
+      return [w, s, e, n];
+    });
+    for (var j = 0; j < dec.h; j++) {
+      var y = b[3] - (j + 0.5) / dec.h * (b[3] - b[1]);
+      for (var i = 0; i < dec.w; i++) {
+        var a = (j * dec.w + i) * 4;
+        if (!dec.px[a + 3]) continue;
+        var x = b[0] + (i + 0.5) / dec.w * (b[2] - b[0]);
+        for (var k = 0; k < list.length; k++) {
+          var q = bx[k];
+          if (x < q[0] || x > q[2] || y < q[1] || y > q[3]) continue;
+          if (list[k].rings.some(function (r) { return inRing(x, y, r); })) { o[j * dec.w + i] = k; break; }
+        }
+      }
+    }
+    dec.owner = o; dec.ownerFor = sig;
+    return o;
+  }
+  function quant(a, q) { if (!a.length) return null; var i = Math.min(a.length - 1, Math.max(0, Math.round(q * (a.length - 1)))); return a[i]; }
+  // Colour the decoded image. rel: each plot stretched between its own 5th
+  // and 95th percentile. Returns the image URL and per-plot zone figures.
+  function paint(dec, list, idx, rel) {
+    var o = owners(dec, list), ch = idx === 'm' ? 1 : 0, n = dec.w * dec.h;
+    var vals = list.map(function () { return []; }), farmVals = [];
+    for (var p = 0; p < n; p++) {
+      var a = p * 4;
+      if (!dec.px[a + 3] || dec.px[a + 2]) continue;
+      var v = px2v(dec.px[a + ch]);
+      farmVals.push(v);
+      if (o[p] >= 0) vals[o[p]].push(v);
+    }
+    var zone = {};
+    var rng = vals.map(function (vs, k) {
+      vs.sort(function (x, y) { return x - y; });
+      var md = quant(vs, 0.5), lo = quant(vs, 0.05), hi = quant(vs, 0.95);
+      if (md != null) {
+        var weak = vs.filter(function (v) { return v < md - (idx === 'm' ? 0.06 : 0.08); }).length;
+        zone[list[k].id] = { n: vs.length, med: md, weakPct: weak / vs.length, weakDunam: weak * 0.1 };
+      }
+      return [lo, hi];
+    });
+    var cv = document.createElement('canvas'); cv.width = dec.w; cv.height = dec.h;
+    var cx = cv.getContext('2d'), out = cx.createImageData(dec.w, dec.h), d = out.data;
+    var A = ABS[idx];
+    for (var q = 0; q < n; q++) {
+      var b = q * 4;
+      if (!dec.px[b + 3]) continue;
+      if (dec.px[b + 2]) { d[b] = 160; d[b + 1] = 160; d[b + 2] = 160; d[b + 3] = 150; continue; }
+      var v2 = px2v(dec.px[b + ch]), t;
+      if (rel && o[q] >= 0 && rng[o[q]][0] != null && rng[o[q]][1] - rng[o[q]][0] > 0.02) t = (v2 - rng[o[q]][0]) / (rng[o[q]][1] - rng[o[q]][0]);
+      else t = (v2 - A[0]) / (A[1] - A[0]);
+      var c = ramp(t); d[b] = c[0]; d[b + 1] = c[1]; d[b + 2] = c[2]; d[b + 3] = 235;
+    }
+    cx.putImageData(out, 0, 0);
+    return { url: cv.toDataURL(), zone: zone, bounds: [[dec.bbox[1], dec.bbox[0]], [dec.bbox[3], dec.bbox[2]]] };
+  }
+  function pxAt(dec, list, latlng, idx) {
+    var b = dec.bbox;
+    var i = Math.floor((latlng.lng - b[0]) / (b[2] - b[0]) * dec.w), j = Math.floor((b[3] - latlng.lat) / (b[3] - b[1]) * dec.h);
+    if (i < 0 || j < 0 || i >= dec.w || j >= dec.h) return null;
+    var a = (j * dec.w + i) * 4;
+    if (!dec.px[a + 3]) return null;
+    var o = owners(dec, list)[j * dec.w + i];
+    return { v: px2v(dec.px[a + (idx === 'm' ? 1 : 0)]), cloud: !!dec.px[a + 2], plot: o >= 0 ? list[o] : null };
+  }
+
+  // A pixel layer on any Leaflet map: image in its own pane above the plot
+  // polygons (clicks pass through), plot outlines on top.
+  function PxLayer(m) {
+    if (!m.getPane('satPx')) { var pn = m.createPane('satPx'); pn.style.zIndex = 450; pn.style.pointerEvents = 'none'; }
+    if (!m.getPane('satLn')) { var pl = m.createPane('satLn'); pl.style.zIndex = 460; }
+    var self = { img: null, lines: null, dec: null, list: [], res: null, seq: 0 };
+    var rend = L.svg({ pane: 'satLn' });
+    self.clear = function () {
+      self.seq++;
+      if (self.img) { try { m.removeLayer(self.img); } catch (e) {} self.img = null; }
+      if (self.lines) { try { m.removeLayer(self.lines); } catch (e) {} self.lines = null; }
+      self.dec = null; self.res = null;
+    };
+    // o: { fid, date, idx, rel, pixelated, onPlot(p), fit, onDone(res|null, msg) }
+    self.show = function (o) {
+      var seq = ++self.seq, list = plotsOf(o.fid);
+      self.list = list;
+      return getImage(o.fid, o.date, list).then(function (im) {
+        if (seq !== self.seq) return;
+        if (!im) { self.clear(); if (o.onDone) o.onDone(null, staff() ? 'fail' : 'nocache'); return; }
+        return decode(o.fid, o.date, im).then(function (dec) {
+          if (seq !== self.seq || !dec) return;
+          var res = paint(dec, list, o.idx, o.rel);
+          if (self.img) { try { m.removeLayer(self.img); } catch (e) {} }
+          self.img = L.imageOverlay(res.url, res.bounds, { pane: 'satPx', opacity: 1, className: o.pixelated ? 'sat-pxr' : '' }).addTo(m);
+          if (!self.lines) {
+            self.lines = L.layerGroup();
+            list.forEach(function (p) {
+              p.rings.forEach(function (r) {
+                var pg = L.polygon(r.map(function (q) { return [Number(q.lat), Number(q.lng)]; }), { renderer: rend, color: o.highlight === p.id ? '#ffeb3b' : '#ffffff', weight: o.highlight === p.id ? 3.5 : 1.4, fill: true, fillOpacity: 0, opacity: 0.95 });
+                pg.on('click', function (ev) {
+                  var hit = pxAt(dec, list, ev.latlng, o.idx);
+                  if (o.onPick) o.onPick(p, hit);
+                });
+                pg.on('mousemove', function (ev) { if (o.onHover) o.onHover(p, pxAt(dec, list, ev.latlng, o.idx)); });
+                self.lines.addLayer(pg);
+              });
+            });
+            self.lines.addTo(m);
+          }
+          self.dec = dec; self.res = res;
+          if (o.fit) {
+            var bb = L.latLngBounds(res.bounds);
+            if (o.fit === 'always' || !m.getBounds().intersects(bb) || m.getZoom() < 13) m.fitBounds(bb, { padding: [24, 24], maxZoom: 17 });
+          }
+          if (o.onDone) o.onDone(res, '');
+        });
+      });
+    };
+    return self;
+  }
+  function pxLegend(idx, rel) {
+    var A = ABS[idx];
+    return '<div class="sat-grad" style="background:' + rampCss() + '"></div><div class="sat-gl">' +
+      (rel ? '<span>' + tt('חלש בתוך החלקה', 'อ่อนในแปลง', 'ضعيف داخل القطعة') + '</span><span>' + tt('חזק', 'แข็งแรง', 'قوي') + '</span>'
+           : '<span>' + ltr(A[0].toFixed(1)) + '</span><span>' + ltr(((A[0] + A[1]) / 2).toFixed(1)) + '</span><span>' + ltr(A[1].toFixed(1)) + '</span>') +
+      '</div><div class="sat-mut">▒ ' + tt('אפור = ענן באותו יום', 'สีเทา = เมฆ', 'رمادي = غيوم') + '</div>';
   }
 
   // ── refresh from the satellite (operator+) ──
@@ -399,6 +675,7 @@ var Satellite = (function () {
         else if (quota) toast('⚠️ ' + tt('נגמרה המכסה החודשית של Copernicus — חלק מהחלקות לא עודכנו', 'โควตาหมด', 'نفدت الحصة الشهرية'));
         else if (errs) toast('⚠️ ' + errs + ' ' + tt('חלקות לא עודכנו', 'แปลงไม่ได้อัปเดต', 'قطع لم تُحدَّث'));
         else toast('✅ ' + tt('עודכן מהלוויין', 'อัปเดตแล้ว', 'تم التحديث'));
+        if (ov.on) { delete imgDocs[farmId]; overlayOn(); }
         body();
       });
     });
@@ -430,11 +707,139 @@ var Satellite = (function () {
       '#satMap{height:440px;border-radius:16px;margin-top:4px;}' +
       '.sat-pt{margin:8px 0 6px;}.sat-pt small{font-weight:500;color:var(--text-muted,#6f7b72);font-size:.8rem;}' +
       '.sat-card{border:1px solid var(--line,#e6ebe2);border-radius:14px;padding:8px 10px;margin-top:8px;}.sat-ct{font-size:.8rem;font-weight:700;margin-bottom:4px;}' +
-      '.sat-big{width:100%;height:auto;display:block;direction:ltr;}';
+      '.sat-big{width:100%;height:auto;display:block;direction:ltr;}' +
+      '#satPlotMap{height:300px;border-radius:12px;margin-top:6px;}.sat-zone{font-size:.8rem;margin-top:6px;}.sat-d{width:auto !important;margin:0 !important;}' +
+      '.sat-pxr{image-rendering:pixelated;}' +
+      '.sat-grad{height:10px;border-radius:5px;margin-top:6px;direction:ltr;}.sat-gl{display:flex;justify-content:space-between;font-size:.68rem;color:var(--text-muted,#6f7b72);direction:ltr;}' +
+      '.sat-mp{background:var(--card,#fff);border-radius:14px;padding:8px 10px;box-shadow:0 2px 12px rgba(0,0,0,.2);width:250px;font-size:.76rem;}' +
+      '.sat-mp .form-input{margin:0 0 5px !important;padding:5px 8px !important;font-size:.78rem !important;height:auto !important;}' +
+      '.sat-mp.min > :not(.sat-mp-h):not(.sat-grad):not(.sat-gl){display:none;}@media (max-width:600px){.sat-mp{width:210px;}}' +
+      '.sat-mp-h{display:flex;gap:6px;align-items:center;}.sat-mp-h .form-input{flex:1;margin:0 !important;}' +
+      '.sat-mp-r{display:flex;gap:4px;margin-bottom:4px;}.sat-mp-r .sat-btn{flex:1;padding:5px 6px;font-size:.74rem;}.sat-mp-o{margin-top:6px;line-height:1.45;}.sat-mp-o .sat-btn{margin-top:4px;padding:4px 8px;}' +
+      '#ndviBtn.sat-ndvi-btn.on{background:var(--grad-primary,#1d5a2c) !important;color:#fff !important;}';
     document.head.appendChild(st);
   }
 
+
+  // ── pixel map on the main map ──
+  // A button next to the street/imagery toggle opens the pixel map of one
+  // farm (the one in view) with a small panel: farm, date, index, scale.
+  var ov = { min: (window.innerWidth || 800) < 600, on: false, layer: null, ctl: null, el: null, fid: null, date: '', idx: 'v', rel: true, pxr: false, docs: {}, pick: null };
+  function mainMap() { return window.MapAccess && MapAccess.getMap ? MapAccess.getMap() : null; }
+  function overlayOff() {
+    ov.on = false;
+    var m = mainMap();
+    if (ov.layer) ov.layer.clear();
+    if (ov.ctl && m) { try { m.removeControl(ov.ctl); } catch (e) {} }
+    ov.ctl = null; ov.el = null;
+    var b = document.getElementById('ndviBtn'); if (b) b.classList.remove('on');
+  }
+  function farmInView(m, ids) {
+    var c = m.getCenter(), best = null, bd = Infinity;
+    ids.forEach(function (fid) {
+      plotsOf(fid).forEach(function (p) {
+        p.rings.forEach(function (r) {
+          if (inRing(c.lng, c.lat, r)) { best = fid; bd = -1; }
+          else if (bd >= 0) r.forEach(function (q) { var d = Math.abs(q.lat - c.lat) + Math.abs(q.lng - c.lng); if (d < bd) { bd = d; best = fid; } });
+        });
+      });
+    });
+    return best;
+  }
+  function overlayOn() {
+    var m = mainMap();
+    if (!m || typeof L === 'undefined' || typeof DB === 'undefined') return;
+    ensureCss();
+    ov.on = true;
+    var b = document.getElementById('ndviBtn'); if (b) b.classList.add('on');
+    var fs = farms();
+    Promise.all(fs.map(function (f) {
+      return DB.loadAsync(PREFIX + f.id).then(function (d) { return { f: f, d: d }; }, function () { return { f: f, d: null }; });
+    })).then(function (res) {
+      if (!ov.on) return;
+      ov.docs = {};
+      res.forEach(function (r) { if (r.d && r.d.plots && Object.keys(r.d.plots).length) ov.docs[r.f.id] = norm(r.d); });
+      var ids = Object.keys(ov.docs).map(Number);
+      if (!ids.length) {
+        overlayOff();
+        toast('🛰️ ' + tt('אין עדיין נתוני לוויין. פתח "לוויין" ולחץ "עדכון מהלוויין".', 'ยังไม่มีข้อมูลดาวเทียม', 'لا توجد بيانات قمر صناعي بعد'));
+        return;
+      }
+      if (ov.fid == null || ids.indexOf(ov.fid) < 0) ov.fid = farmInView(m, ids) || ids[0];
+      if (!ov.layer) ov.layer = PxLayer(m);
+      if (!ov.ctl) {
+        var el = document.createElement('div');
+        el.className = 'sat-mp leaflet-control' + (ov.min ? ' min' : '');
+        var Ctl = L.Control.extend({ options: { position: 'topleft' }, onAdd: function () { L.DomEvent.disableClickPropagation(el); L.DomEvent.disableScrollPropagation(el); return el; } });
+        ov.ctl = new Ctl(); ov.ctl.addTo(m); ov.el = el;
+        el.addEventListener('click', function (e) {
+          var a = e.target.closest('[data-o]'); if (!a) return;
+          var k = a.getAttribute('data-o'), v = a.getAttribute('data-v');
+          if (k === 'idx') ov.idx = v; else if (k === 'rel') ov.rel = v === '1'; else if (k === 'pxr') ov.pxr = !ov.pxr;
+          else if (k === 'card' && ov.pick) { open(ov.fid, ov.pick); return; }
+          else if (k === 'x') { overlayOff(); return; }
+          else if (k === 'min') { ov.min = !ov.min; ov.el.classList.toggle('min', ov.min); a.textContent = ov.min ? '▸' : '▾'; return; }
+          drawOv(false);
+        });
+        el.addEventListener('change', function (e) {
+          if (e.target.id === 'ovFarm') { ov.fid = Number(e.target.value); ov.date = ''; if (ov.layer) ov.layer.clear(); drawOv(true); }
+          if (e.target.id === 'ovDate') { ov.date = e.target.value; drawOv(false); }
+        });
+      }
+      drawOv(true);
+    });
+  }
+  function ovPanel(dates, msg) {
+    var cache = (imgDocs[ov.fid] || { imgs: {} }).imgs;
+    var fo = farms().filter(function (f) { return ov.docs[f.id]; }).map(function (f) { return '<option value="' + f.id + '"' + (f.id === ov.fid ? ' selected' : '') + '>' + esc(f.name) + '</option>'; }).join('');
+    var B = function (k, v, on, lbl) { return '<button class="sat-btn' + (on ? ' on' : '') + '" data-o="' + k + '" data-v="' + v + '">' + lbl + '</button>'; };
+    return '<div class="sat-mp-h"><b>🛰️</b><select class="form-input" id="ovFarm">' + fo + '</select><button class="sat-btn ghost" data-o="min" title="−">' + (ov.min ? '▸' : '▾') + '</button><button class="sat-btn ghost" data-o="x">✕</button></div>' +
+      '<select class="form-input" id="ovDate">' + dates.slice(0, 40).map(function (d) { return '<option value="' + d + '"' + (d === ov.date ? ' selected' : '') + '>' + fmtDY(d) + (cache[d] ? ' ✓' : '') + '</option>'; }).join('') + '</select>' +
+      '<div class="sat-mp-r">' + B('idx', 'v', ov.idx === 'v', '🌿 NDVI') + B('idx', 'm', ov.idx === 'm', '💧 NDMI') + '</div>' +
+      '<div class="sat-mp-r">' + B('rel', '1', ov.rel, tt('יחסי לחלקה', 'เทียบในแปลง', 'نسبي')) + B('rel', '0', !ov.rel, tt('מוחלט', 'ค่าจริง', 'مطلق')) + B('pxr', '1', ov.pxr, '▦') + '</div>' +
+      pxLegend(ov.idx, ov.rel) +
+      '<div class="sat-mp-o" id="ovOut">' + (msg || '') + '</div>';
+  }
+  function drawOv(fit) {
+    if (!ov.on || !ov.el) return;
+    var doc = ov.docs[ov.fid], list = plotsOf(ov.fid);
+    var dates = farmDates(doc, list);
+    if (!ov.date || dates.indexOf(ov.date) < 0) ov.date = dates[0] || '';
+    loadImgs(ov.fid).then(function () {
+      ov.el.innerHTML = ovPanel(dates, '⏳ ' + tt('טוען תמונה…', 'กำลังโหลด…', 'جارٍ التحميل…'));
+      if (!ov.date) { document.getElementById('ovOut').textContent = tt('אין מעבר נקי', 'ไม่มีภาพ', 'لا صورة'); return; }
+      ov.layer.show({ fid: ov.fid, date: ov.date, idx: ov.idx, rel: ov.rel, pixelated: ov.pxr, fit: fit ? 'auto' : '',
+        onHover: function (p, h) { var o = document.getElementById('ovOut'); if (o && !ov.pick) o.innerHTML = esc(p.name) + (h ? (h.cloud ? ' · ☁' : ' · ' + (ov.idx === 'm' ? 'NDMI ' : 'NDVI ') + ltr(h.v.toFixed(2))) : ''); },
+        onPick: function (p, h) {
+          ov.pick = p.id;
+          var z = ov.layer.res && ov.layer.res.zone[p.id], o = document.getElementById('ovOut');
+          if (!o) return;
+          o.innerHTML = '<b>' + esc(p.name) + '</b>' + (h && !h.cloud ? ' · ' + ltr(h.v.toFixed(2)) : '') +
+            (z ? '<br>' + tt('חציון', 'มัธยฐาน', 'الوسيط') + ' ' + ltr(z.med.toFixed(2)) + ' · ' + tt('אזור חלש', 'โซนอ่อน', 'منطقة ضعيفة') + ' ' + Math.round(z.weakPct * 100) + '% (' + ltr(z.weakDunam.toFixed(1)) + ' ' + tt('ד׳', 'ไร่', 'دونم') + ')' : '') +
+            '<br><button class="sat-btn" data-o="card">📈 ' + tt('כרטיס החלקה', 'การ์ดแปลง', 'بطاقة القطعة') + '</button>';
+        },
+        onDone: function (res, why) {
+          ov.el.innerHTML = ovPanel(dates, res ? '<span class="sat-mut">' + tt('הקש על חלקה לפרטים', 'แตะแปลงเพื่อดูรายละเอียด', 'اضغط على قطعة للتفاصيل') + '</span>'
+            : (why === 'nocache' ? tt('אין תמונה שמורה לתאריך הזה — מנהל יכול לטעון', 'ไม่มีภาพ', 'لا صورة محفوظة') : tt('אין תמונה', 'ไม่มีภาพ', 'لا صورة')));
+          ov.pick = null;
+        } });
+    });
+  }
+  function mountMapButton() {
+    var bar = document.querySelector('#tabMap .map-float-bar');
+    if (!bar || document.getElementById('ndviBtn')) return;
+    var btn = document.createElement('button');
+    btn.className = 'layer-toggle sat-ndvi-btn'; btn.id = 'ndviBtn'; btn.type = 'button';
+    btn.title = tt('מצב הצמחייה מהלוויין', 'สภาพพืชจากดาวเทียม', 'حالة الغطاء النباتي من القمر الصناعي');
+    btn.innerHTML = '<span>🌿</span><span>NDVI</span>';
+    btn.onclick = function () { if (ov.on) overlayOff(); else overlayOn(); };
+    bar.appendChild(btn);
+    ensureCss();
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mountMapButton); else mountMapButton();
+
   document.addEventListener('shorashim:lang', function () { if (document.getElementById('satRoot') && D && !busy) render(); });
+  document.addEventListener('shorashim:lang', function () { var b = document.getElementById('ndviBtn'); if (b) b.title = tt('מצב הצמחייה מהלוויין', 'สภาพพืชจากดาวเทียม', 'حالة الغطاء النباتي من القمر الصناعي'); });
 
   return { open: open, close: close };
 })();

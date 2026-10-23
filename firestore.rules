@@ -172,10 +172,12 @@ service cloud.firestore {
                       docId.matches('shorashim-traps-[0-9]{4}');
 
       // Operator+: Sentinel-2 vegetation index per plot, one doc per farm
-      // (satellite.js). Written after the operator pulls fresh passes through
-      // the sentinelNdvi function; every signed-in role reads it.
+      // (satellite.js), and the per-farm pixel images (…-img-<farmId>). Written
+      // after the operator pulls fresh data through sentinelNdvi /
+      // sentinelImage; every signed-in role reads them.
       allow write: if isOperatorOrAbove() &&
-                      docId.matches('shorashim-sentinel-[0-9]+');
+                      (docId.matches('shorashim-sentinel-[0-9]+') ||
+                       docId.matches('shorashim-sentinel-img-[0-9]+'));
 
       // Worker+: worklogs
       allow write: if isWorkerOrAbove() && docId.matches('shorashim-worklog.*');
