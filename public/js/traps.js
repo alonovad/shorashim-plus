@@ -89,6 +89,7 @@ var Traps = (function () {
   function zones() {
     var z = {};
     D.traps.forEach(function (t) { var k = t.zone || tt('ללא אזור', 'ไม่มีโซน', 'بلا منطقة'); (z[k] = z[k] || []).push(t); });
+    (D.zones || []).forEach(function (d) { if (d && d.name && !z[d.name]) z[d.name] = []; });
     return z;
   }
   function trapById(id) { return D.traps.find(function (t) { return String(t.id) === String(id); }); }
@@ -161,6 +162,7 @@ var Traps = (function () {
         (canWrite() ? '<button class="tr-btn pri" data-a="check">＋ ' + tt('רישום ספירה', 'บันทึกการนับ', 'تسجيل عدّ') + '</button>' : '') +
         (canWrite() ? '<button class="tr-btn" data-a="scan">📷 ' + tt('מתמונה / מסמך', 'จากรูป/เอกสาร', 'من صورة/مستند') + '</button>' : '') +
         (staff() ? '<button class="tr-btn" data-a="trap">📍 ' + tt('מלכודת חדשה', 'กับดักใหม่', 'مصيدة جديدة') + '</button>' : '') +
+        (staff() ? '<button class="tr-btn" data-a="zones">🧭 ' + tt('אזורי לכידה', 'โซนกับดัก', 'مناطق الصيد') + '</button>' : '') +
         (staff() ? '<button class="tr-btn" data-a="bulk">➕ ' + tt('כמה מלכודות', 'หลายกับดัก', 'عدة مصائد') + '</button>' : '') +
         '<button class="tr-btn ghost" data-a="map">🗺 ' + tt('מפה', 'แผนที่', 'خريطة') + '</button>' +
         '<button class="tr-btn ghost" data-a="chart">📈 ' + tt('גרפים והשוואה בין שנים', 'กราฟและเปรียบเทียบปี', 'رسوم ومقارنة سنوات') + '</button>' +
@@ -227,7 +229,7 @@ var Traps = (function () {
     body.innerHTML = '<div class="tr-form"><h3>＋ ' + tt('רישום ספירה', 'บันทึกการนับ', 'تسجيل عدّ') + '</h3>' +
       '<label>' + tt('תאריך', 'วันที่', 'التاريخ') + '<input type="date" class="form-input" id="trDate" value="' + today() + '"></label>' +
       '<div class="tr-muted">' + tt('הכנס מספר לכידות לכל מלכודת שנבדקה (ריק = לא נבדקה)', 'ใส่จำนวนต่อกับดัก', 'أدخل العدد لكل مصيدة') + '</div>' +
-      names.map(function (zn) {
+      names.filter(function (zn) { return z[zn].length; }).map(function (zn) {
         return '<div class="tr-fz">' + esc(zn) + '</div>' + z[zn].map(function (t) {
           return '<label class="tr-fr"><span>' + esc(t.name) + '</span><input type="number" min="0" step="1" class="form-input tr-cnt" data-t="' + t.id + '" inputmode="numeric"></label>';
         }).join('');
@@ -305,21 +307,8 @@ var Traps = (function () {
     var body = document.getElementById('trBody');
     if (typeof L === 'undefined') { body.innerHTML = '<div class="tr-empty">—</div>'; return; }
     var znames = Object.keys(zones()).sort(function (a, b) { return a.localeCompare(b, 'he'); });
-    var tools = '';
-    if (mapMode && mapMode.kind === 'zone') {
-      tools = '<div class="tr-mode">✏️ ' + tt('מסמן את האזור', 'กำลังวาดโซน', 'رسم المنطقة') + ' <b>' + esc(mapMode.name) + '</b> — ' +
-        tt('הקש על הפינות שלו במפה', 'แตะมุมบนแผนที่', 'اضغط على زواياها في الخريطة') + ' (' + mapMode.pts.length + ')' +
-        '<span class="tr-bar"><button class="tr-btn pri" data-m="zdone">✔ ' + tt('סיום', 'เสร็จ', 'إنهاء') + '</button><button class="tr-btn" data-m="zundo">↩</button><button class="tr-btn ghost" data-m="cancel">' + tt('ביטול', 'ยกเลิก', 'إلغاء') + '</button></span></div>';
-    } else if (mapMode && mapMode.kind === 'place') {
-      var cur = trapById(mapMode.queue[mapMode.i]);
-      tools = '<div class="tr-mode">📍 ' + (cur ? tt('הקש היכן תלויה המלכודת', 'แตะตำแหน่งกับดัก', 'اضغط مكان المصيدة') + ' <b>' + esc(cur.name) + '</b> (' + (mapMode.i + 1) + '/' + mapMode.queue.length + ')' : '') +
-        '<span class="tr-bar"><button class="tr-btn" data-m="pskip">' + tt('דלג', 'ข้าม', 'تخطٍّ') + '</button><button class="tr-btn pri" data-m="cancel">✔ ' + tt('סיום', 'เสร็จ', 'إنهاء') + '</button></span></div>';
-    } else if (staff()) {
-      tools = '<div class="tr-bar">' +
-        '<select class="form-input tr-y" id="trMZone"><option value="">' + tt('אזור…', 'โซน…', 'منطقة…') + '</option>' + znames.map(function (z) { return '<option>' + esc(z) + '</option>'; }).join('') + '<option value="__new">＋ ' + tt('אזור חדש', 'โซนใหม่', 'منطقة جديدة') + '</option></select>' +
-        '<button class="tr-btn" data-m="zone">✏️ ' + tt('סמן אזור במפה', 'วาดโซน', 'ارسم المنطقة') + '</button>' +
-        '<button class="tr-btn" data-m="place">📍 ' + tt('מקם מלכודות', 'วางกับดัก', 'ضع المصائد') + '</button></div>';
-    }
+    ui.view = 'map'; mapMode = null;
+    var tools = staff() ? '<div class="tr-bar"><button class="tr-btn" data-a="zones">✏️ ' + tt('הגדרת ועריכת אזורי לכידה', 'ตั้งค่าโซน', 'تحديد المناطق') + '</button></div>' : '';
     body.innerHTML = '<button class="tr-btn ghost" data-a="back">→ ' + tt('חזרה', 'กลับ', 'رجوع') + '</button>' + tools +
       '<div id="trMap" style="height:460px;border-radius:16px;margin-top:8px;"></div>' +
       '<div class="tr-muted">' + tt('צבע האזור לפי ממוצע לכידות למלכודת בשבוע האחרון שנבדק · נקודה = מלכודת: ירוק 0 · צהוב 1–2 · כתום 3–5 · אדום 6+', 'สีโซนตามค่าเฉลี่ยต่อกับดัก', 'لون المنطقة حسب متوسط الصيد لكل مصيدة') + '</div>';
@@ -339,11 +328,11 @@ var Traps = (function () {
       });
     });
     (D.zones || []).forEach(function (z) {
-      if (!z.ring || z.ring.length < 3) return;
-      var lv = zoneLevel(z.name), ll = z.ring.map(function (q) { return [q.lat, q.lng]; });
+      var rs = zRings(z); if (!rs.length) return;
+      var lv = zoneLevel(z.name), ll = rs.map(function (r) { return r.map(function (q) { return [Number(q.lat), Number(q.lng)]; }); });
       L.polygon(ll, { color: lv.col, weight: 2.5, fillColor: lv.col, fillOpacity: 0.28 }).addTo(map)
         .bindTooltip('<b>' + esc(z.name) + '</b> · ' + lv.txt, { permanent: true, direction: 'center', className: 'tr-ztip' });
-      ll.forEach(function (x) { b.extend(x); });
+      ll.forEach(function (r) { r.forEach(function (x) { b.extend(x); }); });
     });
     D.traps.forEach(function (t) {
       if (t.lat == null || !isFinite(Number(t.lat)) || !isFinite(Number(t.lng))) return;
@@ -352,59 +341,236 @@ var Traps = (function () {
         .bindTooltip(esc(t.name) + ' · ' + esc(t.zone) + (lc ? ' · ' + lc.count + ' (' + fmtD(lc.date) + ')' : ''), { direction: 'top' });
       b.extend([Number(t.lat), Number(t.lng)]);
     });
-    if (mapMode && mapMode.kind === 'zone' && mapMode.pts.length) {
-      var dl = mapMode.pts.map(function (q) { return [q.lat, q.lng]; });
-      L.polyline(dl.concat(dl.length > 2 ? [dl[0]] : []), { color: '#ffeb3b', weight: 3, dashArray: '6 4' }).addTo(map);
-      dl.forEach(function (x) { L.circleMarker(x, { radius: 5, color: '#ffeb3b', fillColor: '#ffeb3b', fillOpacity: 1 }).addTo(map); });
+    if (b.isValid()) map.fitBounds(b, { padding: [30, 30], maxZoom: 16 });
+    else map.setView([32.03, 35.47], 13);
+  }
+
+  // ── trap zones, set on the map and tied to a farm (Oct 2026) ──
+  // A zone is { name, farmId|null, ring:[{lat,lng}] (drawn) | rings:[[…]] +
+  // plotIds (built from plots) }. Traps refer to a zone by name.
+  function zRings(z) { return z ? (z.rings && z.rings.length ? z.rings : (z.ring && z.ring.length > 2 ? [z.ring] : [])) : []; }
+  function zoneDef(zn) { return (D.zones || []).find(function (z) { return z.name === zn; }); }
+  function zoneFarm(zn) {
+    var d = zoneDef(zn); if (d && d.farmId) return Number(d.farmId);
+    var t = D.traps.find(function (x) { return x.zone === zn && x.farmId; }); return t ? Number(t.farmId) : null;
+  }
+  function allPlots() { return (window.MapAccess && MapAccess.listPlotsWithRings) ? MapAccess.listPlotsWithRings() : []; }
+  function zmFarms() {
+    var has = {}; allPlots().forEach(function (p) { if (p.farmId) has[p.farmId] = 1; });
+    return (S().getFarms ? S().getFarms() : []).filter(function (f) { return has[f.id]; });
+  }
+  function zmNames(fid) {
+    var z = zones(), none = tt('ללא אזור', 'ไม่มีโซน', 'بلا منطقة');
+    return Object.keys(z).filter(function (zn) { return zn !== none && String(zoneFarm(zn) || '') === String(fid || ''); })
+      .sort(function (a, b) { return a.localeCompare(b, 'he'); });
+  }
+  function zmCan(zn) { var d = zoneDef(zn); return !d || mine(d); }
+  function saveZone(zn, patch) {
+    var old = zoneDef(zn);
+    if (old && !mine(old)) { if (window.Own) Own.denied(); return Promise.resolve(false); }
+    var z = old ? JSON.parse(JSON.stringify(old)) : stampIt({ name: zn });
+    Object.keys(patch).forEach(function (k) { if (patch[k] === undefined) delete z[k]; else z[k] = patch[k]; });
+    if (z.farmId == null) z.farmId = ui.zf ? Number(ui.zf) : null;
+    D.zones = (D.zones || []).filter(function (x) { return x.name !== zn; }).concat([z]);
+    return persist();
+  }
+
+  function zoneManager() {
+    ui.view = 'zm'; ui.ret = '';
+    var body = document.getElementById('trBody');
+    if (!body) return;
+    var fs = zmFarms();
+    if (ui.zf == null) {
+      var withTraps = fs.find(function (f) { return D.traps.some(function (t) { return Number(t.farmId) === f.id; }) || (D.zones || []).some(function (z) { return Number(z.farmId) === f.id; }); });
+      ui.zf = String((withTraps || fs[0] || {}).id || '');
     }
-    if (keepView) map.setView(keepView.c, keepView.z);
-    else if (b.isValid()) map.fitBounds(b, { padding: [30, 30], maxZoom: 16 });
+    var names = zmNames(ui.zf), z = zones(), mm = mapMode;
+    var bar = '';
+    if (mm && mm.kind === 'zone') {
+      bar = '<div class="tr-mode">✏️ <b>' + esc(mm.name) + '</b> — ' + tt('הקש על פינות האזור במפה', 'แตะมุมโซนบนแผนที่', 'اضغط على زوايا المنطقة') + ' (' + mm.pts.length + ')' +
+        '<span class="tr-bar"><button class="tr-btn pri" data-m="zdone">✔ ' + tt('שמור אזור', 'บันทึกโซน', 'حفظ المنطقة') + '</button><button class="tr-btn" data-m="zundo">↩ ' + tt('בטל נקודה', 'เลิกทำ', 'تراجع') + '</button><button class="tr-btn ghost" data-m="cancel">' + tt('ביטול', 'ยกเลิก', 'إلغاء') + '</button></span></div>';
+    } else if (mm && mm.kind === 'plots') {
+      var nSel = Object.keys(mm.sel).length;
+      bar = '<div class="tr-mode">▦ <b>' + esc(mm.name) + '</b> — ' + tt('הקש על החלקות שבאזור', 'แตะแปลงในโซน', 'اضغط على قطع المنطقة') + ' (' + nSel + ')' +
+        '<span class="tr-bar"><button class="tr-btn pri" data-m="pdone">✔ ' + tt('שמור אזור', 'บันทึกโซน', 'حفظ المنطقة') + '</button><button class="tr-btn" data-m="pall">' + tt('כל חלקות המשק', 'ทุกแปลง', 'كل القطع') + '</button><button class="tr-btn ghost" data-m="cancel">' + tt('ביטול', 'ยกเลิก', 'إلغاء') + '</button></span></div>';
+    } else if (mm && mm.kind === 'place') {
+      var cur = trapById(mm.queue[mm.i]);
+      bar = '<div class="tr-mode">📍 ' + (cur ? tt('הקש היכן תלויה המלכודת', 'แตะตำแหน่งกับดัก', 'اضغط مكان المصيدة') + ' <b>' + esc(cur.name) + '</b> (' + (mm.i + 1) + '/' + mm.queue.length + ')' : '') +
+        '<span class="tr-bar"><button class="tr-btn" data-m="pskip">' + tt('דלג', 'ข้าม', 'تخطٍّ') + '</button><button class="tr-btn pri" data-m="cancel">✔ ' + tt('סיום', 'เสร็จ', 'إنهاء') + '</button></span></div>';
+    }
+    var cards = names.map(function (zn) {
+      var d = zoneDef(zn), tz = z[zn] || [], placed = tz.filter(function (t) { return t.lat != null && t.lat !== ''; }).length;
+      var drawn = zRings(d).length, lv = zoneLevel(zn), can = zmCan(zn), act = mm && (mm.name === zn || mm.zone === zn);
+      var nameHtml = ui.zren === zn
+        ? '<input class="form-input tr-zin" id="trZRen" value="' + esc(zn) + '"><button class="tr-btn pri" data-zm="rensave" data-zn="' + esc(zn) + '">✔</button><button class="tr-btn ghost" data-zm="rencancel">✕</button>'
+        : '<i style="background:' + lv.col + '"></i><b>' + esc(zn) + '</b>';
+      return '<div class="tr-zc' + (act ? ' on' : '') + '"><div class="tr-zch">' + nameHtml + '</div>' +
+        '<div class="tr-zs">' + (drawn ? '✅ ' + (d.plotIds ? tt('לפי', 'ตาม', 'حسب') + ' ' + d.plotIds.length + ' ' + tt('חלקות', 'แปลง', 'قطع') : tt('מסומן במפה', 'วาดแล้ว', 'مرسومة')) : '⚪ ' + tt('עוד לא סומן במפה', 'ยังไม่วาด', 'غير مرسومة')) +
+          ' · ' + tz.length + ' ' + tt('מלכודות', 'กับดัก', 'مصائد') + (tz.length ? ' · ' + placed + ' ' + tt('ממוקמות', 'วางแล้ว', 'موضوعة') : '') + '</div>' +
+        (mm ? '' : '<div class="tr-zb">' +
+          (can ? '<button class="tr-btn" data-zm="draw" data-zn="' + esc(zn) + '">✏️ ' + (drawn ? tt('צייר מחדש', 'วาดใหม่', 'أعد الرسم') : tt('צייר', 'วาด', 'ارسم')) + '</button>' +
+            '<button class="tr-btn" data-zm="plots" data-zn="' + esc(zn) + '">▦ ' + tt('מחלקות', 'จากแปลง', 'من القطع') + '</button>' : '') +
+          '<button class="tr-btn" data-zm="add" data-zn="' + esc(zn) + '">➕ ' + tt('מלכודות', 'กับดัก', 'مصائد') + '</button>' +
+          (tz.length ? '<button class="tr-btn" data-zm="place" data-zn="' + esc(zn) + '">📍 ' + tt('מקם', 'วาง', 'ضع') + (tz.length - placed ? ' (' + (tz.length - placed) + ')' : '') + '</button>' : '') +
+          (can ? '<button class="tr-btn ghost" data-zm="ren" data-zn="' + esc(zn) + '" title="' + esc(tt('שנה שם', 'เปลี่ยนชื่อ', 'إعادة تسمية')) + '">✎</button>' +
+            '<button class="tr-btn ghost warn" data-zm="del" data-zn="' + esc(zn) + '" title="' + esc(tt('מחק אזור', 'ลบโซน', 'حذف المنطقة')) + '">🗑</button>' : '') +
+        '</div>') + '</div>';
+    }).join('');
+    body.innerHTML = '<button class="tr-btn ghost" data-a="zmback">→ ' + tt('חזרה', 'กลับ', 'رجوع') + '</button>' +
+      '<div class="tr-bar" style="align-items:center;"><b>🧭 ' + tt('אזורי לכידה של', 'โซนของ', 'مناطق') + '</b>' +
+        '<select class="form-input tr-y" id="trZF"' + (mm ? ' disabled' : '') + '>' + fs.map(function (f) { return '<option value="' + f.id + '"' + (String(f.id) === String(ui.zf) ? ' selected' : '') + '>' + esc(f.name) + '</option>'; }).join('') +
+          '<option value=""' + (!ui.zf ? ' selected' : '') + '>' + tt('— ללא שיוך למשק —', '— ไม่ระบุฟาร์ม —', '— بلا مزرعة —') + '</option></select></div>' +
+      bar +
+      '<div class="tr-zm"><div class="tr-zl">' + (cards || '<div class="tr-muted">' + tt('אין עדיין אזורים במשק הזה. הוסף אזור למטה.', 'ยังไม่มีโซน', 'لا مناطق بعد') + '</div>') +
+        (mm ? '' : '<div class="tr-zc tr-znew"><b>＋ ' + tt('אזור חדש', 'โซนใหม่', 'منطقة جديدة') + '</b><input class="form-input" id="trZNew" placeholder="' + esc(tt('שם האזור, למשל: פצאל צפון', 'ชื่อโซน', 'اسم المنطقة')) + '">' +
+          '<div class="tr-zb"><button class="tr-btn pri" data-zm="newdraw">✏️ ' + tt('צייר במפה', 'วาดบนแผนที่', 'ارسم على الخريطة') + '</button>' +
+          '<button class="tr-btn" data-zm="newplots">▦ ' + tt('בחר חלקות', 'เลือกแปลง', 'اختر القطع') + '</button></div></div>') +
+      '</div><div id="trMap" class="tr-zmap"></div></div>' +
+      '<div class="tr-muted">' + tt('✏️ צייר = הקשה על פינות האזור · ▦ מחלקות = האזור הוא החלקות שבחרת · 📍 מקם = הקשה על מקום כל מלכודת לפי הסדר', '✏️ วาด · ▦ จากแปลง · 📍 วาง', '✏️ ارسم · ▦ من القطع · 📍 ضع') + '</div>';
+    var sel = document.getElementById('trZF');
+    if (sel) sel.onchange = function () { ui.zf = this.value; ui.zren = ''; zoneManager(); };
+    zmMap();
+  }
+
+  function zmMap() {
+    if (typeof L === 'undefined' || !document.getElementById('trMap')) return;
+    var keep = map && mapMode ? { c: map.getCenter(), z: map.getZoom() } : null;
+    if (map) { try { map.remove(); } catch (e) {} map = null; }
+    map = L.map('trMap', { attributionControl: false });
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 }).addTo(map);
+    var b = L.latLngBounds([]), fid = ui.zf ? Number(ui.zf) : null, mm = mapMode;
+    allPlots().forEach(function (p) {
+      var here = fid ? p.farmId === fid : true;
+      p.rings.forEach(function (r) {
+        var ll = r.map(function (q) { return [Number(q.lat), Number(q.lng)]; });
+        if (mm && mm.kind === 'plots' && here) {
+          var on = !!mm.sel[p.id];
+          L.polygon(ll, { color: on ? '#ffeb3b' : '#fff', weight: on ? 3 : 1.5, fillColor: on ? '#ffeb3b' : '#fff', fillOpacity: on ? 0.35 : 0.08 }).addTo(map)
+            .bindTooltip(esc(p.name), { direction: 'center' })
+            .on('click', function (ev) { L.DomEvent.stopPropagation(ev); if (mm.sel[p.id]) delete mm.sel[p.id]; else mm.sel[p.id] = 1; zoneManager(); });
+        } else {
+          L.polyline(ll.concat([ll[0]]), { color: '#fff', weight: here ? 1.4 : 0.6, opacity: here ? 0.8 : 0.35, interactive: false }).addTo(map);
+        }
+        if (here && fid) ll.forEach(function (x) { b.extend(x); });
+      });
+    });
+    (D.zones || []).forEach(function (z) {
+      if ((z.farmId ? Number(z.farmId) : zoneFarm(z.name)) !== fid) return;
+      if (mm && (mm.name === z.name) && mm.kind !== 'place') return;
+      var rs = zRings(z); if (!rs.length) return;
+      var lv = zoneLevel(z.name), ll = rs.map(function (r) { return r.map(function (q) { return [Number(q.lat), Number(q.lng)]; }); });
+      L.polygon(ll, { color: lv.col, weight: 2.5, fillColor: lv.col, fillOpacity: 0.25, interactive: false }).addTo(map)
+        .bindTooltip('<b>' + esc(z.name) + '</b>', { permanent: true, direction: 'center', className: 'tr-ztip' });
+      ll.forEach(function (r) { r.forEach(function (x) { b.extend(x); }); });
+    });
+    D.traps.forEach(function (t) {
+      if (t.lat == null || t.lat === '' || !isFinite(Number(t.lat))) return;
+      if ((zoneFarm(t.zone) || (t.farmId ? Number(t.farmId) : null)) !== fid) return;
+      var cur = mm && mm.kind === 'place' && String(mm.queue[mm.i]) === String(t.id);
+      L.circleMarker([Number(t.lat), Number(t.lng)], { radius: cur ? 10 : 7, color: cur ? '#ffeb3b' : '#fff', weight: 2, fillColor: trapCol(t), fillOpacity: 1, interactive: !mm }).addTo(map)
+        .bindTooltip(esc(t.name) + ' · ' + esc(t.zone), { direction: 'top' });
+      b.extend([Number(t.lat), Number(t.lng)]);
+    });
+    if (mm && mm.kind === 'zone' && mm.pts.length) {
+      var dl = mm.pts.map(function (q) { return [q.lat, q.lng]; });
+      if (dl.length > 2) L.polygon(dl, { color: '#ffeb3b', weight: 3, dashArray: '6 4', fillOpacity: 0.15, interactive: false }).addTo(map);
+      else L.polyline(dl, { color: '#ffeb3b', weight: 3, dashArray: '6 4', interactive: false }).addTo(map);
+      dl.forEach(function (x) { L.circleMarker(x, { radius: 6, color: '#000', weight: 1, fillColor: '#ffeb3b', fillOpacity: 1, interactive: false }).addTo(map); });
+    }
+    if (keep) map.setView(keep.c, keep.z);
+    else if (b.isValid()) map.fitBounds(b, { padding: [24, 24], maxZoom: 17 });
     else map.setView([32.03, 35.47], 13);
     map.on('click', function (ev) {
-      if (!mapMode) return;
-      if (mapMode.kind === 'zone') { mapMode.pts.push({ lat: +ev.latlng.lat.toFixed(6), lng: +ev.latlng.lng.toFixed(6) }); mapView(); return; }
-      if (mapMode.kind === 'place') {
-        var t = trapById(mapMode.queue[mapMode.i]);
-        if (t) { t.lat = +ev.latlng.lat.toFixed(6); t.lng = +ev.latlng.lng.toFixed(6); }
-        mapMode.i++;
-        if (mapMode.i >= mapMode.queue.length) { mapMode = null; persist().then(function (ok) { if (ok) toast('✅ ' + tt('המיקומים נשמרו', 'บันทึกตำแหน่งแล้ว', 'حُفظت المواقع')); mapView(); }); }
-        else mapView();
+      var m2 = mapMode; if (!m2) return;
+      if (m2.kind === 'zone') { m2.pts.push({ lat: +ev.latlng.lat.toFixed(6), lng: +ev.latlng.lng.toFixed(6) }); zoneManager(); return; }
+      if (m2.kind === 'place') {
+        var t = trapById(m2.queue[m2.i]);
+        if (t) { t.lat = +ev.latlng.lat.toFixed(6); t.lng = +ev.latlng.lng.toFixed(6); if (!t.farmId && ui.zf) t.farmId = Number(ui.zf); }
+        m2.i++;
+        if (m2.i >= m2.queue.length) { mapMode = null; persist().then(function (ok) { if (ok) toast('✅ ' + tt('המיקומים נשמרו', 'บันทึกตำแหน่งแล้ว', 'حُفظت المواقع')); zoneManager(); }); }
+        else zoneManager();
       }
     });
   }
+
   function onMapTool(k) {
+    var mm = mapMode;
     if (k === 'cancel') {
-      var placed = mapMode && mapMode.kind === 'place' && mapMode.i > 0;
+      var placed = mm && mm.kind === 'place' && mm.i > 0;
       mapMode = null;
-      if (placed) persist().then(mapView); else mapView();
+      if (placed) persist().then(zoneManager); else zoneManager();
       return;
     }
-    if (k === 'zundo') { if (mapMode && mapMode.pts.length) mapMode.pts.pop(); mapView(); return; }
-    if (k === 'pskip') { mapMode.i++; if (mapMode.i >= mapMode.queue.length) { onMapTool('cancel'); return; } mapView(); return; }
+    if (!mm) return;
+    if (k === 'zundo') { mm.pts.pop(); zoneManager(); return; }
+    if (k === 'pskip') { mm.i++; if (mm.i >= mm.queue.length) { onMapTool('cancel'); return; } zoneManager(); return; }
+    if (k === 'pall') {
+      var fid = ui.zf ? Number(ui.zf) : null;
+      allPlots().forEach(function (p) { if (!fid || p.farmId === fid) mm.sel[p.id] = 1; });
+      zoneManager(); return;
+    }
     if (k === 'zdone') {
-      if (!mapMode || mapMode.pts.length < 3) { toast('⚠️ ' + tt('צריך לפחות 3 נקודות', 'ต้องมีอย่างน้อย 3 จุด', 'يلزم 3 نقاط على الأقل')); return; }
-      var oldZ = (D.zones || []).find(function (z) { return z.name === mapMode.name; });
-      if (oldZ && !mine(oldZ)) { mapMode = null; if (window.Own) Own.denied(); mapView(); return; }
-      D.zones = (D.zones || []).filter(function (z) { return z.name !== mapMode.name; });
-      D.zones.push(oldZ ? { name: mapMode.name, ring: mapMode.pts, createdBy: oldZ.createdBy, createdByName: oldZ.createdByName, createdAt: oldZ.createdAt } : stampIt({ name: mapMode.name, ring: mapMode.pts }));
+      if (mm.pts.length < 3) { toast('⚠️ ' + tt('צריך לפחות 3 נקודות', 'ต้องมีอย่างน้อย 3 จุด', 'يلزم 3 نقاط على الأقل')); return; }
+      var pts = mm.pts.slice(), zn = mm.name;
       mapMode = null;
-      persist().then(function (ok) { if (ok) toast('✅ ' + tt('האזור נשמר', 'บันทึกโซนแล้ว', 'حُفظت المنطقة')); mapView(); });
+      saveZone(zn, { ring: pts, rings: undefined, plotIds: undefined }).then(function (ok) { if (ok) toast('✅ ' + tt('האזור נשמר', 'บันทึกโซนแล้ว', 'حُفظت المنطقة')); zoneManager(); });
       return;
     }
-    var sel = document.getElementById('trMZone'), zn = sel ? sel.value : '';
-    if (zn === '__new') {
-      zn = (prompt(tt('שם האזור החדש', 'ชื่อโซนใหม่', 'اسم المنطقة الجديدة')) || '').trim();
+    if (k === 'pdone') {
+      var ids = Object.keys(mm.sel).map(Number);
+      if (!ids.length) { toast('⚠️ ' + tt('בחר לפחות חלקה אחת', 'เลือกอย่างน้อยหนึ่งแปลง', 'اختر قطعة واحدة على الأقل')); return; }
+      var rings = [];
+      allPlots().forEach(function (p) { if (ids.indexOf(p.id) !== -1) p.rings.forEach(function (r) { rings.push(r.map(function (q) { return { lat: +Number(q.lat).toFixed(6), lng: +Number(q.lng).toFixed(6) }; })); }); });
+      var zn2 = mm.name;
+      mapMode = null;
+      saveZone(zn2, { rings: rings, plotIds: ids, ring: undefined }).then(function (ok) { if (ok) toast('✅ ' + tt('האזור נשמר', 'บันทึกโซนแล้ว', 'حُفظت المنطقة')); zoneManager(); });
     }
-    if (!zn) { toast('⚠️ ' + tt('בחר אזור', 'เลือกโซน', 'اختر منطقة')); return; }
-    if (k === 'zone') { mapMode = { kind: 'zone', name: zn, pts: [] }; mapView(); return; }
+  }
+
+  function onZm(k, zn) {
+    if (k === 'newdraw' || k === 'newplots') {
+      var nm = ((document.getElementById('trZNew') || {}).value || '').trim().slice(0, 60);
+      if (!nm) { toast('⚠️ ' + tt('כתוב שם לאזור', 'ใส่ชื่อโซน', 'اكتب اسم المنطقة')); var inp = document.getElementById('trZNew'); if (inp) inp.focus(); return; }
+      if (zones()[nm]) { toast('⚠️ ' + tt('כבר יש אזור בשם הזה', 'มีชื่อนี้แล้ว', 'الاسم موجود')); return; }
+      zn = nm; k = k === 'newdraw' ? 'draw' : 'plots';
+    }
+    if (k === 'draw') { if (!zmCan(zn)) return Own.denied(); mapMode = { kind: 'zone', name: zn, pts: [] }; return zoneManager(); }
+    if (k === 'plots') {
+      if (!zmCan(zn)) return Own.denied();
+      var d = zoneDef(zn), sel = {};
+      ((d && d.plotIds) || []).forEach(function (id) { sel[id] = 1; });
+      mapMode = { kind: 'plots', name: zn, sel: sel }; return zoneManager();
+    }
+    if (k === 'add') { ui.zone = zn; ui.farmPre = zoneFarm(zn) || (ui.zf ? Number(ui.zf) : null); bulkForm(); ui.ret = 'zm'; return; }
     if (k === 'place') {
-      var tz = zones()[zn] || [];
-      if (!tz.length) { toast('⚠️ ' + tt('אין מלכודות באזור הזה', 'ไม่มีกับดักในโซนนี้', 'لا مصائد في هذه المنطقة')); return; }
-      tz = tz.filter(mine);
+      var tz = (zones()[zn] || []).filter(mine);
       if (!tz.length) { if (window.Own) Own.denied(); return; }
-      var unplaced = tz.filter(function (t) { return t.lat == null || t.lat === ''; });
-      var q = (unplaced.length ? unplaced : tz).map(function (t) { return t.id; });
-      mapMode = { kind: 'place', zone: zn, queue: q, i: 0 }; mapView();
+      var un = tz.filter(function (t) { return t.lat == null || t.lat === ''; });
+      mapMode = { kind: 'place', zone: zn, queue: (un.length ? un : tz).map(function (t) { return t.id; }), i: 0 };
+      return zoneManager();
+    }
+    if (k === 'ren') { ui.zren = zn; zoneManager(); var r = document.getElementById('trZRen'); if (r) { r.focus(); r.select(); } return; }
+    if (k === 'rencancel') { ui.zren = ''; return zoneManager(); }
+    if (k === 'rensave') {
+      var nn = ((document.getElementById('trZRen') || {}).value || '').trim().slice(0, 60);
+      if (!nn || nn === zn) { ui.zren = ''; return zoneManager(); }
+      if (zones()[nn]) { toast('⚠️ ' + tt('כבר יש אזור בשם הזה', 'มีชื่อนี้แล้ว', 'الاسم موجود')); return; }
+      var trs = D.traps.filter(function (t) { return t.zone === zn; });
+      if (!zmCan(zn) || trs.some(function (t) { return !mine(t); })) { if (window.Own) Own.denied(); return; }
+      trs.forEach(function (t) { t.zone = nn; });
+      (D.zones || []).forEach(function (z) { if (z.name === zn) z.name = nn; });
+      if (!zoneDef(nn)) D.zones = (D.zones || []).concat([stampIt({ name: nn, farmId: ui.zf ? Number(ui.zf) : null })]);
+      ui.zren = '';
+      persist().then(function (ok) { if (ok) toast('✅ ' + tt('השם עודכן', 'อัปเดตแล้ว', 'تم التحديث')); zoneManager(); });
+      return;
+    }
+    if (k === 'del') {
+      var tr2 = D.traps.filter(function (t) { return t.zone === zn; });
+      if (!zmCan(zn) || tr2.some(function (t) { return !mine(t); })) { if (window.Own) Own.denied(); return; }
+      if (!confirm(tt('למחוק את האזור', 'ลบโซน', 'حذف المنطقة') + ' "' + zn + '"?' + (tr2.length ? '\n' + tr2.length + ' ' + tt('המלכודות שבו יישארו, בלי אזור', 'กับดักจะไม่มีโซน', 'ستبقى المصائد بلا منطقة') : ''))) return;
+      tr2.forEach(function (t) { t.zone = ''; });
+      D.zones = (D.zones || []).filter(function (z) { return z.name !== zn; });
+      persist().then(function () { zoneManager(); });
     }
   }
 
@@ -414,7 +580,7 @@ var Traps = (function () {
     var body = document.getElementById('trBody');
     body.innerHTML = '<div class="tr-form"><h3>➕ ' + tt('הוספת מלכודות בבת אחת', 'เพิ่มกับดักหลายอัน', 'إضافة مصائد دفعة واحدة') + '</h3>' +
       '<label>' + tt('אזור לכידה', 'โซน', 'منطقة الصيد') + '<input class="form-input" id="tbZone" list="tbZones" value="' + esc(ui.zone || '') + '"><datalist id="tbZones">' + zs.map(function (z) { return '<option value="' + esc(z) + '">'; }).join('') + '</datalist></label>' +
-      '<label>' + tt('משק (לא חובה)', 'ฟาร์ม', 'المزرعة') + '<select class="form-input" id="tbFarm"><option value="">—</option>' + farms.map(function (f) { return '<option value="' + f.id + '">' + esc(f.name) + '</option>'; }).join('') + '</select></label>' +
+      '<label>' + tt('משק (לא חובה)', 'ฟาร์ม', 'المزرعة') + '<select class="form-input" id="tbFarm"><option value="">—</option>' + farms.map(function (f) { return '<option value="' + f.id + '"' + (ui.farmPre && Number(ui.farmPre) === f.id ? ' selected' : '') + '>' + esc(f.name) + '</option>'; }).join('') + '</select></label>' +
       '<div class="tr-g2"><label>' + tt('קידומת', 'คำนำหน้า', 'بادئة') + '<input class="form-input" id="tbPre" value="M-"></label>' +
       '<label>' + tt('ממספר', 'จากเลข', 'من رقم') + '<input class="form-input" id="tbFrom" type="number" min="0" value="1" inputmode="numeric"></label></div>' +
       '<label>' + tt('עד מספר', 'ถึงเลข', 'إلى رقم') + '<input class="form-input" id="tbTo" type="number" min="0" value="10" inputmode="numeric"></label>' +
@@ -445,7 +611,7 @@ var Traps = (function () {
       var base = uid();
       add.forEach(function (nm, i) { D.traps.push(stampIt({ id: base + i, name: nm, zone: zn, farmId: f ? Number(f) : null, lat: null, lng: null })); });
       ui.zone = zn;
-      persist().then(function (ok) { if (ok) toast('✅ ' + add.length + ' ' + tt('מלכודות נוספו', 'เพิ่มกับดักแล้ว', 'أُضيفت مصائد')); render(); });
+      persist().then(function (ok) { if (ok) toast('✅ ' + add.length + ' ' + tt('מלכודות נוספו', 'เพิ่มกับดักแล้ว', 'أُضيفت مصائد')); if (ui.ret === 'zm') zoneManager(); else render(); });
     };
   }
 
@@ -718,7 +884,9 @@ var Traps = (function () {
     if (a) {
       var k = a.getAttribute('data-a');
       if (k === 'close') return close();
-      if (k === 'back') { mapMode = null; return render(); }
+      if (k === 'back') { mapMode = null; if (ui.ret === 'zm') return zoneManager(); return render(); }
+      if (k === 'zmback') { mapMode = null; ui.ret = ''; ui.view = 'zones'; return render(); }
+      if (k === 'zones') return zoneManager();
       if (k === 'check') return checkForm();
       if (k === 'trap') return trapForm(null);
       if (k === 'map') { mapMode = null; return mapView(); }
@@ -728,6 +896,7 @@ var Traps = (function () {
       if (k === 'chart') return chartView();
     }
     var mt = t.closest('[data-m]'); if (mt) return onMapTool(mt.getAttribute('data-m'));
+    var zm = t.closest('[data-zm]'); if (zm) return onZm(zm.getAttribute('data-zm'), zm.getAttribute('data-zn'));
     var ed = t.closest('[data-edit]'); if (ed) return trapForm(ed.getAttribute('data-edit'));
     var dc = t.closest('[data-delck]');
     if (dc) {
@@ -751,6 +920,13 @@ var Traps = (function () {
       '.tr-btn{border:1.5px solid var(--line,#e6ebe2);background:var(--card,#fff);color:var(--primary,#1d5a2c);border-radius:12px;padding:8px 12px;font:inherit;font-weight:600;font-size:.82rem;cursor:pointer;}' +
       '.tr-btn.pri{background:var(--grad-primary,#1d5a2c);color:#fff;border-color:transparent;}.tr-btn.ghost{background:transparent;}.tr-btn.warn{color:#b3261e;}' +
       '.tr-bar{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0;}' +
+      '.tr-zm{display:grid;grid-template-columns:minmax(260px,330px) 1fr;gap:10px;align-items:start;}.tr-zmap{height:520px;border-radius:16px;position:sticky;top:0;}' +
+      '.tr-zl{display:flex;flex-direction:column;gap:8px;max-height:520px;overflow-y:auto;}' +
+      '.tr-zc{border:1.5px solid var(--line,#e6ebe2);border-radius:14px;padding:9px 10px;background:var(--card,#fff);display:flex;flex-direction:column;gap:6px;}.tr-zc.on{border-color:#f9a825;box-shadow:0 0 0 3px rgba(249,168,37,.25);}' +
+      '.tr-zch{display:flex;align-items:center;gap:6px;}.tr-zch i{width:12px;height:12px;border-radius:4px;flex:none;}.tr-zch b{font-size:.92rem;}.tr-zin{margin:0 !important;flex:1;}' +
+      '.tr-zs{font-size:.74rem;color:var(--text-muted,#6f7b72);}.tr-zb{display:flex;gap:5px;flex-wrap:wrap;}.tr-zb .tr-btn{padding:6px 9px;font-size:.76rem;}' +
+      '.tr-znew{background:var(--tonal,#f3f6ef);border-style:dashed;}.tr-znew .form-input{margin:0 !important;}' +
+      '@media (max-width:720px){.tr-zm{grid-template-columns:1fr;}.tr-zmap{height:360px;position:static;order:-1;}.tr-zl{max-height:none;}}' +
       '.tr-warn{background:#fde9e7;color:#8c1d18;border-radius:14px;padding:10px 12px;font-size:.84rem;margin-bottom:6px;}' +
       '.tr-wrap{overflow-x:auto;border:1px solid var(--line,#e6ebe2);border-radius:14px;}' +
       '.tr-tbl{width:100%;border-collapse:collapse;font-size:.8rem;min-width:640px;}.tr-tbl th{background:var(--tonal,#f1f4ee);padding:7px 5px;font-weight:600;font-size:.72rem;white-space:nowrap;}' +
