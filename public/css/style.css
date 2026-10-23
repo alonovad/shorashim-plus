@@ -2388,3 +2388,16 @@ body.theme-classic #registerOpenLink { color: #2e7d32 !important; text-shadow: n
 .wl-crew .form-input { margin: 0; }
 .wl-crew-x { height: 38px; border: none; border-radius: 10px; background: var(--tonal, #eef2ee); color: var(--danger, #b3261e); font-size: 1.1rem; cursor: pointer; }
 .wl-add-crew { display: block; width: 100%; margin: 0 0 12px; padding: 8px; border: 1.5px dashed var(--line, #cfd9cc); border-radius: 12px; background: transparent; color: var(--primary, #1d5a2c); font-family: inherit; font-size: .82rem; font-weight: 600; cursor: pointer; }
+/* farm card: stock by farming branch */
+.fd-br-sum{margin:-6px 0 16px;display:flex;flex-direction:column;gap:6px;}
+.fd-br-sum-t{font-size:.72rem;font-weight:700;color:var(--text-muted);}
+.fd-br-row{background:var(--g6,#f1f5f2);border-radius:10px;padding:8px 10px;border-inline-start:4px solid #2d6a4f;}
+.fd-br-vineyard{border-inline-start-color:#7b1fa2;} .fd-br-field{border-inline-start-color:#c99a2e;}
+.fd-br-veg{border-inline-start-color:#43a047;} .fd-br-greenhouse{border-inline-start-color:#0288d1;}
+.fd-br-top{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;}
+.fd-br-name{font-weight:700;font-size:.9rem;}
+.fd-br-meta{font-size:.74rem;color:var(--text-muted);}
+.fd-br-n{margin-inline-start:auto;font-weight:800;font-size:1.05rem;}
+.fd-br-n small{font-size:.7rem;font-weight:600;}
+.fd-br-crop{display:flex;justify-content:space-between;gap:8px;font-size:.76rem;padding-top:4px;margin-top:4px;border-top:1px dashed rgba(0,0,0,.08);}
+.fd-br-crop span:last-child{color:var(--text-muted);text-align:end;}

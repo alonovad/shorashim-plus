@@ -2018,6 +2018,11 @@
     'משוך מהמאגר': { th: 'ดึงจากคลัง', ar: 'اسحب من المخزن' },
     'הערות לחלקה': { th: 'หมายเหตุแปลง', ar: 'ملاحظات القطعة' },
     'עצים חסרים': { th: 'ต้นที่ขาด', ar: 'أشجار ناقصة' },
+    'ענפים': { th: 'สาขาการเกษตร', ar: 'الفروع' },
+    'גפנים': { th: 'ต้นองุ่น', ar: 'كروم' },
+    'צעירים': { th: 'ต้นอ่อน', ar: 'صغيرة' },
+    'חסרים': { th: 'ขาดหาย', ar: 'مفقودة' },
+    'ללא גידול': { th: 'ไม่ระบุพืช', ar: 'بدون محصول' },
     'עצים צעירים': { th: 'ต้นอ่อน', ar: 'أشجار صغيرة' },
     'מתוכם זכרים': { th: 'ในจำนวนนี้เป็นต้นตัวผู้', ar: 'منها ذكور' },
     'זכרים': { th: 'ต้นตัวผู้', ar: 'ذكور' },
@@ -7894,6 +7899,53 @@
     }
   });
   
+  // ── Farm stock by farming branch ──
+  // Plant counts only mean something inside one branch (palms and vines are
+  // not the same unit, a wheat field has no count at all), so the farm card
+  // shows one row per branch with its own unit word, and a line per crop.
+  var BR_ICON = { orchard: '🌳', vineyard: '🍇', field: '🌾', veg: '🥬', greenhouse: '🏠' };
+  var BR_UNIT = { orchard: 'עצים', vineyard: 'גפנים', greenhouse: 'צמחים' };
+  function farmBranchSummary(farmPlots) {
+    if (!farmPlots.length) return '';
+    var by = {};
+    farmPlots.forEach(function(p) {
+      var b = branchOfPlot(p);
+      var g = by[b] || (by[b] = { plots: 0, area: 0, n: 0, crops: {} });
+      var c = String(p.crop_type || '').trim() || t('ללא גידול');
+      var k = g.crops[c] || (g.crops[c] = { plots: 0, area: 0, n: 0, young: 0, missing: 0, male: 0 });
+      var n = Number(p.tree_count) || 0, ar = Number(p.area) || 0;
+      g.plots++; g.area += ar; g.n += n;
+      k.plots++; k.area += ar; k.n += n;
+      k.young += Number(p.young_trees) || 0;
+      k.missing += Number(p.missing_trees) || 0;
+      if (isDatePalmCrop(p.crop_type)) k.male += Number(p.male_trees) || 0;
+    });
+    var order = BRANCHES.map(function(b) { return b.v; }).filter(function(v) { return by[v]; });
+    var html = '<div class="fd-br-sum"><div class="fd-br-sum-t">' + t('ענפים') + '</div>';
+    order.forEach(function(v) {
+      var g = by[v], d = branchDef(v), unit = BR_UNIT[v] ? t(BR_UNIT[v]) : '';
+      html += '<div class="fd-br-row fd-br-' + v + '">' +
+        '<div class="fd-br-top"><span class="fd-br-name">' + (BR_ICON[v] || '') + ' ' + t(d.he) + '</span>' +
+          '<span class="fd-br-meta">' + g.plots + ' ' + t('חלקות') + ' · ' + formatArea(g.area) + '</span>' +
+          (unit && g.n ? '<span class="fd-br-n">' + g.n.toLocaleString() + ' <small>' + unit + '</small></span>' : '') +
+        '</div>';
+      var crops = Object.keys(g.crops).sort(function(a, b) { return (g.crops[b].n - g.crops[a].n) || (g.crops[b].area - g.crops[a].area); });
+      if (crops.length > 1 || (unit && (g.crops[crops[0]].young || g.crops[crops[0]].missing || g.crops[crops[0]].male))) {
+        html += crops.map(function(c) {
+          var k = g.crops[c], sub = [];
+          if (unit && k.n) sub.push(k.n.toLocaleString() + ' ' + unit);
+          else sub.push(formatArea(k.area));
+          if (k.young) sub.push(t(d.young || 'צעירים') + ' ' + k.young.toLocaleString());
+          if (k.male) sub.push('♂ ' + t('זכרים') + ' ' + k.male.toLocaleString());
+          if (k.missing) sub.push(t(d.missing || 'חסרים') + ' ' + k.missing.toLocaleString());
+          return '<div class="fd-br-crop"><span>' + escAttrPlot(c) + '</span><span>' + sub.join(' · ') + '</span></div>';
+        }).join('');
+      }
+      html += '</div>';
+    });
+    return html + '</div>';
+  }
+
   // ── Farm Details Modal ──
   function showFarmDetails(farmId) {
     var farm = farms.find(function(f) { return f.id === farmId; });
@@ -7915,16 +7967,6 @@
     var totalHours = farmWorklog.reduce(function(s, e) { return s + (e.hours || 0); }, 0);
     var totalEntries = farmWorklog.length;
     var avgProductivity = totalHours > 0 && totalTrees > 0 ? (totalTrees / totalHours).toFixed(1) : '—';
-    // Farm tree stock comes from the plots, not the worklog (worklog = trees treated)
-    var plotTrees = farmPlots.reduce(function(s, p) { return s + (Number(p.tree_count) || 0); }, 0);
-    var plotMissing = farmPlots.reduce(function(s, p) { return s + (Number(p.missing_trees) || 0); }, 0);
-    var plotYoung = farmPlots.reduce(function(s, p) { return s + (Number(p.young_trees) || 0); }, 0);
-    var treeSub = [];
-    if (plotMissing) treeSub.push(t('עצים חסרים') + ' ' + plotMissing.toLocaleString());
-    if (plotYoung) treeSub.push(t('עצים צעירים') + ' ' + plotYoung.toLocaleString());
-    var plotMale = farmPlots.reduce(function(s, p) { return s + (isDatePalmCrop(p.crop_type) ? (Number(p.male_trees) || 0) : 0); }, 0);
-    if (plotMale) treeSub.push(t('זכרים') + ' ' + plotMale.toLocaleString());
-    
     var matrixHtml = '<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px;">' +
       '<div style="background: var(--g6); padding: 10px 6px; border-radius: 10px; text-align: center;">' +
         '<div style="font-size: 0.65rem; color: var(--text-muted);">' + t('חלקות') + '</div>' +
@@ -7942,17 +7984,13 @@
         '<div style="font-size: 0.65rem; color: var(--accent);">' + t('רשומות') + '</div>' +
         '<div style="font-size: 1.1rem; font-weight: 700; color: var(--accent);">' + totalEntries + '</div>' +
       '</div>' +
-      '<div style="background: #f3e5f5; padding: 10px 6px; border-radius: 10px; text-align: center;">' +
-        '<div style="font-size: 0.65rem; color: #6a1b9a;">🌴 ' + t('עצים') + '</div>' +
-        '<div style="font-size: 1.1rem; font-weight: 700; color: #6a1b9a;">' + (plotTrees ? plotTrees.toLocaleString() : '—') + '</div>' +
-        (treeSub.length ? '<div style="font-size: 0.6rem; color: #6a1b9a; margin-top: 2px;">' + treeSub.join(' • ') + '</div>' : '') +
-      '</div>' +
-      '<div style="background: #e8f5e9; padding: 10px 6px; border-radius: 10px; text-align: center;">' +
+      '<div style="grid-column: span 2; background: #e8f5e9; padding: 10px 6px; border-radius: 10px; text-align: center;">' +
         '<div style="font-size: 0.65rem; color: var(--g1);">' + t('עצים שטופלו') + '</div>' +
         '<div style="font-size: 1.1rem; font-weight: 700; color: var(--g1);">' + (totalTrees ? totalTrees.toLocaleString() : '—') + '</div>' +
         (avgProductivity !== '—' ? '<div style="font-size: 0.6rem; color: var(--g1); margin-top: 2px;">' + avgProductivity + ' ' + t('עצים/שעה') + '</div>' : '') +
       '</div>' +
     '</div>';
+    matrixHtml += farmBranchSummary(farmPlots);
     var farmQty = wlQtyTotals(farmWorklog);
     if (Object.keys(farmQty).length) {
       matrixHtml += '<div style="background: #fff8e1; padding: 8px 10px; border-radius: 10px; margin: -8px 0 16px; font-size: 0.8rem; text-align: center; color: #e65100;">' +
