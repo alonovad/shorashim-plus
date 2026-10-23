@@ -12,7 +12,8 @@
  *   record: { id, at, by, farmId, date (YYYY-MM-DD), supplier, docType,
  *             docNo, docPath, name, product, key, kind, qty, unit,
  *             baseUnit, unitPrice (₪ per base unit, before VAT), lineTotal,
- *             source: 'doc' | 'manual' }
+ *             source: 'doc' | 'manual', packPrice?, packSize? (₪ per package
+ *             and its size in baseUnit; unitPrice = packPrice / packSize) }
  *   One document per year (the record's document date), so a year never
  *   outgrows Firestore's 1 MB. Operator+ read and write (firestore.rules);
  *   workers cannot read prices. Farm names of other farms are shown only to
@@ -268,7 +269,7 @@ var PriceBook = (function () {
       '.pb-empty{text-align:center;color:var(--text-muted,#777);padding:24px 8px;font-size:.86rem;}' +
       '.pb-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:6px;margin:8px 0;}' +
       '.pb-form .form-input{margin:0;padding:8px 10px;font-size:.84rem;}' +
-      '.pb-edit{background:var(--tonal,#f3f6ef);border-radius:14px;padding:10px;}.pb-fl{display:flex;flex-direction:column;gap:2px;}.pb-fl small{color:var(--text-muted,#6f7b72);font-size:.72rem;}';
+      '.pb-derived{background:#eef7e6 !important;font-weight:700;}.pb-edit{background:var(--tonal,#f3f6ef);border-radius:14px;padding:10px;}.pb-fl{display:flex;flex-direction:column;gap:2px;}.pb-fl small{color:var(--text-muted,#6f7b72);font-size:.72rem;}';
     document.head.appendChild(st);
   }
 
@@ -364,7 +365,7 @@ var PriceBook = (function () {
       return '<tr class="' + (r === g.min ? 'min' : (p > s.pct ? 'flag' : '')) + '">' +
         '<td>' + day(r.date) + '</td><td>' + esc(r.supplier || '—') + (r.docNo ? '<br><small>#' + esc(r.docNo) + '</small>' : '') + '</td>' +
         '<td>' + esc(farmLabel(r.farmId)) + '</td>' +
-        '<td><b>' + money(r.unitPrice) + '</b>' + (r.qty ? '<br><small>' + r.qty + ' ' + esc(r.unit || '') + '</small>' : '') + '</td>' +
+        '<td><b>' + money(r.unitPrice) + '</b>' + (r.packSize ? '<br><small>' + tt('אריזה', 'แพ็ค', 'عبوة') + ' ' + r.packSize + ' ' + esc(unitTr(r.baseUnit)) + ' · ' + money(r.packPrice) + '</small>' : (r.qty ? '<br><small>' + r.qty + ' ' + esc(r.unit || '') + '</small>' : '')) + '</td>' +
         '<td>' + (r === g.min ? '<span class="pb-ok">' + tt('הזול', 'ถูกสุด', 'الأرخص') + '</span>' : '<span class="' + (p > s.pct ? 'pb-up' : '') + '">+' + Math.round(p * 10) / 10 + '%</span>') + '</td>' +
         '<td>' + (r.docPath ? '<button class="pb-a" data-pb-doc="' + esc(r.docPath) + '">📄</button>' : '') +
           (canEd(r) ? ' <button class="pb-a" data-pb-edit="' + r.id + '" title="' + esc(tt('ערוך', 'แก้ไข', 'تعديل')) + '">✏️</button>' +
@@ -437,6 +438,27 @@ var PriceBook = (function () {
     return [['pesticide', '🧪 ' + tt('חומרי הדברה', 'สารเคมี', 'مبيدات')], ['fertilizer', '🌱 ' + tt('דשנים', 'ปุ๋ย', 'أسمدة')], ['equipment', '🚜 ' + tt('ציוד', 'อุปกรณ์', 'معدات')], ['other', '📦 ' + tt('אחר', 'อื่นๆ', 'أخرى')]]
       .map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === sel ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('');
   }
+  // Package price → unit price: ₪ per package ÷ package size (in the base unit).
+  function packHtml(p, r) {
+    r = r || {};
+    return lbl(tt('מחיר לאריזה ₪ (לפני מע"מ)', 'ราคาต่อแพ็ค ₪', 'سعر العبوة ₪'), '<input class="form-input" id="' + p + 'PackPrice" type="number" step="any" min="0" inputmode="decimal" value="' + esc(r.packPrice || '') + '" placeholder="540">') +
+      lbl(tt('גודל אריזה', 'ขนาดแพ็ค', 'حجم العبوة') + ' (<span id="' + p + 'PackU">' + esc(unitTr(r.baseUnit || UNITS[0])) + '</span>)', '<input class="form-input" id="' + p + 'PackSize" type="number" step="any" min="0" inputmode="decimal" value="' + esc(r.packSize || '') + '" placeholder="10">');
+  }
+  function wirePack(p) {
+    var pp = document.getElementById(p + 'PackPrice'), ps = document.getElementById(p + 'PackSize'), pr = document.getElementById(p + 'Price'), un = document.getElementById(p + 'Unit'), lu = document.getElementById(p + 'PackU');
+    if (!pp || !ps || !pr) return;
+    function calc() {
+      var a = Number(pp.value), b = Number(ps.value);
+      if (a > 0 && b > 0) { pr.value = Math.round(a / b * 10000) / 10000; pr.classList.add('pb-derived'); }
+    }
+    pp.addEventListener('input', calc); ps.addEventListener('input', calc);
+    pr.addEventListener('input', function () { pr.classList.remove('pb-derived'); });
+    if (un && lu) un.addEventListener('change', function () { lu.textContent = unitTr(un.value); });
+  }
+  function packOf(p) {
+    var a = Number((document.getElementById(p + 'PackPrice') || {}).value), b = Number((document.getElementById(p + 'PackSize') || {}).value);
+    return a > 0 && b > 0 ? { packPrice: Math.round(a * 100) / 100, packSize: b } : null;
+  }
   function lbl(t, inner) { return '<label class="pb-fl"><small>' + t + '</small>' + inner + '</label>'; }
   function editForm(r) {
     if (!canEd(r)) { if (window.Own) Own.denied(); return; }
@@ -449,7 +471,8 @@ var PriceBook = (function () {
       lbl(tt('ספק', 'ผู้จัดหา', 'المورد'), '<input class="form-input" id="pbeSupplier" value="' + esc(r.supplier || '') + '">') +
       lbl(tt('תאריך', 'วันที่', 'التاريخ'), '<input class="form-input" id="pbeDate" type="date" value="' + esc(r.date || today()) + '">') +
       lbl(tt('יחידה', 'หน่วย', 'الوحدة'), '<select class="form-input" id="pbeUnit">' + units.map(function (u) { return '<option value="' + esc(u) + '"' + (u === r.baseUnit ? ' selected' : '') + '>' + esc(unitTr(u)) + '</option>'; }).join('') + '</select>') +
-      lbl(tt('₪ ליחידה לפני מע"מ', '₪/หน่วย', '₪/وحدة'), '<input class="form-input" id="pbePrice" type="number" step="any" min="0" value="' + esc(r.unitPrice) + '">') +
+      packHtml('pbe', r) +
+      lbl(tt('= ₪ ליחידה (ק"ג/ליטר…) לפני מע"מ', '₪/หน่วย', '₪/وحدة'), '<input class="form-input" id="pbePrice" type="number" step="any" min="0" value="' + esc(r.unitPrice) + '">') +
       lbl(tt('כמות', 'จำนวน', 'الكمية'), '<input class="form-input" id="pbeQty" type="number" step="any" min="0" value="' + esc(r.qty || '') + '">') +
       lbl(tt('מס׳ מסמך', 'เลขที่เอกสาร', 'رقم المستند'), '<input class="form-input" id="pbeDocNo" value="' + esc(r.docNo || '') + '">') +
       lbl(tt('סוג', 'ประเภท', 'النوع'), '<select class="form-input" id="pbeKind">' + kindOpts(r.kind || 'other') + '</select>') +
@@ -457,6 +480,7 @@ var PriceBook = (function () {
       '<div style="grid-column:1/-1;display:flex;gap:6px;"><button class="pb-btn" id="pbeSave" data-no-sticky data-no-back>💾 ' + tt('שמור שינויים', 'บันทึก', 'حفظ') + '</button>' +
       '<button class="pb-btn ghost" id="pbeCancel">' + tt('ביטול', 'ยกเลิก', 'إلغاء') + '</button></div></div>';
     box.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    wirePack('pbe');
     document.getElementById('pbeCancel').addEventListener('click', function () { box.innerHTML = ''; });
     document.getElementById('pbeSave').addEventListener('click', function () {
       function v(id) { return (document.getElementById(id) || {}).value || ''; }
@@ -468,6 +492,7 @@ var PriceBook = (function () {
       n.supplier = v('pbeSupplier').trim().slice(0, 80); n.date = v('pbeDate') || r.date;
       n.baseUnit = unit.slice(0, 20); if (!r.unit || r.unit === r.baseUnit) n.unit = n.baseUnit;
       n.unitPrice = Math.round(price * 10000) / 10000; n.qty = Number(v('pbeQty')) || 0;
+      var pk = packOf('pbe'); if (pk) { n.packPrice = pk.packPrice; n.packSize = pk.packSize; } else { delete n.packPrice; delete n.packSize; }
       n.docNo = v('pbeDocNo').trim().slice(0, 40); n.kind = v('pbeKind'); n.farmId = Number(v('pbeFarm')) || 0;
       n.key = productKey(n.product, n.baseUnit);
       n.editedBy = user().email || user().username || ''; n.editedAt = Date.now();
@@ -509,15 +534,17 @@ var PriceBook = (function () {
     var box = document.getElementById('pbAddBox');
     if (!box) return;
     var fs = (window.SprayStore && SprayStore.getFarms) ? SprayStore.getFarms() : [];
-    box.innerHTML = '<div class="pb-form">' +
-      '<input class="form-input" id="pbmProduct" placeholder="' + esc(tt('מוצר', 'สินค้า', 'المنتج')) + '">' +
-      '<input class="form-input" id="pbmSupplier" placeholder="' + esc(tt('ספק', 'ผู้จัดหา', 'المورد')) + '">' +
-      '<input class="form-input" id="pbmDate" type="date" value="' + today() + '">' +
-      '<select class="form-input" id="pbmUnit">' + UNITS.map(function (u) { return '<option value="' + esc(u) + '">' + esc(unitTr(u)) + '</option>'; }).join('') + '</select>' +
-      '<input class="form-input" id="pbmPrice" type="number" step="any" min="0" placeholder="' + esc(tt('₪ ליחידה לפני מע"מ', '₪/หน่วย', '₪/وحدة')) + '">' +
-      '<select class="form-input" id="pbmKind"><option value="pesticide">🧪</option><option value="fertilizer">🌱</option><option value="equipment">🚜</option><option value="other" selected>📦</option></select>' +
-      '<select class="form-input" id="pbmFarm"><option value="0">—</option>' + fs.map(function (f) { return '<option value="' + f.id + '">' + esc(f.name) + '</option>'; }).join('') + '</select>' +
-      '<button class="pb-btn" id="pbmSave">💾 ' + tt('שמור', 'บันทึก', 'حفظ') + '</button></div>';
+    box.innerHTML = '<div class="pb-form pb-edit"><b style="grid-column:1/-1;">➕ ' + tt('מחיר ידני', 'เพิ่มราคา', 'سعر يدوي') + '</b>' +
+      lbl(tt('מוצר', 'สินค้า', 'المنتج'), '<input class="form-input" id="pbmProduct">') +
+      lbl(tt('ספק', 'ผู้จัดหา', 'المورد'), '<input class="form-input" id="pbmSupplier">') +
+      lbl(tt('תאריך', 'วันที่', 'التاريخ'), '<input class="form-input" id="pbmDate" type="date" value="' + today() + '">') +
+      lbl(tt('יחידה', 'หน่วย', 'الوحدة'), '<select class="form-input" id="pbmUnit">' + UNITS.map(function (u) { return '<option value="' + esc(u) + '">' + esc(unitTr(u)) + '</option>'; }).join('') + '</select>') +
+      packHtml('pbm', null) +
+      lbl(tt('= ₪ ליחידה (ק"ג/ליטר…) לפני מע"מ', '₪/หน่วย', '₪/وحدة'), '<input class="form-input" id="pbmPrice" type="number" step="any" min="0">') +
+      lbl(tt('סוג', 'ประเภท', 'النوع'), '<select class="form-input" id="pbmKind">' + kindOpts('other') + '</select>') +
+      lbl(tt('משק', 'ฟาร์ม', 'المزرعة'), '<select class="form-input" id="pbmFarm"><option value="0">—</option>' + fs.map(function (f) { return '<option value="' + f.id + '">' + esc(f.name) + '</option>'; }).join('') + '</select>') +
+      '<div style="grid-column:1/-1;"><button class="pb-btn" id="pbmSave" data-no-sticky data-no-back>💾 ' + tt('שמור', 'บันทึก', 'حفظ') + '</button></div></div>';
+    wirePack('pbm');
     document.getElementById('pbmSave').addEventListener('click', function () {
       function v(id) { return (document.getElementById(id) || {}).value || ''; }
       var product = v('pbmProduct').trim(), price = Number(v('pbmPrice'));
@@ -525,6 +552,7 @@ var PriceBook = (function () {
       var rec = fromIntake({ name: product, product: product, kind: v('pbmKind'), base_unit: v('pbmUnit'), unit: v('pbmUnit'), unit_price: price, qty: 0 },
         { doc_date: v('pbmDate'), supplier: v('pbmSupplier').trim(), doc_type: 'manual' }, Number(v('pbmFarm')) || 0);
       rec.source = 'manual';
+      var pk = packOf('pbm'); if (pk) { rec.packPrice = pk.packPrice; rec.packSize = pk.packSize; rec.qty = pk.packSize; }
       var c = compare(product, v('pbmUnit'), price);
       add([rec]).then(function (ok) {
         if (!ok) return;
