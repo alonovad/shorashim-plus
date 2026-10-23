@@ -2018,6 +2018,7 @@
     'משוך מהמאגר': { th: 'ดึงจากคลัง', ar: 'اسحب من المخزن' },
     'הערות לחלקה': { th: 'หมายเหตุแปลง', ar: 'ملاحظات القطعة' },
     'עצים חסרים': { th: 'ต้นที่ขาด', ar: 'أشجار ناقصة' },
+    'חזרה': { th: 'กลับ', ar: 'رجوع' },
     'המלצות גידול ומעקב': { th: 'คำแนะนำการปลูกและติดตาม', ar: 'توصيات الزراعة والمتابعة' },
     'מצב הצמחייה מהלוויין': { th: 'สภาพพืชจากดาวเทียม', ar: 'حالة الغطاء النباتي من القمر الصناعي' },
     'ענפים': { th: 'สาขาการเกษตร', ar: 'الفروع' },
@@ -8216,7 +8217,7 @@
     // Plot click handlers
     container.querySelectorAll('.farm-detail-plot').forEach(function(el) {
       el.addEventListener('click', function() {
-        showPlotDetails(parseInt(this.getAttribute('data-fd-plot-id')));
+        showPlotDetails(parseInt(this.getAttribute('data-fd-plot-id')), { farm: farmId });
       });
     });
 
@@ -8901,7 +8902,16 @@
     host.addEventListener('click', function(e) { if (e.target === host) close(false); });
   }
 
-  function showPlotDetails(plotId) {
+  // Where the plot card was opened from, for its ← back button: the farm
+  // card it was picked on, or nothing (map, lists) → back just closes.
+  var _pdFrom = null;
+  window.pdBack = function () {
+    var f = _pdFrom; _pdFrom = null;
+    if (f && f.farm) showFarmDetails(f.farm);
+    else document.getElementById('modalContainer').innerHTML = '';
+  };
+  function showPlotDetails(plotId, from) {
+    _pdFrom = from || null;
     var _pdCanEdit = !window.Own || Own.isAdmin();
     var plot = plots.find(function(p) { return p.id === plotId; });
     if (!plot) return;
@@ -8957,9 +8967,14 @@
     container.innerHTML =
       '<div class="modal-overlay" onclick="if(event.target===this) document.getElementById(\'modalContainer\').innerHTML=\'\'">' +
         '<div class="modal" style="max-width: 500px;">' +
-          '<div style="display: flex; align-items: center; gap: 12px; margin-bottom: 14px;">' +
-            '<div style="width: 16px; height: 16px; border-radius: 50%; background: ' + plot.color + '; border: 2px solid rgba(0,0,0,0.1);"></div>' +
-            '<h2 style="margin: 0;">' + locName(plot) + '</h2>' +
+          // Pinned header: stays on top while the card scrolls — name, back to
+          // where it was opened from, save (when editable) and close.
+          '<div class="pd-head">' +
+            '<button type="button" class="pd-hb" onclick="pdBack()" title="' + t('חזרה') + '" aria-label="' + t('חזרה') + '">→</button>' +
+            '<div style="width: 14px; height: 14px; border-radius: 50%; flex: none; background: ' + plot.color + '; border: 2px solid rgba(0,0,0,0.1);"></div>' +
+            '<h2 class="pd-ht">' + locName(plot) + '</h2>' +
+            (_pdCanEdit ? '<button type="button" class="pd-hsave" onclick="var b=document.getElementById(\'pdSaveEdit\');if(b)b.click();">💾 ' + t('שמור') + '</button>' : '') +
+            '<button type="button" class="pd-hb" onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'" title="' + t('סגור') + '" aria-label="' + t('סגור') + '">✕</button>' +
           '</div>' +
           
           '<div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 14px;">' +
