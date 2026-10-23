@@ -477,7 +477,7 @@ var PriceBook = (function () {
       lbl(tt('מס׳ מסמך', 'เลขที่เอกสาร', 'رقم المستند'), '<input class="form-input" id="pbeDocNo" value="' + esc(r.docNo || '') + '">') +
       lbl(tt('סוג', 'ประเภท', 'النوع'), '<select class="form-input" id="pbeKind">' + kindOpts(r.kind || 'other') + '</select>') +
       lbl(tt('משק', 'ฟาร์ม', 'المزرعة'), '<select class="form-input" id="pbeFarm"><option value="0">—</option>' + fs.map(function (f) { return '<option value="' + f.id + '"' + (f.id === r.farmId ? ' selected' : '') + '>' + esc(f.name) + '</option>'; }).join('') + '</select>') +
-      '<div style="grid-column:1/-1;display:flex;gap:6px;"><button class="pb-btn" id="pbeSave" data-no-sticky data-no-back>💾 ' + tt('שמור שינויים', 'บันทึก', 'حفظ') + '</button>' +
+      '<div style="grid-column:1/-1;display:flex;gap:6px;"><button class="pb-btn" id="pbeSave">💾 ' + tt('שמור שינויים', 'บันทึก', 'حفظ') + '</button>' +
       '<button class="pb-btn ghost" id="pbeCancel">' + tt('ביטול', 'ยกเลิก', 'إلغاء') + '</button></div></div>';
     box.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     wirePack('pbe');
@@ -518,7 +518,7 @@ var PriceBook = (function () {
       '<small style="grid-column:1/-1;color:var(--text-muted,#777);">' + tt('יחול על כל', 'ใช้กับทั้งหมด', 'ينطبق على كل') + ' ' + all.length + ' ' + tt('הרשומות של המוצר בשנים שנטענו. שם זהה למוצר קיים מאחד ביניהם.', 'รายการ', 'السجلات') + '</small>' +
       lbl(tt('שם חדש', 'ชื่อใหม่', 'اسم جديد'), '<input class="form-input" id="pbrName" value="' + esc(g.name) + '">') +
       lbl(tt('סוג', 'ประเภท', 'النوع'), '<select class="form-input" id="pbrKind">' + kindOpts(g.recs[0].kind || 'other') + '</select>') +
-      '<div style="grid-column:1/-1;display:flex;gap:6px;"><button class="pb-btn" id="pbrSave" data-no-sticky data-no-back>💾 ' + tt('שמור', 'บันทึก', 'حفظ') + '</button>' +
+      '<div style="grid-column:1/-1;display:flex;gap:6px;"><button class="pb-btn" id="pbrSave">💾 ' + tt('שמור', 'บันทึก', 'حفظ') + '</button>' +
       '<button class="pb-btn ghost" id="pbrCancel">' + tt('ביטול', 'ยกเลิก', 'إلغاء') + '</button></div></div>';
     document.getElementById('pbrCancel').addEventListener('click', function () { box.innerHTML = ''; });
     document.getElementById('pbrSave').addEventListener('click', function () {
@@ -543,7 +543,7 @@ var PriceBook = (function () {
       lbl(tt('= ₪ ליחידה (ק"ג/ליטר…) לפני מע"מ', '₪/หน่วย', '₪/وحدة'), '<input class="form-input" id="pbmPrice" type="number" step="any" min="0">') +
       lbl(tt('סוג', 'ประเภท', 'النوع'), '<select class="form-input" id="pbmKind">' + kindOpts('other') + '</select>') +
       lbl(tt('משק', 'ฟาร์ม', 'المزرعة'), '<select class="form-input" id="pbmFarm"><option value="0">—</option>' + fs.map(function (f) { return '<option value="' + f.id + '">' + esc(f.name) + '</option>'; }).join('') + '</select>') +
-      '<div style="grid-column:1/-1;"><button class="pb-btn" id="pbmSave" data-no-sticky data-no-back>💾 ' + tt('שמור', 'บันทึก', 'حفظ') + '</button></div></div>';
+      '<div style="grid-column:1/-1;"><button class="pb-btn" id="pbmSave">💾 ' + tt('שמור', 'บันทึก', 'حفظ') + '</button></div></div>';
     wirePack('pbm');
     document.getElementById('pbmSave').addEventListener('click', function () {
       function v(id) { return (document.getElementById(id) || {}).value || ''; }
