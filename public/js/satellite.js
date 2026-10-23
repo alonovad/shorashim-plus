@@ -520,7 +520,7 @@ var Satellite = (function () {
     var vals = list.map(function () { return []; }), farmVals = [];
     for (var p = 0; p < n; p++) {
       var a = p * 4;
-      if (!dec.px[a + 3] || dec.px[a + 2]) continue;
+      if (!dec.px[a + 3] || dec.px[a + 2] || o[p] < 0) continue;
       var v = px2v(dec.px[a + ch]);
       farmVals.push(v);
       if (o[p] >= 0) vals[o[p]].push(v);
@@ -540,7 +540,7 @@ var Satellite = (function () {
     var A = ABS[idx];
     for (var q = 0; q < n; q++) {
       var b = q * 4;
-      if (!dec.px[b + 3]) continue;
+      if (!dec.px[b + 3] || o[q] < 0) continue;   // outside every plot
       if (dec.px[b + 2]) { d[b] = 160; d[b + 1] = 160; d[b + 2] = 160; d[b + 3] = 150; continue; }
       var v2 = px2v(dec.px[b + ch]), t;
       if (rel && o[q] >= 0 && rng[o[q]][0] != null && rng[o[q]][1] - rng[o[q]][0] > 0.02) t = (v2 - rng[o[q]][0]) / (rng[o[q]][1] - rng[o[q]][0]);
@@ -557,6 +557,7 @@ var Satellite = (function () {
     var a = (j * dec.w + i) * 4;
     if (!dec.px[a + 3]) return null;
     var o = owners(dec, list)[j * dec.w + i];
+    if (o < 0) return null;
     return { v: px2v(dec.px[a + (idx === 'm' ? 1 : 0)]), cloud: !!dec.px[a + 2], plot: o >= 0 ? list[o] : null };
   }
 

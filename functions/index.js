@@ -1550,11 +1550,13 @@ exports.sentinelImage = onCall(
     const mx = (e - w) * 111320 * Math.cos(lat * Math.PI / 180), my = (n - s) * 110574;
     if (mx > 25000 || my > 25000) throw new HttpsError("invalid-argument", "area too large");
     const width = Math.max(1, Math.min(2500, Math.round(mx / 10))), height = Math.max(1, Math.min(2500, Math.round(my / 10)));
-    const geometry = rings.length === 1 ? { type: "Polygon", coordinates: [rings[0]] }
-                                        : { type: "MultiPolygon", coordinates: rings.map((r) => [r]) };
+    // The rectangle around the plots, not the plots themselves: a farm's
+    // plots sent as one MultiPolygon are rejected when two overlap or a
+    // boundary crosses itself (COMMON_BAD_PAYLOAD). The browser cuts the
+    // plots out of the image (it already maps every pixel to its plot).
     const body = {
       input: {
-        bounds: { geometry, properties: { crs: "http://www.opengis.net/def/crs/OGC/1.3/CRS84" } },
+        bounds: { bbox: [w, s, e, n], properties: { crs: "http://www.opengis.net/def/crs/OGC/1.3/CRS84" } },
         data: [{ type: "sentinel-2-l2a", dataFilter: {
           timeRange: { from: data.date + "T00:00:00Z", to: data.date + "T23:59:59Z" }, mosaickingOrder: "leastCC" } }]
       },
