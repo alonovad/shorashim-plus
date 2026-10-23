@@ -70,6 +70,10 @@ var AgriPlan = (function () {
   var KEY_PREFIX = 'shorashim-agri-plan-';
   // Admin-only in firestore.rules — see APPROVAL in the header.
   var APPROVALS_PREFIX = 'shorashim-agri-approvals-';
+  // Saved templates for "דגשים לביצוע והכנות", shared across seasons and
+  // plans: { items: [{ id, name, text, createdBy… }] } — operator+ write.
+  var TPL_KEY = 'shorashim-agri-prep-templates';
+  var _tpl = null, _tplOpen = false;
 
   // אופן יישום. Each method only decides which carrier column is shown and
   // which label prints — the dose maths lives on the material, not here.
@@ -732,6 +736,9 @@ var AgriPlan = (function () {
       '.ap-mat-n{display:flex;gap:4px;min-width:0;}.ap-mat-n .ap-in{flex:1;min-width:0;}' +
       '.ap-unit{flex:none;width:62px;border:1px solid var(--line,#dde5da);border-radius:10px;background:var(--card,#fff);color:var(--text,#1b2a1f);font:inherit;font-size:.78rem;padding:0 4px;}' +
       '.ap-prep{background:var(--primary-soft,#eef7d4);border-radius:14px;padding:10px 12px;margin-top:8px;}' +
+      '.ap-tpls{background:var(--card,#fff);border-radius:12px;padding:6px;margin:4px 0 8px;display:flex;flex-direction:column;gap:4px;}' +
+      '.ap-tpl{display:flex;align-items:center;gap:4px;flex-wrap:wrap;padding:4px 6px;border-radius:10px;}.ap-tpl:hover{background:var(--tonal,#f3f6ef);}' +
+      '.ap-tpl .ap-btn{padding:4px 9px;font-size:.74rem;}.ap-tpln{flex:1;min-width:140px;font-size:.8rem;}.ap-tpln small{display:block;color:var(--text-muted,#888);font-size:.7rem;}' +
       '.ap-bv{max-height:46vh;overflow-y:auto;border:1px solid var(--line,#e6ebe2);border-radius:12px;padding:6px 8px;margin-top:6px;}' +
       '.ap-bv-f{font-weight:700;margin:6px 0 2px;display:flex;gap:6px;align-items:center;}' +
       '.ap-bv-r{display:flex;gap:8px;align-items:center;padding:4px 18px 4px 0;font-size:.84rem;}.ap-bv-r small{color:var(--text-muted,#888);}' +
@@ -1043,7 +1050,10 @@ var AgriPlan = (function () {
           'oninput="AgriPlan._setPlan(' + id + ',\'notes\',this.value)">' + esc(p.notes) + '</textarea>' +
         '<div class="ap-prep"><div class="ap-lbl" style="display:flex;justify-content:space-between;align-items:center;gap:6px;">' +
           '<b>🧰 ' + tt('דגשים לביצוע והכנות לריסוס', 'ข้อควรปฏิบัติและการเตรียม', 'إرشادات التنفيذ والتحضير') + '</b>' +
-          (ro ? '' : '<button type="button" class="ap-btn ghost" style="padding:4px 9px;font-size:.74rem;" onclick="AgriPlan._prepTemplate(' + id + ')">＋ ' + tt('תבנית', 'แม่แบบ', 'قالب') + '</button>') + '</div>' +
+          (ro ? '' : '<span style="display:inline-flex;gap:4px;">' +
+            '<button type="button" class="ap-btn ghost" data-no-sticky data-no-back style="padding:4px 9px;font-size:.74rem;" onclick="AgriPlan._tplToggle(' + id + ')">📑 ' + tt('תבניות', 'แม่แบบ', 'قوالب') + ' ' + (_tplOpen ? '▴' : '▾') + '</button>' +
+            '<button type="button" class="ap-btn ghost" data-no-sticky data-no-back style="padding:4px 9px;font-size:.74rem;" onclick="AgriPlan._tplSave(' + id + ')">💾 ' + tt('שמור כתבנית', 'บันทึกเป็นแม่แบบ', 'حفظ كقالب') + '</button></span>') + '</div>' +
+          (!ro && _tplOpen ? tplPanel(id) : '') +
           '<textarea class="ap-in" id="apPrep" rows="4" placeholder="' + esc(tt('כיול מרסס, סדר ערבוב, pH מים, ציוד מגן, תנאי רוח וטמפ׳, זמן כניסה חוזרת…', 'การเตรียม…', 'المعايرة، ترتيب الخلط…')) + '" ' +
             (ro ? 'readonly ' : '') + 'oninput="AgriPlan._setPlan(' + id + ',\'prep\',this.value)">' + esc(p.prep || '') + '</textarea>' +
           '<div style="font-size:.7rem;color:var(--text-muted,#888);margin-top:3px;">' + tt('מודפס בראש התוכנית ומוצג לצוות בכרטיס המשק', 'พิมพ์และแสดงให้ทีม', 'يُطبع ويُعرض للطاقم') + '</div></div>' +
@@ -2033,6 +2043,90 @@ var AgriPlan = (function () {
     showPlan(pid);
     toast('✅ ' + tt('הנפח עודכן ל־', 'อัปเดตเป็น ', 'تم التحديث إلى ') + v + ' ' + tt('בשורות:', 'ใน', 'في') + ' ' + n);
   }
+  // ── prep-note templates ──
+  function tplLoad() {
+    if (_tpl) return Promise.resolve(_tpl);
+    if (typeof DB === 'undefined') { _tpl = { items: [] }; return Promise.resolve(_tpl); }
+    return DB.loadAsync(TPL_KEY).then(function (d) {
+      _tpl = { items: (d && Array.isArray(d.items)) ? d.items : [] }; return _tpl;
+    }, function () { _tpl = null; return { items: [] }; });   // a failed read is not "empty": never saved over
+  }
+  function tplPersist() {
+    if (!_tpl) return Promise.resolve(false);
+    var clean = JSON.parse(JSON.stringify(_tpl));
+    var pr = DB.saveAsync ? DB.saveAsync(TPL_KEY, clean) : (DB.save(TPL_KEY, clean), Promise.resolve());
+    return pr.then(function () { return true; }, function (e) {
+      toast('\u274c ' + tt('השמירה נכשלה', 'บันทึกไม่สำเร็จ', 'فشل الحفظ') + ': ' + ((e && (e.code || e.message)) || e)); return false;
+    });
+  }
+  function tplMine(t) { return !window.Own || Own.canEdit(t); }
+  function tplPanel(pid) {
+    var items = (_tpl && _tpl.items) || [];
+    var row = function (key, name, sub, del) {
+      return '<div class="ap-tpl"><div class="ap-tpln"><b>' + esc(name) + '</b>' + (sub ? '<small>' + esc(sub) + '</small>' : '') + '</div>' +
+        '<button type="button" class="ap-btn ghost" data-no-sticky data-no-back onclick="AgriPlan._tplUse(' + pid + ',\'' + key + '\',false)">＋ ' + tt('הוסף', 'เพิ่ม', 'أضف') + '</button>' +
+        '<button type="button" class="ap-btn ghost" data-no-sticky data-no-back onclick="AgriPlan._tplUse(' + pid + ',\'' + key + '\',true)">⇄ ' + tt('החלף', 'แทนที่', 'استبدل') + '</button>' +
+        (del ? '<button type="button" class="ap-btn ghost" data-no-sticky data-no-back style="color:#b3261e;" onclick="AgriPlan._tplDel(\'' + key + '\')">🗑</button>' : '') + '</div>';
+    };
+    return '<div class="ap-tpls">' +
+      row('builtin', tt('ברירת מחדל — דגשים כלליים לריסוס', 'ค่าเริ่มต้น', 'الافتراضي'), tt('כיול, סדר ערבוב, pH, ציוד מגן, מזג אוויר', 'การปรับเทียบ ลำดับการผสม…', 'المعايرة، الخلط…'), false) +
+      (_tpl ? items.slice().sort(function (a, b) { return String(a.name).localeCompare(String(b.name), 'he'); }).map(function (t) {
+        return row(String(t.id), t.name, (t.createdByName || '') + ' · ' + String(t.text || '').split('\n')[0].slice(0, 60), tplMine(t));
+      }).join('') : '<div class="ap-tpln"><small>⏳</small></div>') +
+      (_tpl && !items.length ? '<div class="ap-tpln"><small>' + tt('עוד אין תבניות שמורות. כתוב דגשים ולחץ "שמור כתבנית".', 'ยังไม่มีแม่แบบที่บันทึก', 'لا قوالب محفوظة بعد') + '</small></div>' : '') +
+    '</div>';
+  }
+  function _tplToggle(pid) {
+    _tplOpen = !_tplOpen;
+    if (_tplOpen && !_tpl) tplLoad().then(function () { if (_openPlan === pid) showPlan(pid); });
+    showPlan(pid);
+  }
+  function _tplUse(pid, key, replace) {
+    var p = editable(pid);
+    if (!p) return;
+    if (key === 'builtin') {
+      if (replace) p.prep = '';
+      _prepTemplate(pid);
+      return;
+    }
+    var t = ((_tpl && _tpl.items) || []).find(function (x) { return String(x.id) === String(key); });
+    if (!t) return;
+    if (replace && String(p.prep || '').trim() && !confirm(tt('להחליף את הדגשים הקיימים בתבנית?', 'แทนที่ข้อความเดิม?', 'استبدال الإرشادات الحالية؟'))) return;
+    p.prep = replace || !String(p.prep || '').trim() ? String(t.text || '') : (p.prep.trim() + '\n' + String(t.text || ''));
+    save();
+    showPlan(pid);
+  }
+  function _tplSave(pid) {
+    var p = planById(pid);
+    if (!p) return;
+    var text = String(p.prep || '').trim();
+    if (!text) { toast('\u26a0\ufe0f ' + tt('כתוב קודם דגשים בתיבה', 'เขียนข้อความก่อน', 'اكتب الإرشادات أولاً')); return; }
+    tplLoad().then(function () {
+      if (!_tpl) { toast('\u274c ' + tt('אין חיבור — נסה שוב', 'ไม่มีการเชื่อมต่อ', 'لا اتصال')); return; }
+      var name = (prompt(tt('שם לתבנית (למשל: ריסוס בלושילד חורף)', 'ชื่อแม่แบบ', 'اسم القالب'), p.name || '') || '').trim();
+      if (!name) return;
+      var same = _tpl.items.find(function (x) { return String(x.name).trim() === name; });
+      if (same) {
+        if (!tplMine(same)) { toast('\u26d4 ' + tt('יש כבר תבנית בשם הזה של משתמש אחר — בחר שם אחר', 'มีชื่อนี้แล้ว', 'الاسم مستخدم')); return; }
+        if (!confirm(tt('לעדכן את התבנית הקיימת בשם הזה?', 'อัปเดตแม่แบบเดิม?', 'تحديث القالب الحالي؟'))) return;
+        same.text = text; same.updatedAt = Date.now();
+      } else {
+        var t = { id: uid(), name: name.slice(0, 80), text: text.slice(0, 4000) };
+        if (window.Own) Own.stamp(t);
+        _tpl.items.push(t);
+      }
+      tplPersist().then(function (ok) { if (ok) { toast('\u2705 ' + tt('התבנית נשמרה', 'บันทึกแม่แบบแล้ว', 'حُفظ القالب')); _tplOpen = true; if (_openPlan === pid) showPlan(pid); } });
+    });
+  }
+  function _tplDel(key) {
+    var t = ((_tpl && _tpl.items) || []).find(function (x) { return String(x.id) === String(key); });
+    if (!t) return;
+    if (!tplMine(t)) { if (window.Own) Own.denied(); return; }
+    if (!confirm(tt('למחוק את התבנית', 'ลบแม่แบบ', 'حذف القالب') + ' "' + t.name + '"?')) return;
+    _tpl.items = _tpl.items.filter(function (x) { return x !== t; });
+    tplPersist().then(function () { if (_openPlan) showPlan(_openPlan); });
+  }
+
   function _prepTemplate(pid) {
     var p = editable(pid);
     if (!p) return;
@@ -3303,6 +3397,10 @@ var AgriPlan = (function () {
     _bvApply: _bvApply,
     _bvAll: _bvAll,
     _prepTemplate: _prepTemplate,
+    _tplToggle: _tplToggle,
+    _tplUse: _tplUse,
+    _tplSave: _tplSave,
+    _tplDel: _tplDel,
     _pickMat: _pickMat
   };
 })();

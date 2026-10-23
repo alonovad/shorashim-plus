@@ -112,7 +112,10 @@ service cloud.firestore {
         'shorashim-knowledge',
         // plotregister.js — plot attributes read from tables/PDFs, applied
         // to hand-drawn polygons. Same tier as the plots themselves.
-        'shorashim-plot-register'
+        'shorashim-plot-register',
+        // agriplan.js — saved templates for a plan's prep notes (shared
+        // across seasons); each template's author edits it (ownership.js).
+        'shorashim-agri-prep-templates'
       ];
 
       // Operator+: one tracking journal per construction project
