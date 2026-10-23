@@ -95,27 +95,38 @@ var OpCost = (function () {
       if (ui.farm && e.farm_id !== ui.farm) return;
       var section = e.budget_category || e.type || '—';
       var sc = cfg.sections[section] || null;
-      var rate = cfg.groups[e.worker_group] != null ? Number(cfg.groups[e.worker_group]) : cfg.rateDefault;
-      var workers = Number(e.worker_count) || 1;
       var hoursMissing = !(Number(e.hours) > 0);
       var hours = hoursMissing ? cfg.dayHours : Number(e.hours);
-      var labourH = workers * hours, cost = labourH * rate;
+      var rateOf = function (g) { return cfg.groups[g] != null ? Number(cfg.groups[g]) : cfg.rateDefault; };
+      // An entry may carry several crews (e.entry.crews: [{group, count}]),
+      // each at its own rate — e.g. 2 Thai workers with 5 Shorashim workers.
+      var crews = (Array.isArray(e.crews) && e.crews.length) ? e.crews : [{ group: e.worker_group || '', count: Number(e.worker_count) || 1 }];
+      var totalH = 0;
+      crews.forEach(function (c) { totalH += (Number(c.count) || 0) * hours; });
       var unit = sc ? sc.unit : 'tree';
-      var out = unit === 'tree' ? (Number(e.trees_completed) || 0) : unit === 'qty' ? (Number(e.quantity) || 0)
-        : unit === 'dunam' ? (e.plot_id && S().plotArea ? S().plotArea(e.plot_id) : 0) : labourH;
+      var outAll = unit === 'tree' ? (Number(e.trees_completed) || 0) : unit === 'qty' ? (Number(e.quantity) || 0)
+        : unit === 'dunam' ? (e.plot_id && S().plotArea ? S().plotArea(e.plot_id) : 0) : totalH;
       var fb = (cfg.farmBudget[e.farm_id] || {})[section];
       var budgetUnit = fb != null ? Number(fb) : (sc ? Number(sc.budget) || 0 : 0);
-      var k = ui.by === 'farm' ? e.farm_id + '|' + section : ui.by === 'group' ? (e.worker_group || '—') + '|' + section : section;
-      var r = rows[k];
-      if (!r) {
-        r = rows[k] = { farm: ui.by === 'farm' ? (farmNames[e.farm_id] || e.farm_name || '') : '', group: ui.by === 'group' ? (e.worker_group || '—') : '',
-          section: section, unit: unit, target: sc ? Number(sc.target) || 0 : 0, budgetUnit: budgetUnit, priced: !!sc,
-          n: 0, labourH: 0, cost: 0, out: 0, budget: 0, missingH: 0, missingOut: 0, budgetUnits: {} };
-        order.push(k);
-      }
-      r.n++; r.labourH += labourH; r.cost += cost; r.out += out; r.budget += out * budgetUnit;
-      if (hoursMissing) r.missingH++;
-      if (unit !== 'hour' && !out) r.missingOut++;
+      // By group the entry is split across its crews, output shared by labour hours.
+      var parts = ui.by === 'group' ? crews.map(function (c) { return [c.group || '—', [c]]; }) : [[e.worker_group || '—', crews]];
+      parts.forEach(function (pt, pi) {
+        var labourH = 0, cost = 0;
+        pt[1].forEach(function (c) { var h = (Number(c.count) || 0) * hours; labourH += h; cost += h * rateOf(c.group); });
+        var share = totalH ? labourH / totalH : 1;
+        var out = outAll * share;
+        var k = ui.by === 'farm' ? e.farm_id + '|' + section : ui.by === 'group' ? pt[0] + '|' + section : section;
+        var r = rows[k];
+        if (!r) {
+          r = rows[k] = { farm: ui.by === 'farm' ? (farmNames[e.farm_id] || e.farm_name || '') : '', group: ui.by === 'group' ? pt[0] : '',
+            section: section, unit: unit, target: sc ? Number(sc.target) || 0 : 0, budgetUnit: budgetUnit, priced: !!sc,
+            n: 0, labourH: 0, cost: 0, out: 0, budget: 0, missingH: 0, missingOut: 0, budgetUnits: {} };
+          order.push(k);
+        }
+        r.n++; r.labourH += labourH; r.cost += cost; r.out += out; r.budget += out * budgetUnit;
+        if (hoursMissing) r.missingH++;
+        if (unit !== 'hour' && !out) r.missingOut++;
+      });
     });
     return order.map(function (k) { return rows[k]; }).sort(function (a, b) {
       return String(a.farm + a.group).localeCompare(String(b.farm + b.group), 'he') || String(a.section).localeCompare(String(b.section), 'he');
@@ -300,6 +311,27 @@ var OpCost = (function () {
     });
   }
 
-  return { open: open, _compute: function () { return compute(); }, _load: load, _ui: ui };
+  // Labour cost per farm per month for a year — same rates and crews as the
+  // report (cashflow.js). Resolves { farmId: [12 monthly ₪] }.
+  function labourByFarmMonth(year) {
+    return load().then(function () {
+      var out = {};
+      (S().getWorklog ? S().getWorklog() : []).forEach(function (e) {
+        var d = String(e.date || '');
+        if (d.slice(0, 4) !== String(year)) return;
+        var m = Number(d.slice(5, 7)) - 1;
+        if (!(m >= 0 && m < 12)) return;
+        var hours = Number(e.hours) > 0 ? Number(e.hours) : cfg.dayHours;
+        var crews = (Array.isArray(e.crews) && e.crews.length) ? e.crews : [{ group: e.worker_group || '', count: Number(e.worker_count) || 1 }];
+        var cost = 0;
+        crews.forEach(function (c) { cost += (Number(c.count) || 0) * hours * (cfg.groups[c.group] != null ? Number(cfg.groups[c.group]) : cfg.rateDefault); });
+        var f = e.farm_id || 0;
+        (out[f] = out[f] || [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])[m] += cost;
+      });
+      return out;
+    });
+  }
+
+  return { open: open, labourByFarmMonth: labourByFarmMonth, _compute: function () { return compute(); }, _load: load, _ui: ui };
 })();
 window.OpCost = OpCost;

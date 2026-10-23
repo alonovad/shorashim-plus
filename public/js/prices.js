@@ -434,6 +434,11 @@ var PriceBook = (function () {
 
   return {
     open: open, add: add, fromIntake: fromIntake, compare: compare, ensureLoaded: ensureLoaded,
+    // Records of the given years (loaded on demand) — cashflow.js reads purchase totals.
+    recordsFor: function (years) {
+      return ensureLoaded({ from: Math.min.apply(null, years) + '-01-01', to: Math.max.apply(null, years) + '-12-31' })
+        .then(function () { return allRecords().filter(function (r) { return years.indexOf(Number(String(r.date || '').slice(0, 4))) !== -1; }); });
+    },
     settings: settings, productKey: productKey, _analyze: analyze, _money: money
   };
 })();

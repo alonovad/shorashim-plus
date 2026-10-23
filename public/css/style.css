@@ -2382,3 +2382,9 @@ body.theme-classic #registerOpenLink { color: #2e7d32 !important; text-shadow: n
 .fi-mv span{font-weight:600;}
 .fi-mv small{flex:1;min-width:0;color:var(--text-muted,#777);font-size:.74rem;}
 .fi-cost{font-size:.78rem;color:var(--text-muted,#666);padding:2px 2px 8px;}
+
+/* Work log: extra crews in one entry (app.js wlAddCrewRow) */
+.wl-crew { display: grid; grid-template-columns: 1fr 110px 36px; gap: 8px; margin: 0 0 8px; align-items: center; }
+.wl-crew .form-input { margin: 0; }
+.wl-crew-x { height: 38px; border: none; border-radius: 10px; background: var(--tonal, #eef2ee); color: var(--danger, #b3261e); font-size: 1.1rem; cursor: pointer; }
+.wl-add-crew { display: block; width: 100%; margin: 0 0 12px; padding: 8px; border: 1.5px dashed var(--line, #cfd9cc); border-radius: 12px; background: transparent; color: var(--primary, #1d5a2c); font-family: inherit; font-size: .82rem; font-weight: 600; cursor: pointer; }

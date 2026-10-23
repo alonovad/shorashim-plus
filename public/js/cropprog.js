@@ -61,7 +61,63 @@ var CropProgram = (function () {
     return (Number(item.rate) || 0) * coef * base;
   }
 
+  // ── Fertilization completion ──
+  // Applied = what was entered by hand for the season (plot.fert[year][itemId])
+  // + what the spray log shows for a product of the same name this season
+  // (spray / fertigation records: trees × dose × concentration). Completion is
+  // applied ÷ recommended (rate × coefficient × dunams or trees).
+  function season() { return String(new Date().getFullYear()); }
+  function manualApplied(plot, item) {
+    var f = plot.fert && plot.fert[season()];
+    return f && f[item.id] != null ? Number(f[item.id]) || 0 : 0;
+  }
+  function loggedApplied(plot, item) {
+    var nm = String(item.name || '').trim();
+    if (!nm || !S().getEvents) return 0;
+    var y = season(), sum = 0;
+    S().getEvents().forEach(function (ev) {
+      if (String(ev.date || '').slice(0, 4) !== y || (ev.plotIds || []).indexOf(plot.id) === -1) return;
+      (ev.applications || []).forEach(function (a) {
+        if (String(a.productName || '').trim() !== nm) return;
+        var vol = Number(ev.volumePerTree) || 0, conc = (Number(a.concentration) || 0) / 100, u = ev.volumeUnit || 'l_tree';
+        var trees = Number(plot.tree_count) || 0, area = Number(plot.area) || 0;
+        var L = u === 'cc_tree' ? trees * vol / 1000 * conc : u === 'l_dunam' ? area * vol * conc : trees * vol * conc;
+        sum += L;
+      });
+    });
+    return item.unit === 'גרם' ? sum * 1000 : sum;
+  }
+  function applied(plot, item) { return manualApplied(plot, item) + loggedApplied(plot, item); }
+  function pct(a, rec) { return rec > 0 ? Math.round(a / rec * 100) : null; }
+  function bar(p) {
+    if (p == null) return '';
+    var c = p >= 90 ? '#2e7d32' : p >= 50 ? '#e0a100' : '#c62828';
+    return '<div class="cp-pb"><i style="width:' + Math.min(100, p) + '%;background:' + c + '"></i></div><span class="cp-pp" style="color:' + c + '">' + p + '%</span>';
+  }
+  // Farm-level completion for a crop, weighted by recommended amounts.
+  function farmCompletion(farmId, crop) {
+    var prog = program(crop);
+    if (!prog.items.length) return null;
+    var rec = 0, app = 0;
+    S().getFarmPlots(farmId).filter(function (p) { return p.crop_type === crop; }).forEach(function (p) {
+      var c = coefOf(prog, p);
+      prog.items.forEach(function (it) {
+        var r = amount(it, p, c);
+        if (!r) return;
+        rec += 1; app += Math.min(1.5, applied(p, it) / r);
+      });
+    });
+    return rec ? Math.round(app / rec * 100) : null;
+  }
+
   function ensureCss() {
+    if (!document.getElementById('cpCss2')) {
+      var s2 = document.createElement('style'); s2.id = 'cpCss2';
+      s2.textContent = '.cp-done{font-size:.68rem;color:var(--text-muted,#666);margin-top:3px;display:flex;gap:4px;align-items:center;}.cp-done .form-input{width:70px;padding:3px 5px;font-size:.72rem;margin:0;}' +
+        '.cp-pb{height:5px;border-radius:3px;background:var(--line,#e3e8e1);margin-top:4px;overflow:hidden;}.cp-pb i{display:block;height:100%;}.cp-pp{font-size:.66rem;font-weight:700;}' +
+        '.cp-chip-pct{font-size:.7rem;font-weight:700;margin-inline-start:4px;}';
+      document.head.appendChild(s2);
+    }
     if (document.getElementById('cpCss')) return;
     var st = document.createElement('style');
     st.id = 'cpCss';
@@ -107,7 +163,9 @@ var CropProgram = (function () {
       '<div class="cp-bar">' + crops.map(function (c) {
         var p = progs[c];
         return '<button type="button" class="cp-chip" data-cp-crop="' + esc(c) + '">' + esc(c) +
-          (p && p.items && p.items.length ? ' · ' + p.items.length + ' ' + tt('פריטים', 'รายการ', 'بنود') : ' · ' + tt('אין תוכנית', 'ไม่มีแผน', 'لا برنامج')) + '</button>';
+          (p && p.items && p.items.length ? ' · ' + p.items.length + ' ' + tt('פריטים', 'รายการ', 'بنود') : ' · ' + tt('אין תוכנית', 'ไม่มีแผน', 'لا برنامج')) +
+          (function () { var fc = farmCompletion(farmId, c); if (fc == null) return ''; var col = fc >= 90 ? '#2e7d32' : fc >= 50 ? '#b07800' : '#c62828';
+            return '<span class="cp-chip-pct" style="color:' + col + '" title="' + esc(tt('השלמת דישון העונה', 'ความครบถ้วนของปุ๋ย', 'اكتمال التسميد')) + '">' + fc + '%</span>'; })() + '</button>';
       }).join('') + '</div>';
   }
   function bind(farmId) {
@@ -130,7 +188,7 @@ var CropProgram = (function () {
     var plots = S().getFarmPlots(farmId).filter(function (p) { return p.crop_type === crop; })
       .sort(function (a, b) { return String(a.name).localeCompare(String(b.name), 'he', { numeric: true }); });
     var can = !forPrint && S().canEditFarm(farmId);
-    var tot = prog.items.map(function () { return 0; }), totA = 0, totT = 0;
+    var tot = prog.items.map(function () { return 0; }), totD = prog.items.map(function () { return 0; }), totA = 0, totT = 0;
     var rows = plots.map(function (p) {
       var c = coefOf(prog, p);
       totA += p.area || 0; totT += p.tree_count || 0;
@@ -144,7 +202,15 @@ var CropProgram = (function () {
         : c;
       var noteCell = can ? '<input class="form-input cp-note" data-p="' + p.id + '" value="' + esc(p.status_note) + '">' : esc(p.status_note);
       var dateCell = can ? '<input class="form-input cp-date" data-p="' + p.id + '" type="date" value="' + esc(p.status_date) + '">' : esc(p.status_date);
-      var amts = prog.items.map(function (it, k) { var a = amount(it, p, c); tot[k] += a; return '<td class="amt">' + (a ? r2(a) : '0') + '</td>'; }).join('');
+      var amts = prog.items.map(function (it, k) {
+        var a = amount(it, p, c), done = applied(p, it), man = manualApplied(p, it), logd = done - man;
+        tot[k] += a; totD[k] += done;
+        return '<td class="amt"><div>' + (a ? r2(a) : '0') + '</div>' +
+          (forPrint ? '<div class="cp-done">' + tt('בוצע', 'ทำแล้ว', 'نُفّذ') + ' ' + r2(done) + (a ? ' (' + pct(done, a) + '%)' : '') + '</div>' :
+            '<div class="cp-done">' + (can ? '<input class="form-input cp-fert" data-p="' + p.id + '" data-it="' + esc(it.id) + '" type="number" step="any" min="0" value="' + (man || '') + '" placeholder="' + tt('בוצע', 'ทำแล้ว', 'نُفّذ') + '">' : r2(man)) +
+            (logd > 0 ? '<small title="' + esc(tt('מתוך יומן הריסוסים', 'จากบันทึก', 'من سجل الرش')) + '">+' + r2(logd) + ' 📋</small>' : '') + '</div>' + bar(pct(done, a))) +
+        '</td>';
+      }).join('');
       return '<tr><td><b>' + esc(p.name) + '</b></td><td class="num">' + r2(p.area) + '</td><td class="num">' + (p.tree_count || '') + '</td><td>' + esc(p.variety) + '</td>' +
         '<td>' + stageCell + '</td><td class="num">' + coefCell + '</td><td>' + noteCell + '</td><td>' + dateCell + '</td>' + amts + '</tr>';
     }).join('');
@@ -154,7 +220,7 @@ var CropProgram = (function () {
         return '<th>' + esc(it.name) + '<small>' + r2(it.rate) + ' ' + esc(it.unit) + '/' + (it.basis === 'tree' ? tt('עץ', 'ต้น', 'شجرة') : tt('ד׳', 'ไร่', 'دونم')) + (it.timing ? ' · ' + esc(it.timing) : '') + '</small></th>';
       }).join('') + '</tr>';
     var totRow = '<tr class="tot"><td>' + tt('סה"כ', 'รวม', 'المجموع') + '</td><td class="num">' + r2(totA) + '</td><td class="num">' + totT.toLocaleString('he-IL') + '</td><td colspan="5"></td>' +
-      prog.items.map(function (it, k) { return '<td class="num">' + r2(tot[k]) + ' ' + esc(it.unit) + '</td>'; }).join('') + '</tr>';
+      prog.items.map(function (it, k) { return '<td class="num">' + r2(tot[k]) + ' ' + esc(it.unit) + '<div class="cp-done">' + tt('בוצע', 'ทำแล้ว', 'نُفّذ') + ' ' + r2(totD[k]) + '</div>' + bar(pct(totD[k], tot[k])) + '</td>'; }).join('') + '</tr>';
     return '<div class="cp-wrap"><table class="cp-tbl"><thead>' + head + '</thead><tbody>' + rows + (plots.length ? totRow : '') + '</tbody></table></div>';
   }
 
@@ -194,6 +260,12 @@ var CropProgram = (function () {
       else if (t.classList.contains('cp-coef')) patch.coef = t.value === '' ? null : Number(t.value);
       else if (t.classList.contains('cp-note')) patch.status_note = t.value.trim().slice(0, 200);
       else if (t.classList.contains('cp-date')) patch.status_date = t.value;
+      else if (t.classList.contains('cp-fert')) {
+        var cur = (S().getFarmPlots(farmId).find(function (x) { return x.id === pid; }) || {}).fert || {};
+        var y = season(); cur[y] = cur[y] || {};
+        var v = Number(t.value); if (v > 0) cur[y][t.getAttribute('data-it')] = v; else delete cur[y][t.getAttribute('data-it')];
+        patch.fert = cur;
+      }
       else return;
       var r = S().updatePlot(pid, patch);
       if (!r || !r.ok) { toast('⛔ ' + tt('אין הרשאה', 'ไม่มีสิทธิ์', 'لا صلاحية')); return; }

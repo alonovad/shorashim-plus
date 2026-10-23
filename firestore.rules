@@ -50,7 +50,7 @@ service cloud.firestore {
       // (shorashim-prices-ops) are commercial data: operator+ only, so a
       // worker cannot read what suppliers charge or what a crew costs.
       allow read: if isSignedIn() &&
-                     (!docId.matches('shorashim-prices-.*') || isOperatorOrAbove());
+                     ((!docId.matches('shorashim-prices-.*') && !docId.matches('shorashim-cashflow-.*')) || isOperatorOrAbove());
 
       // TEMPORARY (broad grant): any signed-in user may write
       // shorashim-users. The app writes the WHOLE users blob for ordinary
@@ -98,6 +98,8 @@ service cloud.firestore {
         // whitelisted, so every workplace edit has been silently denied in
         // production. Same class of failure as the payroll document.
         'shorashim-workplaces',
+        // knowledge.js: shared library of guides, files and the pest gallery.
+        'shorashim-knowledge',
         // plotregister.js — plot attributes read from tables/PDFs, applied
         // to hand-drawn polygons. Same tier as the plots themselves.
         'shorashim-plot-register'
@@ -158,6 +160,16 @@ service cloud.firestore {
       // farm's part of a plan on its card only while that signature matches.
       allow write: if isAdmin() &&
                       docId.matches('shorashim-agri-approvals-[0-9]{4}');
+
+      // Operator+: cash-flow sheet per year (cashflow.js) — financial, so
+      // also read-restricted to operator+ above.
+      allow write: if isOperatorOrAbove() &&
+                      docId.matches('shorashim-cashflow-[0-9]{4}');
+
+      // Worker+: red palm weevil traps and their counts, one doc per year
+      // (traps.js). Whoever checks the traps in the field enters the counts.
+      allow write: if isWorkerOrAbove() &&
+                      docId.matches('shorashim-traps-[0-9]{4}');
 
       // Worker+: worklogs
       allow write: if isWorkerOrAbove() && docId.matches('shorashim-worklog.*');

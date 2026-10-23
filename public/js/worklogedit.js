@@ -143,7 +143,9 @@ var WorklogEdit = (function () {
               cats.map(function (c) { return opt(c, tr(c), c === e.budget_category); }).join('') + '</select>'),
             row(fieldLabel('worker_group'), '<select class="form-input" id="weGroup">' + opt('', '\u2014', !e.worker_group) +
               grps.map(function (g) { return opt(g, tr(g), g === e.worker_group); }).join('') + '</select>')) +
-        two(row(fieldLabel('worker_count'), '<input type="number" min="1" step="1" class="form-input" id="weCount" value="' + esc(e.worker_count || '') + '">'),
+        two(row(fieldLabel('worker_count') + (e.crews && e.crews.length > 1 ? ' <small style="color:var(--text-muted);">(' + tt('הקבוצה הראשית', 'กลุ่มหลัก', 'المجموعة الرئيسية') + ')</small>' : ''),
+            '<input type="number" min="1" step="1" class="form-input" id="weCount" value="' + esc(e.crews && e.crews.length > 1 ? (e.crews[0].count || 1) : (e.worker_count || '')) + '">' +
+            (e.crews && e.crews.length > 1 ? '<div style="font-size:.72rem;color:var(--text-muted);margin-top:3px;">+ ' + e.crews.slice(1).map(function (c) { return esc(c.count + ' ' + (c.group || '')); }).join(' + ') + '</div>' : '')),
             row(fieldLabel('hours'), '<input type="number" min="0" step="0.25" class="form-input" id="weHours" value="' + esc(e.hours != null ? e.hours : '') + '">')) +
         row(fieldLabel('trees_completed'), '<input type="number" min="0" step="1" class="form-input" id="weTrees" value="' + esc(e.trees_completed != null ? e.trees_completed : '') + '">') +
         two(row(fieldLabel('quantity'), '<input type="number" min="0" step="any" inputmode="decimal" class="form-input" id="weQty" value="' + esc(e.quantity != null ? e.quantity : '') + '">'),
@@ -197,6 +199,11 @@ var WorklogEdit = (function () {
     if (v.quantity != null && v.quantity < 0) { toast('\u274c ' + tt('כמות לא תקינה', 'ปริมาณไม่ถูกต้อง', 'كمية غير صالحة')); return; }
     if (v.hours != null && (v.hours < 0 || v.hours > 24)) { toast('\u274c ' + tt('שעות לא תקינות', 'ชั่วโมงไม่ถูกต้อง', 'ساعات غير صالحة')); return; }
     var ch = [];
+    // Several crews: the form edits the main crew; worker_count stays the total.
+    if (e.crews && e.crews.length > 1) {
+      var rest = e.crews.slice(1).reduce(function (a, c) { return a + (Number(c.count) || 0); }, 0);
+      v._mainCount = v.worker_count; v.worker_count = (Number(v.worker_count) || 1) + rest;
+    }
     EDIT_FIELDS.forEach(function (f) {
       var before = (e[f] === undefined || e[f] === '') ? null : e[f];
       var after = (v[f] === undefined || v[f] === '') ? null : v[f];
@@ -205,6 +212,7 @@ var WorklogEdit = (function () {
     if (!ch.length) { goBack(); return; }
     var oldType = e.type;
     ch.forEach(function (c) { e[c.f] = c.to == null ? (c.f === 'budget_category' || c.f === 'worker_group' ? '' : null) : c.to; });
+    if (e.crews && e.crews.length > 1) { e.crews[0].group = e.worker_group || ''; e.crews[0].count = Number(v._mainCount) || 1; }
     // the derived fields follow
     var fm = (typeof farms !== 'undefined' ? farms : []).filter(function (f) { return f.id === e.farm_id; })[0];
     var pl = (typeof plots !== 'undefined' ? plots : []).filter(function (p) { return p.id === e.plot_id; })[0];
@@ -377,16 +385,60 @@ var WorklogEdit = (function () {
                  (Array.isArray(e.revisions) && e.revisions.length > 1 ? ' \u00d7' + e.revisions.length : '') + '</span>' : '') +
       (e.sheet_stale ? '<span style="font-size:.7rem;background:#fff3e0;color:#8a4b00;border-radius:6px;padding:1px 6px;">\u26a0\ufe0f ' +
                  tt('לא מעודכן בגיליון', 'ไม่ตรงกับชีต', 'غير محدّث في الجدول') + '</span>' : '');
-    if (!canEdit(e)) return marks ? '<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">' + marks + '</div>' : '';
     var btn = 'border:1px solid rgba(0,0,0,.12);background:var(--g6);border-radius:8px;padding:4px 10px;font-family:inherit;font-size:.75rem;cursor:pointer;';
+    var copyBtn = '<button style="' + btn + '" onclick="WorklogEdit.copy(' + e.id + ')" title="' + esc(tt('העתק את התוכן לתאריך אחר', 'คัดลอกไปวันอื่น', 'نسخ إلى تاريخ آخر')) + '">\u29c9 ' + tt('העתק', 'คัดลอก', 'نسخ') + '</button>';
+    if (!canEdit(e)) return '<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">' + marks + '<span style="flex:1;"></span>' + copyBtn + '</div>';
     return '<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">' + marks +
-      '<span style="flex:1;"></span>' +
+      '<span style="flex:1;"></span>' + copyBtn +
       '<button style="' + btn + '" onclick="WorklogEdit.edit(' + e.id + fromArg + ')">\u270e ' + tt('ערוך', 'แก้ไข', 'تعديل') + '</button>' +
       '<button style="' + btn + 'color:#c62828;" onclick="WorklogEdit.del(' + e.id + fromArg + ')">\ud83d\uddd1</button>' +
     '</div>';
   }
 
+  // Same work, another day: duplicate an entry's content onto a new date and
+  // open it in the editor for whatever changed (hours, quantities…).
+  function copy(id) {
+    var e = byId(id);
+    if (!e) return;
+    var today = new Date().toISOString().slice(0, 10);
+    var c = document.getElementById('modalContainer');
+    c.innerHTML = '<div class="modal-overlay" id="weCpOv"><div class="modal" style="max-width:380px;">' +
+      '<h2>\u29c9 ' + tt('העתקת רשומה לתאריך חדש', 'คัดลอกไปวันใหม่', 'نسخ إلى تاريخ جديد') + '</h2>' +
+      '<div style="font-size:.82rem;color:var(--text-muted);margin-bottom:8px;">' + esc(tr(e.type || '')) + ' \u00b7 ' + esc(e.farm_name || '') + (e.plot_name ? ' \u00b7 ' + esc(e.plot_name) : '') + ' \u00b7 ' + esc(e.date || '') + '</div>' +
+      '<label class="form-label">' + tt('לתאריך', 'วันที่', 'إلى تاريخ') + '</label>' +
+      '<input type="date" class="form-input" id="weCpDate" value="' + (e.date === today ? new Date(Date.now() + 86400000).toISOString().slice(0, 10) : today) + '">' +
+      '<label style="display:flex;gap:6px;align-items:center;font-size:.84rem;margin-top:10px;"><input type="checkbox" id="weCpQty" checked> ' +
+        tt('כולל שעות, עצים וכמויות', 'รวมชั่วโมงและปริมาณ', 'مع الساعات والكميات') + '</label>' +
+      '<label style="display:flex;gap:6px;align-items:center;font-size:.84rem;margin-top:6px;"><input type="checkbox" id="weCpEdit" checked> ' +
+        tt('פתח לעריכה אחרי ההעתקה', 'เปิดแก้ไขหลังคัดลอก', 'افتح للتعديل بعد النسخ') + '</label>' +
+      '<div class="modal-buttons"><button class="btn btn-primary" id="weCpGo">\u29c9 ' + tt('העתק', 'คัดลอก', 'نسخ') + '</button>' +
+      '<button class="btn btn-secondary" id="weCpNo">' + tt('ביטול', 'ยกเลิก', 'إلغاء') + '</button></div></div></div>';
+    document.getElementById('weCpNo').onclick = closeModal;
+    document.getElementById('weCpOv').addEventListener('click', function (ev) { if (ev.target === this) closeModal(); });
+    document.getElementById('weCpGo').onclick = function () {
+      var d = document.getElementById('weCpDate').value;
+      if (!d) { toast('\u274c ' + tt('יש לבחור תאריך', 'เลือกวันที่', 'اختر تاريخاً')); return; }
+      var withQty = document.getElementById('weCpQty').checked, thenEdit = document.getElementById('weCpEdit').checked;
+      var n = JSON.parse(JSON.stringify(e));
+      ['revisions', 'edited_at', 'edited_by', 'sheet_stale', 'synced_to_sheet'].forEach(function (k) { delete n[k]; });
+      var ids = entries().map(function (x) { return Number(x.id) || 0; });
+      n.id = Math.max(Date.now(), Math.max.apply(null, ids.concat([0])) + 1);
+      n.date = d; n.day_of_week = dayOf(d);
+      if (!withQty) { n.hours = null; n.trees_completed = null; n.quantity = null; n.quantity_unit = null; }
+      var u = me();
+      n.operator = u.name || ''; n.operator_email = u.email || '';
+      n.created_at = new Date().toISOString(); n.copied_from = e.id; n.synced_to_sheet = false;
+      entries().unshift(n);
+      save();
+      audit('create', n.id, { note: 'copy of ' + e.id });
+      refreshViews();
+      toast('\u2705 ' + tt('הרשומה הועתקה ל־', 'คัดลอกไป ', 'نُسخ إلى ') + d.split('-').reverse().join('/'));
+      if (thenEdit) edit(n.id); else closeModal();
+    };
+  }
+
   return {
+    copy: copy,
     edit: edit, del: del, browse: function () { browse(false); }, close: closeModal, actions: actions, canEdit: canEdit,
     _farm: farmChanged,
     _save: saveEdit,

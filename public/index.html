@@ -556,6 +556,9 @@
           <input type="number" class="form-input" id="wlHours" min="0" step="0.5" placeholder="0">
         </div>
       </div>
+      <!-- more crews in the same entry (each group with its own count and rate) -->
+      <div id="wlCrews"></div>
+      <button type="button" id="wlAddCrew" class="wl-add-crew" data-t-key="+ קבוצת עובדים נוספת">+ קבוצת עובדים נוספת</button>
       <div class="form-group">
         <label class="form-label" data-t-key="עצים שטופלו">עצים שטופלו</label>
         <input type="number" class="form-input" id="wlTreesCompleted" min="0" step="1" placeholder="0">
@@ -873,7 +876,7 @@
 </div>
 
 <!-- Hidden file input for camera -->
-<input type="file" id="receiptFileInput" accept="image/*" capture="environment" style="display: none;">
+<input type="file" id="receiptFileInput" accept="image/*,application/pdf" capture="environment" style="display: none;">
 
 <div id="modalContainer"></div>
 <div class="toast" id="toast"></div>
@@ -907,6 +910,9 @@
 <script src="js/opcost.js"></script>
 <script src="js/weather.js"></script>
 <script src="js/home.js"></script>
+<script src="js/knowledge.js"></script>
+<script src="js/traps.js"></script>
+<script src="js/cashflow.js"></script>
 <script src="js/plotedit.js"></script>
 <script src="js/geoedit.js"></script>
 <script src="js/plotimport.js"></script>

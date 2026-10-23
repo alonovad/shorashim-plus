@@ -715,6 +715,13 @@ var TimeClock = (function() {
     }
     html += '</div>';
 
+    // ── Field knowledge, open to everyone (knowledge.js, traps.js) ──
+    var viewerOnly = window.currentUser && window.currentUser.role === 'viewer';
+    if (!viewerOnly) {
+      html += '<button onclick="Knowledge.open();TimeClock.closeMenu()" style="' + menuBtn + 'background:#eef7d4;">' + tt('📚 מידע שימושי ומדריכים', '📚 ข้อมูลและคู่มือ', '📚 معلومات وأدلة') + '</button>';
+      html += '<button onclick="Traps.open();TimeClock.closeMenu()" style="' + menuBtn + 'background:#fdecea;">' + tt('🪲 לכידות חדקונית', '🪲 การจับด้วงงวง', '🪲 صيد السوسة') + '</button>';
+    }
+
     // ── השעות שלי (collapsible) ──
     html += '<div onclick="var d=document.getElementById(\'menuHours\');var open=d.style.display!==\'block\';d.style.display=open?\'block\':\'none\';this.classList.toggle(\'open\',open);" class="menu-group-head">';
     html += '<span class="mg-label">🕐 ' + tt('השעות שלי', 'ชั่วโมงของฉัน', 'ساعاتي') + '</span><span class="mg-chev">▸</span>';
@@ -770,6 +777,7 @@ var TimeClock = (function() {
       // Vehicle loans between farms — days per vehicle per month (fleet.js).
       // Operation costing from the work log — cost vs budget, output vs target (opcost.js).
       html += '<button onclick="OpCost.open();TimeClock.closeMenu()" style="' + menuBtn + 'background:#f1f8e9;">' + tt('💹 תמחיר ועמידה ביעדים', '💹 ต้นทุนและเป้าหมาย', '💹 التكلفة والأهداف') + '</button>';
+      html += '<button onclick="CashFlow.open();TimeClock.closeMenu()" style="' + menuBtn + 'background:#e8f5e9;">' + tt('💰 תזרים מזומנים', '💰 กระแสเงินสด', '💰 التدفق النقدي') + '</button>';
       html += '<button onclick="Fleet.report();TimeClock.closeMenu()" style="' + menuBtn + 'background:#e3f2fd;">' + tt('🚛 דוח ניוד כלים', '🚛 รายงานการย้ายยานพาหนะ', '🚛 تقرير نقل المركبات') + '</button>';
     }
 

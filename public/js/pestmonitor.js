@@ -549,6 +549,8 @@ var PestMonitor = (function () {
     mm.innerHTML =
       '<button type="button" data-m="json">💾 ' + tt('ייצוא לקובץ (JSON)', 'ส่งออก JSON', 'تصدير JSON') + '</button>' +
       '<label>📂 ' + tt('טעינת קובץ', 'โหลดไฟล์', 'تحميل ملف') + '<input type="file" accept=".json" hidden></label>' +
+      '<button type="button" data-m="gallery">🐛 ' + tt('גלריית מזיקים ומחלות', 'แกลเลอรีศัตรูพืช', 'معرض الآفات') + '</button>' +
+      '<button type="button" data-m="traps">🪲 ' + tt('לכידות חדקונית', 'กับดักด้วง', 'مصائد السوسة') + '</button>' +
       '<button type="button" data-m="field">📷 ' + tt('דוחות פרטניים (תצפיות)', 'รายงานเดี่ยว', 'تقارير مفردة') + '</button>' +
       '<button type="button" data-m="reset" class="warn">' + tt('איפוס נתוני ', 'รีเซ็ต ', 'تصفير ') + year + '</button>';
     document.body.appendChild(mm);
@@ -561,6 +563,8 @@ var PestMonitor = (function () {
       if (k === 'json') exportJson();
       if (k === 'field' && window.FieldReport && FieldReport.showReportsList) FieldReport.showReportsList();
       if (k === 'reset') reset();
+      if (k === 'gallery' && window.Knowledge) { if (saveTimer) persistNow(); Knowledge.open('pests'); }
+      if (k === 'traps' && window.Traps) { if (saveTimer) persistNow(); Traps.open(); }
     });
     mm.querySelector('input[type=file]').addEventListener('change', function () { mm.remove(); importJson(this); });
   }

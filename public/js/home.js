@@ -58,7 +58,9 @@ var Home = (function () {
     signal: '<path d="M4 20v-3M9 20v-7M14 20V9M19 20V4"/>',
     pin: '<path d="M12 21s7-6.5 7-12a7 7 0 0 0-14 0c0 5.5 7 12 7 12z"/><circle cx="12" cy="9" r="2.5"/>',
     users: '<circle cx="9" cy="8" r="3.5"/><path d="M2 20c0-4 3-6 7-6s7 2 7 6"/><path d="M16 4a3.5 3.5 0 0 1 0 7M18 14c2.5.5 4 2.5 4 6"/>',
-    chev: '<path d="M14 6l-6 6 6 6"/>'
+    chev: '<path d="M14 6l-6 6 6 6"/>',
+    book: '<path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19V5M8 7h7"/>',
+    bug: '<ellipse cx="12" cy="13" rx="5" ry="6"/><path d="M12 7V4M9 4l1.5 2M15 4l-1.5 2M7 11H3M7 15H3M17 11h4M17 15h4M12 9v10"/>'
   };
   function ic(n, c, s, w) {
     return '<svg width="' + (s || 22) + '" height="' + (s || 22) + '" viewBox="0 0 24 24" fill="none" stroke="' + (c || 'currentColor') +
@@ -80,6 +82,8 @@ var Home = (function () {
     { k: 'farms', ic: 'leaf', he: 'שדות/מטעים', th: 'ไร่/สวน', ar: 'حقول/بساتين', tab: 'farms' },
     { k: 'harvest', ic: 'box', he: 'קטיף ומיון', th: 'เก็บเกี่ยว', ar: 'قطاف وفرز', tab: 'harvest' },
     { k: 'receipt', ic: 'cam', he: 'צלם תעודה', th: 'ถ่ายใบส่งของ', ar: 'تصوير مستند', fn: function () { clickId('qaCaptureReceipt'); }, need: 'qaCaptureReceipt' },
+    { k: 'library', ic: 'book', he: 'מידע שימושי', th: 'คู่มือ', ar: 'معلومات', fn: function () { if (window.Knowledge) Knowledge.open(); }, need: '__Knowledge' },
+    { k: 'traps', ic: 'bug', he: 'לכידות חדקונית', th: 'กับดักด้วง', ar: 'مصائد السوسة', fn: function () { if (window.Traps) Traps.open(); }, need: '__Traps' },
     { k: 'profile', ic: 'person', he: 'אישי', th: 'ส่วนตัว', ar: 'شخصي', tab: 'profile' },
     { k: 'users', ic: 'users', he: 'משתמשים', th: 'ผู้ใช้', ar: 'المستخدمون', tab: 'users' },
     { k: 'menu', ic: 'menu', he: 'תפריט ודוחות', th: 'เมนู', ar: 'القائمة', fn: function () { if (window.TimeClock && TimeClock.toggleMenu) TimeClock.toggleMenu(); } }
@@ -87,6 +91,8 @@ var Home = (function () {
   function actionsAvail() {
     return ACTIONS.filter(function (a) {
       if (a.tab) return tabAvail(a.tab);
+      if (a.need === '__Knowledge') return !!window.Knowledge;
+      if (a.need === '__Traps') return !!window.Traps;
       if (a.need) return !!document.getElementById(a.need);
       return true;
     });

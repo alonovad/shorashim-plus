@@ -1204,6 +1204,12 @@
     'בחר סעיף': { th: 'เลือกหมวด', ar: 'اختر بند' },
     'בחר פעולה': { th: 'เลือกงาน', ar: 'اختر عملية' },
     'בחר קבוצה': { th: 'เลือกกลุ่ม', ar: 'اختر مجموعة' },
+    'קריאה אוטומטית של תעודה / חשבונית — תמונה או PDF: ספק, שורות, מחירים, מע"מ, ועדכון מלאי ומאגר המחירים': { th: 'อ่านเอกสารอัตโนมัติ — รูปหรือ PDF: ผู้ขาย รายการ ราคา VAT และอัปเดตสต็อก', ar: 'قراءة تلقائية للمستند — صورة أو PDF: المورد، البنود، الأسعار، الضريبة وتحديث المخزون' },
+    'קרא את המסמך אוטומטית': { th: 'อ่านเอกสารอัตโนมัติ', ar: 'اقرأ المستند تلقائياً' },
+    'קובץ PDF נקרא דרך קליטת המסמכים — בחר אותו שוב כאן': { th: 'PDF อ่านผ่านการรับเอกสาร — เลือกอีกครั้งที่นี่', ar: 'يُقرأ PDF عبر استقبال المستندات — اختره مجدداً هنا' },
+    'קריאת PDF זמינה במשק שהופעלה בו קליטת מסמכים (באישור מנהל מערכת)': { th: 'อ่าน PDF ได้ในฟาร์มที่เปิดรับเอกสาร', ar: 'قراءة PDF متاحة في مزرعة فُعّل فيها استقبال المستندات' },
+    '+ קבוצת עובדים נוספת': { th: '+ เพิ่มกลุ่มคนงาน', ar: '+ مجموعة عمال إضافية' },
+    'הסר': { th: 'ลบ', ar: 'إزالة' },
     'יש לבחור פעולה': { th: 'กรุณาเลือกงาน', ar: 'يجب اختيار عملية' },
     'פעולה חדשה': { th: 'งานใหม่', ar: 'عملية جديدة' },
     'קבוצת עובדים חדשה': { th: 'กลุ่มคนงานใหม่', ar: 'مجموعة عمال جديدة' },
@@ -2388,6 +2394,8 @@
           coef: (p.coef != null && p.coef !== '') ? Number(p.coef) : null,
           status_note: p.status_note || '',
           status_date: p.status_date || '',
+          // Fertilizer actually applied, per season and programme item (cropprog.js).
+          fert: (p.fert && typeof p.fert === 'object') ? JSON.parse(JSON.stringify(p.fert)) : null,
           geofenceRadiusM: (p.geofenceRadiusM != null ? p.geofenceRadiusM : null),
           latlngs: ll,
           // Detached parts of the same plot — an orchard split by a wadi or a
@@ -2656,7 +2664,7 @@
     updatePlot: function(plotId, patch) {
       var p = (plots || []).find(function(x) { return x.id === plotId; });
       if (!p || !SprayStore.canEditFarm(p.farm_id)) return { ok: false, err: 'forbidden' };
-      var allowed = ['irr', 'stage', 'coef', 'status_note', 'status_date'];
+      var allowed = ['irr', 'stage', 'coef', 'status_note', 'status_date', 'fert'];
       Object.keys(patch || {}).forEach(function(k) {
         if (allowed.indexOf(k) === -1) return;
         p[k] = (patch[k] && typeof patch[k] === 'object') ? JSON.parse(JSON.stringify(patch[k])) : patch[k];
@@ -2671,7 +2679,8 @@
           tree_count: Number(p.tree_count) || 0, male_trees: Number(p.male_trees) || 0, young_trees: Number(p.young_trees) || 0,
           row_spacing: Number(p.row_spacing) || 0, tree_spacing: Number(p.tree_spacing) || 0, planting_date: p.planting_date || '',
           irr: p.irr ? JSON.parse(JSON.stringify(p.irr)) : null, stage: p.stage || '', coef: (p.coef != null ? p.coef : null),
-          status_note: p.status_note || '', status_date: p.status_date || '', branch: branchOfPlot(p)
+          status_note: p.status_note || '', status_date: p.status_date || '', branch: branchOfPlot(p),
+          fert: p.fert ? JSON.parse(JSON.stringify(p.fert)) : null
         };
       });
     },
@@ -7177,6 +7186,37 @@
     renderWorklogHistory();
   });
   
+  // ── Extra crews in one entry ──
+  function wlEsc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function(c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function wlCrewOptions(sel) {
+    return '<option value="">— ' + t('בחר קבוצה') + ' —</option>' + WL_WORKER_GROUPS.map(function(g) {
+      return '<option value="' + wlEsc(g) + '"' + (g === sel ? ' selected' : '') + '>' + wlEsc(g) + '</option>';
+    }).join('');
+  }
+  function wlAddCrewRow(group, count) {
+    var box = document.getElementById('wlCrews');
+    if (!box) return;
+    var row = document.createElement('div');
+    row.className = 'wl-crew';
+    row.innerHTML = '<select class="form-input wl-crew-g">' + wlCrewOptions(group || '') + '</select>' +
+      '<input type="number" class="form-input wl-crew-n" min="1" step="1" placeholder="' + t('מספר עובדים') + '" value="' + (count || '') + '">' +
+      '<button type="button" class="wl-crew-x" title="' + t('הסר') + '">×</button>';
+    row.querySelector('.wl-crew-x').addEventListener('click', function() { row.remove(); });
+    box.appendChild(row);
+  }
+  function wlReadCrews() {
+    var out = [];
+    document.querySelectorAll('#wlCrews .wl-crew').forEach(function(r) {
+      var g = r.querySelector('.wl-crew-g').value || '', n = parseInt(r.querySelector('.wl-crew-n').value) || 0;
+      if (g || n) out.push({ group: g, count: n || 1 });
+    });
+    return out;
+  }
+  (function() {
+    var b = document.getElementById('wlAddCrew');
+    if (b) b.addEventListener('click', function() { wlAddCrewRow('', ''); });
+  })();
+
   function collectWorklogEntry() {
     var farmId = parseInt(document.getElementById('wlFarmSelect').value);
     if (!farmId) { showToast('❌ ' + t('יש לבחור משק')); return null; }
@@ -7194,6 +7234,13 @@
     var budgetCategory = document.getElementById('wlBudgetCategory').value || '';
     var workerGroup = document.getElementById('wlWorkerGroup').value || '';
     var workerCount = parseInt(document.getElementById('wlWorkerCount').value) || 1;
+    // Extra crews: [{group, count}] beside the main group. worker_count stays
+    // the total and worker_group the main group, so every older reader works.
+    var crews = wlReadCrews();
+    if (crews.length) {
+      crews.unshift({ group: workerGroup, count: workerCount });
+      workerCount = crews.reduce(function(a, c) { return a + c.count; }, 0);
+    }
     var hours = parseFloat(document.getElementById('wlHours').value) || null;
     var quantity = parseFloat(document.getElementById('wlQuantity').value);
     quantity = (isFinite(quantity) && quantity > 0) ? quantity : null;
@@ -7216,6 +7263,7 @@
       type_label: action,
       budget_category: budgetCategory,
       worker_group: workerGroup,
+      crews: crews.length ? crews : undefined,
       description: action,
       hours: hours,
       worker_count: workerCount,
@@ -7232,6 +7280,7 @@
   }
   
   function clearWorklogForm() {
+    var cw = document.getElementById('wlCrews'); if (cw) cw.innerHTML = '';
     document.getElementById('wlHours').value = '';
     document.getElementById('wlWorkerCount').value = '';
     document.getElementById('wlTreesCompleted').value = '';
@@ -7323,7 +7372,8 @@
           (entry.trees_completed ? '<span>🌴 ' + entry.trees_completed + ' ' + t('עצים') + '</span>' : '') +
           (wlQtyOf(entry) ? '<span>📦 ' + wlQtyText(entry) + '</span>' : '') +
           (entry.hours ? '<span>⏱ ' + entry.hours + ' ' + t('שעות') + '</span>' : '') +
-          (entry.worker_count && entry.worker_count > 1 ? '<span>👥 ' + entry.worker_count + ' ' + t('עובדים') + '</span>' : '') +
+          (entry.crews && entry.crews.length ? '<span>👥 ' + entry.crews.map(function(c) { return c.count + ' ' + (c.group || t('עובדים')); }).join(' + ') + '</span>' :
+            (entry.worker_count && entry.worker_count > 1 ? '<span>👥 ' + entry.worker_count + ' ' + t('עובדים') + '</span>' : '')) +
           (entry.workers ? '<span>👷 ' + entry.workers + '</span>' : '') +
           '<span>👤 ' + entry.operator + '</span>' +
         '</div>' +
@@ -10224,6 +10274,9 @@
             '<label class="form-label">' + t('תיאור') + '</label>' +
             '<input type="text" class="form-input" id="receiptDesc" placeholder="">' +
           '</div>' +
+          '<div id="receiptAutoRead" style="display:none;margin-bottom:12px;padding:10px 12px;border-radius:14px;background:var(--primary-soft,#eef7d4);font-size:.82rem;">' +
+            '🤖 ' + t('קריאה אוטומטית של תעודה / חשבונית — תמונה או PDF: ספק, שורות, מחירים, מע"מ, ועדכון מלאי ומאגר המחירים') +
+            '<button class="btn-submit" id="receiptAutoBtn" style="margin:8px 0 0;">🤖 ' + t('קרא את המסמך אוטומטית') + '</button></div>' +
           '<div id="receiptPreviewArea" style="display: none; margin-bottom: 14px;">' +
             '<img id="receiptPreviewImg" style="width: 100%; border-radius: 10px; box-shadow: var(--shadow);">' +
           '</div>' +
@@ -10239,6 +10292,24 @@
       '</div>';
 
     var capturedImageData = null;
+
+    // Farms with document intake switched on (admin, per farm) read the
+    // document — image or PDF — with the extractor instead of storing a photo.
+    var autoBox = document.getElementById('receiptAutoRead');
+    var farmSel = document.getElementById('receiptFarmSelect');
+    var syncAuto = function() {
+      var fid = parseInt(farmSel.value);
+      autoBox.style.display = (fid && window.FarmIntake && SprayStore.canUseIntake && SprayStore.canUseIntake(fid)) ? 'block' : 'none';
+    };
+    farmSel.addEventListener('change', syncAuto);
+    if (userFarms.length === 1) { farmSel.value = String(userFarms[0].id); }
+    syncAuto();
+    document.getElementById('receiptAutoBtn').addEventListener('click', function() {
+      var fid = parseInt(farmSel.value);
+      if (!fid) return;
+      document.getElementById('modalContainer').innerHTML = '';
+      FarmIntake.open(fid);
+    });
 
     // Camera button
     document.getElementById('receiptCameraBtn').addEventListener('click', function() {
@@ -10258,6 +10329,18 @@
     document.getElementById('receiptFileInput').onchange = function(e) {
       var file = e.target.files[0];
       if (!file) return;
+      if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '')) {
+        e.target.value = '';
+        var fidP = parseInt(farmSel.value);
+        if (fidP && window.FarmIntake && SprayStore.canUseIntake && SprayStore.canUseIntake(fidP)) {
+          document.getElementById('modalContainer').innerHTML = '';
+          FarmIntake.open(fidP);
+          showToast('📄 ' + t('קובץ PDF נקרא דרך קליטת המסמכים — בחר אותו שוב כאן'));
+        } else {
+          showToast('ℹ️ ' + t('קריאת PDF זמינה במשק שהופעלה בו קליטת מסמכים (באישור מנהל מערכת)'));
+        }
+        return;
+      }
       compressImage(file, 800, 0.7, function(dataUrl) {
         capturedImageData = dataUrl;
         document.getElementById('receiptPreviewImg').src = dataUrl;
