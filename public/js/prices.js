@@ -48,6 +48,13 @@ var PriceBook = (function () {
   function isManager() { var r = user().role; return r === 'admin' || r === 'operator'; }
   function isAdmin() { return user().role === 'admin'; }
   function key(y) { return 'shorashim-prices-' + y; }
+  // Ownership (Oct 2026): a price record is whoever entered it. Legacy records
+  // name their author in `by` (email or username).
+  function canEd(r) {
+    if (!window.Own) return isAdmin();
+    if (Own.canEdit(r, r && r.by)) return true;
+    return !!(r && !Own.creator(r) && r.by && String(r.by).toLowerCase() === Own.me().id);
+  }
   function today() { return new Date().toISOString().slice(0, 10); }
   function money(n) { return '₪' + (Math.round((Number(n) || 0) * 100) / 100).toLocaleString('he-IL', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
   function day(d) { try { return d ? new Date(d + 'T00:00:00').toLocaleDateString('he-IL') : ''; } catch (e) { return d || ''; } }
@@ -130,7 +137,8 @@ var PriceBook = (function () {
         else return false;
         byYear[y].forEach(function (r) {
           var i = base.records.findIndex(function (x) { return x.id === r.id; });
-          if (i === -1) base.records.push(r); else base.records[i] = r;
+          if (i === -1) base.records.push(r);
+          else if (canEd(base.records[i])) base.records[i] = r;   // never overwrite someone else's record
         });
         DB.save(key(y), base);
         seen[y] = true; docs[y] = base;
@@ -143,10 +151,12 @@ var PriceBook = (function () {
     });
   }
   function removeRecord(id, y) {
-    if (!isAdmin()) return Promise.resolve(false);
+    if (!isManager()) return Promise.resolve(false);
     return DB.read(key(y)).then(function (res) {
       if (!res.ok) { toast('❌ ' + tt('אין חיבור לשרת', 'ไม่มีการเชื่อมต่อ', 'لا اتصال')); return false; }
       var base = normDoc(res.exists ? res.data : null, y);
+      var target = base.records.find(function (r) { return r.id === id; });
+      if (target && !canEd(target)) { if (window.Own) Own.denied(); return false; }
       base.records = base.records.filter(function (r) { return r.id !== id; });
       DB.save(key(y), base); docs[y] = base;
       return true;
@@ -157,7 +167,7 @@ var PriceBook = (function () {
   function fromIntake(it, doc, farmId) {
     var base = it.base_unit || it.unit || '';
     var product = it.product || it.catalogue_match || it.name;
-    return {
+    var rec = {
       id: Date.now() * 1000 + Math.floor(Math.random() * 1000),
       at: Date.now(), by: user().email || user().username || '',
       farmId: farmId, date: (doc && doc.doc_date) || today(),
@@ -169,6 +179,8 @@ var PriceBook = (function () {
       unitPrice: Math.round((Number(it.unit_price) || 0) * 10000) / 10000,
       lineTotal: Number(it.line_total) || 0, source: 'doc'
     };
+    if (window.Own) Own.stamp(rec);
+    return rec;
   }
 
   // ── analysis ──
@@ -354,7 +366,7 @@ var PriceBook = (function () {
         '<td><b>' + money(r.unitPrice) + '</b>' + (r.qty ? '<br><small>' + r.qty + ' ' + esc(r.unit || '') + '</small>' : '') + '</td>' +
         '<td>' + (r === g.min ? '<span class="pb-ok">' + tt('הזול', 'ถูกสุด', 'الأرخص') + '</span>' : '<span class="' + (p > s.pct ? 'pb-up' : '') + '">+' + Math.round(p * 10) / 10 + '%</span>') + '</td>' +
         '<td>' + (r.docPath ? '<button class="pb-a" data-pb-doc="' + esc(r.docPath) + '">📄</button>' : '') +
-          (isAdmin() ? ' <button class="pb-a" data-pb-del="' + r.id + '" data-pb-y="' + esc(y) + '" title="' + esc(tt('מחק', 'ลบ', 'حذف')) + '">🗑</button>' : '') + '</td></tr>';
+          (canEd(r) ? ' <button class="pb-a" data-pb-del="' + r.id + '" data-pb-y="' + esc(y) + '" title="' + esc(tt('מחק', 'ลบ', 'حذف')) + '">🗑</button>' : '') + '</td></tr>';
     }).join('');
     return '<button class="pb-btn ghost" id="pbBackList">→ ' + tt('לכל המוצרים', 'กลับ', 'رجوع') + '</button>' +
       '<h3 style="margin:10px 0 2px;">' + esc(g.name) + ' <small style="font-weight:400;color:var(--text-muted,#777);">/ ' + esc(g.baseUnit) + '</small></h3>' +

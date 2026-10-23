@@ -753,14 +753,21 @@
 
   function repaint(id) { destroy3d(); BP.open(id); }
 
+  // Ownership (Oct 2026): the project's creator owns its plan, drawings
+  // and readings; everyone but admin sees someone else's read-only.
+  function mayEdit(id) { return BP.guardP ? BP.guardP(id) : true; }
+  function canEdit(id) { return BP.canEditP ? BP.canEditP(BP.projById(id)) : true; }
+
   // ── handlers ────────────────────────────────────────────────────────
   BP.planSet = function planSet(id, k, v) {
+    if (!mayEdit(id)) return;
     var p = BP.projById(id); if (!p) return;
     planOf(p)[k] = String(v);
     p.plan = BP.normPlan(p.plan);
     BP.saveP();
   };
   BP.planAdd = function planAdd(id, kind) {
+    if (!mayEdit(id)) return;
     var p = BP.projById(id); if (!p || !kind) return;
     var pl = planOf(p);
     pl.elements.push(normEl({ kind: kind }));
@@ -769,6 +776,7 @@
     BP.saveP(); repaint(id);
   };
   BP.planDel = function planDel(id, i) {
+    if (!mayEdit(id)) return;
     var p = BP.projById(id); if (!p) return;
     var pl = planOf(p);
     if (!pl.elements[i]) return;
@@ -780,10 +788,12 @@
   BP.planSel = function planSel(id, i) {
     var p = BP.projById(id); if (!p) return;
     planOf(p).sel = i; _cam = null;
-    BP.saveP(); repaint(id);
+    if (canEdit(id)) BP.saveP();
+    repaint(id);
   };
   var TEXT_E = { name: 1, notes: 1, kind: 1 }, BOOL_E = { plate: 1, blind: 1 };
   BP.planEl = function planEl(id, i, k, v) {
+    if (!mayEdit(id)) return;
     var p = BP.projById(id); if (!p) return;
     var pl = planOf(p), el = pl.elements[i];
     if (!el) return;
@@ -798,6 +808,7 @@
   };
   var BOOL_R = { mat: 1, show: 1 }, TEXT_R = { slabMesh: 1 };
   BP.planRebar = function planRebar(id, i, k, v) {
+    if (!mayEdit(id)) return;
     var p = BP.projById(id); if (!p) return;
     var pl = planOf(p), el = pl.elements[i];
     if (!el) return;
@@ -848,6 +859,7 @@
   }
   function docsSave(pid) {
     if (!BP.isManager()) { BP.toast('\u26d4 ' + BP.tt('אין הרשאה', 'ไม่มีสิทธิ์', 'لا صلاحية')); return; }
+    if (!canEdit(pid)) return;
     DB.save(DOCS_PREFIX + pid, JSON.parse(JSON.stringify(_docs[pid] || normDocs(null))));
   }
   function fmtSize(b) { return b > 1048576 ? BP.n1(b / 1048576) + ' MB' : Math.round(b / 1024) + ' KB'; }
@@ -877,6 +889,7 @@
   }
 
   BP.planUpload = function planUpload(id, input) {
+    if (!mayEdit(id)) return;
     var p = BP.projById(id);
     var files = input && input.files ? Array.prototype.slice.call(input.files) : [];
     if (!p || !files.length) return;
@@ -916,6 +929,7 @@
       .catch(function (e) { BP.toast('\u274c ' + e.message); });
   };
   BP.planDocDel = function planDocDel(id, did) {
+    if (!mayEdit(id)) return;
     var reg = _docs[id]; if (!reg) return;
     var d = reg.docs.filter(function (x) { return x.id === did; })[0]; if (!d) return;
     if (!confirm(BP.tt('למחוק את המסמך "' + d.name + '"?', 'ลบเอกสาร?', 'حذف المستند؟'))) return;
@@ -928,6 +942,7 @@
     _openDoc[id] = _openDoc[id] === did ? null : did; BP.open(id);
   };
   BP.planDocHint = function planDocHint(id, did, v) {
+    if (!mayEdit(id)) return;
     var reg = _docs[id]; if (!reg) return;
     reg.docs.forEach(function (x) { if (x.id === did) x.hint = String(v || ''); });
     docsSave(id);
@@ -964,6 +979,7 @@
   };
 
   BP.planRead = function planRead(id, did, model) {
+    if (!mayEdit(id)) return;
     var reg = _docs[id]; if (!reg) return;
     var d = reg.docs.filter(function (x) { return x.id === did; })[0]; if (!d) return;
     if (_busy[did]) return;
@@ -1007,6 +1023,7 @@
   // The same read from a file picked on this device: no download, so no
   // bucket CORS in the way, and always the full-resolution tiles.
   BP.planReadLocal = function planReadLocal(id, did) {
+    if (!mayEdit(id)) return;
     var reg = _docs[id]; if (!reg) return;
     var d = reg.docs.filter(function (x) { return x.id === did; })[0]; if (!d || _busy[did]) return;
     var inp = document.createElement('input');
@@ -1019,11 +1036,13 @@
     inp.click();
   };
   BP.planModel = function planModel(id, did) {
+    if (!mayEdit(id)) return;
     if (typeof Frame !== 'undefined') Frame.fromDoc(id, did, false);
   };
   // Frame reads the project's documents through this.
   BP.planDocs = function planDocs(id) { var reg = _docs[id]; return reg ? reg.docs : []; };
   BP.planReadAll = function planReadAll(id) {
+    if (!mayEdit(id)) return;
     var reg = _docs[id]; if (!reg) return;
     var todo = reg.docs.filter(function (x) { return !x.report && !_busy[x.id]; });
     if (!todo.length) return;
@@ -1073,6 +1092,7 @@
   BP.planIns = { sameEl: sameEl, proposalState: proposalState };
 
   BP.planInsert = function planInsert(id, did) {
+    if (!mayEdit(id)) return;
     var p = BP.projById(id), reg = _docs[id]; if (!p || !reg) return;
     var d = reg.docs.filter(function (x) { return x.id === did; })[0];
     if (!d || !d.report) return;
@@ -1126,6 +1146,7 @@
     return hit;
   }
   BP.planApply = function planApply(id, did) {
+    if (!mayEdit(id)) return;
     var p = BP.projById(id), reg = _docs[id]; if (!p || !reg) return;
     var d = reg.docs.filter(function (x) { return x.id === did; })[0];
     var st = d && d.report && d.report.structure;
@@ -1178,6 +1199,7 @@
     repaint(id);
   };
   BP.planNotesFrom = function planNotesFrom(id, did) {
+    if (!mayEdit(id)) return;
     var p = BP.projById(id), reg = _docs[id]; if (!p || !reg) return;
     var d = reg.docs.filter(function (x) { return x.id === did; })[0];
     if (!d || !d.report) return;
@@ -1197,12 +1219,13 @@
     if (!reg) {
       docsLoad(id, function () { if (BP._tab === 'plan' && BP._open === id) BP.open(id); });
     }
+    var mine = canEdit(id);
     var upload = '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">' +
-      '<label class="bp-btn" style="cursor:pointer;">\ud83d\udcce ' +
+      (mine ? '<label class="bp-btn" style="cursor:pointer;">\ud83d\udcce ' +
         BP.tt('העלה תוכניות / מסמכים', 'อัปโหลดแบบ/เอกสาร', 'رفع مخططات / مستندات') +
         '<input type="file" multiple accept="image/*,application/pdf" style="display:none;" onchange="BuildPlan.planUpload(' + id + ',this)"></label>' +
-      BP.planModelSelect() +
-      (reg && reg.docs.some(function (x) { return !x.report; })
+      BP.planModelSelect() : '') +
+      (mine && reg && reg.docs.some(function (x) { return !x.report; })
         ? '<button class="bp-btn ghost" onclick="BuildPlan.planReadAll(' + id + ')">\ud83d\udd0e ' + BP.tt('קרא את כל מה שלא נקרא', 'อ่านที่ยังไม่อ่าน', 'اقرأ ما لم يُقرأ') + '</button>' : '') +
       '<span style="font-size:.72rem;' + muted + '">' + BP.tt('PDF או צילום. קריאה = קריאת מודל, רק בלחיצה, נשמרת עם המסמך.', 'PDF/รูป อ่านเมื่อกดเท่านั้น', 'PDF أو صورة. القراءة عند الضغط فقط وتُحفظ') + '</span>' +
     '</div>';
@@ -1226,11 +1249,11 @@
             '<div style="font-size:.72rem;' + muted + '">' + fmtSize(d.size) + (d.at ? ' \u00b7 ' + new Date(d.at).toLocaleDateString('he-IL') : '') + (d.by ? ' \u00b7 ' + BP.esc(d.by) : '') + ' \u00b7 ' + status + '</div></div>' +
           '<div style="display:flex;gap:4px;flex-wrap:wrap;">' +
             '<button class="bp-btn ghost" style="padding:4px 8px;font-size:.72rem;" onclick="BuildPlan.planDocOpen(' + id + ',\'' + d.id + '\')">\ud83d\udc41</button>' +
-            (busy ? '' : '<button class="bp-btn ' + (d.report && !staleRead(d) ? 'ghost' : '') + '" style="padding:4px 8px;font-size:.72rem;" onclick="BuildPlan.planRead(' + id + ',\'' + d.id + '\')">\ud83d\udd0e ' + BP.tt(d.report ? 'קרא שוב' : 'קרא', d.report ? 'อ่านอีก' : 'อ่าน', d.report ? 'اقرأ مجدداً' : 'اقرأ') + '</button>') +
-            (busy ? '' : '<button class="bp-btn ghost" style="padding:4px 8px;font-size:.72rem;" title="' + BP.tt('קרא מהקובץ שבמכשיר — תמיד ברזולוציה מלאה', 'อ่านจากไฟล์ในเครื่อง', 'اقرأ من الملف على الجهاز') + '" onclick="BuildPlan.planReadLocal(' + id + ',\'' + d.id + '\')">\ud83d\udcc1</button>') +
-            (d.report ? '<button class="bp-btn" style="padding:4px 8px;font-size:.72rem;" onclick="BuildPlan.planModel(' + id + ',\'' + d.id + '\')">\ud83e\uddca ' + BP.tt('מודל', 'โมเดล', 'نموذج') + '</button>' : '') +
+            ((busy || !mine) ? '' : '<button class="bp-btn ' + (d.report && !staleRead(d) ? 'ghost' : '') + '" style="padding:4px 8px;font-size:.72rem;" onclick="BuildPlan.planRead(' + id + ',\'' + d.id + '\')">\ud83d\udd0e ' + BP.tt(d.report ? 'קרא שוב' : 'קרא', d.report ? 'อ่านอีก' : 'อ่าน', d.report ? 'اقرأ مجدداً' : 'اقرأ') + '</button>') +
+            ((busy || !mine) ? '' : '<button class="bp-btn ghost" style="padding:4px 8px;font-size:.72rem;" title="' + BP.tt('קרא מהקובץ שבמכשיר — תמיד ברזולוציה מלאה', 'อ่านจากไฟล์ในเครื่อง', 'اقرأ من الملف على الجهاز') + '" onclick="BuildPlan.planReadLocal(' + id + ',\'' + d.id + '\')">\ud83d\udcc1</button>') +
+            (d.report && mine ? '<button class="bp-btn" style="padding:4px 8px;font-size:.72rem;" onclick="BuildPlan.planModel(' + id + ',\'' + d.id + '\')">\ud83e\uddca ' + BP.tt('מודל', 'โมเดล', 'نموذج') + '</button>' : '') +
             '<button class="bp-btn ghost" style="padding:4px 8px;font-size:.72rem;" onclick="BuildPlan.planDocToggle(' + id + ',\'' + d.id + '\')">' + (open ? '\u25b4' : '\u25be') + '</button>' +
-            '<button class="bp-btn warn" style="padding:4px 8px;font-size:.72rem;" onclick="BuildPlan.planDocDel(' + id + ',\'' + d.id + '\')">\ud83d\uddd1</button>' +
+            (mine ? '<button class="bp-btn warn" style="padding:4px 8px;font-size:.72rem;" onclick="BuildPlan.planDocDel(' + id + ',\'' + d.id + '\')">\ud83d\uddd1</button>' : '') +
           '</div></div>';
         if (!open) return row;
 
@@ -1342,6 +1365,7 @@
   // by normProject) so a second press does not double the steel. Extras
   // typed by hand are left alone.
   BP.planToTakeoff = function planToTakeoff(id) {
+    if (!mayEdit(id)) return;
     var p = BP.projById(id); if (!p) return;
     var rows = planTakeoff(p);
     p.extras = (p.extras || []).filter(function (e) { return !e.plan; });

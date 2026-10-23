@@ -327,6 +327,9 @@
   // ── catalogue ──
   BP.openCatalog = function openCatalog() {
     BP._view = 'catalog';
+    // The catalogue belongs to the owner: everyone else sees it read-only.
+    var adm = BP.isAdmin();
+    var dis = adm ? '' : ' disabled';
     var groups = {};
     (BP.C.profiles || []).forEach(function (p) { (groups[p.group] = groups[p.group] || []).push(p); });
     var body = '';
@@ -334,42 +337,54 @@
       var rows = '';
       groups[g].forEach(function (x) {
         rows += '<div style="display:grid;grid-template-columns:1.6fr .7fr .6fr .8fr 32px;gap:5px;margin-bottom:5px;">' +
-          '<input class="bp-in" value="' + BP.esc(x.name) + '" ' +
+          '<input class="bp-in"' + dis + ' value="' + BP.esc(x.name) + '" ' +
             'oninput="BuildPlan._prof(' + x.id + ',\'name\',this.value)">' +
-          '<input class="bp-in" type="number" step="any" value="' + (x.kgPerM || '') + '" ' +
+          '<input class="bp-in"' + dis + ' type="number" step="any" value="' + (x.kgPerM || '') + '" ' +
             'placeholder="kg/m" oninput="BuildPlan._prof(' + x.id + ',\'kgPerM\',this.value)">' +
-          '<input class="bp-in" value="' + BP.esc(x.unit) + '" ' +
+          '<input class="bp-in"' + dis + ' value="' + BP.esc(x.unit) + '" ' +
             'oninput="BuildPlan._prof(' + x.id + ',\'unit\',this.value)">' +
-          '<input class="bp-in" type="number" step="any" value="' + (x.price || '') + '" ' +
+          '<input class="bp-in"' + dis + ' type="number" step="any" value="' + (x.price || '') + '" ' +
             'placeholder="\u20aa" oninput="BuildPlan._prof(' + x.id + ',\'price\',this.value)">' +
-          '<button class="bp-btn warn" style="padding:5px 7px;" ' +
-            'onclick="BuildPlan._delProf(' + x.id + ')">\u2715</button></div>';
+          (adm ? '<button class="bp-btn warn" style="padding:5px 7px;" ' +
+            'onclick="BuildPlan._delProf(' + x.id + ')">\u2715</button>' : '<span></span>') + '</div>';
       });
       body += '<div class="bp-card"><div class="bp-lbl" style="margin-bottom:6px;">' + BP.esc(BP.dsp(g)) +
         '</div>' + rows +
-        '<button class="bp-btn ghost" style="padding:6px 10px;font-size:.78rem;" ' +
-          'onclick="BuildPlan._addProf(\'' + BP.esc(g) + '\')">\u2795</button></div>';
+        (adm ? '<button class="bp-btn ghost" style="padding:6px 10px;font-size:.78rem;" ' +
+          'onclick="BuildPlan._addProf(\'' + BP.esc(g) + '\')">\u2795</button>' : '') + '</div>';
     });
-    var bar = '<button class="bp-btn" onclick="BuildPlan._saveCat()">\ud83d\udcbe ' +
-        BP.tt('שמור', 'บันทึก', 'حفظ') + '</button>' +
+    if (!adm) {
+      body = '<div class="own-lock">\ud83d\udd12 ' +
+        BP.tt('הקטלוג מנוהל על ידי מנהל המערכת — לצפייה בלבד', 'แคตตาล็อกจัดการโดยผู้ดูแลระบบ — ดูอย่างเดียว',
+              'الكتالوج يديره المسؤول — للعرض فقط') + '</div>' + body;
+    }
+    var bar = (adm ? '<button class="bp-btn" onclick="BuildPlan._saveCat()">\ud83d\udcbe ' +
+        BP.tt('שמור', 'บันทึก', 'حفظ') + '</button>' : '') +
       '<button class="bp-btn ghost" onclick="BuildPlan.render()">\u21a9 ' +
         BP.tt('חזרה', 'กลับ', 'رجوع') + '</button>';
     BP.paint(BP.shell('\ud83d\udcd0 ' + BP.tt('קטלוג פרופילים', 'แคตตาล็อกโปรไฟล์', 'كتالوج المقاطع'),
-      bar, priceHeader() + body));
+      bar, (adm ? priceHeader() : '') + body));
   };
   // Mutate only. Repainting here would replace the input being typed into;
   // the explicit שמור button writes, and the listener guard below stops our
   // own write bouncing back as a repaint.
+  function catDenied() {
+    BP.toast('\u26d4 ' + BP.tt('רק מנהל המערכת יכול לערוך את הקטלוג', 'เฉพาะผู้ดูแลระบบแก้ไขแคตตาล็อกได้', 'المسؤول فقط يمكنه تعديل الكتالوج'));
+    return false;
+  }
   function _prof(pid, k, v) {
+    if (!BP.isAdmin()) return catDenied();
     (BP.C.profiles || []).forEach(function (x) {
       if (x.id === pid) x[k] = (k === 'kgPerM' || k === 'price') ? (Number(v) || 0) : v;
     });
   }
   function _addProf(g) {
+    if (!BP.isAdmin()) return catDenied();
     BP.C.profiles.push({ id: BP.uid() + Math.random(), group: g, name: '', kgPerM: 0, unit: "מ'", price: 0 });
     BP.openCatalog();
   }
   function _delProf(pid) {
+    if (!BP.isAdmin()) return catDenied();
     BP.C.profiles = (BP.C.profiles || []).filter(function (x) { return x.id !== pid; });
     BP.saveC();
     BP.openCatalog();
@@ -382,6 +397,7 @@
   // section on sibling pages — so this stays a number you set from a real
   // quote, with the sources listed next to it.
   function applySteelPrice() {
+    if (!BP.isAdmin()) return catDenied();
     var v = Number((document.getElementById('bpKgPrice') || {}).value);
     if (!(v > 0)) { BP.toast('\u26a0\ufe0f ' + BP.tt('הזן מחיר לק"ג', 'ใส่ราคา/กก.', 'أدخل السعر/كغ')); return; }
     var n = 0;
@@ -424,6 +440,7 @@
   }
 
   function _saveCat() {
+    if (!BP.isAdmin()) return catDenied();
     BP.saveC();
     BP.toast('\u2705 ' + BP.tt('נשמר', 'บันทึกแล้ว', 'تم الحفظ'));
     BP.openCatalog();
@@ -852,6 +869,30 @@
     _delProf: _delProf,
     _saveCat: _saveCat,
     applySteelPrice: applySteelPrice
+  };
+  // Ownership (Oct 2026): every handler that changes a project takes the
+  // project id first. Wrapped here, at the one place they are registered,
+  // so someone else's project cannot be changed from any onclick — the
+  // "only your own items" toast instead. (BP.saveP() additionally puts back
+  // any change to a foreign project before it writes.)
+  var BY_ID = ['_comp', '_live', '_commit', '_set', '_dim', 'addGate', 'delGate', 'setGate', 'addComp',
+               '_rebar', 'addLiving', 'delLiving', 'setLiving', 'boqEx', 'boqExG', 'boqSet', 'boqReset',
+               'boqDel', 'boqAdd', 'applyModel', 'toModelStart', 'toModelSave', 'setSource', 'markText',
+               'markDel', 'freeAdd', 'freeSet', 'freeDel', 'freeDup', 'sun', 'startFootprint', 'startRect',
+               'placeFromDims', 'dimsFromRect', 'geSave', 'useFootprint', 'pushToMaint', 'newMaint', 'delProject'];
+  BY_ID.forEach(function (k) {
+    var fn = API[k];
+    if (typeof fn !== 'function') return;
+    API[k] = function (id) {
+      if (!BP.guardP(id)) return false;
+      return fn.apply(this, arguments);
+    };
+  });
+  // Handlers that act on the project on screen rather than taking its id.
+  var saveNowRaw = API.saveNow;
+  API.saveNow = function () {
+    if (BP._open && !BP.guardP(BP._open)) return false;
+    return saveNowRaw.apply(this, arguments);
   };
   Object.keys(API).forEach(function (k) { BuildPlan[k] = API[k]; });
 

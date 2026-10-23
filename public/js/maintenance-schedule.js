@@ -29,6 +29,10 @@ var MaintSchedule = (function() {
   // ── i18n / globals helpers ──
   function T(he, th, ar) { return (typeof tt === 'function') ? tt(he, th, ar) : he; }
   function toast(msg) { if (typeof showToast === 'function') showToast(msg); }
+  // Ownership (Oct 2026): an event is its creator's (legacy createdBy is a
+  // username, which Own.canEdit matches). Marking done stays open to anyone
+  // with access — it is a record about the task (ownership.js).
+  function _canEd(e) { return !window.Own || Own.canEdit(e); }
   function hasMaint() { return typeof Maintenance !== 'undefined'; }
   function _mAudit(action, ev) { try { if (typeof Audit !== 'undefined' && Audit.log) { var o = { reason: 'calendar · ' + ((ev && ev.title) || '') }; if (action === 'delete') o.before = ev; else o.after = ev; Audit.log(action, 'maintenance', 'schedule', o); } } catch (e) {} }
 
@@ -390,7 +394,7 @@ var MaintSchedule = (function() {
         '<div style="font-weight:600;font-size:0.9rem;' + (e.done ? 'text-decoration:line-through;opacity:0.6;' : '') + '">' + esc(e.title) + '</div>' +
         (meta.length ? '<div style="font-size:0.72rem;color:var(--text-muted,#888);">' + meta.join(' · ') + '</div>' : '') +
       '</div>' +
-      '<button onclick="MaintSchedule._editEvent(' + e.id + ')" style="border:none;background:none;cursor:pointer;font-size:1rem;">✏️</button>' +
+      '<button onclick="MaintSchedule._editEvent(' + e.id + ')" style="border:none;background:none;cursor:pointer;font-size:1rem;">' + (_canEd(e) ? '✏️' : '👁') + '</button>' +
     '</div>';
   }
 
@@ -443,6 +447,7 @@ var MaintSchedule = (function() {
       projOpts += '<option value="' + p.id + '"' + (ev.projectId === p.id ? ' selected' : '') + '>' + esc(p.name) + '</option>';
     });
     // category options
+    var ro = !isNew && !_canEd(ev), dis = ro ? ' disabled' : '';
     var catOpts = '';
     Object.keys(CATS).forEach(function(k) {
       catOpts += '<option value="' + k + '"' + ((ev.cat || 'general') === k ? ' selected' : '') + '>' + CATS[k].label() + '</option>';
@@ -450,21 +455,23 @@ var MaintSchedule = (function() {
 
     var html =
       '<div style="' + BG + '"><div data-msched-root data-msched-view="editor" style="' + CARD + 'max-width:460px;">' +
-        '<h3 style="font-weight:700;margin:0 0 14px;">' + (isNew ? '➕ ' + T('משימה חדשה', 'งานใหม่', 'مهمة جديدة') : '✏️ ' + T('עריכת משימה', 'แก้ไขงาน', 'تعديل المهمة')) + '</h3>' +
+        '<h3 style="font-weight:700;margin:0 0 14px;">' + (isNew ? '➕ ' + T('משימה חדשה', 'งานใหม่', 'مهمة جديدة') : (ro ? '📅 ' + T('משימה', 'งาน', 'مهمة') : '✏️ ' + T('עריכת משימה', 'แก้ไขงาน', 'تعديل المهمة'))) + '</h3>' +
+        (ro && window.Own ? Own.lockHtml(ev) : '') +
         '<div style="display:grid;gap:10px;">' +
-          '<div><label style="' + lblCss + '">' + T('כותרת', 'หัวข้อ', 'العنوان') + ' *</label><input id="mschedTitle" style="' + inputCss + '" value="' + esc(ev.title) + '" placeholder="' + T('מה צריך לעשות?', 'ต้องทำอะไร?', 'ما الذي يجب فعله؟') + '"></div>' +
+          '<div><label style="' + lblCss + '">' + T('כותרת', 'หัวข้อ', 'العنوان') + ' *</label><input id="mschedTitle"' + dis + ' style="' + inputCss + '" value="' + esc(ev.title) + '" placeholder="' + T('מה צריך לעשות?', 'ต้องทำอะไร?', 'ما الذي يجب فعله؟') + '"></div>' +
           '<div style="display:flex;gap:8px;">' +
-            '<div style="flex:1;"><label style="' + lblCss + '">' + T('תאריך', 'วันที่', 'التاريخ') + '</label><input id="mschedDate" type="date" style="' + inputCss + '" value="' + esc(ev.date) + '"></div>' +
-            '<div style="flex:1;"><label style="' + lblCss + '">' + T('שעה', 'เวลา', 'الوقت') + '</label><input id="mschedTime" type="time" style="' + inputCss + '" value="' + esc(ev.time) + '"></div>' +
+            '<div style="flex:1;"><label style="' + lblCss + '">' + T('תאריך', 'วันที่', 'التاريخ') + '</label><input id="mschedDate"' + dis + ' type="date" style="' + inputCss + '" value="' + esc(ev.date) + '"></div>' +
+            '<div style="flex:1;"><label style="' + lblCss + '">' + T('שעה', 'เวลา', 'الوقت') + '</label><input id="mschedTime"' + dis + ' type="time" style="' + inputCss + '" value="' + esc(ev.time) + '"></div>' +
           '</div>' +
-          '<div><label style="' + lblCss + '">' + T('סוג', 'ประเภท', 'النوع') + '</label><select id="mschedCat" style="' + inputCss + '">' + catOpts + '</select></div>' +
-          '<div><label style="' + lblCss + '">' + T('אחראי', 'ผู้รับผิดชอบ', 'المسؤول') + '</label><select id="mschedAssignee" style="' + inputCss + '">' + assignOpts + '</select></div>' +
-          '<div><label style="' + lblCss + '">' + T('פרויקט מקושר', 'โครงการที่เชื่อมโยง', 'مشروع مرتبط') + '</label><select id="mschedProject" style="' + inputCss + '">' + projOpts + '</select></div>' +
-          '<div><label style="' + lblCss + '">' + T('הערות', 'หมายเหตุ', 'ملاحظات') + '</label><textarea id="mschedNotes" rows="2" style="' + inputCss + 'resize:vertical;">' + esc(ev.notes) + '</textarea></div>' +
+          '<div><label style="' + lblCss + '">' + T('סוג', 'ประเภท', 'النوع') + '</label><select id="mschedCat"' + dis + ' style="' + inputCss + '">' + catOpts + '</select></div>' +
+          '<div><label style="' + lblCss + '">' + T('אחראי', 'ผู้รับผิดชอบ', 'المسؤول') + '</label><select id="mschedAssignee"' + dis + ' style="' + inputCss + '">' + assignOpts + '</select></div>' +
+          '<div><label style="' + lblCss + '">' + T('פרויקט מקושר', 'โครงการที่เชื่อมโยง', 'مشروع مرتبط') + '</label><select id="mschedProject"' + dis + ' style="' + inputCss + '">' + projOpts + '</select></div>' +
+          '<div><label style="' + lblCss + '">' + T('הערות', 'หมายเหตุ', 'ملاحظات') + '</label><textarea id="mschedNotes"' + dis + ' rows="2" style="' + inputCss + 'resize:vertical;">' + esc(ev.notes) + '</textarea></div>' +
         '</div>' +
+        (!isNew && window.Comments ? Comments.block('msched:' + ev.id, ev.title) : '') +
         '<div style="display:flex;gap:8px;margin-top:14px;">' +
-          '<button onclick="MaintSchedule._saveEvent(' + (isNew ? 'null' : ev.id) + ',\'' + esc(ev.date) + '\')" style="flex:1;padding:10px;border:none;border-radius:10px;background:var(--primary,#2e7d32);color:#fff;font-family:inherit;font-weight:700;cursor:pointer;">💾 ' + T('שמור', 'บันทึก', 'حفظ') + '</button>' +
-          (isNew || !_isAdmin() ? '' : '<button onclick="MaintSchedule._delEvent(' + ev.id + ')" style="padding:10px 14px;border:none;border-radius:10px;background:#ef5350;color:#fff;font-family:inherit;font-weight:700;cursor:pointer;">🗑️</button>') +
+          (ro ? '' : '<button onclick="MaintSchedule._saveEvent(' + (isNew ? 'null' : ev.id) + ',\'' + esc(ev.date) + '\')" style="flex:1;padding:10px;border:none;border-radius:10px;background:var(--primary,#2e7d32);color:#fff;font-family:inherit;font-weight:700;cursor:pointer;">💾 ' + T('שמור', 'บันทึก', 'حفظ') + '</button>') +
+          (isNew || !_isAdmin() || ro ? '' : '<button onclick="MaintSchedule._delEvent(' + ev.id + ')" style="padding:10px 14px;border:none;border-radius:10px;background:#ef5350;color:#fff;font-family:inherit;font-weight:700;cursor:pointer;">🗑️</button>') +
           '<button onclick="MaintSchedule._cancel(\'' + esc(ev.date) + '\')" style="padding:10px 14px;border:1px solid var(--border,#ddd);border-radius:10px;background:var(--card-solid,#fff);color:var(--text-muted,#666);font-family:inherit;cursor:pointer;">' + T('ביטול', 'ยกเลิก', 'إلغاء') + '</button>' +
         '</div>' +
       '</div></div>';
@@ -500,12 +507,16 @@ var MaintSchedule = (function() {
     var now = Date.now();
     var evs = (_events || []).slice();
     if (id == null) {
-      rec.id = uid(); rec.done = false; rec.createdBy = who; rec.createdAt = now; rec.updatedAt = now;
+      rec.id = uid(); rec.done = false;
+      if (window.Own) Own.stamp(rec); else rec.createdBy = who;
+      rec.createdAt = now; rec.updatedAt = now;
       evs.push(rec);
     } else {
       for (var i = 0; i < evs.length; i++) {
         if (evs[i].id === id) {
+          if (!_canEd(evs[i])) { if (window.Own) Own.denied(); return; }
           rec.id = id; rec.done = !!evs[i].done; rec.createdBy = evs[i].createdBy || who;
+          if (evs[i].createdByName) rec.createdByName = evs[i].createdByName;
           rec.createdAt = evs[i].createdAt || now; rec.updatedAt = now;
           evs[i] = rec; break;
         }
@@ -522,6 +533,7 @@ var MaintSchedule = (function() {
     var ok = (typeof window.confirm === 'function') ? window.confirm(T('למחוק את המשימה?', 'ลบงานนี้?', 'حذف المهمة؟')) : true;
     if (!ok) return;
     var before = (_events || []).filter(function(e) { return e.id === id; })[0];
+    if (before && !_canEd(before)) { if (window.Own) Own.denied(); return; }
     saveEvents((_events || []).filter(function(e) { return e.id !== id; }));
     _mAudit('delete', before);
     toast(T('🗑️ נמחק', '🗑️ ลบแล้ว', '🗑️ تم الحذف'));

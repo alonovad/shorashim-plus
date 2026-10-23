@@ -30,7 +30,8 @@ var TaskBoard = (function() {
     loadTasks().then(function(tasks) {
       task.id = Date.now();
       task.created = Date.now();
-      task.createdBy = window.currentUser ? window.currentUser.username : '';
+      if (window.Own) Own.stamp(task);
+      else task.createdBy = window.currentUser ? window.currentUser.username : '';
       task.status = 'pending';
       tasks.push(task);
       saveTasks(tasks);
@@ -41,6 +42,7 @@ var TaskBoard = (function() {
   function updateTask(taskId, updates) {
     loadTasks().then(function(tasks) {
       var task = tasks.find(function(t) { return t.id === taskId; });
+      if (task && !canEditTask(task)) { if (window.Own) Own.denied(); return; }
       if (task) {
         Object.keys(updates).forEach(function(k) { task[k] = updates[k]; });
         saveTasks(tasks);
@@ -54,6 +56,29 @@ var TaskBoard = (function() {
       saveTasks(tasks);
       if (typeof showToast === 'function') showToast('🗑️ ' + tt('משימה נמחקה', 'ลบงานแล้ว', 'تم حذف المهمة'));
     });
+  }
+
+  // ── Ownership (ownership.js) ──
+  // Admin changes any task; others only tasks they created. Pre-rule tasks
+  // carry createdBy = username, which Own matches; createdByName is the
+  // free-text fallback.
+  function canEditTask(task) {
+    if (!task) return false;
+    if (!window.Own) return true;
+    return Own.canEdit(task, task.createdByName);
+  }
+  // Marking done is a status-only change the assignee may always make.
+  function canMarkDone(task) {
+    if (!task) return false;
+    var username = window.currentUser ? window.currentUser.username : '';
+    if (username && task.assignedTo === username) return true;
+    return canEditTask(task);
+  }
+  function commentsFor(task) {
+    if (!window.Comments) return '';
+    return '<details style="margin-top:6px;"><summary style="cursor:pointer;font-size:0.75rem;color:#666;">💬 ' +
+      tt('תגובות', 'ความคิดเห็น', 'التعليقات') + '</summary>' +
+      Comments.block('task:' + task.id, task.title || '') + '</details>';
   }
 
   // ── Translation helper ──
@@ -123,11 +148,13 @@ var TaskBoard = (function() {
         if (isOverdue) html += ' <span style="color:#f44336;font-weight:700;">(' + tt('באיחור', 'เลยกำหนด', 'متأخر') + ')</span>';
       }
       html += '</div>';
+      if (!canEditTask(task) && window.Own) html += Own.lockHtml(task);
+      html += commentsFor(task);
       html += '</div>';
 
-      if (!isDone) {
+      if (!isDone && canMarkDone(task)) {
         html += '<button onclick="TaskBoard.markDone(' + task.id + ')" style="padding:8px 12px;border-radius:8px;border:none;background:#4caf50;color:white;font-size:0.8rem;font-weight:700;cursor:pointer;white-space:nowrap;">✓ ' + tt('בוצע', 'เสร็จ', 'تم') + '</button>';
-      } else {
+      } else if (isDone) {
         html += '<span style="font-size:1.2rem;">✅</span>';
       }
       html += '</div></div>';
@@ -138,6 +165,7 @@ var TaskBoard = (function() {
   function markDone(taskId) {
     loadTasks().then(function(tasks) {
       var task = tasks.find(function(t) { return t.id === taskId; });
+      if (task && !canMarkDone(task)) { if (window.Own) Own.denied(); return; }
       if (task) {
         task.status = 'done';
         task.completedAt = Date.now();
@@ -201,8 +229,11 @@ var TaskBoard = (function() {
       if (task.workplace) html += '📍 ' + task.workplace + ' &nbsp;';
       if (task.dueDate) html += '📅 ' + task.dueDate;
       if (isDone) html += ' &nbsp;✅';
-      html += '</div></div>';
-      html += '<button onclick="TaskBoard._deleteTask(' + task.id + ')" style="border:none;background:none;cursor:pointer;font-size:1rem;">🗑️</button>';
+      html += '</div>';
+      if (!canEditTask(task) && window.Own) html += Own.lockHtml(task);
+      html += commentsFor(task);
+      html += '</div>';
+      if (canEditTask(task)) html += '<button onclick="TaskBoard._deleteTask(' + task.id + ')" style="border:none;background:none;cursor:pointer;font-size:1rem;">🗑️</button>';
       html += '</div></div>';
     });
     el.innerHTML = html;
@@ -280,9 +311,14 @@ var TaskBoard = (function() {
   }
 
   function _deleteTask(taskId) {
-    if (!confirm(tt('למחוק משימה?', 'ลบงาน?', 'حذف المهمة؟'))) return;
-    deleteTask(taskId);
-    setTimeout(showTaskManager, 300);
+    loadTasks().then(function(tasks) {
+      var task = tasks.find(function(t) { return t.id === taskId; });
+      if (!task) return;
+      if (!canEditTask(task)) { if (window.Own) Own.denied(); return; }
+      if (!confirm(tt('למחוק משימה?', 'ลบงาน?', 'حذف المهمة؟'))) return;
+      deleteTask(taskId);
+      setTimeout(showTaskManager, 300);
+    });
   }
 
   // ── Viewer: Task count badge ──

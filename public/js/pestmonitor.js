@@ -93,16 +93,32 @@ var PestMonitor = (function () {
     return { v: 2, year: year, inspector: u.name || u.username || '', location: '', signature: false, withMap: false,
       pests: DEFAULT_PESTS.slice(), selected: {}, plots: {} };
   }
+  var STAMP = ['createdBy', 'createdByName', 'createdAt'];
+  function keepStamp(from, to) { if (from) STAMP.forEach(function (k) { if (from[k] != null) to[k] = from[k]; }); return to; }
   function normVisit(v) {
     v = v || {};
-    return { d: String(v.d || ''), r: Array.isArray(v.r) ? v.r.map(function (x) { return String(x == null ? '' : x); }) : [], rec: String(v.rec || ''), n: String(v.n || '') };
+    return keepStamp(v, { d: String(v.d || ''), r: Array.isArray(v.r) ? v.r.map(function (x) { return String(x == null ? '' : x); }) : [], rec: String(v.rec || ''), n: String(v.n || '') });
   }
+  // A brand-new season document is its creator's (its settings: inspector,
+  // location, pest columns, reset, import).
+  function newSeason() { var b = blankSeason(); if (window.Own) Own.stamp(b); return b; }
+
+  // ── ownership (ownership.js) ──
+  // Admin changes anything. Others change the season settings only if they
+  // created the season, and a visit only if they recorded it. Pre-rule
+  // seasons / visits carry no stamp; the season's free-text inspector is
+  // their author.
+  function canEditSeason() { return !window.Own || !S || Own.canEdit(S, S.inspector); }
+  function canEditVisit(v) { return !window.Own || !v || Own.canEdit(v, S && S.inspector); }
+  // Reset and file import replace every plot's visits, other people's too.
+  function canWipe() { return !window.Own || Own.isAdmin(); }
+  function deny() { if (window.Own) Own.denied(); return false; }
   function hasContent(v) {
     return String(v.d || '').trim() || (v.r || []).some(function (x) { return String(x || '').trim(); }) || String(v.n || '').trim();
   }
   function normalise(d) {
     var s = d && typeof d === 'object' ? d : {};
-    var out = blankSeason();
+    var out = keepStamp(s, blankSeason());
     if (Array.isArray(s.pests) && s.pests.length) out.pests = s.pests.slice();
     ['inspector', 'location'].forEach(function (k) { if (typeof s[k] === 'string') out[k] = s[k]; });
     out.signature = !!s.signature;
@@ -177,13 +193,13 @@ var PestMonitor = (function () {
   function load() {
     return new Promise(function (resolve) {
       if (typeof DB !== 'undefined' && DB.loadFresh) {
-        DB.loadFresh(key()).then(function (d) { resolve(d ? normalise(d) : blankSeason()); }, function () { resolve(blankSeason()); });
+        DB.loadFresh(key()).then(function (d) { resolve(d ? normalise(d) : newSeason()); }, function () { resolve(blankSeason()); });
       } else if (typeof DB !== 'undefined' && DB.loadAsync) {
-        DB.loadAsync(key()).then(function (d) { resolve(d ? normalise(d) : blankSeason()); }, function () { resolve(blankSeason()); });
+        DB.loadAsync(key()).then(function (d) { resolve(d ? normalise(d) : newSeason()); }, function () { resolve(blankSeason()); });
       } else {
         var raw = null;
         try { raw = localStorage.getItem(key()); } catch (e) {}
-        resolve(raw ? normalise(JSON.parse(raw)) : blankSeason());
+        resolve(raw ? normalise(JSON.parse(raw)) : newSeason());
       }
     });
   }
@@ -334,21 +350,23 @@ var PestMonitor = (function () {
 
   function mainHtml() {
     var p = plotById(active);
+    var se = canEditSeason(), dis = se ? '' : ' disabled';
     var info = '<details class="pm2-card pm2-info"><summary>⚙️ ' + tt('פרטי הדוח', 'รายละเอียดรายงาน', 'تفاصيل التقرير') +
       ' <small>' + esc(S.inspector || '') + (S.location ? ' · ' + esc(S.location) : '') + '</small></summary>' +
+      (!se && window.Own ? Own.lockHtml(S) : '') +
       '<div class="pm2-grid2">' +
-        '<label>' + tt('מבצע הפיקוח', 'ผู้ตรวจ', 'المفتش') + '<input class="pm2-in" data-s="inspector" value="' + esc(S.inspector) + '"></label>' +
-        '<label>' + tt('מיקום', 'สถานที่', 'الموقع') + '<input class="pm2-in" data-s="location" value="' + esc(S.location) + '"></label>' +
+        '<label>' + tt('מבצע הפיקוח', 'ผู้ตรวจ', 'المفتش') + '<input class="pm2-in" data-s="inspector" value="' + esc(S.inspector) + '"' + dis + '></label>' +
+        '<label>' + tt('מיקום', 'สถานที่', 'الموقع') + '<input class="pm2-in" data-s="location" value="' + esc(S.location) + '"' + dis + '></label>' +
       '</div>' +
-      '<label class="pm2-chk"><input type="checkbox" data-s="signature"' + (S.signature ? ' checked' : '') + '> ' + tt('שורת חתימה בדוח', 'บรรทัดลายเซ็น', 'سطر توقيع') + '</label>' +
-      '<label class="pm2-chk"><input type="checkbox" data-s="withMap"' + (S.withMap ? ' checked' : '') + '> ' + tt('כלול תצלום לווין של החלקה', 'รวมภาพดาวเทียม', 'تضمين صورة القمر') + '</label>' +
-      '<div class="pm2-row"><button type="button" class="pm2-btn ghost sm" data-a="pests">🧬 ' + tt('עריכת רשימת מזיקים', 'แก้ไขศัตรูพืช', 'تعديل الآفات') + '</button></div>' +
+      '<label class="pm2-chk"><input type="checkbox" data-s="signature"' + (S.signature ? ' checked' : '') + dis + '> ' + tt('שורת חתימה בדוח', 'บรรทัดลายเซ็น', 'سطر توقيع') + '</label>' +
+      '<label class="pm2-chk"><input type="checkbox" data-s="withMap"' + (S.withMap ? ' checked' : '') + dis + '> ' + tt('כלול תצלום לווין של החלקה', 'รวมภาพดาวเทียม', 'تضمين صورة القمر') + '</label>' +
+      (se ? '<div class="pm2-row"><button type="button" class="pm2-btn ghost sm" data-a="pests">🧬 ' + tt('עריכת רשימת מזיקים', 'แก้ไขศัตรูพืช', 'تعديل الآفات') + '</button></div>' : '') +
     '</details>';
     if (!p) return info + '<div class="pm2-empty big">' + tt('בחר חלקה מהרשימה כדי לרשום ביקורים', 'เลือกแปลง', 'اختر قطعة') + '</div>';
     var log = plotLog(p.id);
     var vs = log.visits;
     var order = vs.map(function (v, i) { return i; }).sort(function (a, b) { return dmyKey(vs[b].d).localeCompare(dmyKey(vs[a].d)); });
-    var legacy = (S.legacy && S.legacy.length && !vs.length) ?
+    var legacy = (S.legacy && S.legacy.length && !vs.length && canEditSeason()) ?
       '<div class="pm2-legacy">' + tt('יש ממצאים משותפים מגרסה קודמת (' + S.legacy.length + ' ביקורים).', 'มีข้อมูลเดิม', 'بيانات سابقة') +
         ' <button type="button" class="pm2-btn sm" data-a="legacy">' + tt('החל על חלקה זו', 'ใช้กับแปลงนี้', 'تطبيق على هذه القطعة') + '</button></div>' : '';
     var head = '<div class="pm2-ph"><div><small>' + esc(farmName(p.farm_id || 0)) + '</small><h3>' + esc(p.name) + '</h3>' +
@@ -365,16 +383,17 @@ var PestMonitor = (function () {
   }
 
   function visitCard(v, i, pid) {
+    var own = canEditVisit(v), dis = own ? '' : ' disabled';
     var iso = v.d ? dmyToIso(v.d) : '';
     var date = (iso === null)
-      ? '<input class="pm2-in sm" data-v="' + i + '" data-f="d" value="' + esc(v.d) + '" placeholder="dd/mm/yyyy">'
-      : '<input type="date" class="pm2-in sm" data-v="' + i + '" data-f="d" value="' + (iso || '') + '">';
+      ? '<input class="pm2-in sm" data-v="' + i + '" data-f="d" value="' + esc(v.d) + '" placeholder="dd/mm/yyyy"' + dis + '>'
+      : '<input type="date" class="pm2-in sm" data-v="' + i + '" data-f="d" value="' + (iso || '') + '"' + dis + '>';
     var rows = S.pests.map(function (name, j) {
       var cur = (v.r || [])[j] || '';
       var sc = scoreOf(cur);
       var btns = LEVEL_SHORT_.map(function (l_, k) {
         var l = levelShort(k);
-        return '<button type="button" class="pm2-lv' + (sc === k ? ' on' : '') + '" style="--c:' + LEVEL_COL[k] + '" data-lv="' + i + ':' + j + ':' + k + '">' + l + '</button>';
+        return '<button type="button" class="pm2-lv' + (sc === k ? ' on' : '') + '" style="--c:' + LEVEL_COL[k] + '" data-lv="' + i + ':' + j + ':' + k + '"' + dis + '>' + l + '</button>';
       }).join('');
       var odd = (sc === undefined) ? '<span class="pm2-odd" title="' + tt('ערך חופשי ישן', 'ค่าเดิม', 'قيمة قديمة') + '">“' + esc(cur) + '”</span>' : '';
       return '<div class="pm2-pr"><span class="pm2-pname">' + esc(name) + odd + '</span><span class="pm2-lvs">' + btns + '</span></div>';
@@ -384,13 +403,16 @@ var PestMonitor = (function () {
       '<div class="pm2-vh">' + date +
         '<span class="pm2-vact">' +
           '<button type="button" class="pm2-btn ghost sm" data-copy="' + i + '" title="' + tt('העתק לחלקות נוספות', 'คัดลอก', 'نسخ') + '">⧉ ' + tt('העתק לחלקות', 'คัดลอก', 'نسخ') + '</button>' +
-          '<button type="button" class="pm2-x" data-del="' + i + '" title="' + tt('מחיקת הביקור', 'ลบ', 'حذف') + '">🗑</button></span></div>' +
+          (own ? '<button type="button" class="pm2-x" data-del="' + i + '" title="' + tt('מחיקת הביקור', 'ลบ', 'حذف') + '">🗑</button>' : '') + '</span></div>' +
+      (!own && window.Own ? Own.lockHtml(v) : '') +
       rows +
       '<div class="pm2-grid2">' +
-        '<label>' + tt('המלצת טיפול', 'คำแนะนำ', 'التوصية') + '<select class="pm2-in" data-v="' + i + '" data-f="rec">' +
+        '<label>' + tt('המלצת טיפול', 'คำแนะนำ', 'التوصية') + '<select class="pm2-in" data-v="' + i + '" data-f="rec"' + dis + '>' +
           recOpts.map(function (r) { return '<option value="' + esc(r) + '"' + (r === v.rec ? ' selected' : '') + '>' + esc(recTr(r)) + '</option>'; }).join('') + '</select></label>' +
-        '<label>' + tt('הערות', 'หมายเหตุ', 'ملاحظات') + '<textarea class="pm2-in" rows="2" data-v="' + i + '" data-f="n">' + esc(v.n) + '</textarea></label>' +
-      '</div></div>';
+        '<label>' + tt('הערות', 'หมายเหตุ', 'ملاحظات') + '<textarea class="pm2-in" rows="2" data-v="' + i + '" data-f="n"' + dis + '>' + esc(v.n) + '</textarea></label>' +
+      '</div>' +
+      (!own && window.Comments ? Comments.block('pmvisit:' + year + ':' + pid + ':' + (v.createdAt || v.d || i), tt('ביקור', 'การเยี่ยม', 'زيارة') + ' ' + (v.d || '')) : '') +
+      '</div>';
   }
 
   // ── wiring ──
@@ -414,14 +436,16 @@ var PestMonitor = (function () {
       if (a === 'list') { listOpen = !listOpen; var sd = document.querySelector('.pm2-side'); if (sd) sd.classList.toggle('open', listOpen); var ch = b.querySelector('.pm2-chev'); if (ch) ch.textContent = listOpen ? '▴' : '▾'; return; }
       if (a === 'selall') { plots().forEach(function (p) { S.selected[p.id] = true; }); persist(); return render(); }
       if (a === 'selnone') { S.selected = {}; persist(); return render(); }
-      if (a === 'pests') return editPests();
+      if (a === 'pests') return canEditSeason() ? editPests() : deny();
       if (a === 'add') {
         var log = plotLog(active), prev = sortedVisits(log.visits)[0];
-        log.visits.push(blankVisit(prev ? prev.rec : RECS[0]));
+        var nv = blankVisit(prev ? prev.rec : RECS[0]);
+        if (window.Own) Own.stamp(nv);
+        log.visits.push(nv);
         S.selected[active] = true;
         persistNow(); return render();
       }
-      if (a === 'legacy') { plotLog(active).visits = JSON.parse(JSON.stringify(S.legacy)); S.selected[active] = true; persistNow(); return render(); }
+      if (a === 'legacy') { if (!canEditSeason()) return deny(); plotLog(active).visits = JSON.parse(JSON.stringify(S.legacy)); S.selected[active] = true; persistNow(); return render(); }
       return;
     }
     if (t.classList.contains('pm2-pcb') || t.classList.contains('pm2-fcb')) return;  // handled on change
@@ -434,6 +458,7 @@ var PestMonitor = (function () {
       var parts = lv.getAttribute('data-lv').split(':').map(Number);
       var v = plotLog(active).visits[parts[0]];
       if (!v) return;
+      if (!canEditVisit(v)) return deny();
       if (!Array.isArray(v.r)) v.r = [];
       var cur = scoreOf(v.r[parts[1]]);
       v.r[parts[1]] = (cur === parts[2]) ? '' : LEVELS[parts[2]];
@@ -451,6 +476,7 @@ var PestMonitor = (function () {
     if (del) {
       var i = Number(del.getAttribute('data-del'));
       var vv = plotLog(active).visits[i];
+      if (vv && !canEditVisit(vv)) return deny();
       if (vv && hasContent(vv) && !confirm(tt('למחוק את הביקור מ־' + (vv.d || '') + '?', 'ลบ?', 'حذف الزيارة؟'))) return;
       plotLog(active).visits.splice(i, 1);
       persistNow(); return render();
@@ -467,11 +493,12 @@ var PestMonitor = (function () {
       return;
     }
     var sk = t.getAttribute('data-s');
-    if (sk && t.type !== 'checkbox') { S[sk] = t.value; persist(); return; }
+    if (sk && t.type !== 'checkbox') { if (!canEditSeason()) return deny(); S[sk] = t.value; persist(); return; }
     var vi = t.getAttribute('data-v');
     if (vi != null) {
       var v = plotLog(active).visits[Number(vi)];
       if (!v) return;
+      if (!canEditVisit(v)) return deny();
       var f = t.getAttribute('data-f');
       if (f === 'd') v.d = (t.type === 'date') ? isoToDmy(t.value) : t.value;
       else v[f] = t.value;
@@ -483,6 +510,7 @@ var PestMonitor = (function () {
     if (t.id === 'pm2Year') { if (saveTimer) persistNow(); year = t.value; active = null; return open(); }
     var sk = t.getAttribute('data-s');
     if (sk && t.type === 'checkbox') {
+      if (!canEditSeason()) { t.checked = !!S[sk]; return deny(); }
       S[sk] = t.checked; persist();
       if (sk === 'withMap' && t.checked) prepMaps();
       return;
@@ -534,15 +562,21 @@ var PestMonitor = (function () {
       var ids = Array.prototype.slice.call(back.querySelectorAll('input:checked')).map(function (x) { return /^\d+$/.test(x.value) ? Number(x.value) : x.value; });
       back.remove();
       if (!ids.length) return;
+      var skipped = 0;
       ids.forEach(function (id) {
         var log = plotLog(id);
         var dup = log.visits.findIndex(function (v) { return v.d === src.d; });
+        // never overwrite a visit someone else recorded on that date
+        if (dup !== -1 && !canEditVisit(log.visits[dup])) { skipped++; return; }
         var copy = JSON.parse(JSON.stringify(src));
+        STAMP.forEach(function (k) { delete copy[k]; });
+        if (window.Own) Own.stamp(copy);   // the copy is the copier's own record
         if (dup !== -1) log.visits[dup] = copy; else log.visits.push(copy);
         S.selected[id] = true;
       });
       persistNow(); render();
-      toast('✅ ' + tt('הביקור הועתק ל־', 'คัดลอกไป ', 'نُسخت إلى ') + ids.length + ' ' + tt('חלקות', 'แปลง', 'قطع'));
+      toast('✅ ' + tt('הביקור הועתק ל־', 'คัดลอกไป ', 'نُسخت إلى ') + (ids.length - skipped) + ' ' + tt('חלקות', 'แปลง', 'قطع') +
+        (skipped ? ' · 🔒 ' + skipped + ' ' + tt('דולגו (ביקור של אחר)', 'ข้าม (ของผู้อื่น)', 'تُخطّيت (لغيرك)') : ''));
     });
   }
 
@@ -557,11 +591,11 @@ var PestMonitor = (function () {
     mm.style.left = Math.max(8, r.left - 160) + 'px';
     mm.innerHTML =
       '<button type="button" data-m="json">💾 ' + tt('ייצוא לקובץ (JSON)', 'ส่งออก JSON', 'تصدير JSON') + '</button>' +
-      '<label>📂 ' + tt('טעינת קובץ', 'โหลดไฟล์', 'تحميل ملف') + '<input type="file" accept=".json" hidden></label>' +
+      (canWipe() ? '<label>📂 ' + tt('טעינת קובץ', 'โหลดไฟล์', 'تحميل ملف') + '<input type="file" accept=".json" hidden></label>' : '') +
       '<button type="button" data-m="gallery">🐛 ' + tt('גלריית מזיקים ומחלות', 'แกลเลอรีศัตรูพืช', 'معرض الآفات') + '</button>' +
       '<button type="button" data-m="traps">🪲 ' + tt('לכידות חדקונית', 'กับดักด้วง', 'مصائد السوسة') + '</button>' +
       '<button type="button" data-m="field">📷 ' + tt('דוחות פרטניים (תצפיות)', 'รายงานเดี่ยว', 'تقارير مفردة') + '</button>' +
-      '<button type="button" data-m="reset" class="warn">' + tt('איפוס נתוני ', 'รีเซ็ต ', 'تصفير ') + year + '</button>';
+      (canWipe() ? '<button type="button" data-m="reset" class="warn">' + tt('איפוס נתוני ', 'รีเซ็ต ', 'تصفير ') + year + '</button>' : '');
     document.body.appendChild(mm);
     var off = function (e) { if (!mm.contains(e.target) && e.target !== anchor) { mm.remove(); document.removeEventListener('click', off, true); } };
     setTimeout(function () { document.addEventListener('click', off, true); }, 0);
@@ -575,10 +609,12 @@ var PestMonitor = (function () {
       if (k === 'gallery' && window.Knowledge) { if (saveTimer) persistNow(); Knowledge.open('pests'); }
       if (k === 'traps' && window.Traps) { if (saveTimer) persistNow(); Traps.open(); }
     });
-    mm.querySelector('input[type=file]').addEventListener('change', function () { mm.remove(); importJson(this); });
+    var fileIn = mm.querySelector('input[type=file]');
+    if (fileIn) fileIn.addEventListener('change', function () { mm.remove(); importJson(this); });
   }
 
   function editPests() {
+    if (!canEditSeason()) return deny();
     var t = prompt(tt('מזיק בכל שורה:', 'หนึ่งชื่อต่อบรรทัด:', 'اسم لكل سطر:'), S.pests.join('\n'));
     if (t === null) return;
     var list = t.split(/\r?\n/).map(function (s) { return s.trim(); }).filter(Boolean);
@@ -593,6 +629,7 @@ var PestMonitor = (function () {
     toast('✅ ' + tt('רשימת המזיקים עודכנה', 'อัปเดตแล้ว', 'تم التحديث'));
   }
   function reset() {
+    if (!canWipe()) return deny();
     if (!confirm(tt('לאפס את כל ביקורי ' + year + ' בכל החלקות? כדאי לייצא קובץ לפני.', 'รีเซ็ต ' + year + '?', 'تصفير ' + year + '؟'))) return;
     S.plots = {}; delete S.legacy;
     persistNow(); render();
@@ -606,6 +643,7 @@ var PestMonitor = (function () {
     setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
   }
   function importJson(input) {
+    if (!canWipe()) return deny();
     var f = input && input.files && input.files[0];
     if (!f) return;
     var r = new FileReader();

@@ -179,10 +179,11 @@
       .forEach(function (p) {
         var rows = BP.takeoff(p), t = BP.takeoffTotals(rows);
         var g = p.type === 'slab' ? null : BP.geom(p.dims);
+        var mine = BP.canEditP(p);
         var icon = p.type === 'slab' ? '\ud83e\uddf1' : (p.type === 'house' ? '\ud83c\udfe0' : '\ud83c\udfd7');
         body += '<div class="bp-card" style="cursor:pointer;" onclick="BuildPlan.card(' + p.id + ')">' +
           '<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">' +
-            '<strong>' + icon + ' ' + BP.esc(p.name || BP.tt('ללא שם', 'ไม่มีชื่อ', 'بلا اسم')) + '</strong>' +
+            '<strong>' + icon + ' ' + BP.esc(p.name || BP.tt('ללא שם', 'ไม่มีชื่อ', 'بلا اسم')) + (mine ? '' : ' \ud83d\udd12') + '</strong>' +
             '<span style="font-size:.76rem;color:var(--text-muted,#888);">' + BP.typeLabel(p.type) + '</span>' +
           '</div>' +
           '<div style="font-size:.78rem;color:var(--text-muted,#888);margin-top:4px;">' +
@@ -199,14 +200,15 @@
               ? '<button class="bp-btn ghost" style="padding:5px 10px;font-size:.74rem;" ' +
                   'onclick="BuildPlan.zoomTo(' + p.id + ')">\ud83d\udccd ' +
                   BP.tt('במפה', 'แผนที่', 'خريطة') + '</button>'
-              : '<button class="bp-btn ghost" style="padding:5px 10px;font-size:.74rem;" ' +
+              : (mine ? '<button class="bp-btn ghost" style="padding:5px 10px;font-size:.74rem;" ' +
                   'onclick="BuildPlan.startRect(' + p.id + ')">\u25ad ' +
-                  BP.tt('מקם', 'วาง', 'حدد') + '</button>') +
+                  BP.tt('מקם', 'วาง', 'حدد') + '</button>' : '')) +
             '<button class="bp-btn ghost" style="padding:5px 10px;font-size:.74rem;" ' +
-              'onclick="BuildPlan.openProject(' + p.id + ')">\u270f\ufe0f ' +
-              BP.tt('ערוך', 'แก้ไข', 'تحرير') + '</button>' +
-            '<button class="bp-btn warn" style="padding:5px 10px;font-size:.74rem;" ' +
-              'onclick="BuildPlan.delProject(' + p.id + ')">\ud83d\uddd1</button>' +
+              'onclick="BuildPlan.openProject(' + p.id + ')">' +
+              (mine ? '\u270f\ufe0f ' + BP.tt('ערוך', 'แก้ไข', 'تحرير')
+                    : '\ud83d\udc41 ' + BP.tt('צפייה', 'ดู', 'عرض')) + '</button>' +
+            (mine ? '<button class="bp-btn warn" style="padding:5px 10px;font-size:.74rem;" ' +
+              'onclick="BuildPlan.delProject(' + p.id + ')">\ud83d\uddd1</button>' : '') +
           '</div></div>';
       });
 
@@ -219,7 +221,7 @@
           return '<div style="display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid rgba(0,0,0,.06);font-size:.82rem;">' +
             '<span style="flex:1;"><b>' + BP.esc(m.name) + '</b> <span style="color:var(--text-muted,#888);">' +
               BP.n1(d.span) + '\u00d7' + BP.n1(d.length) + ' m \u00b7 ' + BP.n1(d.eaves) + ' m' + (m.from ? ' \u00b7 ' + BP.esc(m.from) : '') + '</span></span>' +
-            '<button class="bp-btn ghost" style="padding:3px 9px;font-size:.74rem;" onclick="BuildPlan.delMyModel(\'' + BP.esc(m.id) + '\')">\ud83d\uddd1</button></div>';
+            ((!window.Own || Own.canEdit(m)) ? '<button class="bp-btn ghost" style="padding:3px 9px;font-size:.74rem;" onclick="BuildPlan.delMyModel(\'' + BP.esc(m.id) + '\')">\ud83d\uddd1</button>' : '') + '</div>';
         }).join('') +
         '<div style="font-size:.74rem;color:var(--text-muted,#888);margin-top:6px;">' +
           BP.tt('בוחרים אותם כמו כל דגם התחלתי, בלשונית השלד של פרויקט.', 'เลือกได้ในแท็บโครงสร้าง', 'تُختار كأي نموذج في تبويب الهيكل') + '</div></details>';
@@ -236,6 +238,7 @@
     var rows = BP.takeoff(p), tot = BP.takeoffTotals(rows), con = BP.concrete(p);
     var g = p.type === 'slab' ? null : BP.geom(p.dims);
     var has = p.footprint && p.footprint.length >= 3;
+    var mine = BP.canEditP(p);
 
     function line(k, v) {
       return '<div class="bp-tot"><span>' + k + '</span><strong>' + v + '</strong></div>';
@@ -250,6 +253,7 @@
     }).join('');
 
     var body =
+      (!mine && window.Own ? Own.lockHtml(p) : '') +
       '<div class="bp-card">' +
         '<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">' +
           '<div><div style="font-weight:800;font-size:1.05rem;">' +
@@ -258,7 +262,7 @@
             (p.client ? ' \u00b7 ' + BP.esc(p.client) : '') + '</div></div>' +
           '<div style="font-size:.76rem;color:var(--text-muted,#888);text-align:end;">' +
             new Date(p.createdAt).toLocaleDateString('he-IL') +
-            (p.createdBy ? '<br>' + BP.esc(p.createdBy) : '') + '</div>' +
+            (p.createdBy ? '<br>' + BP.esc(window.Own ? Own.creatorName(p) : p.createdBy) : '') + '</div>' +
         '</div>' +
       '</div>' +
 
@@ -291,8 +295,8 @@
             '</button>'
           : '<div style="font-size:.82rem;color:var(--text-muted,#999);">' +
               BP.tt('הפרויקט לא ממוקם על המפה.', 'ยังไม่ได้กำหนดตำแหน่ง', 'لم يُحدَّد الموقع') + '</div>' +
-            '<button class="bp-btn" style="margin-top:6px;" onclick="BuildPlan.startRect(' + p.id + ')">' +
-              '\u25ad ' + BP.tt('סמן עכשיו', 'วาดตอนนี้', 'ارسم الآن') + '</button>') +
+            (mine ? '<button class="bp-btn" style="margin-top:6px;" onclick="BuildPlan.startRect(' + p.id + ')">' +
+              '\u25ad ' + BP.tt('סמן עכשיו', 'วาดตอนนี้', 'ارسم الآن') + '</button>' : '')) +
       '</div>' +
 
       (p.maintId ? '<div class="bp-card"><div class="bp-lbl" style="margin-bottom:4px;">\ud83d\udd27 ' +
@@ -305,19 +309,22 @@
       (top ? '<div class="bp-card"><div class="bp-lbl" style="margin-bottom:4px;">' +
         BP.tt('פריטים עיקריים', 'วัสดุหลัก', 'المواد الرئيسية') + '</div>' + top + '</div>' : '') +
 
-      (p.notes ? '<div class="bp-card" style="font-size:.84rem;">' + BP.esc(p.notes) + '</div>' : '');
+      (p.notes ? '<div class="bp-card" style="font-size:.84rem;">' + BP.esc(p.notes) + '</div>' : '') +
+
+      (window.Comments ? Comments.block('project:' + p.id, p.name || BP.typeLabel(p.type)) : '');
 
     var bar =
-      '<button class="bp-btn" onclick="BuildPlan.openProject(' + p.id + ')">\u270f\ufe0f ' +
-        BP.tt('ערוך ותכנן', 'แก้ไข', 'تحرير') + '</button>' +
+      '<button class="bp-btn" onclick="BuildPlan.openProject(' + p.id + ')">' +
+        (mine ? '\u270f\ufe0f ' + BP.tt('ערוך ותכנן', 'แก้ไข', 'تحرير')
+              : '\ud83d\udc41 ' + BP.tt('צפייה בפרויקט', 'ดูโครงการ', 'عرض المشروع')) + '</button>' +
       '<button class="bp-btn ghost" onclick="BuildPlan.printProject(' + p.id + ')">\ud83d\udda8 ' +
         BP.tt('הדפסה מלאה', 'พิมพ์เต็ม', 'طباعة كاملة') + '</button>' +
       '<button class="bp-btn ghost" onclick="BuildPlan.printQuantities(' + p.id + ')">\ud83e\uddfe ' +
         BP.tt('כתב כמויות בלבד', 'เฉพาะรายการวัสดุ', 'الكميات فقط') + '</button>' +
       '<button class="bp-btn ghost" onclick="BuildPlan.toOrder(' + p.id + ')">\ud83d\udce6 ' +
         BP.tt('צור הזמנה', 'ใบสั่งซื้อ', 'إنشاء طلب') + '</button>' +
-      '<button class="bp-btn warn" onclick="BuildPlan.delProject(' + p.id + ')">\ud83d\uddd1 ' +
-        BP.tt('מחק', 'ลบ', 'حذف') + '</button>' +
+      (mine ? '<button class="bp-btn warn" onclick="BuildPlan.delProject(' + p.id + ')">\ud83d\uddd1 ' +
+        BP.tt('מחק', 'ลบ', 'حذف') + '</button>' : '') +
       '<button class="bp-btn ghost" onclick="BuildPlan.render()">\u21a9 ' +
         BP.tt('חזרה', 'กลับ', 'رجوع') + '</button>';
 
@@ -327,10 +334,9 @@
 
   BP.newProject = function newProject(type) {
     var u = window.currentUser || {};
-    var p = BP.normProject({
-      id: BP.uid(), type: type || 'shed', createdAt: Date.now(), createdBy: u.username || '',
-      name: BP.typeLabel(type || 'shed')
-    });
+    var raw = { id: BP.uid(), type: type || 'shed', createdAt: Date.now(), name: BP.typeLabel(type || 'shed') };
+    if (window.Own) Own.stamp(raw); else raw.createdBy = u.username || '';
+    var p = BP.normProject(raw);
     BP.P.projects.push(p);
     BP.saveP();
     BP.open(p.id);
@@ -340,6 +346,7 @@
     var before = BP.projById(id);
     if (!before) { BP.render(); return; }
     if (!BP.isManager()) { BP.toast('\u26d4 ' + BP.tt('אין הרשאה', 'ไม่มีสิทธิ์', 'لا صلاحية')); return; }
+    if (!BP.guardP(before)) return;
     var ok = (typeof window.confirm === 'function')
       ? window.confirm(BP.tt('למחוק את הפרויקט?', 'ลบโครงการ?', 'حذف المشروع؟')) : true;
     if (!ok) return;
@@ -373,6 +380,8 @@
     if (typeof Frame !== 'undefined') Frame.destroy();
     BP._view = 'project';
     BP._open = id;
+    // Someone else's project opens read-only: view and comment.
+    var editable = BP.canEditP(p);
     var d = p.dims;
     var rows = BP.takeoff(p), tot = BP.takeoffTotals(rows);
 
@@ -468,7 +477,10 @@
       (fromPlan ? toModelPanel(p) : '') +
     '</div>';
 
-    var body = comps + '<div class="bp-card">' +
+    var body = (editable ? '' : (window.Own ? Own.lockHtml(p) : '') +
+        (window.Comments ? Comments.block('project:' + id, p.name || BP.typeLabel(p.type)) : '')) +
+      '<div class="' + (editable ? '' : 'bp-ro') + '">' +
+      comps + '<div class="bp-card">' +
       '<div class="bp-grid">' +
         '<div><div class="bp-lbl">' + BP.tt('שם', 'ชื่อ', 'الاسم') + '</div>' +
           '<input class="bp-in" value="' + BP.esc(p.name) + '" ' +
@@ -476,7 +488,8 @@
         '<div><div class="bp-lbl">' + BP.tt('לקוח / משק', 'ลูกค้า', 'العميل') + '</div>' +
           '<input class="bp-in" value="' + BP.esc(p.client) + '" ' +
           'oninput="BuildPlan._set(' + id + ',\'client\',this.value)"></div>' +
-      '</div></div>' + '<div class="bp-bar">' + tabs + '</div>';
+      '</div></div></div>' + '<div class="bp-bar">' + tabs + '</div>' +
+      '<div class="' + (editable ? '' : 'bp-ro') + '">';
 
     if (BP._tab === 'design')      body += designTab(p);
     else if (BP._tab === 'gates')  body += gatesTab(p);
@@ -489,17 +502,18 @@
     // worth a read when somebody actually looks at it.
     else if (BP._tab === 'ledger') body += (BP.ledgerTab ? BP.ledgerTab(p) : '');
     else                        body += siteTab(p);
+    body += '</div>';
 
     var bar =
-      '<button class="bp-btn" onclick="BuildPlan.saveNow()">\ud83d\udcbe ' +
-        BP.tt('שמור', 'บันทึก', 'حفظ') + '</button>' +
+      (editable ? '<button class="bp-btn" onclick="BuildPlan.saveNow()">\ud83d\udcbe ' +
+        BP.tt('שמור', 'บันทึก', 'حفظ') + '</button>' : '') +
       '<button class="bp-btn ghost" onclick="BuildPlan.printProject(' + id + ')">\ud83d\udda8 ' +
         BP.tt('הדפסה מלאה', 'พิมพ์เต็ม', 'طباعة كاملة') + '</button>' +
       '<button class="bp-btn ghost" onclick="BuildPlan.printQuantities(' + id + ')">\ud83e\uddfe ' +
         BP.tt('כתב כמויות בלבד', 'เฉพาะรายการวัสดุ', 'الكميات فقط') + '</button>' +
       '<button class="bp-btn ghost" onclick="BuildPlan.toOrder(' + id + ')">\ud83d\udce6 ' +
         BP.tt('צור הזמנה', 'สร้างใบสั่งซื้อ', 'إنشاء طلب') + '</button>' +
-      '<button class="bp-btn warn" onclick="BuildPlan.delProject(' + id + ')">\ud83d\uddd1</button>' +
+      (editable ? '<button class="bp-btn warn" onclick="BuildPlan.delProject(' + id + ')">\ud83d\uddd1</button>' : '') +
       '<button class="bp-btn ghost" onclick="BuildPlan.render()">\u21a9 ' +
         BP.tt('חזרה', 'กลับ', 'رجوع') + '</button>';
 
@@ -514,6 +528,17 @@
       if (p.type !== 'slab') mount3d(p);
       BP.refreshReadouts(p);
     }
+    if (!editable) { BP.lockInputs(); setTimeout(BP.lockInputs, 300); }
+  };
+
+  // Read-only project: every form control inside the project's content is
+  // disabled (handlers are guarded as well; this is so nothing looks
+  // editable). The comment thread sits outside .bp-ro and stays live, and
+  // so does anything marked data-own-ok — a form for records the viewer
+  // makes themselves (a journal line), which are their own items.
+  BP.lockInputs = function lockInputs() {
+    document.querySelectorAll('#bpRoot .bp-ro input, #bpRoot .bp-ro select, #bpRoot .bp-ro textarea')
+      .forEach(function (el) { if (!el.closest('[data-own-ok]')) el.disabled = true; });
   };
 
   // Gate drawings, like the 3D model, answer "what is that member" on
@@ -1355,6 +1380,7 @@
   BP.swapTo = function swapTo(role, name) {
     var p = BP.projById(BP._open);
     if (!p || !BP.ROLE_KEY[role]) return;
+    if (!BP.guardP(p)) return;
     p.dims[BP.ROLE_KEY[role]] = name;
     BP.saveP();
     var r = BP.checkMember(role, name, p.dims);
@@ -1864,7 +1890,9 @@
     if (!r || !r.ok) return;
     var nameEl = document.getElementById('bpToModelName'), swEl = document.getElementById('bpToModelSwitch');
     var name = (nameEl && String(nameEl.value).trim()) || p.name || BP.tt('מודל מתוכנית', 'โมเดลจากแบบ', 'نموذج من مخطط');
-    var mm = BP.normMyModels([{ id: 'm' + Date.now().toString(36), name: name, from: (p.name || '') + ' \u00b7 ' + (m.name || ''), createdAt: Date.now(), dims: r.dims }])[0];
+    var rawM = { id: 'm' + Date.now().toString(36), name: name, from: (p.name || '') + ' \u00b7 ' + (m.name || ''), createdAt: Date.now(), dims: r.dims };
+    if (window.Own) Own.stamp(rawM);
+    var mm = BP.normMyModels([rawM])[0];
     BP.P.myModels = (BP.P.myModels || []).concat([mm]);
     if (swEl && swEl.checked) {
       Object.keys(mm.dims).forEach(function (k) { p.dims[k] = mm.dims[k]; });
@@ -1881,6 +1909,8 @@
     BP.open(id);
   };
   BP.delMyModel = function delMyModel(mid) {
+    var mObj = (BP.P.myModels || []).filter(function (m) { return m.id === mid; })[0];
+    if (mObj && window.Own && !Own.canEdit(mObj)) return Own.denied();
     if (!window.confirm(BP.tt('למחוק את המודל מהרשימה? פרויקטים שכבר נבנו ממנו לא ישתנו.', 'ลบโมเดล?', 'حذف النموذج؟'))) return;
     BP.P.myModels = (BP.P.myModels || []).filter(function (m) { return m.id !== mid; });
     BP.saveP();

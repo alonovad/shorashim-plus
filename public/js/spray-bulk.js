@@ -45,6 +45,27 @@ var SprayBulk = (function () {
 
   function store() { return window.SprayStore; }
   function canEdit() { return window.SprayEdit && window.SprayEdit.canEdit(); }
+  // Ownership rule (ownership.js): a non-admin may change only records they
+  // entered. SprayEdit.canEdit(ev) applies role + ownership per record.
+  function canEditEv(ev) { return !!(ev && window.SprayEdit && window.SprayEdit.canEdit(ev)); }
+  function ownedOnly(ids) {
+    var evs = store() ? store().getEvents() : [];
+    return ids.filter(function (id) {
+      return canEditEv(evs.find(function (e) { return e.id === id; }));
+    });
+  }
+  // app.js draws a selection box on every row; lock the ones this user may
+  // not change so they can't be swept into a bulk edit.
+  function lockForeignRows() {
+    var evs = store() ? store().getEvents() : [];
+    document.querySelectorAll('.hist-select').forEach(function (cb) {
+      var id = parseInt(cb.value, 10);
+      if (canEditEv(evs.find(function (e) { return e.id === id; }))) return;
+      cb.checked = false;
+      cb.disabled = true;
+      cb.title = tt('אפשר לשנות רק רשומות שיצרת', 'แก้ไขได้เฉพาะบันทึกที่คุณสร้าง', 'يمكن تعديل السجلات التي أنشأتها فقط');
+    });
+  }
 
   function activeCount() {
     var n = 0;
@@ -269,7 +290,7 @@ var SprayBulk = (function () {
     if (all) {
       all.addEventListener('change', function () {
         var on = this.checked;
-        document.querySelectorAll('.hist-select').forEach(function (cb) { cb.checked = on; });
+        document.querySelectorAll('.hist-select').forEach(function (cb) { if (!cb.disabled) cb.checked = on; });
         renderSelBar();
       });
     }
@@ -278,6 +299,7 @@ var SprayBulk = (function () {
   function openBulk() {
     var ids = selectedIds();
     if (!ids.length) return;
+    if (!ownedOnly(ids).length) { if (window.Own) Own.denied(); return; }
     var cat = store().getPesticides();
     var plots = store().getPlots();
 
@@ -346,7 +368,13 @@ var SprayBulk = (function () {
   }
 
   function applyBulk() {
-    var ids = selectedIds();
+    var picked = selectedIds();
+    var ids = ownedOnly(picked);
+    if (!ids.length) { if (window.Own) Own.denied(); return; }
+    if (ids.length < picked.length) {
+      toast('🔒 ' + (picked.length - ids.length) + ' ' +
+        tt('רשומות של אחרים דולגו', 'บันทึกของผู้อื่นถูกข้าม', 'سجلات الآخرين تُخطّيت'));
+    }
     var reason = document.getElementById('sbReason').value.trim();
     if (!reason) {
       toast('❌ ' + tt('חובה לציין סיבה', 'ต้องระบุเหตุผล', 'يجب ذكر السبب'));
@@ -445,6 +473,7 @@ var SprayBulk = (function () {
   document.addEventListener('shorashim:history-rendered', function (e) {
     lastShown = (e.detail && e.detail.shown) || 0;
     build();
+    lockForeignRows();
     render();
     document.querySelectorAll('.hist-select').forEach(function (cb) {
       cb.addEventListener('change', renderSelBar);

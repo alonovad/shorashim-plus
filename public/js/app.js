@@ -2671,6 +2671,7 @@
           if (eq.type === 'sprayer') { eq.capacityL = Math.round(Number(it.capacity_l) || 0); eq.kind = it.sprayer_kind || ''; }
           if (it.notes) eq.notes = String(it.notes).slice(0, 200);
           var cnt = Math.max(1, Math.min(50, Math.round(qty) || 1));
+          if (window.Own) Own.stamp(eq);
           for (var k = 0; k < cnt; k++) f.equipment.push(JSON.parse(JSON.stringify(eq)));
           n.equip += cnt;
         } else {
@@ -2678,7 +2679,7 @@
           var nm = String(it.name || '').trim().slice(0, 100), un = String(it.unit || '').trim().slice(0, 20);
           var st = f.stock_items.find(function(x) { return x.name === nm && (x.unit || '') === un; });
           if (st) { st.qty = Math.round(((Number(st.qty) || 0) + qty) * 100) / 100; st.updated = Date.now(); }
-          else f.stock_items.push({ id: Date.now() + Math.floor(Math.random() * 1000), kind: it.kind === 'fertilizer' ? 'fertilizer' : (it.kind === 'pesticide' ? 'pesticide' : 'other'), name: nm, qty: qty, unit: un, updated: Date.now() });
+          else f.stock_items.push((window.Own ? Own.stamp : function (o) { return o; })({ id: Date.now() + Math.floor(Math.random() * 1000), kind: it.kind === 'fertilizer' ? 'fertilizer' : (it.kind === 'pesticide' ? 'pesticide' : 'other'), name: nm, qty: qty, unit: un, updated: Date.now() }));
           n.stock++;
         }
       });
@@ -2686,6 +2687,7 @@
       (payload.docs || []).forEach(function(d) {
         f.intake_docs.unshift({
           id: Date.now() + Math.floor(Math.random() * 1000), at: Date.now(), by: u.email || u.username || '',
+          createdBy: String(u.email || u.username || '').toLowerCase(), createdByName: u.name || u.username || '', createdAt: Date.now(),
           path: String(d.path || ''), name: String(d.name || '').slice(0, 120), type: d.type || 'other',
           supplier: String(d.supplier || '').slice(0, 80), doc_date: d.doc_date || '', doc_no: String(d.doc_no || '').slice(0, 40),
           items: Number(d.items) || 0,
@@ -2703,7 +2705,8 @@
     getEquipment: function(farmId) {
       var f = (farms || []).find(function(x) { return x.id === farmId; });
       return JSON.parse(JSON.stringify(((f && f.equipment) || []).map(function(e, i) {
-        return { idx: i, name: locName(e), type: e.type || 'tool', capacityL: e.capacityL || 0, status: e.status || 'active' };
+        return { idx: i, name: locName(e), type: e.type || 'tool', capacityL: e.capacityL || 0, status: e.status || 'active',
+                 createdBy: e.createdBy || '', createdByName: e.createdByName || '', createdAt: e.createdAt || 0 };
       })));
     },
     getMoves: function(farmId) {
@@ -2751,7 +2754,10 @@
     updatePlot: function(plotId, patch) {
       var p = (plots || []).find(function(x) { return x.id === plotId; });
       if (!p || !SprayStore.canEditFarm(p.farm_id)) return { ok: false, err: 'forbidden' };
-      var allowed = ['irr', 'stage', 'coef', 'status_note', 'status_date', 'fert'];
+      // Ownership rule: a plot's attributes are admin's; others may only add
+      // records to it (fertilizer given).
+      var allowed = (window.Own && !Own.isAdmin()) ? ['fert'] : ['irr', 'stage', 'coef', 'status_note', 'status_date', 'fert'];
+      if (Object.keys(patch || {}).some(function (k) { return allowed.indexOf(k) === -1; })) return { ok: false, err: 'forbidden' };
       Object.keys(patch || {}).forEach(function(k) {
         if (allowed.indexOf(k) === -1) return;
         p[k] = (patch[k] && typeof patch[k] === 'object') ? JSON.parse(JSON.stringify(patch[k])) : patch[k];
@@ -3111,6 +3117,7 @@
       if (u.role !== 'admin') { showToast('❌ ' + t('למנהל בלבד')); return { ok: false, err: 'forbidden' }; }
       var doomed = sprayEvents.filter(isOrphanEvent);
       if (!doomed.length) { showToast(t('אין רשומות ללא חלקה')); return { ok: true, removed: 0 }; }
+      if (window.Own && !Own.isAdmin()) return { ok: false, err: 'forbidden' };
       if (!confirm(t('למחוק') + ' ' + doomed.length + ' ' +
           t('רשומות ללא חלקה מזוהה? הפעולה תירשם ביומן הפעולות.'))) {
         return { ok: false, err: 'cancelled' };
@@ -3292,7 +3299,7 @@
     // items: [{ ring: [{lat,lng}...], name, farmId, cropType }]
     addImportedPlots: function (items) {
       var u = currentUser || {};
-      if (u.role !== 'admin' && u.role !== 'operator') return { ok: false, err: 'forbidden' };
+      if (u.role !== 'admin') return { ok: false, err: 'forbidden' };   // ownership rule: plots are created by admin only
       var allowedFarms = (getUserFarms(u) || []).map(function (f) { return f.id; });
       var escName = function (s) {
         return String(s).replace(/[&<>"]/g, function (c) {
@@ -3633,6 +3640,7 @@
   });
 
   document.getElementById('btnPolygon').addEventListener('click', function() {
+    if (window.Own && !Own.isAdmin()) { Own.denied(); fabOptions.classList.remove('show'); fabMain.classList.remove('open'); return; }
     startPolygonDraw();
     fabOptions.classList.remove('show');
     fabMain.classList.remove('open');
@@ -4366,6 +4374,7 @@
     });
 
     function save() {
+      if (window.Own && !Own.isAdmin()) { Own.denied(); return; }
       var name = input.value.trim() || t('חלקה') + ' ' + (plots.length + 1);
       var farmSelect = document.getElementById('plotFarmSelect');
       var farmId = parseInt(farmSelect.value);
@@ -4506,7 +4515,7 @@
           getPlotIrrigationBadge(p.id) +
           '<div class="plot-nav">' + t('לחץ לפרטי חלקה →') + '</div>' +
         '</div>' +
-        '<button class="plot-delete" data-delete-id="' + p.id + '">🗑</button>' +
+        ((!window.Own || Own.isAdmin()) ? '<button class="plot-delete" data-delete-id="' + p.id + '">🗑</button>' : '') +
       '</div>';
     }
     list.innerHTML = html;
@@ -4525,6 +4534,7 @@
         var plotId = parseInt(this.getAttribute('data-delete-id'));
         var plot = plots.find(function(p) { return p.id === plotId; });
         if (!plot) return;
+        if (window.Own && !Own.isAdmin()) { Own.denied(); return; }
         // Check user has access to this plot's farm
         if (currentUser && currentUser.role !== 'admin') {
           var userFarmIds = (currentUser.farm_permissions || []);
@@ -5075,6 +5085,7 @@
         // fact (spray-reconstruct.js). null for a normal contemporaneous entry.
         reconstruction: reconMeta ? JSON.parse(JSON.stringify(reconMeta)) : null
       });
+      if (window.Own) Own.stamp(sprayEvents[sprayEvents.length - 1]);
     });
 
     saveData();
@@ -5202,14 +5213,14 @@
           (event.voided.reason ? ' — ' + event.voided.reason : '') + '</div>';
       }
       html += '<div class="history-header">';
-      if (window.SprayEdit && window.SprayEdit.canEdit()) {
+      if (window.SprayEdit && window.SprayEdit.canEdit(event)) {
         html += '<input type="checkbox" class="hist-select" value="' + event.id + '">';
       }
       html += '<span class="history-date">' + formatDate(event.date) + reconBadge + '</span>';
       var revCount = (event.revisions || []).length;
       var revBadge = revCount
         ? '<span class="rev-badge" title="' + t('נערך') + '">✏ ' + revCount + '</span>' : '';
-      var canEditRow = window.SprayEdit && window.SprayEdit.canEdit();
+      var canEditRow = window.SprayEdit && window.SprayEdit.canEdit(event);
       html += '<span class="history-operator">' + event.operator + revBadge +
         (canEditRow
           ? '<button type="button" class="history-edit" onclick="SprayEdit.open(' + event.id + ')">✏️</button>'
@@ -5807,8 +5818,10 @@
       html += '</div>';
       html += '<div class="pesticide-admin-actions">';
       html += '<button class="btn-icon edit pest-label-btn" data-label-id="' + pest.id + '" title="' + t('תמונת תווית') + '" style="' + (pest.labelImage ? 'background: var(--accent-light);' : '') + '">🏷️</button>';
-      html += '<button class="btn-icon edit" data-edit-id="' + pest.id + '">✏️</button>';
-      html += '<button class="btn-icon delete" data-delete-id="' + pest.id + '">🗑️</button>';
+      if (!window.Own || Own.canEdit(pest)) {
+        html += '<button class="btn-icon edit" data-edit-id="' + pest.id + '">✏️</button>';
+        html += '<button class="btn-icon delete" data-delete-id="' + pest.id + '">🗑️</button>';
+      } else html += '<span class="pest-lock" title="' + escAttrPlot(window.Own ? Own.creatorName(pest) : '') + '">🔒</span>';
       html += '</div>';
       html += '</div>';
     });
@@ -5828,6 +5841,7 @@
     container.querySelectorAll('.btn-icon.edit[data-edit-id]').forEach(function(btn) {
       btn.addEventListener('click', function() {
         var id = parseInt(this.getAttribute('data-edit-id'));
+        if (window.Own && !Own.canEdit(pesticides.find(function(p) { return p.id === id; }))) { Own.denied(); return; }
         showPesticideModal(id);
       });
     });
@@ -5841,6 +5855,7 @@
       btn.addEventListener('click', function() {
         var id = parseInt(this.getAttribute('data-delete-id'));
         var pest = pesticides.find(function(p) { return p.id === id; });
+        if (window.Own && !Own.canEdit(pest)) { Own.denied(); return; }
         if (confirm(t('למחוק את') + ' ' + pest.productName + '?')) {
           pesticides = pesticides.filter(function(p) { return p.id !== id; });
           saveData();
@@ -6009,6 +6024,7 @@
         return;
       }
 
+      if (isEdit && window.Own && !Own.canEdit(pest)) { Own.denied(); return; }
       if (isEdit) {
         pest.productName = productName;
         pest.activeIngredient = activeIngredient;
@@ -6025,6 +6041,7 @@
           unit: '%',
           commonTargets: commonTargets
         });
+        if (window.Own) Own.stamp(pesticides[pesticides.length - 1]);
         showToast('✅ ' + t('חומר נוסף'));
       }
 
@@ -6068,8 +6085,10 @@
       html += '<div style="font-size: 0.7rem; color: var(--g3); margin-top: 3px;">' + t('לחץ לפרטי משק') + ' →</div>';
       html += '</div>';
       html += '<div class="pesticide-admin-actions" style="display: flex; flex-direction: column; gap: 4px;">';
-      html += '<button class="btn-icon edit" data-edit-farm-id="' + farm.id + '">✏️</button>';
-      html += '<button class="btn-icon delete" data-delete-farm-id="' + farm.id + '">🗑️</button>';
+      if (!window.Own || Own.isAdmin()) {
+        html += '<button class="btn-icon edit" data-edit-farm-id="' + farm.id + '">✏️</button>';
+        html += '<button class="btn-icon delete" data-delete-farm-id="' + farm.id + '">🗑️</button>';
+      }
       html += '</div>';
       html += '</div>';
     });
@@ -6090,6 +6109,7 @@
       btn.addEventListener('click', function(e) {
         e.stopPropagation();
         var id = parseInt(this.getAttribute('data-edit-farm-id'));
+        if (window.Own && !Own.isAdmin()) { Own.denied(); return; }
         showFarmModal(id);
       });
     });
@@ -6098,6 +6118,7 @@
       btn.addEventListener('click', function(e) {
         e.stopPropagation();
         var id = parseInt(this.getAttribute('data-delete-farm-id'));
+        if (window.Own && !Own.isAdmin()) { Own.denied(); return; }
         var farm = farms.find(function(f) { return f.id === id; });
         var farmPlots = plots.filter(function(p) { return p.farm_id === id; });
         
@@ -6190,6 +6211,7 @@
         return;
       }
 
+      if (window.Own && !Own.isAdmin()) { Own.denied(); return; }   // farms are created and edited by admin only
       // Check for duplicate names
       var existingFarm = farms.find(function(f) { 
         return f.name.toLowerCase() === name.toLowerCase() && (!isEdit || f.id !== farm.id);
@@ -7305,6 +7327,11 @@
   })();
 
   function collectWorklogEntry() {
+    var e = _collectWorklogEntry();
+    if (e && window.Own) Own.stamp(e);
+    return e;
+  }
+  function _collectWorklogEntry() {
     var farmId = parseInt(document.getElementById('wlFarmSelect').value);
     if (!farmId) { showToast('❌ ' + t('יש לבחור משק')); return null; }
     
@@ -8875,6 +8902,7 @@
   }
 
   function showPlotDetails(plotId) {
+    var _pdCanEdit = !window.Own || Own.isAdmin();
     var plot = plots.find(function(p) { return p.id === plotId; });
     if (!plot) return;
     
@@ -8970,6 +8998,10 @@
           (plot.notes ? '<div style="background:var(--g6);border-radius:8px;padding:8px 12px;margin-bottom:14px;font-size:0.82rem;white-space:pre-wrap;line-height:1.45;">📝 ' + escAttrPlot(plot.notes) + '</div>' : '') +
           
           '<!-- Edit Section -->' +
+          // Ownership rule (ownership.js): plots are admin's. Others see the
+          // card read-only and can comment; the edit form stays in the DOM
+          // (hidden) so its listeners below still find their elements.
+          (_pdCanEdit ? '' : '<div style="display:none">') +
           '<details class="pd-sec" data-pdsec="edit" open>' +
             '<summary>✏️ ' + t('עריכת חלקה') + '</summary>' +
             '<div class="pd-sec-body">' +
@@ -9101,6 +9133,8 @@
             '</div>' +
             '</div>' +
           '</details>' +
+          (_pdCanEdit ? '' : '</div>' + (window.Own ? Own.lockHtml(plot) : '')) +
+          (window.Comments ? Comments.block('plot:' + plot.id, plot.name) : '') +
           
           '<div style="display: flex; gap: 8px; margin-bottom: 14px;">' +
             '<button class="btn-submit" id="plotDetailNav" style="flex: 1; margin: 0; font-size: 0.85rem;">🗺️ ' + t('מעבר לחלקה במפה') + '</button>' +
@@ -9130,7 +9164,7 @@
           
           '<div class="modal-buttons" style="margin-top: 14px;">' +
             '<button class="btn btn-secondary" onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'">' + t('סגור') + '</button>' +
-            '<button class="btn" id="pdDeletePlot" style="background:#f44336;color:white;">🗑️ ' + t('מחק חלקה') + '</button>' +
+            (_pdCanEdit ? '<button class="btn" id="pdDeletePlot" style="background:#f44336;color:white;">🗑️ ' + t('מחק חלקה') + '</button>' : '') +
           '</div>' +
         '</div>' +
       '</div>';
@@ -9162,6 +9196,7 @@
     var pdDelBtn = document.getElementById('pdDeletePlot');
     if (pdDelBtn) {
       pdDelBtn.addEventListener('click', function() {
+        if (window.Own && !Own.isAdmin()) { Own.denied(); return; }
         // Permission check
         if (currentUser && currentUser.role !== 'admin') {
           var userFarmIds = (currentUser.farm_permissions || []);
@@ -9238,6 +9273,7 @@
     });
     applyBranchUI(document.getElementById('modalContainer'), plot.crop_type, plot.branch || '');
     document.getElementById('pdSaveEdit').addEventListener('click', function() {
+      if (window.Own && !Own.isAdmin()) { Own.denied(); return; }
       // Same farm-permission gate as delete: an operator scoped to certain
       // farms must not be able to rename or re-measure someone else's plot.
       if (currentUser && currentUser.role !== 'admin') {
@@ -10291,6 +10327,7 @@
       source: 'data.gov.il',
       aiChecked: combo.n > 0
     });
+    if (window.Own) Own.stamp(pesticides[pesticides.length - 1]);
     saveData();
     showToast('✅ ' + productName + ' (' + crop + ') ' + t('נוסף'));
   }

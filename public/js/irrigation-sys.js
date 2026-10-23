@@ -36,6 +36,11 @@ var IrrigSys = (function () {
   }
   function toast(m) { if (typeof showToast === 'function') showToast(m); }
   function S() { return window.SprayStore || {}; }
+  // Ownership (Oct 2026): a plot's irrigation layout and a farm's irrigation
+  // heads are attributes of the plot / farm, and plots and farms are admin's —
+  // only admin changes them. Everyone else sees them read-only.
+  function isAdm() { return window.Own ? Own.isAdmin() : (window.currentUser || {}).role === 'admin'; }
+  function canAttr(farmId) { return !!(S().canEditFarm && S().canEditFarm(farmId)) && isAdm(); }
   function n1(x) { return (Math.round((Number(x) || 0) * 10) / 10).toLocaleString('he-IL'); }
   var DEFAULT_LPH = 8.5, DEV_PCT = 10;
 
@@ -150,7 +155,7 @@ var IrrigSys = (function () {
 
   function tableHtml(farmId, forPrint) {
     var plots = S().getFarmPlots(farmId), heads = S().getIrrHeads(farmId);
-    var can = !forPrint && S().canEditFarm(farmId);
+    var can = !forPrint && canAttr(farmId);
     var groups = heads.map(function (h) { return { h: h, plots: [] }; });
     var none = { h: null, plots: [] };
     plots.forEach(function (p) {
@@ -200,7 +205,7 @@ var IrrigSys = (function () {
 
   function open(farmId) {
     ensureCss();
-    var can = S().canEditFarm(farmId);
+    var can = canAttr(farmId);
     var info = S().getVehicles ? S().getVehicles(farmId) : { farmName: '' };
     modal('<h2>🚿 ' + tt('מערכות השקיה', 'ระบบน้ำ', 'أنظمة الري') + ' — ' + esc(info.farmName) + '</h2>' +
       '<p style="margin:0 0 4px;font-size:.8rem;">' + tt('ספיקה נומינלית מחושבת מאביזר ההשקיה של כל חלקה; סטייה של יותר מ-10% מהספיקה בפועל מסומנת באדום.',
@@ -229,6 +234,7 @@ var IrrigSys = (function () {
   function opts(list, cur) { return list.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === cur ? ' selected' : '') + '>' + esc(L(o)) + '</option>'; }).join(''); }
 
   function editHeads(farmId) {
+    if (!canAttr(farmId)) { if (window.Own) Own.denied(); return; }
     var heads = S().getIrrHeads(farmId);
     function row(h, i) {
       return '<div class="ir-head-row" data-i="' + i + '"><div class="ir-grid">' +
@@ -253,6 +259,7 @@ var IrrigSys = (function () {
     });
     document.getElementById('irhBack').addEventListener('click', function () { open(farmId); });
     document.getElementById('irhSave').addEventListener('click', function () {
+      if (!canAttr(farmId)) { if (window.Own) Own.denied(); return; }
       var out = [];
       document.querySelectorAll('#irhList .ir-head-row').forEach(function (r, k) {
         var i = Number(r.getAttribute('data-i'));
@@ -274,6 +281,7 @@ var IrrigSys = (function () {
   }
 
   function editPlot(plotId, farmId, done) {
+    if (!canAttr(farmId)) { if (window.Own) Own.denied(); return; }
     ensureCss();
     var p = S().getFarmPlots(farmId).find(function (x) { return x.id === plotId; });
     if (!p) return;
@@ -333,6 +341,7 @@ var IrrigSys = (function () {
       document.querySelector('.modal').addEventListener('change', function () { read(); calc(); });
       document.getElementById('ipBack').addEventListener('click', function () { done ? done() : back(farmId); });
       document.getElementById('ipSave').addEventListener('click', function () {
+        if (!canAttr(farmId)) { if (window.Own) Own.denied(); return; }
         read();
         i.vflow = (i.vflow || []).filter(function (r) { return r.n || r.q || r.a || r.t; });
         var r = S().updatePlot(plotId, { irr: i });
@@ -384,7 +393,7 @@ var IrrigSys = (function () {
     ensureCss();
     var p = S().getFarmPlots(farmId).find(function (x) { return x.id === plotId; });
     if (!p) return '';
-    var can = S().canEditFarm(farmId), heads = S().getIrrHeads(farmId);
+    var can = canAttr(farmId), heads = S().getIrrHeads(farmId);
     var h = p.irr && heads.find(function (x) { return x.id === p.irr.head; });
     var nom = nominal(p), dev = deviation(p);
     return '<div class="ir-sum">' + (p.irr ?

@@ -56,6 +56,15 @@ var CropProgram = (function () {
     var p = all[crop] || {};
     return { stages: (p.stages && p.stages.length) ? p.stages : DEFAULT_STAGES.slice(), items: p.items || [], notes: p.notes || '' };
   }
+  // Ownership (Oct 2026): a crop's programme is whoever created it (legacy
+  // programmes count as admin's; a crop with no programme yet is open to
+  // create). A plot's stage / coefficient / status are plot attributes, and
+  // plots are admin's. Fertilizer given (plot.fert) is a record anyone
+  // allowed may add.
+  function progRaw(crop) { var all = S().getCropPrograms ? S().getCropPrograms() : {}; return all[crop] || null; }
+  function canProg(crop) { var raw = progRaw(crop); return !window.Own || !raw || Own.canEdit(raw); }
+  function isAdm() { return window.Own ? Own.isAdmin() : (window.currentUser || {}).role === 'admin'; }
+  function cmtKey(crop) { return 'cropprog:' + encodeURIComponent(String(crop || '')).replace(/%/g, '').slice(0, 80); }
   function stageOf(prog, v) { return prog.stages.find(function (s) { return s.v === v; }) || null; }
   function coefOf(prog, plot) {
     if (plot.coef != null && plot.coef !== '' && isFinite(Number(plot.coef))) return Number(plot.coef);
@@ -194,20 +203,21 @@ var CropProgram = (function () {
     var plots = S().getFarmPlots(farmId).filter(function (p) { return p.crop_type === crop; })
       .sort(function (a, b) { return String(a.name).localeCompare(String(b.name), 'he', { numeric: true }); });
     var can = !forPrint && S().canEditFarm(farmId);
+    var canAttr = can && isAdm();   // plot attributes: admin only
     var tot = prog.items.map(function () { return 0; }), totD = prog.items.map(function () { return 0; }), totA = 0, totT = 0;
     var rows = plots.map(function (p) {
       var c = coefOf(prog, p);
       totA += p.area || 0; totT += p.tree_count || 0;
       var st = stageOf(prog, p.stage);
-      var stageCell = can
+      var stageCell = canAttr
         ? '<select class="form-input cp-stage" data-p="' + p.id + '"><option value="">—</option>' + prog.stages.map(function (s) {
             return '<option value="' + esc(s.v) + '"' + (s.v === p.stage ? ' selected' : '') + '>' + esc(stName(s)) + ' (' + s.coef + ')</option>'; }).join('') + '</select>'
         : esc(st ? stName(st) : '');
-      var coefCell = can
+      var coefCell = canAttr
         ? '<input class="form-input cp-coef" data-p="' + p.id + '" type="number" step="0.05" min="0" max="3" value="' + (p.coef != null ? p.coef : '') + '" placeholder="' + c + '">'
         : c;
-      var noteCell = can ? '<input class="form-input cp-note" data-p="' + p.id + '" value="' + esc(p.status_note) + '">' : esc(p.status_note);
-      var dateCell = can ? '<input class="form-input cp-date" data-p="' + p.id + '" type="date" value="' + esc(p.status_date) + '">' : esc(p.status_date);
+      var noteCell = canAttr ? '<input class="form-input cp-note" data-p="' + p.id + '" value="' + esc(p.status_note) + '">' : esc(p.status_note);
+      var dateCell = canAttr ? '<input class="form-input cp-date" data-p="' + p.id + '" type="date" value="' + esc(p.status_date) + '">' : esc(p.status_date);
       var amts = prog.items.map(function (it, k) {
         var a = amount(it, p, c), done = applied(p, it), man = manualApplied(p, it), logd = done - man;
         tot[k] += a; totD[k] += done;
@@ -235,13 +245,16 @@ var CropProgram = (function () {
     var info = S().getVehicles ? S().getVehicles(farmId) : { farmName: '' };
     var prog = program(crop);
     var isMgr = ['admin', 'operator'].indexOf((window.currentUser || {}).role) !== -1;
+    var raw = progRaw(crop), mineProg = canProg(crop);
     modal('<h2>🧪 ' + esc(crop) + ' — ' + esc(info.farmName) + '</h2>' +
       (prog.items.length ? '' : '<p style="font-size:.82rem;">' + tt('עוד לא הוגדרה תוכנית דישון / המלצות לגידול הזה. אפשר כבר לקבוע שלב ומקדם לכל חלקה.',
         'ยังไม่มีแผนสำหรับพืชนี้', 'لا يوجد برنامج لهذا المحصول بعد') + '</p>') +
       (prog.notes ? '<p style="font-size:.8rem;color:var(--text-muted,#666);">📝 ' + esc(prog.notes) + '</p>' : '') +
+      (isMgr && raw && !mineProg && window.Own ? Own.lockHtml(raw) : '') +
       tableHtml(farmId, crop) +
-      '<div class="cp-bar">' + (isMgr ? '<button class="cp-btn" id="cpEdit">⚙️ ' + tt('עריכת תוכנית ל', 'แก้ไขแผน', 'تعديل البرنامج') + esc(crop) + '</button>' : '') +
+      '<div class="cp-bar">' + (isMgr && mineProg ? '<button class="cp-btn" id="cpEdit">⚙️ ' + tt('עריכת תוכנית ל', 'แก้ไขแผน', 'تعديل البرنامج') + esc(crop) + '</button>' : '') +
         '<button class="cp-btn ghost" id="cpPrint">🖨️ ' + tt('הדפס / PDF', 'พิมพ์', 'طباعة') + '</button></div>' +
+      (raw && window.Comments ? Comments.block(cmtKey(crop), crop) : '') +
       '<div class="modal-buttons"><button class="btn btn-secondary" id="cpBack">' + tt('חזור', 'กลับ', 'رجوع') + '</button></div>', true);
     document.getElementById('cpBack').addEventListener('click', function () { back(farmId); });
     var e = document.getElementById('cpEdit');
@@ -262,6 +275,7 @@ var CropProgram = (function () {
       var t = ev.target, pid = Number(t.getAttribute('data-p'));
       if (!pid) return;
       var patch = {};
+      if (!t.classList.contains('cp-fert') && !isAdm()) { if (window.Own) Own.denied(); open(farmId, crop); return; }
       if (t.classList.contains('cp-stage')) { patch.stage = t.value; patch.coef = null; }
       else if (t.classList.contains('cp-coef')) patch.coef = t.value === '' ? null : Number(t.value);
       else if (t.classList.contains('cp-note')) patch.status_note = t.value.trim().slice(0, 200);
@@ -283,8 +297,9 @@ var CropProgram = (function () {
 
   // ── programme editor ──
   function editProgram(crop, done) {
+    if (!canProg(crop)) { if (window.Own) Own.denied(); return; }
     ensureCss();
-    var prog = program(crop);
+    var prog = program(crop), raw = progRaw(crop);
     function stageRow(s, i) {
       return '<div class="cp-row cp-st" data-i="' + i + '"><input class="form-input cp-st-he" value="' + esc(s.he || '') + '" placeholder="' + esc(tt('שם השלב', 'ชื่อระยะ', 'اسم المرحلة')) + '" style="flex:2 1 160px;">' +
         '<input class="form-input cp-st-coef" type="number" step="0.05" min="0" max="3" value="' + (s.coef != null ? s.coef : 1) + '" style="width:80px;" title="' + esc(tt('מקדם', 'สัมประสิทธิ์', 'المعامل')) + '">' +
@@ -330,7 +345,12 @@ var CropProgram = (function () {
         items.push({ id: prev ? prev.id : Date.now() + k, name: name, rate: Number(r.querySelector('.cp-it-rate').value) || 0,
           unit: r.querySelector('.cp-it-unit').value, basis: r.querySelector('.cp-it-basis').value, timing: r.querySelector('.cp-it-timing').value.trim() });
       });
-      var res = S().setCropProgram(crop, { stages: stages, items: items, notes: document.getElementById('cpNotes').value.trim() });
+      if (!canProg(crop)) { if (window.Own) Own.denied(); return; }
+      var np = { stages: stages, items: items, notes: document.getElementById('cpNotes').value.trim() };
+      // setCropProgram replaces the programme: keep its creator, or stamp a new one.
+      if (raw) ['createdBy', 'createdByName', 'createdAt'].forEach(function (k) { if (raw[k] !== undefined) np[k] = raw[k]; });
+      else if (window.Own) Own.stamp(np);
+      var res = S().setCropProgram(crop, np);
       if (!res || !res.ok) { toast('⛔ ' + tt('אין הרשאה', 'ไม่มีสิทธิ์', 'لا صلاحية')); return; }
       toast('✅ ' + tt('התוכנית נשמרה', 'บันทึกแผนแล้ว', 'حُفظ البرنامج'));
       done ? done() : back(null);

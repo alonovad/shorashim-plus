@@ -95,9 +95,19 @@
       equip: String(e.equip || ''),
       qty:   Math.max(0, Number(e.qty) || 0),
       // Equipment direction: onto site or off it.
-      dir:   (e.dir === 'off') ? 'off' : 'on'
+      dir:   (e.dir === 'off') ? 'off' : 'on',
+      // Ownership (ownership.js): a journal line belongs to whoever wrote
+      // it, whoever owns the project. Lines from before the rule carry no
+      // stamp and count as admin's.
+      createdBy: String(e.createdBy || ''),
+      createdByName: String(e.createdByName || ''),
+      createdAt: Number(e.createdAt) || 0
     };
   }
+  // A line: its own author or admin. The project's contract figure: the
+  // project's owner or admin.
+  function canLine(e) { return !window.Own || Own.canEdit(e); }
+  function canProj(pid) { return BP.canEditP ? BP.canEditP(BP.projById(pid)) : true; }
 
   function normLedger(d) {
     d = (d && typeof d === 'object') ? d : {};
@@ -199,7 +209,11 @@
   BP.ledAdd = function ledAdd(pid) {
     var led = _led[pid];
     if (!led) return;
-    var e = normEntry(_draft);
+    var draft = {};
+    Object.keys(_draft).forEach(function (k2) { draft[k2] = _draft[k2]; });
+    delete draft.createdBy; delete draft.createdByName; delete draft.createdAt;
+    if (window.Own) Own.stamp(draft);
+    var e = normEntry(draft);
     var m = KINDS[e.kind];
     // A money entry with no money in it, or an equipment move with no
     // equipment named, is a mistake rather than a record. Refuse it here
@@ -226,6 +240,8 @@
   BP.ledDel = function ledDel(pid, eid) {
     var led = _led[pid];
     if (!led) return;
+    var hit = led.entries.filter(function (e) { return String(e.id) === String(eid); })[0];
+    if (hit && !canLine(hit)) return Own.denied();
     led.entries = led.entries.filter(function (e) { return String(e.id) !== String(eid); });
     save(pid);
     BP.open(pid);
@@ -238,8 +254,10 @@
     if (!led) return;
     var cur = onSite(led).filter(function (x) { return x.name === name; })[0];
     if (!cur || cur.qty <= 0) return;
-    led.entries.push(normEntry({ kind: 'equip', equip: name, qty: cur.qty, dir: 'off',
-      title: BP.tt('הוחזר מהשטח', 'คืนจากไซต์', 'أُعيد من الموقع') }));
+    var ret = { kind: 'equip', equip: name, qty: cur.qty, dir: 'off',
+      title: BP.tt('הוחזר מהשטח', 'คืนจากไซต์', 'أُعيد من الموقع') };
+    if (window.Own) Own.stamp(ret);
+    led.entries.push(normEntry(ret));
     save(pid);
     BP.open(pid);
   };
@@ -247,6 +265,7 @@
   BP.ledSet = function ledSet(pid, k, v) {
     var led = _led[pid];
     if (!led) return;
+    if (BP.guardP && !BP.guardP(pid)) return;
     led[k] = Math.max(0, Number(v) || 0);
     save(pid);
     BP.open(pid);
@@ -258,6 +277,7 @@
   BP.ledFromTakeoff = function ledFromTakeoff(pid) {
     var p = BP.projById(pid), led = _led[pid];
     if (!p || !led) return;
+    if (BP.guardP && !BP.guardP(p)) return;
     var tot = BP.takeoffTotals(BP.takeoff(p));
     led.contract = Math.round(tot.cost);
     save(pid);
@@ -291,6 +311,7 @@
 
     var t = totals(led);
     var eq = onSite(led);
+    var projMine = canProj(id);
     var pos = 'var(--ok,#41c47f)', neg = 'var(--warn,#e2624b)', acc = 'var(--accent,#ff9f43)';
 
     // ── summary ──
@@ -305,12 +326,12 @@
         BP.tt('מאזן הפרויקט', 'สมดุลโครงการ', 'ميزان المشروع') + '</div>' +
       '<div class="bp-grid" style="margin-bottom:8px;">' +
         '<div><div class="bp-lbl">' + BP.tt('מחיר חוזה (לפני מע"מ)', 'ราคาสัญญา', 'قيمة العقد') + '</div>' +
-          '<input class="bp-in" type="number" step="any" value="' + led.contract + '" ' +
+          '<input class="bp-in" type="number" step="any" value="' + led.contract + '" ' + (projMine ? '' : 'disabled ') +
             'onchange="BuildPlan.ledSet(' + id + ',\'contract\',this.value)"></div>' +
-        '<div><div class="bp-lbl">&nbsp;</div>' +
+        (projMine ? '<div><div class="bp-lbl">&nbsp;</div>' +
           '<button class="bp-btn ghost" style="padding:7px 10px;font-size:.74rem;width:100%;" ' +
             'onclick="BuildPlan.ledFromTakeoff(' + id + ')">\u2b07 ' +
-            BP.tt('מכתב הכמויות', 'จากรายการวัสดุ', 'من الكميات') + '</button></div>' +
+            BP.tt('מכתב הכמויות', 'จากรายการวัสดุ', 'من الكميات') + '</button></div>' : '') +
       '</div>' +
       read(BP.tt('התקבל מהלקוח', 'รับแล้ว', 'المقبوض'), money(t.received), pos) +
       read(BP.tt('יתרה לגבייה', 'ค้างรับ', 'المتبقي للتحصيل'), money(t.due),
@@ -382,7 +403,7 @@
         ' oninput="BuildPlan.ledField(\'' + field + '\',this.value)"></div>';
     }
 
-    var form = '<div class="bp-card">' +
+    var form = '<div class="bp-card" data-own-ok="1">' +
       '<div class="bp-lbl" style="margin-bottom:6px;">\u2795 ' +
         BP.tt('רשומה חדשה', 'รายการใหม่', 'قيد جديد') + '</div>' +
       '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px;">' + kindBtns + '</div>' +
@@ -464,6 +485,7 @@
       if (e.kind === 'in') meta.push(METHODS[e.method]());
       if (e.kind === 'equip' && e.equip) meta.push(BP.esc(e.equip));
       if (e.note) meta.push(BP.esc(e.note));
+      if (e.createdByName) meta.push('\ud83d\udc64 ' + BP.esc(e.createdByName));
       rows += '<div style="display:flex;gap:9px;align-items:flex-start;padding:7px 0;' +
         'border-bottom:1px solid var(--panel-border,rgba(255,255,255,.08));">' +
         '<span style="font-size:1rem;">' + m.icon + '</span>' +
@@ -473,8 +495,8 @@
           '<div style="font-size:.73rem;color:var(--text-muted,#888);">' +
             fmtDate(e.date) + (meta.length ? ' \u00b7 ' + meta.join(' \u00b7 ') : '') + '</div>' +
         '</div>' + amt +
-        '<button class="bp-btn ghost" style="padding:3px 7px;font-size:.7rem;" ' +
-          'onclick="BuildPlan.ledDel(' + id + ',\'' + e.id + '\')">\u2715</button>' +
+        (canLine(e) ? '<button class="bp-btn ghost" style="padding:3px 7px;font-size:.7rem;" ' +
+          'onclick="BuildPlan.ledDel(' + id + ',\'' + e.id + '\')">\u2715</button>' : '') +
       '</div>';
     });
 

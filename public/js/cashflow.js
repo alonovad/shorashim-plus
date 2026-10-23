@@ -49,6 +49,9 @@ var CashFlow = (function () {
   function S() { return window.SprayStore || {}; }
   function isMgr() { var r = (window.currentUser || {}).role; return r === 'admin' || r === 'operator'; }
   function key() { return PREFIX + year; }
+  // Ownership (Oct 2026): a line is its creator's; legacy lines match by their free-text `by`.
+  function canEd(e) { return !window.Own || Own.canEdit(e, e && e.by); }
+  function isAdm() { return window.Own ? Own.isAdmin() : (window.currentUser || {}).role === 'admin'; }
   function money(n) { var v = Math.round(Number(n) || 0); return (v < 0 ? '−' : '') + '₪' + Math.abs(v).toLocaleString('he-IL'); }
   function k0(n) { var v = Math.round(Number(n) || 0); return v ? (Math.abs(v) >= 10000 ? (Math.round(v / 100) / 10) + 'K' : v.toLocaleString('he-IL')) : ''; }
   function zeros() { return [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; }
@@ -168,7 +171,7 @@ var CashFlow = (function () {
       (lowM !== -1 ? '<div class="cf-warn">⚠️ ' + tt('היתרה צפויה לרדת מתחת לאפס ב', 'ยอดจะติดลบใน', 'سيصبح الرصيد سالباً في') + M(lowM) + ' ' + year + '</div>' : '') +
       '<div class="cf-bar">' +
         '<button class="cf-btn pri" data-a="add">＋ ' + tt('תנועה / תכנון', 'รายการ', 'حركة / خطة') + '</button>' +
-        '<button class="cf-btn" data-a="opening">🏦 ' + tt('יתרת פתיחה', 'ยอดยกมา', 'الرصيد الافتتاحي') + '</button>' +
+        (isAdm() ? '<button class="cf-btn" data-a="opening">🏦 ' + tt('יתרת פתיחה', 'ยอดยกมา', 'الرصيد الافتتاحي') + '</button>' : '') +
         '<span class="cf-seg">' + [['both', tt('תכנון + בפועל', 'ทั้งสอง', 'الكل')], ['plan', tt('תכנון', 'แผน', 'خطة')], ['actual', tt('בפועל', 'จริง', 'فعلي')]].map(function (o2) {
           return '<button class="' + (ui.show === o2[0] ? 'on' : '') + '" data-show="' + o2[0] + '">' + o2[1] + '</button>'; }).join('') + '</span>' +
         '<button class="cf-btn ghost" data-a="print">🖨 ' + tt('הדפסה', 'พิมพ์', 'طباعة') + '</button>' +
@@ -216,8 +219,10 @@ var CashFlow = (function () {
       var mv = document.getElementById('cfM').value, months = mv === 'all' ? [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] : [Number(mv)];
       var u = window.currentUser || {}, base = Date.now();
       months.forEach(function (mm, k) {
-        D.entries.push({ id: base + k, farmId: Number(document.getElementById('cfF').value) || 0, m: mm, cat: document.getElementById('cfCat').value,
-          kind: document.getElementById('cfKind').value, amount: Math.round(amt / months.length * 100) / 100, note: document.getElementById('cfNote').value.trim(), by: u.name || u.username || '', at: base });
+        var ent = { id: base + k, farmId: Number(document.getElementById('cfF').value) || 0, m: mm, cat: document.getElementById('cfCat').value,
+          kind: document.getElementById('cfKind').value, amount: Math.round(amt / months.length * 100) / 100, note: document.getElementById('cfNote').value.trim(), by: u.name || u.username || '', at: base };
+        if (window.Own) Own.stamp(ent);
+        D.entries.push(ent);
       });
       persist().then(function (ok) { if (ok) toast('✅ ' + tt('נשמר', 'บันทึกแล้ว', 'تم الحفظ')); render(); });
     };
@@ -231,13 +236,15 @@ var CashFlow = (function () {
     p.innerHTML = '<div class="cf-form"><h3>' + esc(catName(cat)) + '</h3>' + autoTxt +
       (list.length ? list.map(function (e) {
         return '<div class="cf-e"><span>' + M(e.m) + '</span><span class="cf-kd ' + e.kind + '">' + (e.kind === 'plan' ? tt('תכנון', 'แผน', 'خطة') : tt('בפועל', 'จริง', 'فعلي')) + '</span><b>' + money(e.amount) + '</b><small>' + esc(fname(e.farmId)) + (e.note ? ' · ' + esc(e.note) : '') + '</small>' +
-          '<button class="cf-x" data-del="' + e.id + '">🗑</button></div>';
+          (canEd(e) ? '<button class="cf-x" data-del="' + e.id + '">🗑</button>' : '<span class="cf-x" title="' + esc(tt('נוצר על ידי', 'สร้างโดย', 'أنشأه') + ' ' + (window.Own ? Own.creatorName(e) : (e.by || ''))) + '">🔒</span>') + '</div>';
       }).join('') : '<div class="cf-muted">' + tt('אין תנועות ידניות בסעיף הזה', 'ไม่มีรายการ', 'لا حركات') + '</div>') +
       '<div class="cf-bar"><button class="cf-btn pri" data-addcat="' + cat + '">＋ ' + tt('הוספה לסעיף', 'เพิ่ม', 'إضافة') + '</button><button class="cf-btn ghost" data-a="hidepanel">' + tt('סגור', 'ปิด', 'إغلاق') + '</button></div></div>';
     p.scrollIntoView({ block: 'nearest' });
   }
 
   function openingForm() {
+    // Opening balances are per farm — a farm attribute, and farms are admin's.
+    if (!isAdm()) { if (window.Own) Own.denied(); return; }
     var p = document.getElementById('cfPanel');
     p.innerHTML = '<div class="cf-form"><h3>🏦 ' + tt('יתרת פתיחה ל־1 בינואר', 'ยอดยกมา 1 ม.ค.', 'الرصيد الافتتاحي 1 يناير') + ' ' + year + '</h3>' +
       '<label class="cf-ol"><span>' + tt('כללי', 'ทั่วไป', 'عام') + '</span><input class="form-input cf-op" data-f="0" type="number" step="any" value="' + (D.opening[0] || '') + '"></label>' +
@@ -245,6 +252,7 @@ var CashFlow = (function () {
       '<div class="cf-bar"><button class="cf-btn pri" id="cfOpSave">💾 ' + tt('שמירה', 'บันทึก', 'حفظ') + '</button><button class="cf-btn ghost" data-a="hidepanel">' + tt('ביטול', 'ยกเลิก', 'إلغاء') + '</button></div></div>';
     p.scrollIntoView({ block: 'nearest' });
     document.getElementById('cfOpSave').onclick = function () {
+      if (!isAdm()) { if (window.Own) Own.denied(); return; }
       D.opening = {};
       document.querySelectorAll('.cf-op').forEach(function (i) { var v = Number(i.value); if (v) D.opening[i.getAttribute('data-f')] = v; });
       persist().then(render);
@@ -279,8 +287,9 @@ var CashFlow = (function () {
     var ac = t.closest('[data-addcat]'); if (ac) return addForm(ac.getAttribute('data-addcat'));
     var dl = t.closest('[data-del]');
     if (dl) {
+      var id = dl.getAttribute('data-del'), ent = D.entries.find(function (x) { return String(x.id) === id; }) || {}, cat = ent.cat;
+      if (!canEd(ent)) { if (window.Own) Own.denied(); return; }
       if (!confirm(tt('למחוק את התנועה?', 'ลบ?', 'حذف؟'))) return;
-      var id = dl.getAttribute('data-del'), cat = (D.entries.find(function (x) { return String(x.id) === id; }) || {}).cat;
       D.entries = D.entries.filter(function (x) { return String(x.id) !== id; });
       persist().then(function () { render(); if (cat) catPanel(cat); });
       return;

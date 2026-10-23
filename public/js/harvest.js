@@ -113,6 +113,16 @@ var HarvestResults = (function () {
   function farmName(id) { var f = farms().find(function (x) { return x.id === id; }); return f ? f.name : '—'; }
   function canEdit() { var r = (window.currentUser || {}).role; return r === 'admin' || r === 'operator'; }
   function me() { var u = window.currentUser || {}; return u.name || u.username || ''; }
+  // Ownership rule (ownership.js): on top of the role gate, a non-admin
+  // changes only reports they created. Pre-rule reports stored the author's
+  // display name in createdBy (and no createdByName) — matched as legacy.
+  function canEditR(r) {
+    if (!canEdit()) return false;
+    if (!r || !window.Own) return true;
+    if (Own.canEdit(r)) return true;
+    return !r.createdByName && !!r.createdBy && Own.canEdit({}, r.createdBy);
+  }
+  function isSaved(r) { return !!r && (S.reports || []).some(function (x) { return x.id === r.id; }); }
 
   function blank(y) { return { year: y, reports: [] }; }
   function normDoc(d, y) {
@@ -155,9 +165,14 @@ var HarvestResults = (function () {
       }
       if (op.upsert) {
         var i = base.reports.findIndex(function (r) { return r.id === op.upsert.id; });
+        if (i !== -1 && !canEditR(base.reports[i])) { if (window.Own) Own.denied(); return false; }
         if (i === -1) base.reports.push(op.upsert); else base.reports[i] = op.upsert;
       }
-      if (op.remove) base.reports = base.reports.filter(function (r) { return r.id !== op.remove; });
+      if (op.remove) {
+        var gone = base.reports.find(function (r) { return r.id === op.remove; });
+        if (gone && !canEditR(gone)) { if (window.Own) Own.denied(); return false; }
+        base.reports = base.reports.filter(function (r) { return r.id !== op.remove; });
+      }
       DB.save(key(y), base);
       seen[y] = true;
       if (season === y) S = base;
@@ -193,13 +208,16 @@ var HarvestResults = (function () {
   function newReport(fmt) {
     var f = FORMATS[fmt] ? fmt : 'dates-sorting';
     var ids = farmIds();
-    return {
+    var rep = {
       id: uid(), format: f, farmId: farmFilter ? Number(farmFilter) : (ids.length === 1 ? ids[0] : null),
       variety: f === 'dates-sorting' ? 'מגהול' : '', packer: '', marketer: '',
       date: new Date().toISOString().slice(0, 10), intake: {},
       fractions: FORMATS[f].fractions.map(function (x) { return { type: x[0], code: x[1], name: x[2], kg: '', price: '' }; }),
-      notes: '', createdBy: me(), createdAt: Date.now()
+      notes: ''
     };
+    if (window.Own) Own.stamp(rep);
+    else { rep.createdBy = me(); rep.createdAt = Date.now(); }
+    return rep;
   }
   function fillVariety(r) {
     (r.fractions || []).forEach(function (f) { if (f.name) f.name = f.name.replace(/\{v\}/g, r.variety || ''); });
@@ -340,7 +358,8 @@ var HarvestResults = (function () {
   }
 
   function drawEditor() {
-    var r = draft, ro = !canEdit();
+    var r = draft, ro = isSaved(r) ? !canEditR(r) : !canEdit();
+    var locked = ro && canEdit() && isSaved(r);   // role allows, ownership doesn't
     var fmt = FORMATS[r.format] || FORMATS['dates-sorting'];
     var dis = ro ? ' disabled' : '';
     var farmOpts = farms().map(function (f) {
@@ -368,6 +387,7 @@ var HarvestResults = (function () {
     back.id = 'hvBack';
     back.innerHTML = '<div class="hv-sheet" role="dialog">' +
       '<h2>📦 ' + (ro ? '' : (r.createdAt && (S.reports || []).some(function (x) { return x.id === r.id; }) ? tt('עריכת דוח', 'แก้ไขรายงาน', 'تعديل التقرير') : tt('דוח חדש', 'รายงานใหม่', 'تقرير جديد')) + ' · ') + tt('עונה', 'ฤดูกาล', 'موسم') + ' ' + season + '</h2>' +
+      (locked && window.Own ? Own.lockHtml(r.createdByName ? r : { createdByName: r.createdBy || '' }) : '') +
       '<div class="hv-grid">' +
         '<div class="hv-f"><label>' + tt('משק', 'ฟาร์ม', 'مزرعة') + '</label><select class="form-input" id="hvFarmSel"' + dis + '>' + farmOpts + '</select></div>' +
         '<div class="hv-f"><label>' + tt('פורמט הדוח', 'รูปแบบรายงาน', 'صيغة التقرير') + '</label><select class="form-input" id="hvFmt"' + dis + '>' + fmtOpts + '</select></div>' +
@@ -383,6 +403,7 @@ var HarvestResults = (function () {
       (ro ? '' : '<button class="btn btn-secondary" id="hvAddRow" style="margin-top:8px;">+ ' + tt('שורה', 'แถว', 'سطر') + '</button>') +
       '<div class="hv-sec">' + tt('הערות', 'หมายเหตุ', 'ملاحظات') + '</div>' +
       '<textarea class="form-input" id="hvNotes" rows="2"' + dis + '>' + esc(r.notes) + '</textarea>' +
+      (ro && isSaved(r) && window.Comments ? Comments.block('harvest:' + r.id, tt('דוח מיון', 'รายงานคัดแยก', 'تقرير فرز') + ' ' + (r.date || '')) : '') +
       '<div class="hv-actions">' +
         (ro ? '' : '<button class="btn btn-primary" id="hvSave">' + tt('שמירה', 'บันทึก', 'حفظ') + '</button>') +
         '<button class="btn btn-secondary" id="hvPrint">' + tt('הדפסה / PDF', 'พิมพ์ / PDF', 'طباعة / PDF') + '</button>' +
@@ -458,7 +479,7 @@ var HarvestResults = (function () {
 
   function wireEditor() {
     var back = document.getElementById('hvBack');
-    var ro = !canEdit();
+    var ro = isSaved(draft) ? !canEditR(draft) : !canEdit();
     back.addEventListener('click', function (e) { if (e.target === back) closeEditor(); });
     document.getElementById('hvClose').addEventListener('click', closeEditor);
     document.getElementById('hvPrint').addEventListener('click', function () { if (!ro) readHeader(); printReport(draft); });
@@ -505,6 +526,7 @@ var HarvestResults = (function () {
     });
 
     document.getElementById('hvSave').addEventListener('click', function () {
+      if (isSaved(draft) && !canEditR((S.reports || []).find(function (x) { return x.id === draft.id; }))) { if (window.Own) Own.denied(); return; }
       readHeader();
       if (!draft.farmId) { toast('⚠️ ' + tt('יש לבחור משק', 'ต้องเลือกฟาร์ม', 'يجب اختيار مزرعة')); return; }
       if (farmIds().indexOf(draft.farmId) === -1) { toast('⛔ ' + tt('אין לך הרשאה למשק זה', 'ไม่มีสิทธิ์', 'لا صلاحية')); return; }
@@ -519,6 +541,7 @@ var HarvestResults = (function () {
     });
     var del = document.getElementById('hvDel');
     if (del) del.addEventListener('click', function () {
+      if (!canEditR((S.reports || []).find(function (x) { return x.id === draft.id; }))) { if (window.Own) Own.denied(); return; }
       if (!confirm(tt('למחוק את הדוח?', 'ลบรายงาน?', 'حذف التقرير؟'))) return;
       commit(season, { remove: draft.id }).then(function (ok) {
         if (!ok) return;

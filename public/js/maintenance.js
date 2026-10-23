@@ -325,6 +325,17 @@ var Maintenance = (function() {
 
   function isAdmin() { return window.currentUser && (window.currentUser.role === 'admin' || window.currentUser.role === 'manager'); }
   function _blockDelete() { if (!isAdmin()) { if (typeof showToast === 'function') showToast(tt('⛔ רק מנהל יכול למחוק','⛔ เฉพาะผู้ดูแลลบได้','⛔ الحذف للمدير فقط')); return true; } return false; }
+  // Ownership (Oct 2026): a project (and everything in its quote — materials,
+  // labour, groups, callouts, contract, internal costs) is its creator's;
+  // legacy projects count as admin's. Shipments and invoices are records:
+  // anyone allowed may add them, and each is its own creator's to change.
+  function _ownP(p) { return !window.Own || Own.canEdit(p); }
+  function _blockEdit(pid) {
+    var p = (_projectsCache || []).find(function (x) { return x.id === pid; });
+    if (p && !_ownP(p)) { if (window.Own) Own.denied(); return true; }
+    return false;
+  }
+  function _stamp(o) { if (window.Own) Own.stamp(o); return o; }
   function _audit(action, ref, opts) { try { if (typeof Audit !== 'undefined' && Audit.log) Audit.log(action, 'maintenance', String(ref == null ? '-' : ref), opts || {}); } catch (e) {} }
   function getUserEmail() { return window.currentUser && (window.currentUser.email || ''); }
 
@@ -734,6 +745,7 @@ var Maintenance = (function() {
   //  NEW/EDIT PROJECT
   // ══════════════════════════════════════
   function showNewProject(existingId) {
+    if (existingId && _blockEdit(existingId)) return;
     ensureLabels();
     loadProjects().then(function(projects) {
       var p = existingId ? projects.find(function(x) { return x.id === existingId; }) : null;
@@ -761,9 +773,11 @@ var Maintenance = (function() {
   function _saveProject(eid) {
     var name = document.getElementById('mpName').value.trim();
     if (!name) { if (typeof showToast === 'function') showToast(tt('❌ חובה למלא שם','❌ ต้องกรอกชื่อ','❌ يجب إدخال الاسم')); return; }
+    if (eid && _blockEdit(eid)) return;
     loadProjects().then(function(projects) {
       var p = eid ? projects.find(function(x) { return x.id === eid; }) : null;
-      if (!p) { p = { id: Date.now(), materials: [], labor: [], shipments: [], invoices: [], contract: null, created: Date.now() }; projects.push(p); }
+      if (p && !_ownP(p)) { if (window.Own) Own.denied(); return; }
+      if (!p) { p = _stamp({ id: Date.now(), materials: [], labor: [], shipments: [], invoices: [], contract: null, created: Date.now() }); projects.push(p); }
       p.name = name; p.client = document.getElementById('mpClient').value.trim();
       p.description = document.getElementById('mpDesc').value.trim(); p.status = document.getElementById('mpStatus').value;
       p.quoteIntro = document.getElementById('mpIntro').value.trim();
@@ -784,8 +798,10 @@ var Maintenance = (function() {
         var p = projects.find(function(x) { return x.id === pid; }); if (!p) return;
         var tot = calcProject(p);
         var st = STATUSES.find(function(s) { return s.value === p.status; }) || STATUSES[0];
-        var canEdit = hasPerm('edit', access);
-        var canDelete = isAdmin();
+        var permEdit = hasPerm('edit', access);   // may add records (shipments, journal lines)
+        var mineP = _ownP(p);
+        var canEdit = permEdit && mineP;            // the project's own content: its creator or admin
+        var canDelete = isAdmin() && mineP;
         var canInternal = hasPerm('see_internal', access);
         var canContract = hasPerm('manage_contracts', access);
         var canInvoice = hasPerm('manage_invoices', access);
@@ -815,6 +831,7 @@ var Maintenance = (function() {
         // ── Header ──
         var headerH = '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;gap:8px;"><div style="flex:1;min-width:0;">' +
           '<h3 style="font-weight:700;margin:0 0 4px;">🔧 ' + p.name + '</h3>' +
+          (!mineP && window.Own ? Own.lockHtml(p) : '') +
           (p.client ? '<div style="font-size:0.82rem;color:var(--text-muted, #666);">👤 ' + p.client + '</div>' : '') +
           (p.description ? '<div style="font-size:0.78rem;color:var(--text-muted, #999);margin-top:2px;">' + p.description + '</div>' : '') +
         '</div>' +
@@ -885,7 +902,7 @@ var Maintenance = (function() {
           }
 
           var shipH = ''; (p.shipments || []).forEach(function(s, i) {
-            shipH += '<div style="background:var(--surface-glass, #f5f7f5);border-radius:8px;padding:8px 10px;margin-bottom:6px;font-size:0.82rem;display:flex;justify-content:space-between;align-items:center;"><div><strong>' + s.date + '</strong> — ' + s.materialName + ' (' + s.quantity + ')' + (s.supplier ? ' · ' + s.supplier : '') + (s.notes ? ' · <span style="color:var(--text-muted, #999);">' + s.notes + '</span>' : '') + '</div>' + (canDelete ? '<button onclick="Maintenance._delShip(' + pid + ',' + i + ')" style="border:none;background:none;cursor:pointer;">🗑️</button>' : '') + '</div>';
+            shipH += '<div style="background:var(--surface-glass, #f5f7f5);border-radius:8px;padding:8px 10px;margin-bottom:6px;font-size:0.82rem;display:flex;justify-content:space-between;align-items:center;"><div><strong>' + s.date + '</strong> — ' + s.materialName + ' (' + s.quantity + ')' + (s.supplier ? ' · ' + s.supplier : '') + (s.notes ? ' · <span style="color:var(--text-muted, #999);">' + s.notes + '</span>' : '') + '</div>' + (isAdmin() && (!window.Own || Own.canEdit(s)) ? '<button onclick="Maintenance._delShip(' + pid + ',' + i + ')" style="border:none;background:none;cursor:pointer;">🗑️</button>' : '') + '</div>';
           });
 
           bodyH += '<div style="margin-bottom:18px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">' + sectTitle('📦', tt('חומרים','วัสดุ','مواد')) +
@@ -965,7 +982,7 @@ var Maintenance = (function() {
           '</div></div>';
 
           // Shipments
-          bodyH += '<div style="margin-bottom:18px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">' + sectTitle('🚚', tt('יומן משלוחים','บันทึกการจัดส่ง','سجل الشحنات')) + (canEdit ? addBtn(tt('הוסף','เพิ่ม','إضافة'), '_addShip', pid) : '') + '</div>' +
+          bodyH += '<div style="margin-bottom:18px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">' + sectTitle('🚚', tt('יומן משלוחים','บันทึกการจัดส่ง','سجل الشحنات')) + (permEdit ? addBtn(tt('הוסף','เพิ่ม','إضافة'), '_addShip', pid) : '') + '</div>' +
           (!(p.shipments || []).length ? '<div style="text-align:center;color:var(--text-muted, #999);padding:8px;">' + tt('אין משלוחים','ไม่มีจัดส่ง','لا شحنات') + '</div>' : shipH) + '</div>';
 
           // Action buttons
@@ -976,7 +993,8 @@ var Maintenance = (function() {
           '</div>' +
           (canDelete ? '<div style="margin-top:6px;">' +
             '<button onclick="Maintenance._delProj(' + pid + ')" style="width:100%;padding:10px 16px;border-radius:10px;border:1px solid #f44336;background:transparent;color:#f44336;font-family:inherit;font-weight:700;cursor:pointer;">🗑️ ' + tt('מחק פרויקט','ลบโครงการ','حذف المشروع') + '</button>' +
-          '</div>' : '');
+          '</div>' : '') +
+          (window.Comments ? Comments.block('maint:' + pid, p.name) : '');
         }
 
         // ──────────────────────
@@ -992,7 +1010,7 @@ var Maintenance = (function() {
             var realLine = (m.quantity || 0) * (m.costPrice || m.unitPrice || 0);
             icMatH += '<tr><td style="padding:6px 8px;font-weight:600;">' + m.name + '</td><td style="padding:6px 8px;text-align:center;">' + m.quantity + '</td>' +
               '<td style="padding:6px 8px;text-align:center;color:var(--text-muted, #999);">₪' + fmt(m.unitPrice) + '</td>' +
-              '<td style="padding:6px 8px;text-align:center;"><input type="number" value="' + (m.costPrice || m.unitPrice || 0) + '" min="0" step="0.01" onchange="Maintenance._updateCostPrice(' + pid + ',' + i + ',this.value)" style="width:80px;padding:4px;border-radius:6px;border:1px solid var(--border, #ddd);text-align:center;font-family:inherit;color:var(--text, inherit);background:var(--surface-input, transparent);"></td>' +
+              '<td style="padding:6px 8px;text-align:center;"><input type="number" value="' + (m.costPrice || m.unitPrice || 0) + '" min="0" step="0.01" onchange="Maintenance._updateCostPrice(' + pid + ',' + i + ',this.value)"' + (mineP ? '' : ' disabled') + ' style="width:80px;padding:4px;border-radius:6px;border:1px solid var(--border, #ddd);text-align:center;font-family:inherit;color:var(--text, inherit);background:var(--surface-input, transparent);"></td>' +
               '<td style="padding:6px 8px;text-align:center;font-weight:700;">₪' + fmt(realLine) + '</td></tr>';
           });
           // Labor with real cost column
@@ -1000,7 +1018,7 @@ var Maintenance = (function() {
           var icLabH = ''; (p.labor || []).forEach(function(l, i) {
             var fixed = isFixedLab(l);
             var realLine = costLab(l);
-            var cellIn = '<input type="number" value="' + (fixed ? costLab(l) : (l.costRate || l.hourlyRate || 0)) + '" min="0" step="' + (fixed ? '0.01' : '1') + '" onchange="Maintenance._updateCostRate(' + pid + ',' + i + ',this.value)" style="width:90px;padding:4px;border-radius:6px;border:1px solid var(--border, #ddd);text-align:center;font-family:inherit;color:var(--text, inherit);background:var(--surface-input, transparent);">';
+            var cellIn = '<input type="number" value="' + (fixed ? costLab(l) : (l.costRate || l.hourlyRate || 0)) + '" min="0" step="' + (fixed ? '0.01' : '1') + '" onchange="Maintenance._updateCostRate(' + pid + ',' + i + ',this.value)"' + (mineP ? '' : ' disabled') + ' style="width:90px;padding:4px;border-radius:6px;border:1px solid var(--border, #ddd);text-align:center;font-family:inherit;color:var(--text, inherit);background:var(--surface-input, transparent);">';
             icLabH += '<tr><td style="padding:6px 8px;font-weight:600;">' + l.description +
               (fixed ? ' <span style="font-size:0.68rem;color:#ef6c00;font-weight:700;">📦 ' + tt('סכום קבוע','เหมา','مقطوع') + '</span>' : '') +
               '</td><td style="padding:6px 8px;text-align:center;">' + (fixed ? (l.hours ? '<span style="opacity:.55;">(' + l.hours + ')</span>' : '—') : l.hours) + '</td>' +
@@ -1040,7 +1058,7 @@ var Maintenance = (function() {
           var c = p.contract || {};
           if (!p.contract) {
             bodyH += '<div style="text-align:center;padding:24px;color:var(--text-muted, #999);">' + tt('לא מוגדר חוזה','ยังไม่มีสัญญา','لا يوجد عقد') + '<br><br>' +
-              '<button onclick="Maintenance._editContract(' + pid + ')" style="padding:10px 20px;border-radius:10px;border:none;background:#1565c0;color:white;font-family:inherit;font-weight:700;cursor:pointer;">📋 ' + tt('הגדר חוזה','กำหนดสัญญา','تعريف العقد') + '</button></div>';
+              (mineP ? '<button onclick="Maintenance._editContract(' + pid + ')" style="padding:10px 20px;border-radius:10px;border:none;background:#1565c0;color:white;font-family:inherit;font-weight:700;cursor:pointer;">📋 ' + tt('הגדר חוזה','กำหนดสัญญา','تعريف العقد') + '</button>' : '') + '</div>';
           } else {
             var cs = CONTRACT_STATUSES.find(function(s) { return s.value === c.status; }) || CONTRACT_STATUSES[0];
             var pt = PAY_TERMS.find(function(t) { return t.value === c.paymentTerms; }) || PAY_TERMS[0];
@@ -1056,7 +1074,7 @@ var Maintenance = (function() {
                 (c.notes ? '<div style="margin-top:4px;font-size:0.82rem;color:var(--text-muted, #666);border-top:1px solid var(--border, #90caf9);padding-top:6px;">' + c.notes + '</div>' : '') +
               '</div></div>';
             bodyH += '<div style="display:flex;gap:6px;">' +
-              '<button onclick="Maintenance._editContract(' + pid + ')" style="flex:1;padding:10px;border-radius:10px;border:none;background:#1565c0;color:white;font-family:inherit;font-weight:700;cursor:pointer;">✏️ ' + tt('ערוך חוזה','แก้ไขสัญญา','تعديل العقد') + '</button>' +
+              (mineP ? '<button onclick="Maintenance._editContract(' + pid + ')" style="flex:1;padding:10px;border-radius:10px;border:none;background:#1565c0;color:white;font-family:inherit;font-weight:700;cursor:pointer;">✏️ ' + tt('ערוך חוזה','แก้ไขสัญญา','تعديل العقد') + '</button>' : '') +
               '<button onclick="Maintenance._contractPDF(' + pid + ')" style="flex:1;padding:10px;border-radius:10px;border:none;background:#0d47a1;color:white;font-family:inherit;font-weight:700;cursor:pointer;">📄 ' + tt('הורד PDF','ดาวน์โหลด PDF','تنزيل PDF') + '</button>' +
               (canDelete ? '<button onclick="Maintenance._delContract(' + pid + ')" style="padding:10px 16px;border-radius:10px;border:none;background:#f44336;color:white;font-family:inherit;font-weight:700;cursor:pointer;">🗑️</button>' : '') + '</div>';
           }
@@ -1066,7 +1084,7 @@ var Maintenance = (function() {
         //  TAB: INVOICES
         // ──────────────────────
         else if (_activeTab === 'journal' && window.MaintJournal) {
-          bodyH += MaintJournal.tab(p, { canEdit: canEdit && p.status !== 'completed', completed: p.status === 'completed' });
+          bodyH += MaintJournal.tab(p, { canEdit: permEdit && p.status !== 'completed', completed: p.status === 'completed' });
         }
         else if (_activeTab === 'invoices') {
           var invs = p.invoices || [];
@@ -1123,8 +1141,8 @@ var Maintenance = (function() {
                   (inv.supplier ? ' · <span style="color:var(--text-muted, #666);">' + inv.supplier + '</span>' : '') + '</div>' +
                   '<div style="display:flex;align-items:center;gap:6px;">' +
                     '<span style="font-size:0.72rem;padding:2px 6px;border-radius:4px;background:' + is.color + '22;color:' + is.color + ';font-weight:600;">' + is.label + '</span>' +
-                    '<button onclick="Maintenance._editInvoice(' + pid + ',' + i + ')" style="border:none;background:none;cursor:pointer;font-size:0.9rem;">✏️</button>' +
-                    (canDelete ? '<button onclick="Maintenance._delInvoice(' + pid + ',' + i + ')" style="border:none;background:none;cursor:pointer;font-size:0.9rem;">🗑️</button>' : '') +
+                    (!window.Own || Own.canEdit(inv) ? '<button onclick="Maintenance._editInvoice(' + pid + ',' + i + ')" style="border:none;background:none;cursor:pointer;font-size:0.9rem;">✏️</button>' : '<span title="' + esc(tt('לצפייה ולתגובות בלבד', 'ดูและแสดงความคิดเห็นเท่านั้น', 'للعرض والتعليق فقط')) + '">🔒</span>') +
+                    (isAdmin() && (!window.Own || Own.canEdit(inv)) ? '<button onclick="Maintenance._delInvoice(' + pid + ',' + i + ')" style="border:none;background:none;cursor:pointer;font-size:0.9rem;">🗑️</button>' : '') +
                   '</div></div>' +
                 '<div style="display:flex;justify-content:space-between;font-size:0.82rem;margin-top:4px;color:var(--text-muted, #999);">' +
                   '<span>' + (inv.date || '') + (inv.dueDate ? ' · ' + tt('לתשלום','ครบกำหนด','الاستحقاق') + ': ' + inv.dueDate : '') + '</span>' +
@@ -1157,6 +1175,7 @@ var Maintenance = (function() {
   //  MATERIAL CRUD
   // ══════════════════════════════════════
   function _addMat(pid, idx) {
+    if (_blockEdit(pid)) return;
     ensureLabels();
     loadProjects().then(function(projects) {
       var p = projects.find(function(x) { return x.id === pid; }); if (!p) return;
@@ -1175,6 +1194,7 @@ var Maintenance = (function() {
     });
   }
   function _saveMat(pid, idx) {
+    if (_blockEdit(pid)) return;
     var n = document.getElementById('mmN').value.trim(); if (!n) { showToast(tt('❌ חובה למלא שם','❌ ต้องกรอกชื่อ','❌ يجب إدخال الاسم')); return; }
     loadProjects().then(function(projects) {
       var p = projects.find(function(x) { return x.id === pid; }); if (!p) return;
@@ -1184,7 +1204,7 @@ var Maintenance = (function() {
     });
   }
   function _editMat(pid, i) { _addMat(pid, i); }
-  function _delMat(pid, i) { if (_blockDelete()) return; if (!confirm(tt('למחוק חומר?','ลบวัสดุ?','حذف المادة؟'))) return; loadProjects().then(function(ps) { var p = ps.find(function(x) { return x.id === pid; }); if (!p) return; var before = p.materials[i]; p.materials.splice(i, 1); pruneGroups(p); p.updated = Date.now(); saveProjects(ps); _audit('delete', pid, { before: before, reason: 'material · ' + (p.name || '') }); showDetail(pid); }); }
+  function _delMat(pid, i) { if (_blockDelete() || _blockEdit(pid)) return; if (!confirm(tt('למחוק חומר?','ลบวัสดุ?','حذف المادة؟'))) return; loadProjects().then(function(ps) { var p = ps.find(function(x) { return x.id === pid; }); if (!p) return; var before = p.materials[i]; p.materials.splice(i, 1); pruneGroups(p); p.updated = Date.now(); saveProjects(ps); _audit('delete', pid, { before: before, reason: 'material · ' + (p.name || '') }); showDetail(pid); }); }
 
   // ══════════════════════════════════════
   //  BUILD PROJECT LINK
@@ -1201,6 +1221,7 @@ var Maintenance = (function() {
     return loadProjects().then(function (projects) {
       var p = projects.find(function (x) { return x.id === maintId; });
       if (!p) return false;
+      if (!_ownP(p)) { if (window.Own) Own.denied(); return false; }
       if (!p.materials) p.materials = [];
       var tag = 'build:' + buildId;
       var kept = p.materials.filter(function (m) { return m.buildRef !== tag; });
@@ -1282,6 +1303,7 @@ var Maintenance = (function() {
                 materials: [], labor: [], shipments: [], invoices: [], contract: null,
                 created: Date.now(), updated: Date.now(),
                 buildProjectId: buildId, buildProjectName: buildName || '' };
+      _stamp(p);
       projects.push(p);
       saveProjects(projects);
       _audit('create', p.id, { after: { name: p.name, from: buildName },
@@ -1295,6 +1317,7 @@ var Maintenance = (function() {
   // the natural move is the other way — you are standing in a maintenance
   // project about to price it and want the quantities brought in.
   function importFromBuild(pid) {
+    if (_blockEdit(pid)) return;
     if (typeof BuildPlan === 'undefined' || typeof BuildPlan.listForImport !== 'function') {
       showToast(tt('\u26a0\ufe0f מודול פרויקטי הבנייה לא נטען', 'โมดูลไม่พร้อม', 'الوحدة غير محمّلة'));
       return;
@@ -1336,6 +1359,7 @@ var Maintenance = (function() {
   }
 
   function _doImport(pid) {
+    if (_blockEdit(pid)) return;
     var sel = document.getElementById('maintImportSel');
     if (!sel || typeof BuildPlan === 'undefined') return;
     var bid = Number(sel.value);
@@ -1391,6 +1415,7 @@ var Maintenance = (function() {
   }
 
   function _addLab(pid, idx) {
+    if (_blockEdit(pid)) return;
     ensureLabels();
     loadProjects().then(function(projects) {
       var p = projects.find(function(x) { return x.id === pid; }); if (!p) return;
@@ -1426,6 +1451,7 @@ var Maintenance = (function() {
     });
   }
   function _saveLab(pid, idx) {
+    if (_blockEdit(pid)) return;
     var d = document.getElementById('mlD').value.trim(); if (!d) { showToast(tt('❌ חובה למלא תיאור','❌ ต้องกรอกรายละเอียด','❌ يجب إدخال الوصف')); return; }
     var mode = document.getElementById('mlModeVal').value === 'fixed' ? 'fixed' : 'hourly';
     var num = function (id) { var e = document.getElementById(id); return e ? (parseFloat(e.value) || 0) : 0; };
@@ -1448,7 +1474,7 @@ var Maintenance = (function() {
     });
   }
   function _editLab(pid, i) { _addLab(pid, i); }
-  function _delLab(pid, i) { if (_blockDelete()) return; if (!confirm(tt('למחוק?','ลบ?','حذف؟'))) return; loadProjects().then(function(ps) { var p = ps.find(function(x) { return x.id === pid; }); if (!p) return; var before = p.labor[i]; p.labor.splice(i, 1); pruneGroups(p); p.updated = Date.now(); saveProjects(ps); _audit('delete', pid, { before: before, reason: 'labor · ' + (p.name || '') }); showDetail(pid); }); }
+  function _delLab(pid, i) { if (_blockDelete() || _blockEdit(pid)) return; if (!confirm(tt('למחוק?','ลบ?','حذف؟'))) return; loadProjects().then(function(ps) { var p = ps.find(function(x) { return x.id === pid; }); if (!p) return; var before = p.labor[i]; p.labor.splice(i, 1); pruneGroups(p); p.updated = Date.now(); saveProjects(ps); _audit('delete', pid, { before: before, reason: 'labor · ' + (p.name || '') }); showDetail(pid); }); }
 
   // ══════════════════════════════════════
   //  SHIPMENT CRUD
@@ -1473,12 +1499,12 @@ var Maintenance = (function() {
   function _saveShip(pid) {
     loadProjects().then(function(ps) { var p = ps.find(function(x) { return x.id === pid; }); if (!p) return;
       if (!p.shipments) p.shipments = [];
-      p.shipments.push({ date: document.getElementById('msD').value, materialName: document.getElementById('msM').value || tt('כללי','ทั่วไป','عام'), quantity: parseFloat(document.getElementById('msQ').value) || 0, supplier: document.getElementById('msSup').value.trim(), notes: document.getElementById('msN').value.trim() });
+      p.shipments.push(_stamp({ date: document.getElementById('msD').value, materialName: document.getElementById('msM').value || tt('כללי','ทั่วไป','عام'), quantity: parseFloat(document.getElementById('msQ').value) || 0, supplier: document.getElementById('msSup').value.trim(), notes: document.getElementById('msN').value.trim() }));
       p.updated = Date.now(); saveProjects(ps); _audit('create', pid, { after: p.shipments[p.shipments.length - 1], reason: 'shipment · ' + (p.name || '') }); showDetail(pid);
     });
   }
-  function _delShip(pid, i) { if (_blockDelete()) return; if (!confirm(tt('למחוק?','ลบ?','حذف؟'))) return; loadProjects().then(function(ps) { var p = ps.find(function(x) { return x.id === pid; }); if (!p) return; var before = p.shipments[i]; p.shipments.splice(i, 1); p.updated = Date.now(); saveProjects(ps); _audit('delete', pid, { before: before, reason: 'shipment · ' + (p.name || '') }); showDetail(pid); }); }
-  function _delProj(pid) { if (_blockDelete()) return; if (!confirm(tt('למחוק פרויקט שלם?','ลบโครงการทั้งหมด?','حذف المشروع بالكامل؟'))) return; loadProjects().then(function(ps) { var before = ps.find(function(x) { return x.id === pid; }); saveProjects(ps.filter(function(x) { return x.id !== pid; })); _audit('delete', pid, { before: before, reason: 'project · ' + ((before && before.name) || '') }); showToast(tt('🗑️ נמחק','🗑️ ลบแล้ว','🗑️ تم الحذف')); showProjectsList(); }); }
+  function _delShip(pid, i) { if (_blockDelete()) return; var _sp = ((_projectsCache || []).find(function (x) { return x.id === pid; }) || {}); if (_sp.shipments && _sp.shipments[i] && window.Own && !Own.canEdit(_sp.shipments[i])) { Own.denied(); return; } if (!confirm(tt('למחוק?','ลบ?','حذف؟'))) return; loadProjects().then(function(ps) { var p = ps.find(function(x) { return x.id === pid; }); if (!p) return; var before = p.shipments[i]; p.shipments.splice(i, 1); p.updated = Date.now(); saveProjects(ps); _audit('delete', pid, { before: before, reason: 'shipment · ' + (p.name || '') }); showDetail(pid); }); }
+  function _delProj(pid) { if (_blockDelete() || _blockEdit(pid)) return; if (!confirm(tt('למחוק פרויקט שלם?','ลบโครงการทั้งหมด?','حذف المشروع بالكامل؟'))) return; loadProjects().then(function(ps) { var before = ps.find(function(x) { return x.id === pid; }); saveProjects(ps.filter(function(x) { return x.id !== pid; })); _audit('delete', pid, { before: before, reason: 'project · ' + ((before && before.name) || '') }); showToast(tt('🗑️ נמחק','🗑️ ลบแล้ว','🗑️ تم الحذف')); showProjectsList(); }); }
 
   // ══════════════════════════════════════
   //  INVOICE CRUD
@@ -1487,6 +1513,7 @@ var Maintenance = (function() {
     ensureLabels();
     loadProjects().then(function(projects) {
       var p = projects.find(function(x) { return x.id === pid; }); if (!p) return;
+      if (idx >= 0 && p.invoices && p.invoices[idx] && window.Own && !Own.canEdit(p.invoices[idx])) { Own.denied(); return; }
       var inv = (idx >= 0 && p.invoices && p.invoices[idx]) ? p.invoices[idx] : { invoiceNumber: '', supplier: '', date: new Date().toISOString().slice(0, 10), dueDate: '', amount: 0, vatAmount: 0, status: 'pending', category: 'materials', notes: '' };
       var stOpts = ''; INVOICE_STATUSES.forEach(function(s) { stOpts += '<option value="' + s.value + '"' + (inv.status === s.value ? ' selected' : '') + '>' + s.label + '</option>'; });
       var catOpts = ''; EXPENSE_CATEGORIES.forEach(function(c) { catOpts += '<option value="' + c.value + '"' + (inv.category === c.value ? ' selected' : '') + '>' + c.icon + ' ' + c.label + '</option>'; });
@@ -1509,17 +1536,23 @@ var Maintenance = (function() {
     loadProjects().then(function(ps) { var p = ps.find(function(x) { return x.id === pid; }); if (!p) return;
       var inv = { id: Date.now(), invoiceNumber: document.getElementById('invNum').value.trim(), supplier: document.getElementById('invSup').value.trim(), date: document.getElementById('invDate').value, dueDate: document.getElementById('invDue').value, amount: parseFloat(document.getElementById('invAmt').value) || 0, vatAmount: parseFloat(document.getElementById('invVat').value) || 0, status: document.getElementById('invSt').value, category: document.getElementById('invCat').value, notes: document.getElementById('invNotes').value.trim() };
       if (!p.invoices) p.invoices = [];
+      var old = idx >= 0 ? p.invoices[idx] : null;
+      if (old && window.Own && !Own.canEdit(old)) { Own.denied(); return; }
+      // An edit rebuilds the invoice object — carry its creator stamp across.
+      if (old) ['createdBy', 'createdByName', 'createdAt'].forEach(function (k) { if (old[k] !== undefined) inv[k] = old[k]; });
+      else _stamp(inv);
       if (idx >= 0) p.invoices[idx] = inv; else p.invoices.push(inv);
       p.updated = Date.now(); saveProjects(ps); _audit(idx >= 0 ? 'edit' : 'create', pid, { after: inv, reason: 'invoice · ' + (p.name || '') }); showDetail(pid, 'invoices');
     });
   }
   function _editInvoice(pid, i) { _addInvoice(pid, i); }
-  function _delInvoice(pid, i) { if (_blockDelete()) return; if (!confirm(tt('למחוק חשבונית?','ลบใบแจ้งหนี้?','حذف الفاتورة؟'))) return; loadProjects().then(function(ps) { var p = ps.find(function(x) { return x.id === pid; }); if (!p) return; var before = p.invoices[i]; p.invoices.splice(i, 1); p.updated = Date.now(); saveProjects(ps); _audit('delete', pid, { before: before, reason: 'invoice · ' + (p.name || '') }); showDetail(pid, 'invoices'); }); }
+  function _delInvoice(pid, i) { if (_blockDelete()) return; var _ip = ((_projectsCache || []).find(function (x) { return x.id === pid; }) || {}); if (_ip.invoices && _ip.invoices[i] && window.Own && !Own.canEdit(_ip.invoices[i])) { Own.denied(); return; } if (!confirm(tt('למחוק חשבונית?','ลบใบแจ้งหนี้?','حذف الفاتورة؟'))) return; loadProjects().then(function(ps) { var p = ps.find(function(x) { return x.id === pid; }); if (!p) return; var before = p.invoices[i]; p.invoices.splice(i, 1); p.updated = Date.now(); saveProjects(ps); _audit('delete', pid, { before: before, reason: 'invoice · ' + (p.name || '') }); showDetail(pid, 'invoices'); }); }
 
   // ══════════════════════════════════════
   //  CONTRACT CRUD
   // ══════════════════════════════════════
   function _editContract(pid) {
+    if (_blockEdit(pid)) return;
     ensureLabels();
     loadProjects().then(function(projects) {
       var p = projects.find(function(x) { return x.id === pid; }); if (!p) return;
@@ -1540,17 +1573,19 @@ var Maintenance = (function() {
     });
   }
   function _saveContract(pid) {
+    if (_blockEdit(pid)) return;
     loadProjects().then(function(ps) { var p = ps.find(function(x) { return x.id === pid; }); if (!p) return;
       p.contract = { contractNumber: document.getElementById('ctNum').value.trim(), clientName: document.getElementById('ctClient').value.trim(), signedDate: document.getElementById('ctDate').value, paymentTerms: document.getElementById('ctPay').value, totalValue: parseFloat(document.getElementById('ctVal').value) || 0, status: document.getElementById('ctStatus').value, notes: document.getElementById('ctNotes').value.trim() };
       p.updated = Date.now(); saveProjects(ps); _audit('edit', pid, { after: p.contract, reason: 'contract · ' + (p.name || '') }); showToast(tt('✅ חוזה נשמר','✅ บันทึกสัญญาแล้ว','✅ تم حفظ العقد')); showDetail(pid, 'contract');
     });
   }
-  function _delContract(pid) { if (_blockDelete()) return; if (!confirm(tt('למחוק חוזה?','ลบสัญญา?','حذف العقد؟'))) return; loadProjects().then(function(ps) { var p = ps.find(function(x) { return x.id === pid; }); if (!p) return; var before = p.contract; p.contract = null; p.updated = Date.now(); saveProjects(ps); _audit('delete', pid, { before: before, reason: 'contract · ' + (p.name || '') }); showDetail(pid, 'contract'); }); }
+  function _delContract(pid) { if (_blockDelete() || _blockEdit(pid)) return; if (!confirm(tt('למחוק חוזה?','ลบสัญญา?','حذف العقد؟'))) return; loadProjects().then(function(ps) { var p = ps.find(function(x) { return x.id === pid; }); if (!p) return; var before = p.contract; p.contract = null; p.updated = Date.now(); saveProjects(ps); _audit('delete', pid, { before: before, reason: 'contract · ' + (p.name || '') }); showDetail(pid, 'contract'); }); }
 
   // ══════════════════════════════════════
   //  INTERNAL COST inline updates
   // ══════════════════════════════════════
   function _updateCostPrice(pid, idx, val) {
+    if (_blockEdit(pid)) return;
     loadProjects().then(function(ps) { var p = ps.find(function(x) { return x.id === pid; }); if (!p || !p.materials[idx]) return;
       p.materials[idx].costPrice = parseFloat(val) || 0; p.updated = Date.now(); saveProjects(ps);
       // Refresh profit display without full re-render (smoother inline editing)
@@ -1560,6 +1595,7 @@ var Maintenance = (function() {
     });
   }
   function _updateCostRate(pid, idx, val) {
+    if (_blockEdit(pid)) return;
     loadProjects().then(function(ps) { var p = ps.find(function(x) { return x.id === pid; }); if (!p || !p.labor[idx]) return;
       var l = p.labor[idx];
       if (isFixedLab(l)) l.costAmount = parseFloat(val) || 0;
@@ -1734,6 +1770,7 @@ var Maintenance = (function() {
   // Open the composer for a new group (from the current selection) or for
   // an existing one (gid given).
   function _groupModal(pid, gid) {
+    if (_blockEdit(pid)) return;
     ensureLabels();
     loadProjects().then(function (projects) {
       var p = projects.find(function (x) { return x.id === pid; }); if (!p) return;
@@ -1798,6 +1835,7 @@ var Maintenance = (function() {
   }
 
   function _saveGroup(pid, gid) {
+    if (_blockEdit(pid)) return;
     var name = document.getElementById('mgName').value.trim();
     if (!name) { showToast(tt('❌ חובה לתת שם', '❌ ต้องระบุชื่อ', '❌ يجب إدخال اسم')); return; }
     var members = window._mgMembers || [];
@@ -1831,6 +1869,7 @@ var Maintenance = (function() {
   }
 
   function _ungroup(pid, gid) {
+    if (_blockEdit(pid)) return;
     loadProjects().then(function (ps) {
       var p = ps.find(function (x) { return x.id === pid; }); if (!p) return;
       var g = groupById(p, gid);
@@ -1892,6 +1931,7 @@ var Maintenance = (function() {
   }
 
   function _annEditor(pid) {
+    if (_blockEdit(pid)) return;
     ensureLabels();
     loadProjects().then(function (projects) {
       var p = projects.find(function (x) { return x.id === pid; }); if (!p) return;
@@ -1939,6 +1979,7 @@ var Maintenance = (function() {
     return out;
   }
   function _annApply(pid, mutate, thenEdit) {
+    if (_blockEdit(pid)) return;
     var typed = _annCollect();
     loadProjects().then(function (ps) {
       var p = ps.find(function (x) { return x.id === pid; }); if (!p) return;

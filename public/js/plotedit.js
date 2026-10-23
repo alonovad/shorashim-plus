@@ -210,6 +210,7 @@ var PlotEdit = (function () {
   //  EDITOR
   // ══════════════════════════════════════════════════════════════════
   function open(plotId) {
+    if (window.Own && !Own.isAdmin()) { Own.denied(); return; }   // ownership rule: plots are admin's
     if (!isManager()) { toast('\u26d4 ' + tt('אין הרשאה', 'ไม่มีสิทธิ์', 'لا صلاحية')); return; }
     var m = map();
     if (!m || !window.MapAccess || !MapAccess.getPlotRings) return;

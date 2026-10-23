@@ -189,17 +189,33 @@ var Traps = (function () {
         return '<tr><td><b>' + esc(t.name) + '</b>' + (t.farmId ? '<small>' + esc(farmName(t.farmId)) + '</small>' : '') + '</td>' +
           cells(sr) +
           '<td>' + (lc ? '<b>' + lc.count + '</b> <small>' + fmtD(lc.date) + '</small>' : '—') + '</td>' +
-          '<td>' + (staff() ? '<button class="tr-x" data-edit="' + t.id + '">✏️</button>' : '') + '</td></tr>';
+          '<td>' + (staff() && mine(t) ? '<button class="tr-x" data-edit="' + t.id + '">✏️</button>' : '') + '</td></tr>';
       }).join('') + '</tbody></table></div>' +
       '<h4 style="margin:12px 0 4px;">' + tt('ספירות אחרונות', 'การนับล่าสุด', 'آخر العدّات') + '</h4>' +
       D.checks.filter(function (c) { return traps.some(function (t) { return String(t.id) === String(c.trapId); }); })
         .sort(function (a, b) { return String(b.date).localeCompare(String(a.date)); }).slice(0, 30).map(function (c) {
           var t = trapById(c.trapId);
           return '<div class="tr-ck"><span>' + fmtD(c.date) + '</span><b>' + esc(t ? t.name : '?') + '</b><span class="tr-cn">' + c.count + '</span><small>' + esc(c.by || '') + (c.note ? ' · ' + esc(c.note) : '') + '</small>' +
-            (staff() ? '<button class="tr-x" data-delck="' + c.id + '">🗑</button>' : '') + '</div>';
-        }).join('');
+            (mine(c) ? '<button class="tr-x" data-delck="' + c.id + '">🗑</button>' : '') + '</div>';
+        }).join('') +
+        (window.Comments ? Comments.block('zone:' + hkey(zn), zn) : '');
   }
 
+  // Ownership rule (ownership.js): people change only the traps, zones and
+  // counts they entered; admin changes anything. `by` names the author of
+  // counts entered before the rule.
+  function mine(o) { return !window.Own || Own.canEdit(o, o && o.by); }
+  function hkey(str) { var h = 0; str = String(str || ''); for (var i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) | 0; return (h >>> 0).toString(36); }
+  function stampIt(o) { if (window.Own) Own.stamp(o); return o; }
+  // One count per trap per day: a re-entry replaces the earlier one — only
+  // if it is yours to replace.
+  function replaceCheck(tid, d, rec) {
+    var old = D.checks.filter(function (c) { return String(c.trapId) === String(tid) && c.date === d; });
+    if (old.some(function (c) { return !mine(c); })) return false;
+    D.checks = D.checks.filter(function (c) { return !(String(c.trapId) === String(tid) && c.date === d); });
+    D.checks.push(stampIt(rec));
+    return true;
+  }
   function farmName(id) { var f = (S().getFarms ? S().getFarms() : []).find(function (x) { return x.id === Number(id); }); return f ? f.name : ''; }
 
   function checkForm() {
@@ -217,22 +233,22 @@ var Traps = (function () {
       '<label>' + tt('הערה', 'หมายเหตุ', 'ملاحظة') + '<input class="form-input" id="trNote"></label>' +
       '<div class="tr-bar"><button class="tr-btn pri" id="trSaveCk">💾 ' + tt('שמירה', 'บันทึก', 'حفظ') + '</button><button class="tr-btn ghost" data-a="back">' + tt('ביטול', 'ยกเลิก', 'إلغاء') + '</button></div></div>';
     document.getElementById('trSaveCk').onclick = function () {
-      var d = document.getElementById('trDate').value, note = document.getElementById('trNote').value.trim(), u = window.currentUser || {}, n = 0;
+      var d = document.getElementById('trDate').value, note = document.getElementById('trNote').value.trim(), u = window.currentUser || {}, n = 0, skipped = 0;
       if (!d) return;
       document.querySelectorAll('.tr-cnt').forEach(function (inp) {
         if (inp.value === '') return;
         var tid = inp.getAttribute('data-t');
-        // One count per trap per day: a re-entry replaces it.
-        D.checks = D.checks.filter(function (c) { return !(String(c.trapId) === tid && c.date === d); });
-        D.checks.push({ id: uid() + n, trapId: /^\d+$/.test(tid) ? Number(tid) : tid, date: d, count: Math.max(0, parseInt(inp.value, 10) || 0), by: u.name || u.username || '', note: note });
+        if (!replaceCheck(tid, d, { id: uid() + n, trapId: /^\d+$/.test(tid) ? Number(tid) : tid, date: d, count: Math.max(0, parseInt(inp.value, 10) || 0), by: u.name || u.username || '', note: note })) { skipped++; return; }
         n++;
       });
-      if (!n) { toast('⚠️ ' + tt('לא הוזנו ספירות', 'ไม่มีการนับ', 'لم تُدخل أعداد')); return; }
+      if (skipped) toast('🔒 ' + skipped + ' ' + tt('ספירות של אחרים לא הוחלפו', 'การนับของผู้อื่นไม่ถูกแทนที่', 'أعداد الآخرين لم تُستبدل'));
+      if (!n) { if (!skipped) toast('⚠️ ' + tt('לא הוזנו ספירות', 'ไม่มีการนับ', 'لم تُدخل أعداد')); return; }
       persist().then(function (ok) { if (ok) toast('✅ ' + n + ' ' + tt('ספירות נשמרו', 'บันทึกแล้ว', 'حُفظت')); render(); });
     };
   }
 
   function trapForm(id) {
+    if (id && !mine(trapById(id))) { if (window.Own) Own.denied(); return; }
     var t = id ? JSON.parse(JSON.stringify(trapById(id) || {})) : { name: '', zone: ui.zone || '', farmId: null };
     var zs = Object.keys(zones());
     var farms = S().getFarms ? S().getFarms() : [];
@@ -265,7 +281,7 @@ var Traps = (function () {
       var la = parseFloat(document.getElementById('trLat').value), lo = parseFloat(document.getElementById('trLng').value);
       t.lat = isFinite(la) ? la : null; t.lng = isFinite(lo) ? lo : null;
       if (!t.name || !t.zone) { toast('❌ ' + tt('חסר שם או אזור', 'ขาดชื่อหรือโซน', 'الاسم أو المنطقة ناقص')); return; }
-      if (!t.id) { t.id = uid(); D.traps.push(t); } else D.traps = D.traps.map(function (x) { return String(x.id) === String(t.id) ? t : x; });
+      if (!t.id) { t.id = uid(); D.traps.push(stampIt(t)); } else D.traps = D.traps.map(function (x) { return String(x.id) === String(t.id) ? t : x; });
       ui.zone = t.zone;
       persist().then(function (ok) { if (ok) toast('✅ ' + tt('נשמר', 'บันทึกแล้ว', 'تم الحفظ')); render(); });
     };
@@ -365,8 +381,10 @@ var Traps = (function () {
     if (k === 'pskip') { mapMode.i++; if (mapMode.i >= mapMode.queue.length) { onMapTool('cancel'); return; } mapView(); return; }
     if (k === 'zdone') {
       if (!mapMode || mapMode.pts.length < 3) { toast('⚠️ ' + tt('צריך לפחות 3 נקודות', 'ต้องมีอย่างน้อย 3 จุด', 'يلزم 3 نقاط على الأقل')); return; }
+      var oldZ = (D.zones || []).find(function (z) { return z.name === mapMode.name; });
+      if (oldZ && !mine(oldZ)) { mapMode = null; if (window.Own) Own.denied(); mapView(); return; }
       D.zones = (D.zones || []).filter(function (z) { return z.name !== mapMode.name; });
-      D.zones.push({ name: mapMode.name, ring: mapMode.pts });
+      D.zones.push(oldZ ? { name: mapMode.name, ring: mapMode.pts, createdBy: oldZ.createdBy, createdByName: oldZ.createdByName, createdAt: oldZ.createdAt } : stampIt({ name: mapMode.name, ring: mapMode.pts }));
       mapMode = null;
       persist().then(function (ok) { if (ok) toast('✅ ' + tt('האזור נשמר', 'บันทึกโซนแล้ว', 'حُفظت المنطقة')); mapView(); });
       return;
@@ -380,6 +398,8 @@ var Traps = (function () {
     if (k === 'place') {
       var tz = zones()[zn] || [];
       if (!tz.length) { toast('⚠️ ' + tt('אין מלכודות באזור הזה', 'ไม่มีกับดักในโซนนี้', 'لا مصائد في هذه المنطقة')); return; }
+      tz = tz.filter(mine);
+      if (!tz.length) { if (window.Own) Own.denied(); return; }
       var unplaced = tz.filter(function (t) { return t.lat == null || t.lat === ''; });
       var q = (unplaced.length ? unplaced : tz).map(function (t) { return t.id; });
       mapMode = { kind: 'place', zone: zn, queue: q, i: 0 }; mapView();
@@ -421,7 +441,7 @@ var Traps = (function () {
       var add = n.filter(function (x) { return !ex[x]; });
       if (!add.length) { toast('⚠️ ' + tt('אין מלכודות חדשות להוספה', 'ไม่มีกับดักใหม่', 'لا مصائد جديدة')); return; }
       var base = uid();
-      add.forEach(function (nm, i) { D.traps.push({ id: base + i, name: nm, zone: zn, farmId: f ? Number(f) : null, lat: null, lng: null }); });
+      add.forEach(function (nm, i) { D.traps.push(stampIt({ id: base + i, name: nm, zone: zn, farmId: f ? Number(f) : null, lat: null, lng: null })); });
       ui.zone = zn;
       persist().then(function (ok) { if (ok) toast('✅ ' + add.length + ' ' + tt('מלכודות נוספו', 'เพิ่มกับดักแล้ว', 'أُضيفت مصائد')); render(); });
     };
@@ -501,11 +521,10 @@ var Traps = (function () {
         var tid;
         if (v === '__new') {
           tid = base + 1000 + made++;
-          D.traps.push({ id: tid, name: r.label, zone: r.zone || ui.zone || tt('ללא אזור', 'ไม่มีโซน', 'بلا منطقة'), farmId: null, lat: null, lng: null });
+          D.traps.push(stampIt({ id: tid, name: r.label, zone: r.zone || ui.zone || tt('ללא אזור', 'ไม่มีโซน', 'بلا منطقة'), farmId: null, lat: null, lng: null }));
         } else tid = /^\d+$/.test(v) ? Number(v) : v;
         var d = r.date || d0;
-        D.checks = D.checks.filter(function (c) { return !(String(c.trapId) === String(tid) && c.date === d); });
-        D.checks.push({ id: base + n, trapId: tid, date: d, count: Math.max(0, cnt), by: u.name || u.username || '', note: tt('מתמונה', 'จากรูป', 'من صورة') });
+        if (!replaceCheck(tid, d, { id: base + n, trapId: tid, date: d, count: Math.max(0, cnt), by: u.name || u.username || '', note: tt('מתמונה', 'จากรูป', 'من صورة') })) return;
         n++;
       });
       if (!n) { toast('⚠️ ' + tt('לא נבחרו שורות לשמירה', 'ไม่มีแถว', 'لا صفوف')); return; }
@@ -546,6 +565,7 @@ var Traps = (function () {
     if (dc) {
       if (!confirm(tt('למחוק את הספירה?', 'ลบ?', 'حذف؟'))) return;
       var id = dc.getAttribute('data-delck');
+      if (!mine(D.checks.find(function (c) { return String(c.id) === id; }))) { if (window.Own) Own.denied(); return; }
       D.checks = D.checks.filter(function (c) { return String(c.id) !== id; });
       persist().then(function () { zoneView(ui.zone); });
       return;

@@ -1040,7 +1040,8 @@ var AgriPlan = (function () {
       '<button class="ap-btn ghost" onclick="Knowledge.openItem(\'g-spray-mix\')">\ud83d\udcd8 ' + tt('הכנת מיכל: סדר ערבוב', 'การเตรียมถัง: ลำดับการผสม', 'تحضير الخزان: ترتيب الخلط') + '</button>' +
       '<button class="ap-btn ghost" onclick="Knowledge.openItem(\'g-spray-cal\')">\ud83d\udcd0 ' + tt('כיול מרסס', 'ปรับเทียบเครื่องพ่น', 'معايرة الرشاش') + '</button>' +
       '<button class="ap-btn ghost" onclick="Knowledge.openItem(\'g-spray-safety\')">\ud83e\uddba ' + tt('בטיחות', 'ความปลอดภัย', 'السلامة') + '</button></div>' : '';
-    body = guideBar + filterBar + '<div id="apPicker"></div>' + body;
+    body = (ro && window.Own ? Own.lockHtml({ createdBy: p.createdBy, createdByName: p.createdBy }) : '') + guideBar + filterBar + '<div id="apPicker"></div>' + body +
+      (window.Comments ? Comments.block('plan:' + id, p.name || '') : '');
 
     var bar = ro ?
       ('<button class="ap-btn ghost" onclick="AgriPlan.printPlan(' + id + ')">\ud83d\udda8 ' +

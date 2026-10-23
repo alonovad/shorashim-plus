@@ -925,6 +925,7 @@ var PlotImport = (function () {
 
   // ── Open / close ────────────────────────────────────────────────────
   function open() {
+    if (window.Own && !Own.isAdmin()) { Own.denied(); return; }   // ownership rule: only admin creates plots
     if (!canImport()) {
       toast('❌ ' + tt('ייבוא חלקות זמין למנהלים בלבד', 'การนำเข้าแปลงใช้ได้เฉพาะผู้จัดการ', 'استيراد القطع متاح للمديرين فقط'));
       return;

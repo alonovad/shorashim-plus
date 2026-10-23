@@ -116,6 +116,12 @@ var FieldReport = (function() {
     if (lang === 'ar') return ar || he;
     return he;
   }
+  // Ownership rule (ownership.js): admin changes anything; others only what
+  // they created. Pre-rule reports name their author by username in
+  // createdBy (matched by Own) or, older, only by the free-text inspector.
+  function canEditReport(r) { return !window.Own || Own.canEdit(r, r && r.inspector); }
+  // Pest/disease list entries: plain strings (seed) count as admin's.
+  function canEditItem(item) { return !window.Own || (item && typeof item === 'object' && Own.canEdit(item)); }
   function pestName(p) { return (typeof p === 'string') ? p : (p && p.he ? tt(p.he, p.th, p.ar) : ''); }
   function pestVal(p) { return (typeof p === 'string') ? p : (p && p.he ? p.he : ''); }
 
@@ -462,8 +468,12 @@ var FieldReport = (function() {
       if (item.ar) subs.push('🇸🇦 ' + item.ar);
       if (subs.length) html += '<div style="font-size:0.7rem;color:#999;">' + subs.join(' &nbsp; ') + '</div>';
       html += '</div>';
-      html += '<button onclick="FieldReport._editItem(\'' + crop + '\',\'' + type + '\',' + i + ')" style="border:none;background:none;cursor:pointer;font-size:0.85rem;" title="' + tt('ערוך', 'แก้ไข', 'تعديل') + '">✏️</button>';
-      html += '<button onclick="FieldReport._removeItem(\'' + crop + '\',\'' + type + '\',' + i + ')" style="border:none;background:none;cursor:pointer;font-size:0.85rem;">🗑️</button>';
+      if (canEditItem(item)) {
+        html += '<button onclick="FieldReport._editItem(\'' + crop + '\',\'' + type + '\',' + i + ')" style="border:none;background:none;cursor:pointer;font-size:0.85rem;" title="' + tt('ערוך', 'แก้ไข', 'تعديل') + '">✏️</button>';
+        html += '<button onclick="FieldReport._removeItem(\'' + crop + '\',\'' + type + '\',' + i + ')" style="border:none;background:none;cursor:pointer;font-size:0.85rem;">🗑️</button>';
+      } else {
+        html += '<span style="font-size:0.75rem;opacity:.6;" title="' + tt('לצפייה בלבד', 'ดูได้เท่านั้น', 'للعرض فقط') + '">🔒</span>';
+      }
       html += '</div>';
     });
     return html;
@@ -477,6 +487,7 @@ var FieldReport = (function() {
     var data = getListForCrop(crop);
     var list = type === 'pest' ? data.pests : data.diseases;
     if (!list || !list[index]) return;
+    if (!canEditItem(list[index])) { if (window.Own) Own.denied(); return; }
     _showItemEditor(crop, type, index, list[index]);
   }
 
@@ -516,8 +527,13 @@ var FieldReport = (function() {
       // Ensure crop entry exists
       if (!pestLists[crop]) pestLists[crop] = { pests: [], diseases: [] };
       var list = type === 'pest' ? pestLists[crop].pests : pestLists[crop].diseases;
-      if (isNew) { list.push(newItem); }
-      else { list[index] = newItem; }
+      if (isNew) { if (window.Own) Own.stamp(newItem); list.push(newItem); }
+      else {
+        if (!canEditItem(list[index])) { document.getElementById('plItemEditorOverlay').remove(); if (window.Own) Own.denied(); return; }
+        // keep the original author's stamp through an edit
+        ['createdBy', 'createdByName', 'createdAt'].forEach(function(k) { if (list[index] && list[index][k] != null) newItem[k] = list[index][k]; });
+        list[index] = newItem;
+      }
       savePestLists();
 
       document.getElementById('plItemEditorOverlay').remove();
@@ -530,9 +546,11 @@ var FieldReport = (function() {
   }
 
   function _removeItem(crop, type, index) {
-    if (!confirm(tt('למחוק?', 'ลบ?', 'حذف؟'))) return;
     if (!pestLists[crop]) return;
     var list = type === 'pest' ? pestLists[crop].pests : pestLists[crop].diseases;
+    if (!list || !list[index]) return;
+    if (!canEditItem(list[index])) { if (window.Own) Own.denied(); return; }
+    if (!confirm(tt('למחוק?', 'ลบ?', 'حذف؟'))) return;
     list.splice(index, 1);
     savePestLists();
     showPestListAdmin(crop);
@@ -613,10 +631,10 @@ var FieldReport = (function() {
       locations: document.getElementById('frLocations').value,
       recommendation: document.getElementById('frRecommendation').value.trim(),
       notes: document.getElementById('frNotes').value.trim(),
-      photos: _photos.map(function(p) { return p.name; }),
-      createdBy: window.currentUser ? window.currentUser.username : '',
-      createdAt: Date.now()
+      photos: _photos.map(function(p) { return p.name; })
     };
+    if (window.Own) Own.stamp(report);
+    else { report.createdBy = window.currentUser ? window.currentUser.username : ''; report.createdAt = Date.now(); }
 
     if (!report.date || (!report.pest && !report.disease)) {
       if (typeof showToast === 'function') showToast('❌ ' + tt('חובה למלא תאריך ומזיק/מחלה', 'ต้องกรอกวันที่และศัตรูพืช/โรค', 'يجب ملء التاريخ والآفة/المرض'));
@@ -736,6 +754,7 @@ var FieldReport = (function() {
       var html = '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;">' +
         '<div style="background:white;border-radius:16px;padding:20px;width:95%;max-width:500px;max-height:85vh;overflow-y:auto;">' +
           '<h3 style="font-weight:700;margin-bottom:14px;">🔬 ' + tt('דוח סיור', 'รายงานตรวจ', 'تقرير فحص') + '</h3>' +
+          (!canEditReport(r) && window.Own ? Own.lockHtml(r) : '') +
           '<div style="display:grid;gap:8px;font-size:0.85rem;">' +
             '<div style="display:flex;justify-content:space-between;padding:8px;background:var(--g6);border-radius:8px;">' +
               '<span>📅 ' + r.date + ' ' + (r.time || '') + '</span>' +
@@ -757,8 +776,9 @@ var FieldReport = (function() {
           '<div style="display:flex;gap:8px;margin-top:14px;">' +
             '<button onclick="FieldReport._exportPDF(' + r.id + ')" style="flex:1;padding:10px;border-radius:10px;border:none;background:#1565c0;color:white;font-family:inherit;font-weight:700;cursor:pointer;">📄 PDF</button>' +
             '<button onclick="FieldReport._shareReport(' + r.id + ')" style="flex:1;padding:10px;border-radius:10px;border:none;background:#7e57c2;color:white;font-family:inherit;font-weight:700;cursor:pointer;">📤 ' + tt('שתף', 'แชร์', 'مشاركة') + '</button>' +
-            '<button onclick="FieldReport._deleteReport(' + r.id + ')" style="padding:10px 14px;border-radius:10px;border:none;background:#f44336;color:white;font-family:inherit;font-weight:700;cursor:pointer;">🗑️</button>' +
+            (canEditReport(r) ? '<button onclick="FieldReport._deleteReport(' + r.id + ')" style="padding:10px 14px;border-radius:10px;border:none;background:#f44336;color:white;font-family:inherit;font-weight:700;cursor:pointer;">🗑️</button>' : '') +
           '</div>' +
+          (window.Comments ? Comments.block('report:' + r.id, tt('דוח סיור', 'รายงานตรวจ', 'تقرير فحص') + ' ' + (r.date || '')) : '') +
           '<button onclick="FieldReport.showReportsList()" style="margin-top:8px;width:100%;padding:10px;border-radius:10px;border:none;background:#eee;font-family:inherit;cursor:pointer;">' + tt('חזרה לרשימה', 'กลับรายการ', 'العودة للقائمة') + '</button>' +
         '</div></div>';
       modal.innerHTML = html;
@@ -850,8 +870,11 @@ var FieldReport = (function() {
   // ── Delete ──
 
   function _deleteReport(reportId) {
-    if (!confirm(tt('למחוק דוח?', 'ลบรายงาน?', 'حذف التقرير؟'))) return;
     loadReports().then(function(reports) {
+      var target = reports.find(function(r) { return r.id === reportId; });
+      if (!target) return;
+      if (!canEditReport(target)) { if (window.Own) Own.denied(); return; }
+      if (!confirm(tt('למחוק דוח?', 'ลบรายงาน?', 'حذف التقرير؟'))) return;
       reports = reports.filter(function(r) { return r.id !== reportId; });
       saveReports(reports);
       showReportsList();

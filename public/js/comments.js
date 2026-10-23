@@ -37,7 +37,7 @@ var Comments = (function () {
     if (now - ms < 86400000) return d.toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' });
     return d.toLocaleDateString(locale(), { day: 'numeric', month: 'short' });
   }
-  function safeKey(k) { return String(k || '').replace(/[^A-Za-z0-9:_\-.]/g, '').slice(0, 100); }
+  function safeKey(k) { return String(k || '').replace(/[\u0000-\u001f"'<>\\]/g, '').slice(0, 100); }
 
   function block(key, title) {
     return '<div class="cmt" data-cmt="' + esc(safeKey(key)) + '"' + (title ? ' data-cmt-title="' + esc(title) + '"' : '') + '></div>';
@@ -111,7 +111,7 @@ var Comments = (function () {
 
   (function css() {
     var st = document.createElement('style'); st.id = 'cmtCss';
-    st.textContent = '.cmt{border-top:1px dashed var(--line,#e4ece0);margin-top:10px;padding-top:8px;display:flex;flex-direction:column;gap:6px;}' +
+    st.textContent = '.cmt{border-top:1px dashed var(--line,#e4ece0);margin:10px 0 14px;padding-top:8px;display:flex;flex-direction:column;gap:6px;}' +
       '.cmt-h{font-weight:700;font-size:.86rem;}.cmt-n{font-weight:500;color:var(--text-muted,#6b786e);}.cmt-mut{font-size:.76rem;color:var(--text-muted,#6b786e);}' +
       '.cmt-list{display:flex;flex-direction:column;gap:6px;max-height:260px;overflow-y:auto;}' +
       '.cmt-c{background:var(--tonal,#f1f4ee);border-radius:12px;padding:7px 10px;}.cmt-c.mine{background:#e8f3df;}' +

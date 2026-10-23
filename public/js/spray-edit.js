@@ -17,6 +17,8 @@
  *
  * Gated to operator+ because firestore.rules only permits operator+ to write
  * plotMapperSprayData — a worker's write would be refused server-side anyway.
+ * Within that, ownership.js narrows it: a non-admin edits / voids / deletes
+ * only records they entered; anyone else's opens read-only with comments.
  */
 var SprayEdit = (function () {
   'use strict';
@@ -35,9 +37,58 @@ var SprayEdit = (function () {
     else alert(msg);
   }
 
-  function canEdit() {
+  // Role gate (operator+, matches firestore.rules) and, when a record is
+  // given, the ownership rule (ownership.js): admin any record, everyone else
+  // only records they entered. Pre-rule records name their author in
+  // enteredBy (username) or, older still, only in operator.
+  function canEdit(ev) {
     var u = window.currentUser || {};
-    return u.role === 'admin' || u.role === 'operator';
+    if (u.role !== 'admin' && u.role !== 'operator') return false;
+    if (!ev || u.role === 'admin' || !window.Own) return true;
+    return Own.canEdit(ev, ev.enteredBy || ev.operator);
+  }
+  function currentEv() {
+    if (!window.SprayStore || editingId == null) return null;
+    return window.SprayStore.getEvents().find(function (e) { return e.id === editingId; }) || null;
+  }
+  // Every write handler re-checks: the modal's buttons are not the only way in.
+  function guard() {
+    var ev = currentEv();
+    if (!ev) { toast('❌ ' + tt('רשומה לא נמצאה', 'ไม่พบบันทึก', 'السجل غير موجود')); return false; }
+    if (!canEdit(ev)) return window.Own ? Own.denied() : false;
+    return true;
+  }
+
+  // A record someone else entered: shown, not editable, open to comments.
+  function readOnly(ev) {
+    var row = function (label, val) {
+      return '<div style="display:flex;gap:8px;font-size:.85rem;margin:3px 0;"><b style="min-width:110px;">' + esc(label) +
+        '</b><span>' + esc(val) + '</span></div>';
+    };
+    var modal = document.getElementById('modalContainer');
+    modal.innerHTML =
+      '<div class="se-backdrop">' +
+        '<div class="se-modal">' +
+          '<h3 class="se-title">🧪 ' + tt('רשומת ריסוס', 'บันทึกการพ่น', 'سجل الرش') + '</h3>' +
+          (window.Own ? Own.lockHtml(ev) : '') +
+          row(fieldLabel('date'), fmtVal('date', ev.date)) +
+          row(fieldLabel('operator'), fmtVal('operator', ev.operator)) +
+          row(fieldLabel('purpose'), fmtVal('purpose', ev.purpose || 'pest')) +
+          row(fieldLabel('volumePerTree'), fmtVal('volumePerTree', ev.volumePerTree) + ' ' + fmtVal('volumeUnit', ev.volumeUnit)) +
+          row(fieldLabel('sprayerCapacity'), fmtVal('sprayerCapacity', ev.sprayerCapacity)) +
+          row(fieldLabel('plotIds'), fmtVal('plotIds', ev.plotIds)) +
+          row(fieldLabel('applications'), fmtVal('applications', ev.applications)) +
+          (ev.gear && ev.gear.length ? row(fieldLabel('gear'), fmtVal('gear', ev.gear)) : '') +
+          (ev.viaIrrigation ? row(fieldLabel('viaIrrigation'), fmtVal('viaIrrigation', true)) : '') +
+          (ev.voided ? '<div class="se-danger-hint">🚫 ' + tt('רשומה מבוטלת', 'บันทึกถูกยกเลิก', 'سجل ملغى') +
+            (ev.voided.reason ? ' — ' + esc(ev.voided.reason) : '') + '</div>' : '') +
+          (window.Comments ? Comments.block('spray:' + ev.id, tt('רשומת ריסוס', 'บันทึกการพ่น', 'سجل الرش') + ' ' + (ev.date || '')) : '') +
+          '<div class="se-actions">' +
+            '<button type="button" class="se-cancel" onclick="SprayEdit.close()">' +
+              tt('סגור', 'ปิด', 'إغلاق') + '</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
   }
 
   function esc(s) {
@@ -160,6 +211,7 @@ var SprayEdit = (function () {
     if (!window.SprayStore) return;
     var ev = window.SprayStore.getEvents().find(function (e) { return e.id === eventId; });
     if (!ev) { toast('❌ ' + tt('רשומה לא נמצאה', 'ไม่พบบันทึก', 'السجل غير موجود')); return; }
+    if (!canEdit(ev)) { editingId = null; readOnly(ev); return; }
 
     editingId = eventId;
     var plots = window.SprayStore.getPlots();
@@ -247,7 +299,8 @@ var SprayEdit = (function () {
               (ev.volumePerTree || 0) + '"></div>' +
             '<div><label class="se-label">' + tt('קיבולת מרסס', 'ความจุถังพ่น', 'سعة الرشاش') + '</label>' +
             '<input type="number" step="1" min="0" id="seCapacity" class="form-input" value="' +
-
+              (ev.sprayerCapacity || 0) + '"></div>' +
+          '</div>' +
         '<label class="se-label">' + tt('מטרת הריסוס', 'วัตถุประสงค์', 'الغرض') + '</label>' +
         '<select id="sePurpose" class="form-input">' +
           ['pest', 'weeds', 'preemerge'].map(function (k) {
@@ -271,8 +324,6 @@ var SprayEdit = (function () {
         '<label class="rt-check"><input type="checkbox" id="seIrr"' +
           (ev.viaIrrigation ? ' checked' : '') + '> ' +
           tt('יישום דרך מערכת ההשקיה', 'ผ่านระบบน้ำ', 'عبر الري') + '</label>' +
-              (ev.sprayerCapacity || 0) + '"></div>' +
-          '</div>' +
 
           '<label class="se-label">' + tt('חלקות', 'แปลง', 'القطع') + '</label>' +
           '<div class="se-plots">' + plotHtml + '</div>' +
@@ -365,6 +416,7 @@ var SprayEdit = (function () {
   }
 
   function save() {
+    if (!guard()) return;
     var reason = document.getElementById('seReason').value.trim();
     if (!reason) {
       toast('❌ ' + tt('חובה לציין סיבת עריכה', 'ต้องระบุเหตุผลการแก้ไข', 'يجب ذكر سبب التعديل'));
@@ -409,6 +461,7 @@ var SprayEdit = (function () {
   }
 
   function hardDelete() {
+    if (!guard()) return;
     if (!confirm(tt('למחוק את הרשומה לחלוטין? הפעולה בלתי הפיכה.',
                     'ลบบันทึกถาวรหรือไม่? ย้อนกลับไม่ได้',
                     'حذف السجل نهائيًا؟ لا يمكن التراجع.'))) return;
@@ -426,6 +479,7 @@ var SprayEdit = (function () {
   }
 
   function voidRec() {
+    if (!guard()) return;
     var reason = document.getElementById('seReason').value.trim();
     if (!reason) {
       toast('❌ ' + tt('ציין סיבה בשדה "סיבת העריכה" לפני ביטול',
@@ -443,6 +497,7 @@ var SprayEdit = (function () {
   }
 
   function unvoid() {
+    if (!guard()) return;
     var reason = document.getElementById('seReason').value.trim();
     var res = window.SprayStore.unvoidEvent(editingId, reason);
     if (!res || !res.ok) { toast('❌ ' + tt('הפעולה נכשלה', 'ไม่สำเร็จ', 'فشلت العملية')); return; }

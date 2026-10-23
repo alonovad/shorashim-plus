@@ -359,7 +359,8 @@ window.BuildPlanInternals = BuildPlanInternals;
         if (v === undefined || v === null || v === '') return;
         dm[k] = (k === 'roofType' || k === 'wallMode' || k === 'roofClad' || /Profile$/.test(k)) ? String(v) : (k === 'walls' ? !!v : Number(v) || 0);
       });
-      return { id: String(m.id), name: String(m.name || '').slice(0, 80), from: String(m.from || '').slice(0, 120), createdAt: Number(m.createdAt) || 0, dims: dm };
+      return { id: String(m.id), name: String(m.name || '').slice(0, 80), from: String(m.from || '').slice(0, 120), createdAt: Number(m.createdAt) || 0,
+               createdBy: String(m.createdBy || ''), createdByName: String(m.createdByName || ''), dims: dm };
     });
   };
 
@@ -677,6 +678,9 @@ window.BuildPlanInternals = BuildPlanInternals;
       maintName: String(x.maintName || ''),
       createdAt: Number(x.createdAt) || Date.now(),
       createdBy: String(x.createdBy || ''),
+      // Ownership (ownership.js): whoever created the project owns it and
+      // everything inside it. Whitelisted here or the loader drops it.
+      createdByName: String(x.createdByName || ''),
       dims: normDim(x.dims),
       // Footprint stored as {lat,lng} objects, never arrays — Firestore has
       // no nested-array type and silently mangles them.
@@ -791,10 +795,69 @@ window.BuildPlanInternals = BuildPlanInternals;
     return out;
   }
 
+  // ── ownership (Oct 2026) ──
+  // Admin changes anything. Everyone else changes only the projects they
+  // created — the project and everything in it (plan, drawings, BOQ, gates,
+  // living unit, footprint). Projects from before the rule carry the old
+  // `createdBy` username, which Own.canEdit matches; unstamped ones are
+  // admin's. Without ownership.js loaded nothing is narrowed.
+  BP.isAdmin = function isAdmin() {
+    if (window.Own) return Own.isAdmin();
+    var u = window.currentUser || {};
+    return u.role === 'admin';
+  };
+  BP.canEditP = function canEditP(p) {
+    if (!p) return false;
+    if (!window.Own) return true;
+    return Own.canEdit(p, p.createdByName || '');
+  };
+  // Guard for a handler: true when the current user may change project
+  // `pOrId`; otherwise shows the "only your own items" toast and is false.
+  BP.guardP = function guardP(pOrId) {
+    var p = (pOrId && typeof pOrId === 'object') ? pOrId : BP.projById(pOrId);
+    if (!p || BP.canEditP(p)) return true;
+    if (window.Own) Own.denied();
+    return false;
+  };
+
+  // Last known stored version of every project, by id. saveP() writes the
+  // whole projects blob, so a non-owner's in-memory change to someone
+  // else's project — from any path, including editors mounted by other
+  // modules — is put back to this before the write instead of being saved.
+  var _snap = {};
+  function snapAll() {
+    _snap = {};
+    (BP.P.projects || []).forEach(function (p) { _snap[String(p.id)] = JSON.stringify(p); });
+  }
+  function revertForeign() {
+    if (!window.Own || BP.isAdmin()) return 0;
+    var n = 0, seen = {};
+    BP.P.projects = (BP.P.projects || []).map(function (p) {
+      seen[String(p.id)] = 1;
+      var was = _snap[String(p.id)];
+      if (!was) return p;                                  // new — stamped as mine
+      var orig = JSON.parse(was);
+      if (BP.canEditP(orig)) return p;
+      if (JSON.stringify(p) === was) return p;
+      n++;
+      return BP.normProject(orig);
+    });
+    Object.keys(_snap).forEach(function (k) {             // deleted by a non-owner
+      if (seen[k]) return;
+      var orig = JSON.parse(_snap[k]);
+      if (BP.canEditP(orig)) return;
+      BP.P.projects.push(BP.normProject(orig));
+      n++;
+    });
+    if (n) console.warn('[buildplan] reverted ' + n + ' change(s) to projects owned by someone else');
+    return n;
+  }
+
   BP.loadAll = function loadAll() {
     return Promise.all([DB.loadAsync(PROJ_KEY), DB.loadAsync(CAT_KEY)]).then(function (r) {
       var d = r[0] || {};
       BP.P = { projects: Array.isArray(d.projects) ? d.projects.map(BP.normProject) : [], myModels: BP.normMyModels(d.myModels) };
+      snapAll();
       BP.C = normCat(r[1]);
       return true;
     });
@@ -807,6 +870,7 @@ window.BuildPlanInternals = BuildPlanInternals;
       if (JSON.stringify(d) === _lastP) return;
       if (Date.now() - _selfWriteAt < SELF_WRITE_MS) return;   // our own echo
       BP.P = { projects: (d && Array.isArray(d.projects)) ? d.projects.map(BP.normProject) : [], myModels: BP.normMyModels(d && d.myModels) };
+      snapAll();
       BP.drawFootprints();
       if (BP.isOpen()) BP.repaint();
     });
@@ -820,14 +884,17 @@ window.BuildPlanInternals = BuildPlanInternals;
 
   BP.saveP = function saveP() {
     if (!BP.isManager()) { BP.toast('\u26d4 ' + BP.tt('אין הרשאה', 'ไม่มีสิทธิ์', 'لا صلاحية')); return; }
+    revertForeign();
     var clean = JSON.parse(JSON.stringify(BP.P));
+    snapAll();
     _lastP = JSON.stringify(clean);
     _selfWriteAt = Date.now();
     DB.save(PROJ_KEY, clean);
     BP.drawFootprints();
   };
+  // The catalogue belongs to the owner: only admin writes it.
   BP.saveC = function saveC() {
-    if (!BP.isManager()) { BP.toast('\u26d4 ' + BP.tt('אין הרשאה', 'ไม่มีสิทธิ์', 'لا صلاحية')); return; }
+    if (!BP.isManager() || !BP.isAdmin()) { BP.toast('\u26d4 ' + BP.tt('רק מנהל המערכת יכול לערוך את הקטלוג', 'เฉพาะผู้ดูแลระบบแก้ไขแคตตาล็อกได้', 'المسؤول فقط يمكنه تعديل الكتالوج')); return; }
     var clean = JSON.parse(JSON.stringify(BP.C));
     _lastC = JSON.stringify(clean);
     _selfWriteAt = Date.now();

@@ -95,6 +95,10 @@ var Orders = (function () {
   // Money and quantities are summed unrounded and rounded once, at display.
   // Rounding per line and summing the rounded values is how a report ends up
   // disagreeing with the spreadsheet it was built from.
+  // Ownership (Oct 2026): an order or a supplier card is its creator's.
+  // Legacy orders carry createdBy = username, which Own.canEdit matches.
+  function canEd(x) { return !window.Own || Own.canEdit(x, x && x.createdByName); }
+  function owned(x) { return canEd(x) ? true : (window.Own ? Own.denied() : false); }
   function n2(x) { return Math.round((Number(x) || 0) * 100) / 100; }
   function money(x) {
     return '\u20aa' + (Math.round((Number(x) || 0) * 100) / 100)
@@ -115,6 +119,9 @@ var Orders = (function () {
           phone: String(x.phone || ''),
           email: String(x.email || ''),
           notes: String(x.notes || ''),
+          createdBy: String(x.createdBy || ''),
+          createdByName: String(x.createdByName || ''),
+          createdAt: Number(x.createdAt) || 0,
           items: Array.isArray(x.items) ? x.items.map(function (it) {
             return {
               id: it.id || uid(),
@@ -148,6 +155,7 @@ var Orders = (function () {
           notes: String(o.notes || ''),
           createdAt: Number(o.createdAt) || Date.now(),
           createdBy: String(o.createdBy || ''),
+          createdByName: String(o.createdByName || ''),
           sentAt: Number(o.sentAt) || 0,
           lines: Array.isArray(o.lines) ? o.lines.map(function (l) {
             return {
@@ -523,10 +531,11 @@ var Orders = (function () {
       neededBy: d.neededBy || '',
       notes: '',
       createdAt: Date.now(),
-      createdBy: u.username || '',
+      createdBy: window.Own ? '' : (u.username || ''),
       sentAt: 0,
       lines: d.lines.filter(function (l) { return l.name && l.qty > 0; })
     };
+    if (window.Own) Own.stamp(o);
     O.orders.push(o);
     saveOrd();
     if (window.Audit && Audit.log) Audit.log('create', 'orders', String(o.id), { after: o });
@@ -556,17 +565,18 @@ var Orders = (function () {
           (l.price ? ' \u00b7 ' + money(l.qty * l.price) : ' \u00b7 \u2014') + '</span></div>';
     });
 
-    var statusSel = '<select onchange="Orders._setStatus(' + o.id + ',this.value)" ' +
+    var mine = canEd(o);
+    var statusSel = !mine ? '<span class="ord-pill" style="background:' + statusColor(o.status) + ';">' + statusLabel(o.status) + '</span>' : '<select onchange="Orders._setStatus(' + o.id + ',this.value)" ' +
       'style="padding:7px;border-radius:8px;border:1px solid var(--border,#ccc);font-family:inherit;' +
       'background:var(--surface,#fff);color:var(--text,#222);">';
     STATUS.forEach(function (s) {
       statusSel += '<option value="' + s.v + '"' + (o.status === s.v ? ' selected' : '') + '>' +
         statusLabel(s.v) + '</option>';
     });
-    statusSel += '</select>';
+    if (mine) statusSel += '</select>';
 
     var sup = supById(o.supplierId);
-    var body = '<div class="ord-card">' +
+    var body = (!mine && window.Own ? Own.lockHtml(o) : '') + '<div class="ord-card">' +
       '<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center;">' +
         '<strong>' + esc(o.no) + '</strong>' + statusSel + '</div>' +
       '<div style="font-size:.8rem;color:var(--text-muted,#888);margin-top:6px;">\ud83c\udfea ' +
@@ -580,7 +590,8 @@ var Orders = (function () {
         '<span>' + tt('סה"כ', 'รวม', 'المجموع') + '</span><span>' + money(t.sum) + '</span></div>' +
       (t.unpriced ? '<div style="font-size:.76rem;color:#e65100;">\u26a0\ufe0f ' + t.unpriced + ' ' +
         tt('שורות ללא מחיר', 'ไม่มีราคา', 'بدون سعر') + '</div>' : '') +
-    '</div>';
+    '</div>' +
+    (window.Comments ? Comments.block('order:' + o.id, o.no) : '');
 
     var bar =
       '<button class="ord-btn" onclick="Orders.printOrder(' + o.id + ')">\ud83d\udda8 ' +
@@ -589,8 +600,8 @@ var Orders = (function () {
         tt('שליחה בוואטסאפ', 'ส่ง WhatsApp', 'إرسال واتساب') + '</button>' : '') +
       (sup && sup.email ? '<button class="ord-btn ghost" onclick="Orders.sendEmail(' + o.id + ')">\u2709\ufe0f ' +
         tt('שליחה במייל', 'ส่งอีเมล', 'إرسال بريد') + '</button>' : '') +
-      '<button class="ord-btn warn" onclick="Orders._delOrder(' + o.id + ')">\ud83d\uddd1 ' +
-        tt('מחיקה', 'ลบ', 'حذف') + '</button>' +
+      (mine ? '<button class="ord-btn warn" onclick="Orders._delOrder(' + o.id + ')">\ud83d\uddd1 ' +
+        tt('מחיקה', 'ลบ', 'حذف') + '</button>' : '') +
       '<button class="ord-btn ghost" onclick="Orders.render()">\u21a9 ' +
         tt('חזרה', 'กลับ', 'رجوع') + '</button>';
 
@@ -600,6 +611,7 @@ var Orders = (function () {
   function _setStatus(id, v) {
     var o = ordById(id);
     if (!o) return;
+    if (!owned(o)) { showOrder(id); return; }
     var before = JSON.parse(JSON.stringify(o));
     o.status = v;
     if (v === 'sent' && !o.sentAt) o.sentAt = Date.now();
@@ -609,6 +621,7 @@ var Orders = (function () {
   }
 
   function _delOrder(id) {
+    if (!owned(ordById(id))) return;
     if (!confirm(tt('למחוק את ההזמנה?', 'ลบใบสั่งซื้อ?', 'حذف الطلب؟'))) return;
     var before = ordById(id);
     O.orders = (O.orders || []).filter(function (o) { return o.id !== id; });
@@ -638,7 +651,7 @@ var Orders = (function () {
     var phone = String((sup && sup.phone) || '').replace(/[^\d]/g, '');
     if (phone.indexOf('0') === 0) phone = '972' + phone.slice(1);
     window.open('https://wa.me/' + phone + '?text=' + encodeURIComponent(orderText(o)), '_blank');
-    if (o.status === 'draft') _setStatus(id, 'sent');
+    if (o.status === 'draft' && canEd(o)) _setStatus(id, 'sent');
   }
 
   function sendEmail(id) {
@@ -649,7 +662,7 @@ var Orders = (function () {
     window.location.href = 'mailto:' + encodeURIComponent((sup && sup.email) || '') +
       '?subject=' + encodeURIComponent(o.no + ' \u2014 ' + o.title) +
       '&body=' + encodeURIComponent(orderText(o));
-    if (o.status === 'draft') _setStatus(id, 'sent');
+    if (o.status === 'draft' && canEd(o)) _setStatus(id, 'sent');
   }
 
   // Print colours are hardcoded on purpose: the report opens in a bare tab
@@ -706,51 +719,51 @@ var Orders = (function () {
         'ยังไม่มีผู้ขาย', 'لا يوجد موردون') + '</div>';
     }
     (S.suppliers || []).forEach(function (s) {
-      var items = '';
+      var items = '', mine = canEd(s), ro = mine ? '' : ' readonly';
       (s.items || []).forEach(function (it, i) {
         items += '<div class="ord-row">' +
           '<input value="' + esc(it.name) + '" placeholder="' + tt('פריט', 'รายการ', 'صنف') +
-            '" oninput="Orders._setItem(' + s.id + ',' + i + ',\'name\',this.value)">' +
+            '"' + ro + ' oninput="Orders._setItem(' + s.id + ',' + i + ',\'name\',this.value)">' +
           '<input value="' + esc(it.sku) + '" placeholder="' + tt('מק"ט', 'รหัส', 'رمز') +
-            '" oninput="Orders._setItem(' + s.id + ',' + i + ',\'sku\',this.value)">' +
+            '"' + ro + ' oninput="Orders._setItem(' + s.id + ',' + i + ',\'sku\',this.value)">' +
           '<input value="' + esc(it.unit) + '" placeholder="' + tt('יח\'', 'หน่วย', 'وحدة') +
-            '" oninput="Orders._setItem(' + s.id + ',' + i + ',\'unit\',this.value)">' +
+            '"' + ro + ' oninput="Orders._setItem(' + s.id + ',' + i + ',\'unit\',this.value)">' +
           '<input class="ord-hide-sm" type="number" step="any" value="' + (it.price || '') + '" ' +
-            'placeholder="' + tt('מחיר', 'ราคา', 'سعر') + '" ' +
+            'placeholder="' + tt('מחיר', 'ราคา', 'سعر') + '"' + ro + ' ' +
             'oninput="Orders._setItem(' + s.id + ',' + i + ',\'price\',this.value)">' +
-          '<button class="ord-btn warn" style="padding:6px 8px;" ' +
-            'onclick="Orders._delItem(' + s.id + ',' + i + ')">\ud83d\uddd1</button>' +
+          (mine ? '<button class="ord-btn warn" style="padding:6px 8px;" ' +
+            'onclick="Orders._delItem(' + s.id + ',' + i + ')">\ud83d\uddd1</button>' : '<span></span>') +
         '</div>';
       });
 
-      body += '<div class="ord-card">' +
+      body += '<div class="ord-card">' + (!mine && window.Own ? Own.lockHtml(s) : '') +
         '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px;">' +
           '<input value="' + esc(s.name) + '" placeholder="' + tt('שם ספק', 'ชื่อผู้ขาย', 'اسم المورّد') +
             '" style="padding:8px;border-radius:8px;border:1px solid var(--border,#ccc);font-family:inherit;' +
             'font-weight:700;background:var(--surface,#fff);color:var(--text,#222);" ' +
-            'oninput="Orders._setSup(' + s.id + ',\'name\',this.value)">' +
+            ro + ' oninput="Orders._setSup(' + s.id + ',\'name\',this.value)">' +
           '<input value="' + esc(s.contact) + '" placeholder="' + tt('איש קשר', 'ผู้ติดต่อ', 'جهة الاتصال') +
             '" style="padding:8px;border-radius:8px;border:1px solid var(--border,#ccc);font-family:inherit;' +
             'background:var(--surface,#fff);color:var(--text,#222);" ' +
-            'oninput="Orders._setSup(' + s.id + ',\'contact\',this.value)">' +
+            ro + ' oninput="Orders._setSup(' + s.id + ',\'contact\',this.value)">' +
           '<input value="' + esc(s.phone) + '" placeholder="' + tt('טלפון', 'โทร', 'هاتف') +
             '" style="padding:8px;border-radius:8px;border:1px solid var(--border,#ccc);font-family:inherit;' +
             'background:var(--surface,#fff);color:var(--text,#222);" ' +
-            'oninput="Orders._setSup(' + s.id + ',\'phone\',this.value)">' +
+            ro + ' oninput="Orders._setSup(' + s.id + ',\'phone\',this.value)">' +
           '<input value="' + esc(s.email) + '" placeholder="' + tt('אימייל', 'อีเมล', 'بريد') +
             '" style="padding:8px;border-radius:8px;border:1px solid var(--border,#ccc);font-family:inherit;' +
             'background:var(--surface,#fff);color:var(--text,#222);" ' +
-            'oninput="Orders._setSup(' + s.id + ',\'email\',this.value)">' +
+            ro + ' oninput="Orders._setSup(' + s.id + ',\'email\',this.value)">' +
         '</div>' +
         '<div class="ord-lbl" style="margin-bottom:4px;">' +
           tt('קטלוג ומחירים', 'แคตตาล็อก', 'الكتالوج') + ' (' + (s.items || []).length + ')</div>' +
         items +
-        '<div style="display:flex;gap:6px;margin-top:6px;">' +
+        (mine ? '<div style="display:flex;gap:6px;margin-top:6px;">' +
           '<button class="ord-btn ghost" onclick="Orders._addItem(' + s.id + ')">\u2795 ' +
             tt('פריט', 'รายการ', 'صنف') + '</button>' +
           '<button class="ord-btn warn" onclick="Orders._delSup(' + s.id + ')">\ud83d\uddd1 ' +
             tt('מחק ספק', 'ลบผู้ขาย', 'حذف المورّد') + '</button>' +
-        '</div>' +
+        '</div>' : '') +
       '</div>';
     });
 
@@ -766,10 +779,13 @@ var Orders = (function () {
   }
 
   function _addSup() {
-    S.suppliers.push({ id: uid(), name: '', contact: '', phone: '', email: '', notes: '', items: [] });
+    var ns = { id: uid(), name: '', contact: '', phone: '', email: '', notes: '', items: [] };
+    if (window.Own) Own.stamp(ns);
+    S.suppliers.push(ns);
     renderSuppliers();
   }
   function _delSup(id) {
+    if (!owned(supById(id))) return;
     if (!confirm(tt('למחוק את הספק?', 'ลบผู้ขาย?', 'حذف المورّد؟'))) return;
     S.suppliers = S.suppliers.filter(function (s) { return s.id !== id; });
     saveSup();
@@ -777,24 +793,24 @@ var Orders = (function () {
   }
   function _setSup(id, k, v) {
     var s = supById(id);
-    if (s) s[k] = v;
+    if (s && canEd(s)) s[k] = v;
   }
   function _addItem(id) {
     var s = supById(id);
-    if (!s) return;
+    if (!s || !owned(s)) return;
     s.items.push({ id: uid(), name: '', sku: '', unit: UNITS[0], price: 0 });
     renderSuppliers();
   }
   function _delItem(id, i) {
     var s = supById(id);
-    if (!s) return;
+    if (!s || !owned(s)) return;
     s.items.splice(i, 1);
     saveSup();
     renderSuppliers();
   }
   function _setItem(id, i, k, v) {
     var s = supById(id);
-    if (!s || !s.items[i]) return;
+    if (!s || !s.items[i] || !canEd(s)) return;
     s.items[i][k] = (k === 'price') ? (Number(v) || 0) : v;
   }
   // Explicit save: the inputs above mutate state without writing, so typing

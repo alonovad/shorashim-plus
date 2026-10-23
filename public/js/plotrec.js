@@ -73,6 +73,16 @@ var PlotRec = (function () {
     var k = Object.keys(table).find(function (x) { return c.indexOf(x) !== -1 || x.indexOf(c) !== -1; });
     return k || '';
   }
+  // Ownership rule: a crop's coefficient table belongs to whoever set it
+  // (D.kcBy[crop]); the built-in defaults are admin's. A crop with neither
+  // may be set by any manager, who then owns it.
+  function kcMayEdit(key) {
+    if (!window.Own || Own.isAdmin()) return true;
+    var meta = (D.kcBy || {})[key];
+    if (meta) return Own.canEdit(meta);
+    return !(D.kc || {})[key] && !cropKey(key, DEFAULT_KC);
+  }
+  function kcStamp(key) { D.kcBy = D.kcBy || {}; if (!D.kcBy[key] && window.Own) D.kcBy[key] = Own.stamp({}); }
   function kcFor(crop) {
     var own = D.kc || {}, k = cropKey(crop, own);
     if (k) return { key: k, m: own[k], own: true };
@@ -88,7 +98,8 @@ var PlotRec = (function () {
   function norm(d) {
     d = d && typeof d === 'object' ? d : {};
     return { kc: d.kc && typeof d.kc === 'object' ? d.kc : {}, recs: Array.isArray(d.recs) ? d.recs : [],
-             auto: d.auto && typeof d.auto === 'object' ? d.auto : {}, sources: Array.isArray(d.sources) ? d.sources : [] };
+             auto: d.auto && typeof d.auto === 'object' ? d.auto : {}, sources: Array.isArray(d.sources) ? d.sources : [],
+             kcBy: d.kcBy && typeof d.kcBy === 'object' ? d.kcBy : {} };
   }
   function load() {
     if (typeof DB === 'undefined') { D = norm(null); return Promise.resolve(); }
@@ -214,6 +225,7 @@ var PlotRec = (function () {
                doneBy: per.by, doneAt: per.at, src: r.source || '', kind: 'manual', month: r.month || null };
     }).filter(function (t) { return !t.month || t.month === new Date().getMonth() + 1 || t.status !== 'open' || t.due; });
   }
+  function stampR(r) { if (window.Own) Own.stamp(r); return r; }
   function setStatus(t, status, due) {
     var u = window.currentUser || {}, rec = { status: status, by: u.name || u.username || '', at: Date.now() };
     if (due) rec.due = due;
@@ -283,7 +295,8 @@ var PlotRec = (function () {
     if (ui.tab === 'fert') return fertCard(true);
     if (ui.tab === 'info') return infoTab();
     if (ui.tab === 'src') return srcTab();
-    return irrCard(ic) + fertCard(false) + tasksCard() + srcChips();
+    return irrCard(ic) + fertCard(false) + tasksCard() + srcChips() +
+      (window.Comments ? '<div class="pr-card">' + Comments.block('plot:' + ctx.plot.id, ctx.plot.name) + '</div>' : '');
   }
 
   function irrCard(ic) {
@@ -305,7 +318,7 @@ var PlotRec = (function () {
   }
 
   function irrTab(ic) {
-    var p = ctx.plot, kc = ic.kc, cur = new Date().getMonth(), w = ctx.wx;
+    var p = ctx.plot, kc = ic.kc, cur = new Date().getMonth(), w = ctx.wx, kcKey0 = kc.key || String(p.crop_type || '').trim(), kcEd = !!kcKey0 && staff() && kcMayEdit(kcKey0);
     var week = '';
     if (w && (w.et0d || []).length) {
       week = '<div class="pr-wrap"><table class="pr-tbl"><thead><tr><th>' + tt('יום', 'วัน', 'اليوم') + '</th><th>ET0</th><th>' + tt('מ״ק/ד׳', 'ลบ.ม./ไร่', 'م³/دونم') + '</th><th>' + tt('ל׳/עץ', 'ลิตร/ต้น', 'ل/شجرة') + '</th><th>' + tt('מ״ק לחלקה', 'ลบ.ม./แปลง', 'م³ للقطعة') + '</th></tr></thead><tbody>' +
@@ -318,7 +331,7 @@ var PlotRec = (function () {
     for (var i = 0; i < 12; i++) {
       var e = (kc.m || [])[i] || null;
       rows += '<tr' + (i === cur ? ' class="cur"' : '') + '><td>' + monthName(i) + '</td>' +
-        (staff() ? '<td><input class="form-input pr-kv" data-m="' + i + '" type="number" step="0.01" min="0" value="' + (e ? e.v : '') + '" inputmode="decimal"></td>' +
+        (kcEd ? '<td><input class="form-input pr-kv" data-m="' + i + '" type="number" step="0.01" min="0" value="' + (e ? e.v : '') + '" inputmode="decimal"></td>' +
                    '<td><select class="form-input pr-ku" data-m="' + i + '">' + ['frac', 'ltmm', 'm3d'].map(function (u) { return '<option value="' + u + '"' + ((e ? e.u : 'frac') === u ? ' selected' : '') + '>' + unitLabel(u) + '</option>'; }).join('') + '</select></td>'
                  : '<td class="n">' + (e ? ltr(e.v) : '—') + '</td><td>' + (e ? unitLabel(e.u) : '') + '</td>') +
         '<td class="pr-mut">' + esc(e ? e.src : '') + '</td></tr>';
@@ -327,7 +340,8 @@ var PlotRec = (function () {
       '<div class="pr-mut">' + tt('ET0 = התאדות מחושבת במ״מ ליום; 1 מ״מ = 1 מ״ק לדונם. מרווח השקיה 1–4 ימים לפי קרקע וגיל המטע.', 'ET0 = การระเหยเป็นมม./วัน', 'ET0 = التبخر مم/يوم') + '</div></div>' +
       '<div class="pr-card"><div class="pr-ch"><b>' + tt('מקדמי השקיה —', 'ค่าสัมประสิทธิ์ —', 'معاملات الري —') + ' ' + esc(kc.key || p.crop_type || '') + '</b>' + (kc.own ? '' : '<span class="pr-badge">' + tt('ברירת מחדל', 'ค่าเริ่มต้น', 'افتراضي') + '</span>') + '</div>' +
         '<div class="pr-wrap"><table class="pr-tbl"><thead><tr><th>' + tt('חודש', 'เดือน', 'الشهر') + '</th><th>' + tt('ערך', 'ค่า', 'القيمة') + '</th><th>' + tt('יחידה', 'หน่วย', 'الوحدة') + '</th><th>' + tt('מקור', 'ที่มา', 'المصدر') + '</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
-        (staff() ? '<div class="pr-row"><button class="pr-btn pri" data-a="kcsave">💾 ' + tt('שמור מקדמים לגידול', 'บันทึก', 'حفظ المعاملات') + '</button>' +
+        (!kcEd && staff() && window.Own ? Own.lockHtml((D.kcBy || {})[kc.key] || {}) : '') +
+        (kcEd ? '<div class="pr-row"><button class="pr-btn pri" data-a="kcsave">💾 ' + tt('שמור מקדמים לגידול', 'บันทึก', 'حفظ المعاملات') + '</button>' +
           (isDate(p.crop_type) ? '<button class="pr-btn" data-a="shaham">' + tt('החל מקדמי שה״ם 2025 (פבר׳–מאי)', 'ใช้ค่าของ Shaham 2025', 'تطبيق معاملات شاهام 2025') + '</button>' : '') +
           (kc.own ? '<button class="pr-btn ghost" data-a="kcreset">' + tt('חזור לברירת מחדל', 'คืนค่าเริ่มต้น', 'استعادة الافتراضي') + '</button>' : '') + '</div>' : '') +
         '<div class="pr-mut">' + tt('המקדמים חלים על כל החלקות של הגידול בכל המשקים.', 'ใช้กับทุกแปลงของพืชนี้', 'تنطبق على كل قطع هذا المحصول') + '</div></div>';
@@ -446,7 +460,7 @@ var PlotRec = (function () {
       D.sources.slice().reverse().map(function (s) {
         return '<div class="pr-srow"><span class="pr-si o">✓</span><div><b>' + esc(s.title) + '</b><small>' + esc([s.publisher, s.crop, s.period, s.added ? new Date(s.added).toLocaleDateString(locale()) : '', s.by].filter(Boolean).join(' · ')) + '</small></div>' +
           (s.url ? '<a class="pr-btn" target="_blank" rel="noopener" href="' + esc(s.url) + '">🔗</a>' : '') +
-          (staff() ? '<button class="pr-btn ghost" data-delsrc="' + esc(String(s.id)) + '">🗑</button>' : '') + '</div>';
+          (staff() && (!window.Own || Own.canEdit(s, s.by)) ? '<button class="pr-btn ghost" data-delsrc="' + esc(String(s.id)) + '">🗑</button>' : '') + '</div>';
       }).join('') +
       '<div class="pr-note">' + tt('כל המלצה שומרת את המקור והתאריך שלה. מקדם שיובא מחליף את הקודם לאותם חודשים של אותו גידול.', 'ทุกคำแนะนำเก็บแหล่งที่มาและวันที่', 'كل توصية تحفظ مصدرها وتاريخها') + (crops.length ? '' : '') + '</div>';
   }
@@ -522,15 +536,17 @@ var PlotRec = (function () {
       if (!cb || !cb.checked || !(x.month >= 1 && x.month <= 12)) return;
       cur[x.month - 1] = { v: Number(x.value), u: x.unit, src: label.slice(0, 80) }; nm++;
     });
-    if (nm) D.kc[k] = cur;
+    if (nm && !kcMayEdit(k)) { nm = 0; toast('🔒 ' + tt('מקדמי הגידול שייכים למנהל המערכת — נשמרו רק המשימות והמקור', 'ค่าสัมประสิทธิ์เป็นของผู้ดูแล', 'معاملات المحصول تخص المسؤول')); }
+    if (nm) { D.kc[k] = cur; kcStamp(k); }
     var nt = 0;
     (res.tasks || []).forEach(function (t, i) {
       var cb = document.querySelector('.pr-it[data-i="' + i + '"]');
       if (!cb || !cb.checked) return;
-      D.recs.push({ id: uid() + i, scope: { crop: crop }, title: String(t.title || '').slice(0, 120), text: String(t.text || '').slice(0, 400), month: t.month || null, due: '', status: 'open', source: label.slice(0, 80), created: Date.now(), by: src.by });
+      D.recs.push(stampR({ id: uid() + i, scope: { crop: crop }, title: String(t.title || '').slice(0, 120), text: String(t.text || '').slice(0, 400), month: t.month || null, due: '', status: 'open', source: label.slice(0, 80), created: Date.now(), by: src.by }));
       nt++;
     });
     src.items = nm + nt;
+    if (window.Own) Own.stamp(src);
     D.sources.push(src);
     persist().then(function (ok) {
       if (ok) toast('✅ ' + tt('הוחל', 'ใช้แล้ว', 'طُبّق') + ': ' + nm + ' ' + tt('חודשים', 'เดือน', 'أشهر') + ', ' + nt + ' ' + tt('משימות', 'งาน', 'مهام'));
@@ -560,6 +576,8 @@ var PlotRec = (function () {
     if (g && window.Knowledge) { Knowledge.openItem(g.getAttribute('data-guide')); return; }
     var ds = t.closest('[data-delsrc]');
     if (ds) {
+      var srcObj = D.sources.find(function (x) { return String(x.id) === ds.getAttribute('data-delsrc'); });
+      if (window.Own && !Own.canEdit(srcObj, srcObj && srcObj.by)) { Own.denied(); return; }
       if (!confirm(tt('להסיר את המקור מהרשימה? (מקדמים ומשימות שהוחלו נשארים)', 'ลบแหล่งที่มา?', 'إزالة المصدر؟'))) return;
       D.sources = D.sources.filter(function (s) { return String(s.id) !== ds.getAttribute('data-delsrc'); });
       persist().then(refreshBody); return;
@@ -590,13 +608,14 @@ var PlotRec = (function () {
       var ti = document.getElementById('prFT').value.trim(); if (!ti) { toast('❌ ' + tt('חסרה כותרת', 'ไม่มีหัวข้อ', 'العنوان ناقص')); return; }
       var sc = document.getElementById('prFS').value, scope = sc === 'plot' ? { plotId: ctx.plot.id } : sc === 'crop' ? { crop: ctx.plot.crop_type, farmId: ctx.farm.id } : { farmId: ctx.farm.id };
       var uu = window.currentUser || {};
-      D.recs.push({ id: uid(), scope: scope, title: ti, text: document.getElementById('prFX').value.trim(), due: document.getElementById('prFD').value || '', status: 'open', source: tt('ידני', 'เพิ่มเอง', 'يدوي') + ' · ' + (uu.name || uu.username || ''), created: Date.now(), by: uu.name || uu.username || '' });
+      D.recs.push(stampR({ id: uid(), scope: scope, title: ti, text: document.getElementById('prFX').value.trim(), due: document.getElementById('prFD').value || '', status: 'open', source: tt('ידני', 'เพิ่มเอง', 'يدوي') + ' · ' + (uu.name || uu.username || ''), created: Date.now(), by: uu.name || uu.username || '' }));
       ui.form = null; persist().then(refreshBody); return;
     }
     if (k === 'kcsave' || k === 'shaham' || k === 'kcreset') {
       var kc = kcFor(ctx.plot.crop_type), key = kc.key || String(ctx.plot.crop_type || '').trim();
       if (!key) return;
-      if (k === 'kcreset') { delete D.kc[key]; }
+      if (!kcMayEdit(key)) { if (window.Own) Own.denied(); return; }
+      if (k === 'kcreset') { delete D.kc[key]; if (D.kcBy) delete D.kcBy[key]; }
       else {
         var arr = [];
         for (var i = 0; i < 12; i++) {
@@ -608,7 +627,7 @@ var PlotRec = (function () {
           arr.push({ v: val, u: unit, src: same ? old.src : tt('ידני', 'เพิ่มเอง', 'يدوي') + ' · ' + ((window.currentUser || {}).name || '') });
         }
         if (k === 'shaham') Object.keys(SHAHAM_DATE).forEach(function (mi) { arr[Number(mi)] = { v: SHAHAM_DATE[mi], u: 'ltmm', src: SRC_SHAHAM }; });
-        D.kc[key] = arr;
+        D.kc[key] = arr; kcStamp(key);
       }
       persist().then(function (ok) { if (ok) toast('✅ ' + tt('נשמר', 'บันทึกแล้ว', 'تم الحفظ')); render(); });
       return;

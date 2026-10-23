@@ -34,6 +34,8 @@ var Fleet = (function () {
   }
   function toast(m) { if (typeof showToast === 'function') showToast(m); }
   function S() { return window.SprayStore || {}; }
+  // Ownership (Oct 2026): a vehicle is whoever registered it; legacy vehicles count as admin's.
+  function canEd(v) { return !window.Own || Own.canEdit(v); }
   function today() { return new Date().toISOString().slice(0, 10); }
   function day(d) { try { return d ? new Date(d + 'T00:00:00').toLocaleDateString('he-IL') : ''; } catch (e) { return d || ''; } }
 
@@ -147,7 +149,9 @@ var Fleet = (function () {
       : (v.loan ? '<span class="fl-loan">↗️ ' + tt('בניוד אל', 'อยู่ที่', 'معار إلى') + ' ' + esc(v.loan.toName) + '</span><div class="fl-home">' + tt('מאז', 'ตั้งแต่', 'منذ') + ' ' + day(v.loan.start) + '</div>'
         : '<span class="fl-home">' + tt('במשק', 'ที่ฟาร์ม', 'في المزرعة') + '</span>');
     var acts = '';
-    if (!compact && can) {
+    if (!compact && can && !canEd(v)) {
+      if (!inbound) acts += '<button class="fl-act" data-fl-edit="' + v.id + '" title="' + esc(tt('לצפייה ולתגובות בלבד', 'ดูและแสดงความคิดเห็นเท่านั้น', 'للعرض والتعليق فقط')) + '">🔒 👁</button>';
+    } else if (!compact && can) {
       if (!inbound) acts += '<button class="fl-act" data-fl-edit="' + v.id + '">✏️</button>';
       if (v.loan) acts += '<button class="fl-act" data-fl-ret="' + v.id + '" data-fl-home="' + v.home + '">↩️ ' + tt('החזר', 'คืน', 'إرجاع') + '</button>';
       else if (!inbound) acts += '<button class="fl-act" data-fl-loan="' + v.id + '">🔁 ' + tt('נייד', 'ย้าย', 'نقل') + '</button>';
@@ -227,15 +231,17 @@ var Fleet = (function () {
     var v = vid ? data.own.find(function (x) { return x.id === vid; }) : null;
     var isNew = !v;
     v = v || { kind: 'tractor' };
+    var ro = !isNew && !canEd(v), dis = ro ? ' disabled' : '';
     var f = fields(v);
     function inp(id, label, val, type, cls) {
       return '<div class="form-group' + (cls ? ' ' + cls : '') + '"><label class="form-label">' + label + '</label>' +
-        '<input class="form-input" id="' + id + '" type="' + (type || 'text') + '" value="' + esc(val || '') + '"' + (id === 'flPlate' ? ' dir="ltr"' : '') + '></div>';
+        '<input class="form-input" id="' + id + '" type="' + (type || 'text') + '" value="' + esc(val || '') + '"' + (id === 'flPlate' ? ' dir="ltr"' : '') + dis + '></div>';
     }
-    modal('<h2>' + (isNew ? '➕ ' + tt('כלי חדש', 'ยานพาหนะใหม่', 'مركبة جديدة') : '✏️ ' + esc(v.name)) + '</h2>' +
+    modal('<h2>' + (isNew ? '➕ ' + tt('כלי חדש', 'ยานพาหนะใหม่', 'مركبة جديدة') : (ro ? '🚛 ' : '✏️ ') + esc(v.name)) + '</h2>' +
+      (ro && window.Own ? Own.lockHtml(v) : '') +
       '<div class="fl-grid">' +
         inp('flName', tt('שם / תיאור', 'ชื่อ', 'الاسم'), v.name, 'text', 'full') +
-        '<div class="form-group"><label class="form-label">' + tt('סוג', 'ประเภท', 'النوع') + '</label><select class="form-input" id="flKind">' +
+        '<div class="form-group"><label class="form-label">' + tt('סוג', 'ประเภท', 'النوع') + '</label><select class="form-input" id="flKind"' + dis + '>' +
           KINDS.map(function (k) { return '<option value="' + k[0] + '"' + (v.kind === k[0] ? ' selected' : '') + '>' + k[1] + ' ' + esc(tt(k[2], k[3], k[4])) + '</option>'; }).join('') + '</select></div>' +
         inp('flPlate', tt('מספר רישוי', 'ทะเบียน', 'رقم الترخيص'), v.plate) +
         inp('flOwner', tt('בעלים', 'เจ้าของ', 'المالك'), v.owner) +
@@ -243,13 +249,14 @@ var Fleet = (function () {
         inp('flMand', tt('ביטוח חובה — בתוקף עד', 'ประกันภาคบังคับ ถึง', 'تأمين إلزامي حتى'), f.mandatory, 'date') +
         inp('flComp', tt('ביטוח מקיף — בתוקף עד', 'ประกันชั้นหนึ่ง ถึง', 'تأمين شامل حتى'), f.comprehensive, 'date') +
         inp('flTest', tt('טסט (רישיון רכב) — עד', 'ตรวจสภาพ ถึง', 'الفحص حتى'), f.test, 'date') +
-        '<div class="form-group"><label class="form-label"><input type="checkbox" id="flNeedSafety"' + (f.needsSafety ? ' checked' : '') + '> ' +
+        '<div class="form-group"><label class="form-label"><input type="checkbox" id="flNeedSafety"' + (f.needsSafety ? ' checked' : '') + dis + '> ' +
           tt('נדרשת בדיקת בטיחות', 'ต้องตรวจความปลอดภัย', 'يتطلب فحص سلامة') + '</label>' +
-          '<input class="form-input" id="flSafety" type="date" value="' + esc(f.safety) + '"></div>' +
+          '<input class="form-input" id="flSafety" type="date" value="' + esc(f.safety) + '"' + dis + '></div>' +
         inp('flNotes', tt('הערות', 'หมายเหตุ', 'ملاحظات'), v.notes, 'text', 'full') +
       '</div>' +
-      '<div class="modal-buttons"><button class="btn btn-primary" id="flSave">💾 ' + tt('שמור', 'บันทึก', 'حفظ') + '</button>' +
-        (isNew ? '' : '<button class="btn btn-secondary" id="flDel" style="background:var(--danger-light);color:var(--danger);">🗑️</button>') +
+      (!isNew && window.Comments ? Comments.block('vehicle:' + v.id, v.name) : '') +
+      '<div class="modal-buttons">' + (ro ? '' : '<button class="btn btn-primary" id="flSave">💾 ' + tt('שמור', 'บันทึก', 'حفظ') + '</button>') +
+        (isNew || ro ? '' : '<button class="btn btn-secondary" id="flDel" style="background:var(--danger-light);color:var(--danger);">🗑️</button>') +
         '<button class="btn btn-secondary" id="flCancel">' + tt('חזור', 'กลับ', 'رجوع') + '</button></div>');
     document.getElementById('flKind').addEventListener('change', function () {
       document.getElementById('flNeedSafety').checked = !!SAFETY_KINDS[this.value];
@@ -257,12 +264,15 @@ var Fleet = (function () {
     document.getElementById('flCancel').addEventListener('click', function () { open(farmId); });
     var del = document.getElementById('flDel');
     if (del) del.addEventListener('click', function () {
+      if (!canEd(v)) { if (window.Own) Own.denied(); return; }
       if (!confirm(tt('למחוק את הכלי', 'ลบ', 'حذف') + ' "' + v.name + '"?')) return;
       var r = S().deleteVehicle(farmId, v.id);
       if (r && r.err === 'on-loan') { toast('⚠️ ' + tt('הכלי בניוד — החזר אותו קודם', 'อยู่ระหว่างยืม', 'المركبة معارة')); return; }
       open(farmId);
     });
-    document.getElementById('flSave').addEventListener('click', function () {
+    var sv = document.getElementById('flSave');
+    if (sv) sv.addEventListener('click', function () {
+      if (!isNew && !canEd(v)) { if (window.Own) Own.denied(); return; }
       function val(id) { return (document.getElementById(id) || {}).value || ''; }
       var name = val('flName').trim();
       if (!name) { toast('⚠️ ' + tt('חסר שם', 'ขาดชื่อ', 'الاسم مطلوب')); return; }
@@ -273,6 +283,9 @@ var Fleet = (function () {
         safety_required: document.getElementById('flNeedSafety').checked, safety_expiry: val('flSafety') || '',
         insurance_expiry: val('flMand') || '', notes: val('flNotes').trim()
       };
+      // saveVehicle replaces the record, so carry the creator stamp across.
+      ['createdBy', 'createdByName', 'createdAt'].forEach(function (k) { if (v[k] !== undefined) out[k] = v[k]; });
+      if (isNew && window.Own) Own.stamp(out);
       var r = S().saveVehicle(farmId, out);
       if (!r || !r.ok) { toast('⛔ ' + tt('אין הרשאה', 'ไม่มีสิทธิ์', 'لا صلاحية')); return; }
       toast('✅ ' + tt('נשמר', 'บันทึกแล้ว', 'حُفظ'));
@@ -285,6 +298,7 @@ var Fleet = (function () {
     var v = data.own.find(function (x) { return x.id === vid; });
     var targets = S().transferTargets(farmId);
     if (!v) return;
+    if (!canEd(v)) { if (window.Own) Own.denied(); return; }
     if (!targets.length) { toast('⚠️ ' + tt('אין משק אחר שיש לך הרשאה אליו', 'ไม่มีฟาร์มอื่น', 'لا مزرعة أخرى')); return; }
     modal('<h2>🔁 ' + tt('ניוד', 'ย้าย', 'نقل') + ' — ' + esc(v.name) + (v.plate ? ' <span class="plate" style="font-size:.8rem;">' + esc(v.plate) + '</span>' : '') + '</h2>' +
       '<div class="form-group"><label class="form-label">' + tt('אל משק', 'ไปยังฟาร์ม', 'إلى مزرعة') + '</label><select class="form-input" id="flTo">' +
@@ -304,6 +318,8 @@ var Fleet = (function () {
   }
 
   function giveBack(farmId, homeId, vid) {
+    var hv = S().getVehicles(farmId), gv = hv.own.concat(hv.inbound).find(function (x) { return x.id === vid; });
+    if (gv && !canEd(gv)) { if (window.Own) Own.denied(); return; }
     modal('<h2>↩️ ' + tt('החזרת כלי', 'คืนยานพาหนะ', 'إرجاع المركبة') + '</h2>' +
       '<div class="form-group"><label class="form-label">' + tt('תאריך החזרה (היום האחרון במשק השואל)', 'วันที่คืน', 'تاريخ الإرجاع') + '</label>' +
         '<input class="form-input" type="date" id="flEnd" value="' + today() + '"></div>' +

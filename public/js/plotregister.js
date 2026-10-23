@@ -383,6 +383,7 @@ var PlotRegister = (function () {
 
   // ── Manager ─────────────────────────────────────────────────────────
   function openManager() {
+    if (window.Own && !Own.isAdmin()) { Own.denied(); return; }   // the register feeds plot attributes — admin's
     if (!canEdit()) {
       toast('❌ ' + tt('מאגר הנתונים זמין למנהלים בלבד', 'คลังข้อมูลใช้ได้เฉพาะผู้จัดการ', 'المخزن متاح للمديرين فقط'));
       return;

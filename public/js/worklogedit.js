@@ -14,7 +14,8 @@
  *   BROWSE   the whole log, filtered by farm, plot, action, date range or
  *            free text, with totals for what is shown.
  *
- * Who may edit: admins and operators any entry; anyone else their own.
+ * Who may edit: admin any entry; anyone else only entries they created
+ * (ownership.js — Oct 2026).
  * An entry already sent to its Google Sheet is edited here but NOT in the
  * sheet (the sheet only appends); it is marked as out of step with it.
  *
@@ -47,12 +48,22 @@ var WorklogEdit = (function () {
   function save() { if (typeof saveData === 'function') saveData(); }
   function audit(action, id, opts) { try { if (window.Audit && Audit.log) Audit.log(action, 'worklog', String(id), opts || {}); } catch (e) {} }
   function byId(id) { var n = Number(id); return entries().filter(function (e) { return e.id === n || String(e.id) === String(id); })[0] || null; }
+  // Ownership rule (ownership.js): admin edits any entry; everyone else only
+  // the entries they created. Pre-rule entries without createdBy fall back to
+  // the entry's own author fields (operator_email / operator).
   function canEdit(e) {
     var u = me();
-    if (u.role === 'admin' || u.role === 'operator') return true;
+    if (u.role === 'admin') return true;
     if (!e) return false;
-    return (u.email && e.operator_email && u.email.toLowerCase() === String(e.operator_email).toLowerCase()) ||
-           (u.name && e.operator === u.name);
+    if (window.Own && Own.creator(e)) return Own.canEdit(e);
+    return !!((u.email && e.operator_email && u.email.toLowerCase() === String(e.operator_email).toLowerCase()) ||
+           (u.name && e.operator === u.name) ||
+           (window.Own && Own.canEdit(e, e.operator)));
+  }
+  function deny(he, th, ar) {
+    if (window.Own) return Own.denied();
+    toast('\u26d4 ' + tt(he, th, ar));
+    return false;
   }
   function userFarms() {
     try { return (typeof getUserFarms === 'function') ? (getUserFarms(me()) || []) : []; } catch (e) { return []; }
@@ -107,7 +118,7 @@ var WorklogEdit = (function () {
   function edit(id, from) {
     var e = byId(id);
     if (!e) { toast('\u26a0\ufe0f ' + tt('הרשומה לא נמצאה', 'ไม่พบรายการ', 'السجل غير موجود')); return; }
-    if (!canEdit(e)) { toast('\u26d4 ' + tt('אפשר לערוך רק רשומות שלך', 'แก้ได้เฉพาะของคุณ', 'يمكنك تعديل سجلاتك فقط')); return; }
+    if (!canEdit(e)) { deny('אפשר לערוך רק רשומות שלך', 'แก้ได้เฉพาะของคุณ', 'يمكنك تعديل سجلاتك فقط'); return; }
     back = from || null;
     var fs = userFarms();
     if (e.farm_id && !fs.some(function (f) { return f.id === e.farm_id; })) {
@@ -191,7 +202,8 @@ var WorklogEdit = (function () {
     };
   }
   function saveEdit(id) {
-    var e = byId(id); if (!e || !canEdit(e)) return;
+    var e = byId(id); if (!e) return;
+    if (!canEdit(e)) { deny('אפשר לערוך רק רשומות שלך', 'แก้ได้เฉพาะของคุณ', 'يمكنك تعديل سجلاتك فقط'); return; }
     var v = collect();
     if (!v.date) { toast('\u274c ' + tt('יש לבחור תאריך', 'เลือกวันที่', 'اختر التاريخ')); return; }
     if (!v.farm_id) { toast('\u274c ' + tt('יש לבחור משק', 'เลือกฟาร์ม', 'اختر المزرعة')); return; }
@@ -241,7 +253,7 @@ var WorklogEdit = (function () {
   // ── delete, with a moment to change your mind ──────────────────────
   function del(id, from) {
     var e = byId(id); if (!e) return;
-    if (!canEdit(e)) { toast('\u26d4 ' + tt('אפשר למחוק רק רשומות שלך', 'ลบได้เฉพาะของคุณ', 'يمكنك حذف سجلاتك فقط')); return; }
+    if (!canEdit(e)) { deny('אפשר למחוק רק רשומות שלך', 'ลบได้เฉพาะของคุณ', 'يمكنك حذف سجلاتك فقط'); return; }
     if (!window.confirm(tt('למחוק את הרשומה מ-', 'ลบรายการวันที่ ', 'حذف سجل ') + (e.date || '') + ' (' + (e.type || '') + ')?')) return;
     var arr = entries(), idx = arr.indexOf(e);
     if (idx < 0) return;
@@ -387,7 +399,9 @@ var WorklogEdit = (function () {
                  tt('לא מעודכן בגיליון', 'ไม่ตรงกับชีต', 'غير محدّث في الجدول') + '</span>' : '');
     var btn = 'border:1px solid rgba(0,0,0,.12);background:var(--g6);border-radius:8px;padding:4px 10px;font-family:inherit;font-size:.75rem;cursor:pointer;';
     var copyBtn = '<button style="' + btn + '" onclick="WorklogEdit.copy(' + e.id + ')" title="' + esc(tt('העתק את התוכן לתאריך אחר', 'คัดลอกไปวันอื่น', 'نسخ إلى تاريخ آخر')) + '">\u29c9 ' + tt('העתק', 'คัดลอก', 'نسخ') + '</button>';
-    if (!canEdit(e)) return '<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">' + marks + '<span style="flex:1;"></span>' + copyBtn + '</div>';
+    var lock = '<span title="' + esc(tt('נוצר על ידי', 'สร้างโดย', 'أنشأه') + ' ' + (window.Own && Own.creator(e) ? Own.creatorName(e) : (e.operator || '')) + ' \u2014 ' +
+                 tt('לצפייה ולתגובות בלבד', 'ดูและแสดงความคิดเห็นเท่านั้น', 'للعرض والتعليق فقط')) + '" style="font-size:.7rem;color:#5c4a00;">\ud83d\udd12</span>';
+    if (!canEdit(e)) return '<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">' + marks + lock + '<span style="flex:1;"></span>' + copyBtn + '</div>';
     return '<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">' + marks +
       '<span style="flex:1;"></span>' + copyBtn +
       '<button style="' + btn + '" onclick="WorklogEdit.edit(' + e.id + fromArg + ')">\u270e ' + tt('ערוך', 'แก้ไข', 'تعديل') + '</button>' +
@@ -420,7 +434,7 @@ var WorklogEdit = (function () {
       if (!d) { toast('\u274c ' + tt('יש לבחור תאריך', 'เลือกวันที่', 'اختر تاريخاً')); return; }
       var withQty = document.getElementById('weCpQty').checked, thenEdit = document.getElementById('weCpEdit').checked;
       var n = JSON.parse(JSON.stringify(e));
-      ['revisions', 'edited_at', 'edited_by', 'sheet_stale', 'synced_to_sheet'].forEach(function (k) { delete n[k]; });
+      ['revisions', 'edited_at', 'edited_by', 'sheet_stale', 'synced_to_sheet', 'createdBy', 'created_by', 'createdByName', 'createdAt'].forEach(function (k) { delete n[k]; });
       var ids = entries().map(function (x) { return Number(x.id) || 0; });
       n.id = Math.max(Date.now(), Math.max.apply(null, ids.concat([0])) + 1);
       n.date = d; n.day_of_week = dayOf(d);
@@ -428,6 +442,7 @@ var WorklogEdit = (function () {
       var u = me();
       n.operator = u.name || ''; n.operator_email = u.email || '';
       n.created_at = new Date().toISOString(); n.copied_from = e.id; n.synced_to_sheet = false;
+      if (window.Own) Own.stamp(n);   // the copy is the copier's own entry
       entries().unshift(n);
       save();
       audit('create', n.id, { note: 'copy of ' + e.id });

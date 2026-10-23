@@ -104,6 +104,9 @@ var Knowledge = (function () {
   // ── list ──
   // Built-in guides (knowledge-guides.js) listed with the farm's own items;
   // an edited copy saved under the same id replaces the built-in one.
+  // Ownership rule: built-in guides and admin's items are admin's; others
+  // edit only what they added (`by` names the author on older items).
+  function mayEdit(it) { return !window.Own || Own.canEdit(it, it && it.by); }
   function guides() {
     var lang = (typeof currentLang !== 'undefined') ? currentLang : 'he';
     return (window.KB_GUIDES || []).map(function (g) {
@@ -169,8 +172,8 @@ var Knowledge = (function () {
     }).join('');
   }
   function card(it) {
-    return '<div class="kb-card"><div class="kb-ch"><span class="kb-tag">' + catDef(it.cat)[1] + ' ' + esc(catName(it.cat)) + '</span><b>' + esc(it.title) + '</b>' +
-      (staff() ? '<button class="kb-x" data-edit="' + it.id + '" title="' + tt('עריכה', 'แก้ไข', 'تعديل') + '">✏️</button>' : '') + '</div>' +
+    return '<div class="kb-card"><div class="kb-ch"><span class="kb-tag">' + catDef(it.cat)[1] + ' ' + esc(catName(it.cat)) + '</span><b class="kb-tl" data-view="' + esc(String(it.id)) + '">' + esc(it.title) + '</b>' +
+      (staff() && mayEdit(it) ? '<button class="kb-x" data-edit="' + it.id + '" title="' + tt('עריכה', 'แก้ไข', 'تعديل') + '">✏️</button>' : '') + '</div>' +
       (it.body ? '<div class="kb-body">' + esc(it.body) + '</div>' : '') +
       ((it.files || []).length ? '<div class="kb-files">' + filesHtml(it) + '</div>' : '') +
       (it.link ? '<a class="kb-link" href="' + esc(it.link) + '" target="_blank" rel="noopener">🔗 ' + esc(it.link.replace(/^https?:\/\//, '').slice(0, 60)) + '</a>' : '') +
@@ -188,7 +191,8 @@ var Knowledge = (function () {
     var it = byId(id);
     if (!it) return;
     var list = document.getElementById('kbList');
-    list.innerHTML = '<button class="kb-btn ghost" data-a="back">→ ' + tt('חזרה לגלריה', 'กลับ', 'رجوع') + '</button>' + card(it);
+    list.innerHTML = '<button class="kb-btn ghost" data-a="back">→ ' + tt('חזרה', 'กลับ', 'رجوع') + '</button>' + card(it) +
+      (window.Comments ? Comments.block('guide:' + it.id, it.title) : '');
   }
 
   function onClick(e) {
@@ -212,6 +216,7 @@ var Knowledge = (function () {
   // ── editor (staff) ──
   function editor(id) {
     if (!staff()) return;
+    if (id && !mayEdit(byId(id))) { if (window.Own) Own.denied(); return; }
     var it = id ? JSON.parse(JSON.stringify(byId(id) || {})) : { cat: ui.cat || 'general', files: [], tags: [] };
     var list = document.getElementById('kbList');
     function draw() {
@@ -256,7 +261,7 @@ var Knowledge = (function () {
         if (!it.title) { toast('❌ ' + tt('חסרה כותרת', 'ไม่มีชื่อ', 'العنوان ناقص')); return; }
         var u = window.currentUser || {};
         it.at = Date.now(); it.by = u.name || u.username || '';
-        if (!it.id) { it.id = uid(); D.items = (D.items || []).concat([it]); }
+        if (!it.id) { it.id = uid(); if (window.Own) Own.stamp(it); D.items = (D.items || []).concat([it]); }
         else if ((D.items || []).some(function (x) { return String(x.id) === String(it.id); })) D.items = D.items.map(function (x) { return String(x.id) === String(it.id) ? it : x; });
         else { delete it.builtin; D.items = (D.items || []).concat([it]); }   // edited copy of a built-in guide
         ui.cat = it.cat;
@@ -283,7 +288,7 @@ var Knowledge = (function () {
       '.kb-ch{display:flex;align-items:center;gap:8px;}.kb-ch b{flex:1;font-size:.95rem;}' +
       '.kb-tag{font-size:.7rem;background:var(--primary-soft,#eef7d4);color:var(--primary,#1d5a2c);border-radius:8px;padding:2px 8px;white-space:nowrap;}' +
       '.kb-x{border:0;background:var(--tonal,#f1f4ee);border-radius:10px;width:32px;height:32px;cursor:pointer;}' +
-      '.kb-src{font-size:.7rem;color:var(--text-muted,#6f7b72);margin-top:6px;}.kb-body{white-space:pre-line;font-size:.86rem;margin-top:8px;line-height:1.6;}' +
+      '.kb-tl{cursor:pointer;}.kb-src{font-size:.7rem;color:var(--text-muted,#6f7b72);margin-top:6px;}.kb-body{white-space:pre-line;font-size:.86rem;margin-top:8px;line-height:1.6;}' +
       '.kb-files{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;}' +
       '.kb-thumb img{width:120px;height:90px;object-fit:cover;border-radius:12px;display:block;border:1px solid var(--line,#e6ebe2);}' +
       '.kb-file{display:inline-flex;gap:4px;align-items:center;background:var(--tonal,#f1f4ee);border-radius:10px;padding:6px 10px;font-size:.8rem;color:var(--primary,#1d5a2c);text-decoration:none;}' +

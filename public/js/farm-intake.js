@@ -33,6 +33,14 @@ var FarmIntake = (function () {
   function store() { return window.SprayStore || {}; }
   function user() { return window.currentUser || {}; }
   function isAdmin() { return user().role === 'admin'; }
+  // Ownership (Oct 2026): a stock line or a piece of equipment is whoever
+  // brought it in; items without a creator stamp count as admin's. Documents
+  // name their reader in `by` (email or username).
+  function own(o, legacy) {
+    if (!window.Own) return true;
+    if (Own.canEdit(o, legacy)) return true;
+    return !!(o && !Own.creator(o) && legacy && String(legacy).toLowerCase() === Own.me().id);
+  }
   function fmt(n) { n = Number(n) || 0; return (Math.round(n * 100) / 100).toLocaleString('he-IL'); }
 
   var KIND = {
@@ -108,7 +116,7 @@ var FarmIntake = (function () {
         info.stock.map(function (s) {
           return '<div class="fi-st"><span>' + (KIND[s.kind] || KIND.other).ico + ' ' + esc(s.name) + '</span>' +
             '<b>' + fmt(s.qty) + ' ' + esc(s.unit || '') + '</b>' +
-            (can || isAdmin() ? '<button type="button" class="fi-st-edit" data-fi-stock="' + s.id + '" title="' + esc(tt('עדכון כמות', 'แก้ไข', 'تعديل')) + '">✏️</button>' : '') +
+            ((can || isAdmin()) && own(s) ? '<button type="button" class="fi-st-edit" data-fi-stock="' + s.id + '" title="' + esc(tt('עדכון כמות', 'แก้ไข', 'تعديل')) + '">✏️</button>' : '') +
             '</div>';
         }).join('') + '</div>';
     }
@@ -147,6 +155,7 @@ var FarmIntake = (function () {
         var info = store().getFarmIntake(farmId);
         var st = info && info.stock.find(function (x) { return x.id === id; });
         if (!st) return;
+        if (!own(st)) { if (window.Own) Own.denied(); return; }
         var v = prompt(tt('כמות חדשה עבור', 'จำนวนใหม่', 'كمية جديدة') + ' ' + st.name + ' (0 = ' + tt('הסר', 'ลบ', 'إزالة') + ')', st.qty);
         if (v === null) return;
         store().setStockQty(farmId, id, v);
@@ -425,6 +434,7 @@ var FarmIntake = (function () {
     var chosen = S.items.filter(function (it) { return it.on && String(it.name || '').trim(); });
     if (!chosen.length) { toast('⚠️ ' + tt('לא נבחרו שורות', 'ไม่ได้เลือก', 'لم يتم الاختيار')); return; }
     var toStock = chosen.filter(function (it) { return it.stock; });
+    if (window.Own) toStock.forEach(function (it) { Own.stamp(it); });
     var toPrice = chosen.filter(function (it) { return it.price && Number(it.unit_price) > 0; });
     var docs = S.results.filter(function (r) { return r.res; }).map(function (r) {
       var di = S.results.indexOf(r);
@@ -433,6 +443,7 @@ var FarmIntake = (function () {
         model: r.res.model || '', tokens_in: (r.res.usage && r.res.usage.input) || 0, tokens_out: (r.res.usage && r.res.usage.output) || 0,
         usd: Math.round(readCost(r.res) * 100000) / 100000 };
     });
+    if (window.Own) docs.forEach(function (d) { Own.stamp(d); });
     var res = store().applyFarmIntake(S.farmId, { items: toStock, docs: docs });
     if (!res || !res.ok) { toast('⛔ ' + tt('אין הרשאה', 'ไม่มีสิทธิ์', 'لا صلاحية')); return; }
     var c = res.counts;
@@ -483,7 +494,7 @@ var FarmIntake = (function () {
     var St = store();
     if (!St.getMoves) return '';
     var moves = St.getMoves(farmId);
-    var can = St.canTransfer && St.canTransfer(farmId, null) && St.getEquipment(farmId).length && St.transferTargets(farmId).length;
+    var can = St.canTransfer && St.canTransfer(farmId, null) && St.getEquipment(farmId).filter(function (e) { return own(e); }).length && St.transferTargets(farmId).length;
     if (!moves.length && !can) return '';
     var h = '<div class="fi-moves">';
     if (can) h += '<button type="button" class="fi-ghost fi-move-btn" id="fiMove">🔁 ' + tt('ניוד כלי למשק אחר', 'ย้ายอุปกรณ์', 'نقل معدة') + '</button>';
@@ -502,7 +513,9 @@ var FarmIntake = (function () {
 
   function openMove(farmId) {
     var St = store();
-    var eq = St.getEquipment(farmId), targets = St.transferTargets(farmId);
+    // Only equipment this user brought in (or anything, for admin) can be moved.
+    var eq = St.getEquipment(farmId).filter(function (e) { return own(e); }), targets = St.transferTargets(farmId);
+    if (!eq.length) { if (window.Own) Own.denied(); return; }
     var info = St.getFarmIntake(farmId) || {};
     var file = null;
     function draw(busy) {
@@ -533,6 +546,7 @@ var FarmIntake = (function () {
       document.getElementById('mvSave').addEventListener('click', function () {
         var idx = Number(document.getElementById('mvItem').value), to = Number(document.getElementById('mvTo').value);
         var meta = { date: document.getElementById('mvDate').value, note: document.getElementById('mvNote').value.trim() };
+        if (!eq.some(function (e) { return e.idx === idx; })) { if (window.Own) Own.denied(); return; }
         var itemName = (eq.find(function (e) { return e.idx === idx; }) || {}).name || '';
         var toName = (targets.find(function (f) { return f.id === to; }) || {}).name || '';
         if (!confirm(tt('לנייד את', 'ย้าย', 'نقل') + ' "' + itemName + '" ' + tt('אל', 'ไป', 'إلى') + ' "' + toName + '"?')) return;

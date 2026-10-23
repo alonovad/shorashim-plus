@@ -1321,7 +1321,7 @@ exports.imsWeather = onCall(
     const headers = { Authorization: "ApiToken " + String(IMS_TOKEN.value() || "").trim() };
     const get = async (path) => {
       const r = await fetch(IMS_BASE + path, { headers });
-      if (!r.ok) throw new HttpsError("unavailable", "IMS " + r.status);
+      if (!r.ok) { console.error("imsWeather", path, r.status, (await r.text()).slice(0, 300)); throw new HttpsError("unavailable", "IMS " + r.status); }
       return r.json();
     };
     if (!_imsStations || Date.now() - _imsStationsAt > 12 * 3600 * 1000) {
@@ -1477,7 +1477,7 @@ exports.sentinelNdvi = onCall(
         body: JSON.stringify(req)
       });
       if (r.status === 429) return [String(p.id), { err: "quota" }];
-      if (!r.ok) return [String(p.id), { err: "CDSE " + r.status }];
+      if (!r.ok) { console.error("sentinelNdvi CDSE", r.status, (await r.text()).slice(0, 400)); return [String(p.id), { err: "CDSE " + r.status }]; }
       const j = await r.json();
       const pts = [];
       (j.data || []).forEach((iv) => {
@@ -1568,7 +1568,11 @@ exports.sentinelImage = onCall(
       body: JSON.stringify(body)
     });
     if (r.status === 429) throw new HttpsError("resource-exhausted", "CDSE quota");
-    if (!r.ok) throw new HttpsError("unavailable", "CDSE " + r.status + " " + (await r.text()).slice(0, 120));
+    if (!r.ok) {
+      const errText = (await r.text()).slice(0, 600);
+      console.error("sentinelImage CDSE", r.status, JSON.stringify({ width, height, rings: rings.length, date: data.date }), errText);
+      throw new HttpsError("unavailable", "CDSE " + r.status + " " + errText.slice(0, 200));
+    }
     const buf = Buffer.from(await r.arrayBuffer());
     return { date: data.date, bbox: [w, s, e, n], width, height, png: buf.toString("base64") };
   }

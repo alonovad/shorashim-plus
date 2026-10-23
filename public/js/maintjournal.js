@@ -64,6 +64,15 @@ var MaintJournal = (function () {
   function fmtDate(s) { var b = String(s || '').split('-'); return b.length === 3 ? (+b[2]) + '.' + (+b[1]) + '.' + b[0] : String(s || ''); }
   function who() { var u = window.currentUser || {}; return u.name || u.email || ''; }
   function uid() { return 'j' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+  // Ownership (Oct 2026): journal entries and items are records — anyone the
+  // project lets edit may add them, and each is its creator's to change
+  // (legacy ones match by their free-text `by`). The contract terms and
+  // milestones belong to the project, so only the project's owner (or
+  // admin) changes them.
+  function stampIt(o) { if (window.Own) Own.stamp(o); return o; }
+  function canRec(o) { return !window.Own || Own.canEdit(o, o && o.by); }
+  function deny() { if (window.Own) Own.denied(); return false; }
+  function keepStamp(o, src) { ['createdBy', 'createdByName', 'createdAt'].forEach(function (k) { if (src[k] !== undefined && src[k] !== '') o[k] = src[k]; }); return o; }
   function toast(m) { if (typeof showToast === 'function') showToast(m); }
   function audit(action, pid, opts) { try { if (window.Audit && Audit.log) Audit.log(action, 'maint-journal', String(pid), opts || {}); } catch (e) {} }
 
@@ -91,15 +100,16 @@ var MaintJournal = (function () {
               planCost: Math.max(0, Number(i.planCost) || 0), adj: Number(i.adj) || 0,
               status: STATUS.indexOf(i.status) >= 0 ? i.status : '', note: String(i.note || '').slice(0, 400),
               by: String(i.by || ''), at: String(i.at || '') };
+    keepStamp(o, i);
     o.actualCost = (i.actualCost === null || i.actualCost === undefined || i.actualCost === '' || !isFinite(Number(i.actualCost))) ? null : Math.max(0, Number(i.actualCost));
     return o;
   }
   function normEntry(e) {
     e = e || {};
-    return { id: String(e.id || uid()), date: /^\d{4}-\d{2}-\d{2}$/.test(String(e.date)) ? String(e.date) : today(),
+    return keepStamp({ id: String(e.id || uid()), date: /^\d{4}-\d{2}-\d{2}$/.test(String(e.date)) ? String(e.date) : today(),
              kind: (KINDS.indexOf(e.kind) >= 0 || e.kind === 'out') ? e.kind : 'note',
              text: String(e.text || '').slice(0, 400), amount: Math.max(0, Number(e.amount) || 0), qty: Math.max(0, Number(e.qty) || 0),
-             ref: String(e.ref || ''), cat: String(e.cat || ''), by: String(e.by || ''), at: String(e.at || '') };
+             ref: String(e.ref || ''), cat: String(e.cat || ''), by: String(e.by || ''), at: String(e.at || '') }, e);
   }
   // Contract terms as they bear on execution: a payment schedule whose
   // milestones fall due by what has been DONE, and the dates the job was
@@ -247,6 +257,7 @@ var MaintJournal = (function () {
     UI[pid] = UI[pid] || { pick: false, open: {}, kind: 'work' };
     UI[pid].canEdit = !!(opts && opts.canEdit);
     UI[pid].completed = !!(opts && opts.completed);
+    UI[pid].ownP = !window.Own || Own.canEdit(p);
     setTimeout(function () { refresh(pid); }, 0);
     return '<div id="mjRoot" data-pid="' + pid + '"><div style="text-align:center;padding:24px;color:var(--text-muted,#888);">\u23f3 ' +
       tt('טוען יומן…', 'กำลังโหลด…', 'جارٍ التحميل…') + '</div></div>';
@@ -279,13 +290,13 @@ var MaintJournal = (function () {
 
   function render(pid) {
     var root = rootFor(pid); if (!root) return;
-    var doc = J[pid], src = SRC[pid] || { lines: [], invoices: [], shipments: [] }, ui = UI[pid], ed = ui.canEdit;
+    var doc = J[pid], src = SRC[pid] || { lines: [], invoices: [], shipments: [] }, ui = UI[pid], ed = ui.canEdit, edT = ed && ui.ownP;
     var f = figures(doc, src);
     var cs = contractState(doc, src, f);
     var h = '';
     if (ui.completed) h += '<div style="' + S.card + 'background:#eceff1;">\ud83d\udd12 ' +
       tt('הפרויקט הושלם — היומן לקריאה בלבד.', 'โครงการเสร็จแล้ว อ่านอย่างเดียว', 'المشروع مكتمل — للقراءة فقط') + '</div>';
-    if (ui.old && ui.old.count && ed && !doc.migratedFrom) {
+    if (ui.old && ui.old.count && edT && !doc.migratedFrom) {
       h += '<div style="' + S.card + 'background:#e3f2fd;border-color:#90caf9;">\ud83d\udce6 ' +
         tt('לפרויקט הבנייה המקושר יש יומן מעקב ישן עם', 'มีบันทึกเก่า', 'يوجد سجل قديم فيه') + ' <b>' + ui.old.count + '</b> ' + tt('רישומים.', 'รายการ', 'سجلات') +
         ' <button style="' + S.pri + 'margin-inline-start:8px;" onclick="MaintJournal._migrate(' + pid + ')">\u21aa ' +
@@ -331,18 +342,18 @@ var MaintJournal = (function () {
         (ct.paymentTerms ? ' \u00b7 ' + esc(ct.paymentTerms) : '') + '</span></div>';
     // dates and retention
     var dIn = function (k, v) {
-      return ed ? '<input type="date" style="' + S.in + '" value="' + esc(v) + '" onchange="MaintJournal._term(' + pid + ',\'' + k + '\',this.value)">' : '<b>' + (v ? fmtDate(v) : '\u2014') + '</b>';
+      return edT ? '<input type="date" style="' + S.in + '" value="' + esc(v) + '" onchange="MaintJournal._term(' + pid + ',\'' + k + '\',this.value)">' : '<b>' + (v ? fmtDate(v) : '\u2014') + '</b>';
     };
     h += '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;font-size:.8rem;margin-bottom:8px;">' +
       '<span>' + tt('התחלה', 'เริ่ม', 'البداية') + ' ' + dIn('start', T.start) + '</span>' +
       '<span>' + tt('סיום מתוכנן', 'สิ้นสุด', 'النهاية') + ' ' + dIn('end', T.end) + '</span>' +
-      '<span>' + tt('עיכבון עד המסירה', 'เงินประกัน', 'الاحتجاز') + ' ' + (ed ? '<input type="number" min="0" max="20" step="1" style="' + S.in + 'width:58px;" value="' + T.retention +
+      '<span>' + tt('עיכבון עד המסירה', 'เงินประกัน', 'الاحتجاز') + ' ' + (edT ? '<input type="number" min="0" max="20" step="1" style="' + S.in + 'width:58px;" value="' + T.retention +
         '" onchange="MaintJournal._term(' + pid + ',\'retention\',this.value)">' : '<b>' + T.retention + '</b>') + '%</span>' +
     '</div>';
     if (!T.milestones.length) {
       h += '<div style="' + S.muted + 'padding:6px 0;">' + tt('לא הוגדרו אבני דרך לתשלום. אבן דרך קובעת איזה חלק מהחוזה מגיע ומתי — בחתימה, באחוז ביצוע, בסיום סעיפים, בתאריך או במסירה.',
         'ยังไม่มีงวดชำระ', 'لا مراحل دفع بعد') + '</div>' +
-        (ed ? '<div style="display:flex;gap:6px;flex-wrap:wrap;"><button style="' + S.btn + '" onclick="MaintJournal._msTemplate(' + pid + ')">\ud83d\udcc4 ' +
+        (edT ? '<div style="display:flex;gap:6px;flex-wrap:wrap;"><button style="' + S.btn + '" onclick="MaintJournal._msTemplate(' + pid + ')">\ud83d\udcc4 ' +
                 tt('לוח תשלומים מקובל (20/30/40/10)', 'แม่แบบ', 'جدول نموذجي') + '</button>' +
               '<button style="' + S.btn + '" onclick="MaintJournal._msAdd(' + pid + ')">\u2795 ' + tt('אבן דרך', 'งวด', 'مرحلة') + '</button></div>' : '');
     } else {
@@ -357,11 +368,11 @@ var MaintJournal = (function () {
           '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">' +
             '<b style="flex:1 1 160px;font-size:.85rem;">' + esc(m.name || triggerLabel(m.trigger)) + '</b>' +
             '<span style="font-size:.8rem;">' + m.pct + '% \u00b7 <b>' + money(row.amount) + '</b></span>' + chip(row.state) +
-            (ed ? '<button style="' + S.btn + 'padding:3px 8px;" onclick="MaintJournal._msOpen(' + pid + ',' + mi + ')">' + (openM ? '\u25b4' : '\u270e') + '</button>' : '') +
+            (edT ? '<button style="' + S.btn + 'padding:3px 8px;" onclick="MaintJournal._msOpen(' + pid + ',' + mi + ')">' + (openM ? '\u25b4' : '\u270e') + '</button>' : '') +
           '</div>' +
           '<div style="' + S.muted + '">' + triggerLabel(m.trigger) + ' \u00b7 ' + esc(row.why) +
             (row.covered > 0 && row.state !== 'paid' ? ' \u00b7 ' + tt('התקבל', 'รับแล้ว', 'المقبوض') + ' ' + money(row.covered) : '') + '</div>';
-        if (ed && openM) {
+        if (edT && openM) {
           h += '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px;padding:8px;border-radius:8px;background:var(--surface-glass,#f5f7f5);">' +
             '<input style="' + S.in + 'flex:1 1 160px;" value="' + esc(m.name) + '" placeholder="' + esc(tt('שם אבן הדרך', 'ชื่องวด', 'اسم المرحلة')) + '" onchange="MaintJournal._ms(' + pid + ',' + mi + ',\'name\',this.value)">' +
             '<label style="' + S.muted + '">% <input type="number" min="0" max="100" step="1" style="' + S.in + 'width:62px;" value="' + m.pct + '" onchange="MaintJournal._ms(' + pid + ',' + mi + ',\'pct\',this.value)"></label>' +
@@ -381,7 +392,7 @@ var MaintJournal = (function () {
         h += '</div>';
       });
       h += '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px;font-size:.8rem;">' +
-        (ed ? '<button style="' + S.btn + '" onclick="MaintJournal._msAdd(' + pid + ')">\u2795 ' + tt('אבן דרך', 'งวด', 'مرحلة') + '</button>' : '') +
+        (edT ? '<button style="' + S.btn + '" onclick="MaintJournal._msAdd(' + pid + ')">\u2795 ' + tt('אבן דרך', 'งวด', 'مرحلة') + '</button>' : '') +
         '<span style="flex:1"></span>' +
         (Math.abs(cs.pctSum - 100) > 0.01 ? '<span style="color:#e65100;">\u26a0\ufe0f ' + tt('סך אבני הדרך', 'รวมงวด', 'مجموع المراحل') + ' ' + cs.pctSum + '% ' + tt('(צריך 100%)', '(ควรเป็น 100%)', '(يجب 100%)') + '</span>' : '') +
         '<span>' + tt('מגיע לפי ביצוע', 'ได้ตามงาน', 'المستحق بالتنفيذ') + ' <b>' + money(cs.earnedByContract) + '</b> \u00b7 ' +
@@ -419,6 +430,7 @@ var MaintJournal = (function () {
     }
     var srcByRef = {}; src.lines.forEach(function (l) { srcByRef[l.ref] = l; });
     doc.items.forEach(function (it, ix) {
+      var ed = ui.canEdit && canRec(it);   // shadows the tab-level flag: this item's own
       var d = doneQty(doc, it), st = itemStatus(doc, it), pct = itemPct(doc, it);
       var ql = srcByRef[it.ref];
       var changed = ql && (Math.abs(ql.qty - it.planQty) > 0.001 || Math.abs(ql.client - it.planClient) > 0.5 || ql.name !== it.name);
@@ -522,7 +534,7 @@ var MaintJournal = (function () {
           (e.qty && e.kind !== 'note' ? ' \u00b7 ' + num(e.qty, 3) : '') +
           (e.amount ? ' \u00b7 <b>' + money(e.amount) + '</b>' : '') +
           (e.by ? ' <span style="' + S.muted + '">\u00b7 ' + esc(e.by) + '</span>' : '');
-        if (ed) del = '<button style="border:none;background:none;cursor:pointer;color:#c62828;" title="' + esc(tt('מחק', 'ลบ', 'حذف')) + '" onclick="MaintJournal._del(' + pid + ',\'' + e.id + '\')">\ud83d\uddd1</button>';
+        if (ed && canRec(e)) del = '<button style="border:none;background:none;cursor:pointer;color:#c62828;" title="' + esc(tt('מחק', 'ลบ', 'حذف')) + '" onclick="MaintJournal._del(' + pid + ',\'' + e.id + '\')">\ud83d\uddd1</button>';
       } else if (r.t === 'inv') {
         line = '\ud83e\uddfe ' + tt('חשבונית', 'ใบแจ้งหนี้', 'فاتورة') + ' \u00b7 ' + esc(r.e.supplier || '') + (r.e.number ? ' #' + esc(r.e.number) : '') +
           ' \u00b7 <b>' + money(r.e.amount + r.e.vat) + '</b> <span style="' + S.muted + '">(' + esc(r.e.status) + ')</span>';
@@ -608,7 +620,7 @@ var MaintJournal = (function () {
       var n = 0;
       src.lines.forEach(function (l) {
         if (refs.indexOf(l.ref) < 0 || have[l.ref]) return;
-        doc.items.push(normItem({ ref: l.ref, kind: l.kind, name: l.name, unit: l.unit, planQty: l.qty, planClient: l.client, planCost: l.cost, by: who(), at: new Date().toISOString() }));
+        doc.items.push(normItem(stampIt({ ref: l.ref, kind: l.kind, name: l.name, unit: l.unit, planQty: l.qty, planClient: l.client, planCost: l.cost, by: who(), at: new Date().toISOString() })));
         n++;
       });
       UI[pid].pick = false;
@@ -617,7 +629,7 @@ var MaintJournal = (function () {
     },
     _addExtra: function (pid) {
       if (!guard(pid)) return;
-      var it = normItem({ kind: 'extra', name: tt('סעיף נוסף', 'รายการเพิ่ม', 'بند إضافي'), unit: "\u05d9\u05d7'", planQty: 1, by: who(), at: new Date().toISOString() });
+      var it = normItem(stampIt({ kind: 'extra', name: tt('סעיף נוסף', 'รายการเพิ่ม', 'بند إضافي'), unit: "\u05d9\u05d7'", planQty: 1, by: who(), at: new Date().toISOString() }));
       J[pid].items.push(it);
       UI[pid].open[it.ref] = true;
       done(pid, 'extra');
@@ -626,6 +638,7 @@ var MaintJournal = (function () {
     _set: function (pid, ix, field, v) {
       if (!guard(pid)) return;
       var doc = J[pid], it = doc.items[ix]; if (!it) return;
+      if (!canRec(it)) return deny();
       if (field === 'done') {
         // what you type is the total done: the manual part is whatever the
         // logged work does not already account for
@@ -643,14 +656,16 @@ var MaintJournal = (function () {
     },
     _resync: function (pid, ix) {
       if (!guard(pid)) return;
-      var it = J[pid].items[ix], l = (SRC[pid].lines || []).filter(function (x) { return x.ref === it.ref; })[0];
+      var it = J[pid].items[ix], l = it && (SRC[pid].lines || []).filter(function (x) { return x.ref === it.ref; })[0];
       if (!it || !l) return;
+      if (!canRec(it)) return deny();
       it.name = l.name; it.unit = l.unit; it.planQty = l.qty; it.planClient = l.client; it.planCost = l.cost;
       done(pid, 'resync');
     },
     _delItem: function (pid, ix) {
       if (!guard(pid)) return;
       var it = J[pid].items[ix]; if (!it) return;
+      if (!canRec(it)) return deny();
       if (!window.confirm(tt('להסיר את הסעיף מהיומן? הרישומים שבוצעו מולו יישארו בציר הזמן.', 'ลบรายการนี้?', 'إزالة البند؟'))) return;
       J[pid].items.splice(ix, 1);
       done(pid, 'remove item');
@@ -662,6 +677,7 @@ var MaintJournal = (function () {
       var k = UI[pid].kind || 'work';
       var e = normEntry({ id: uid(), date: g('mjDate'), kind: k, text: String(g('mjText')).trim(), qty: g('mjQty'), amount: g('mjAmt'),
                           ref: k === 'work' ? g('mjRef') : '', by: who(), at: new Date().toISOString() });
+      stampIt(e);
       if (k === 'in' && !(e.amount > 0)) { toast('\u26a0\ufe0f ' + tt('חסר סכום', 'ไม่มีจำนวนเงิน', 'المبلغ مفقود')); return; }
       if ((k === 'equip_on' || k === 'equip_off') && !e.text) { toast('\u26a0\ufe0f ' + tt('חסר שם הציוד', 'ไม่มีชื่ออุปกรณ์', 'اسم المعدة مفقود')); return; }
       if (k === 'work' && !e.text && !e.ref) { toast('\u26a0\ufe0f ' + tt('תאר מה בוצע או בחר סעיף', 'กรอกรายละเอียด', 'صف العمل أو اختر بنداً')); return; }
@@ -671,6 +687,8 @@ var MaintJournal = (function () {
     },
     _del: function (pid, id) {
       if (!guard(pid)) return;
+      var ent = J[pid].entries.filter(function (e) { return e.id === id; })[0];
+      if (ent && !canRec(ent)) return deny();
       if (!window.confirm(tt('למחוק את הרישום?', 'ลบ?', 'حذف السجل؟'))) return;
       J[pid].entries = J[pid].entries.filter(function (e) { return e.id !== id; });
       done(pid, 'delete entry');
@@ -678,6 +696,7 @@ var MaintJournal = (function () {
     _all: function (pid) { UI[pid].all = true; render(pid); },
     _term: function (pid, k, v) {
       if (!guard(pid)) return;
+      if (!UI[pid].ownP) return deny();
       var T = J[pid].terms;
       if (k === 'retention') T.retention = Math.max(0, Math.min(20, Number(v) || 0));
       else if (k === 'start' || k === 'end') T[k] = /^\d{4}-\d{2}-\d{2}$/.test(String(v)) ? String(v) : '';
@@ -685,6 +704,7 @@ var MaintJournal = (function () {
     },
     _msTemplate: function (pid) {
       if (!guard(pid)) return;
+      if (!UI[pid].ownP) return deny();
       J[pid].terms.milestones = [
         normMilestone({ name: tt('מקדמה', 'เงินล่วงหน้า', 'دفعة مقدمة'), pct: 20, trigger: 'sign' }),
         normMilestone({ name: tt('התקדמות 40%', 'ความคืบหน้า 40%', 'تقدم 40%'), pct: 30, trigger: 'progress', progress: 40 }),
@@ -695,6 +715,7 @@ var MaintJournal = (function () {
     },
     _msAdd: function (pid) {
       if (!guard(pid)) return;
+      if (!UI[pid].ownP) return deny();
       var used = J[pid].terms.milestones.reduce(function (a, m) { return a + m.pct; }, 0);
       var m = normMilestone({ name: '', pct: Math.max(0, 100 - used), trigger: 'progress', progress: 100 });
       J[pid].terms.milestones.push(m);
@@ -704,6 +725,7 @@ var MaintJournal = (function () {
     _msOpen: function (pid, i) { var m = J[pid] && J[pid].terms.milestones[i]; if (!m) return; UI[pid].open['ms:' + m.id] = !UI[pid].open['ms:' + m.id]; render(pid); },
     _ms: function (pid, i, k, v) {
       if (!guard(pid)) return;
+      if (!UI[pid].ownP) return deny();
       var m = J[pid].terms.milestones[i]; if (!m) return;
       if (k === 'name') m.name = String(v || '').slice(0, 120);
       else if (k === 'pct') m.pct = Math.max(0, Math.min(100, Number(v) || 0));
@@ -714,6 +736,7 @@ var MaintJournal = (function () {
     },
     _msRef: function (pid, i, el) {
       if (!guard(pid)) return;
+      if (!UI[pid].ownP) return deny();
       var m = J[pid].terms.milestones[i]; if (!m) return;
       var r = el.getAttribute('data-ref');
       m.refs = m.refs.filter(function (x) { return x !== r; });
@@ -722,12 +745,14 @@ var MaintJournal = (function () {
     },
     _msDel: function (pid, i) {
       if (!guard(pid)) return;
+      if (!UI[pid].ownP) return deny();
       if (!window.confirm(tt('למחוק את אבן הדרך?', 'ลบงวดนี้?', 'حذف المرحلة؟'))) return;
       J[pid].terms.milestones.splice(i, 1);
       done(pid, 'milestone delete');
     },
     _migrate: function (pid) {
       if (!guard(pid)) return;
+      if (!UI[pid].ownP) return deny();
       migrate(pid).then(function (n) {
         UI[pid].old = { count: 0 };
         if (n) toast('\u2705 ' + n + ' ' + tt('רישומים הועברו מיומן הבנייה', 'รายการถูกย้าย', 'سجلات نُقلت'));

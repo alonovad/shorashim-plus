@@ -88,7 +88,19 @@ var Schedule = (function() {
 
   function saveForUser(username, schedule) {
     if (typeof users === 'undefined' || !users[username]) return Promise.reject(new Error('User not found'));
-    users[username].schedule = _stripUndefined(schedule);
+    // Ownership (Oct 2026): a stored schedule belongs to whoever first set
+    // it. Keep that stamp across saves; a brand-new schedule is stamped now.
+    var prev = users[username].schedule;
+    var next = _stripUndefined(schedule);
+    if (prev && (prev.createdBy || prev.created_by)) {
+      next.createdBy = prev.createdBy || prev.created_by;
+      next.createdByName = prev.createdByName || '';
+      next.createdAt = prev.createdAt || null;
+    } else if (window.Own) {
+      delete next.createdBy; delete next.createdByName; delete next.createdAt;
+      Own.stamp(next);
+    }
+    users[username].schedule = _stripUndefined(next);
     if (typeof DB !== 'undefined') {
       DB.save('shorashim-users', users);
     }
@@ -365,6 +377,15 @@ var Schedule = (function() {
     });
   }
 
+  // Ownership (Oct 2026): a user's stored schedule may be changed only by
+  // admin or by whoever set it. No stored schedule yet = free to create.
+  function _canEditSchedule(username) {
+    if (!window.Own) return true;
+    var u = (typeof users !== 'undefined') ? users[username] : null;
+    if (!u || !u.schedule) return true;
+    return Own.canEdit(u.schedule);
+  }
+
   // ── Schedule editor UI (operator+) ──
   // Big modal with the weekly grid. Lets an admin set per-day start/end/break,
   // pick a sector preset, and tweak per-employee OT overrides.
@@ -408,12 +429,15 @@ var Schedule = (function() {
 
     var rules = getOTRules(schedule);
     var hasOverride = !!schedule.otRulesOverride;
+    var editable = _canEditSchedule(username);
 
     modal.innerHTML =
       '<div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;">' +
       '<div style="background:white;border-radius:16px;padding:18px;width:94%;max-width:480px;max-height:92vh;overflow-y:auto;">' +
         '<h3 style="font-weight:700;margin-bottom:4px;">🗓 ' + T('לוח זמנים','ตารางเวลา','جدول العمل') + '</h3>' +
         '<div style="font-size:0.82rem;color:#666;margin-bottom:12px;">' + (user.name || user.username) + '</div>' +
+        (!editable && window.Own ? Own.lockHtml(user.schedule) : '') +
+        '<fieldset id="schFields" ' + (editable ? '' : 'disabled') + ' style="border:none;padding:0;margin:0;min-width:0;">' +
 
         '<div style="font-size:0.78rem;color:#666;margin-bottom:4px;">' + T('מגזר (קובע ברירות מחדל למשעות נוספות)','ภาคส่วน (กำหนดค่าเริ่มต้น OT)','القطاع (يحدد القيم الافتراضية للساعات الإضافية)') + '</div>' +
         '<select id="schSector" style="width:100%;padding:8px;border-radius:8px;border:1px solid #ddd;margin-bottom:14px;font-family:inherit;">' + sectorOpts + '</select>' +
@@ -445,10 +469,11 @@ var Schedule = (function() {
             '</div>' +
           '</div>' +
         '</details>' +
+        '</fieldset>' +
 
         '<div style="display:flex;gap:8px;">' +
-          '<button onclick="Schedule._saveFromModal(\'' + username + '\')" style="flex:1;padding:12px;border-radius:10px;border:none;background:#2e7d32;color:white;font-family:inherit;font-weight:700;cursor:pointer;">💾 ' + T('שמור','บันทึก','حفظ') + '</button>' +
-          '<button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'" style="flex:1;padding:12px;border-radius:10px;border:none;background:#eee;font-family:inherit;cursor:pointer;">' + T('ביטול','ยกเลิก','إلغاء') + '</button>' +
+          (editable ? '<button onclick="Schedule._saveFromModal(\'' + username + '\')" style="flex:1;padding:12px;border-radius:10px;border:none;background:#2e7d32;color:white;font-family:inherit;font-weight:700;cursor:pointer;">💾 ' + T('שמור','บันทึก','حفظ') + '</button>' : '') +
+          '<button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'" style="flex:1;padding:12px;border-radius:10px;border:none;background:#eee;font-family:inherit;cursor:pointer;">' + (editable ? T('ביטול','ยกเลิก','إلغاء') : T('סגור','ปิด','إغلاق')) + '</button>' +
         '</div>' +
       '</div></div>';
   }
@@ -462,6 +487,7 @@ var Schedule = (function() {
   }
 
   function _saveFromModal(username) {
+    if (!_canEditSchedule(username)) return window.Own ? Own.denied() : false;
     var newSchedule = cloneDefault();
     newSchedule.sectorPreset = document.getElementById('schSector').value;
     DAY_KEYS.forEach(function(d) {

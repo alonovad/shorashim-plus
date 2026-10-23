@@ -401,7 +401,7 @@ var Satellite = (function () {
   // colouring — absolute, or relative to each plot (weak ↔ strong zones
   // inside the plot) — happens here without another call.
   var IMG_PREFIX = 'shorashim-sentinel-img-', IMG_KEEP = 8;
-  var imgDocs = {}, decoded = {};
+  var imgDocs = {}, decoded = {}, imgFail = {};
   var RAMP = [[0, [215, 48, 39]], [0.25, [252, 141, 89]], [0.5, [254, 224, 139]], [0.75, [145, 207, 96]], [1, [26, 152, 80]]];
   var ABS = { v: [0.1, 0.7], m: [-0.2, 0.4] };
   function ramp(t) {
@@ -440,6 +440,8 @@ var Satellite = (function () {
     return loadImgs(fid).then(function (doc) {
       if (doc.imgs[date]) return doc.imgs[date];
       if (!staff()) return null;
+      // a request that just failed is not repeated on every redraw
+      if (imgFail[fid + '|' + date] && Date.now() - imgFail[fid + '|' + date] < 120000) return null;
       if (typeof firebase === 'undefined' || !firebase.app || !firebase.app().functions) return null;
       var fn = firebase.app().functions('us-central1').httpsCallable('sentinelImage', { timeout: 65000 });
       var rings = [];
@@ -453,9 +455,10 @@ var Satellite = (function () {
         if (DB.saveAsync) DB.saveAsync(IMG_PREFIX + fid, JSON.parse(JSON.stringify(doc))).catch(function () {});
         return doc.imgs[date];
       }, function (e) {
+        imgFail[fid + '|' + date] = Date.now();
         var c = String((e && (e.code || '')) + ' ' + (e && e.message || ''));
         toast('⚠️ ' + (/exhausted|quota/i.test(c) ? tt('נגמרה המכסה החודשית של Copernicus', 'โควตาหมด', 'نفدت الحصة') :
-                       tt('לא הצלחתי להביא את תמונת הלוויין', 'โหลดภาพดาวเทียมไม่ได้', 'تعذّر جلب صورة القمر')));
+                       tt('לא הצלחתי להביא את תמונת הלוויין', 'โหลดภาพดาวเทียมไม่ได้', 'تعذّر جلب صورة القمر') + (e && e.message ? ' — ' + String(e.message).slice(0, 140) : '')));
         return null;
       });
     });
