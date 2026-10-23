@@ -20,11 +20,17 @@ var CashFlow = (function () {
   'use strict';
 
   var PREFIX = 'shorashim-cashflow-';
-  var IN = [['sales', 'מכירת תוצרת'], ['services', 'שירותים / קבלנות'], ['grants', 'מענקים וסובסידיות'], ['in_other', 'הכנסות אחרות']];
-  var OUT = [['labour', 'עבודה (מיומן העבודה)'], ['purchases', 'רכש — חומרים ודשנים (ממסמכים)'], ['water', 'מים'], ['power', 'חשמל'], ['fuel', 'דלק'],
-    ['vehicles', 'כלים, רכבים ותיקונים'], ['contractors', 'קבלני משנה'], ['lease', 'שכירות / חכירה'], ['insurance', 'ביטוח'], ['finance', 'מימון והלוואות'], ['out_other', 'הוצאות אחרות']];
+  var IN = [['sales', 'מכירת תוצרת', 'ขายผลผลิต', 'بيع المحصول'], ['services', 'שירותים / קבלנות', 'บริการ / รับเหมา', 'خدمات / مقاولات'],
+    ['grants', 'מענקים וסובסידיות', 'เงินอุดหนุน', 'منح ودعم'], ['in_other', 'הכנסות אחרות', 'รายรับอื่นๆ', 'دخل آخر']];
+  var OUT = [['labour', 'עבודה (מיומן העבודה)', 'ค่าแรง (จากบันทึกงาน)', 'العمل (من سجل العمل)'], ['purchases', 'רכש — חומרים ודשנים (ממסמכים)', 'จัดซื้อ — สารเคมีและปุ๋ย (จากเอกสาร)', 'مشتريات — مواد وأسمدة (من المستندات)'],
+    ['water', 'מים', 'น้ำ', 'مياه'], ['power', 'חשמל', 'ไฟฟ้า', 'كهرباء'], ['fuel', 'דלק', 'น้ำมัน', 'وقود'],
+    ['vehicles', 'כלים, רכבים ותיקונים', 'ยานพาหนะและซ่อมบำรุง', 'مركبات وإصلاحات'], ['contractors', 'קבלני משנה', 'ผู้รับเหมาช่วง', 'مقاولون فرعيون'],
+    ['lease', 'שכירות / חכירה', 'ค่าเช่า', 'إيجار'], ['insurance', 'ביטוח', 'ประกัน', 'تأمين'], ['finance', 'מימון והלוואות', 'การเงินและเงินกู้', 'تمويل وقروض'], ['out_other', 'הוצאות אחרות', 'รายจ่ายอื่นๆ', 'مصروفات أخرى']];
+  function L(c) { return tt(c[1], c[2], c[3]); }
   var AUTO = { labour: 1, purchases: 1 };
-  var MONTHS = ['ינו׳', 'פבר׳', 'מרץ', 'אפר׳', 'מאי', 'יוני', 'יולי', 'אוג׳', 'ספט׳', 'אוק׳', 'נוב׳', 'דצמ׳'];
+  var MONTHS_ = [['ינו׳', 'ม.ค.', 'ينا'], ['פבר׳', 'ก.พ.', 'فبر'], ['מרץ', 'มี.ค.', 'مارس'], ['אפר׳', 'เม.ย.', 'أبر'], ['מאי', 'พ.ค.', 'مايو'], ['יוני', 'มิ.ย.', 'يونيو'],
+    ['יולי', 'ก.ค.', 'يوليو'], ['אוג׳', 'ส.ค.', 'أغس'], ['ספט׳', 'ก.ย.', 'سبت'], ['אוק׳', 'ต.ค.', 'أكت'], ['נוב׳', 'พ.ย.', 'نوف'], ['דצמ׳', 'ธ.ค.', 'ديس']];
+  function M(i) { var m = MONTHS_[i]; return tt(m[0], m[1], m[2]); }
 
   var year = new Date().getFullYear(), D = null, auto = { labour: {}, purchases: {} }, ui = { farm: 0, show: 'both' }, lastSaved = '';
 
@@ -120,10 +126,10 @@ var CashFlow = (function () {
     var curM = (year === new Date().getFullYear()) ? new Date().getMonth() : (year < new Date().getFullYear() ? 11 : -1);
     var showP = ui.show !== 'actual', showA = ui.show !== 'plan';
     var sub = (showP && showA) ? 2 : 1;
-    var head1 = '<tr><th rowspan="' + (sub > 1 ? 2 : 1) + '" class="cf-c">' + tt('סעיף', 'หมวด', 'البند') + '</th>' + MONTHS.map(function (mn, i) {
-      return '<th colspan="' + sub + '" class="' + (i === curM ? 'cur' : '') + '">' + mn + '</th>'; }).join('') +
+    var head1 = '<tr><th rowspan="' + (sub > 1 ? 2 : 1) + '" class="cf-c">' + tt('סעיף', 'หมวด', 'البند') + '</th>' + MONTHS_.map(function (mn_, i) {
+      return '<th colspan="' + sub + '" class="' + (i === curM ? 'cur' : '') + '">' + M(i) + '</th>'; }).join('') +
       '<th colspan="' + sub + '">' + tt('שנתי', 'ทั้งปี', 'سنوي') + '</th></tr>';
-    var head2 = sub > 1 ? '<tr>' + MONTHS.concat(['y']).map(function () { return '<th class="sm">' + tt('תכנון', 'แผน', 'خطة') + '</th><th class="sm">' + tt('בפועל', 'จริง', 'فعلي') + '</th>'; }).join('') + '</tr>' : '';
+    var head2 = sub > 1 ? '<tr>' + MONTHS_.concat(['y']).map(function () { return '<th class="sm">' + tt('תכנון', 'แผน', 'خطة') + '</th><th class="sm">' + tt('בפועל', 'จริง', 'فعلي') + '</th>'; }).join('') + '</tr>' : '';
     var cells = function (pl, ac, cls) {
       var h = '';
       for (var i = 0; i < 12; i++) {
@@ -139,7 +145,7 @@ var CashFlow = (function () {
       return list.map(function (c) {
         var pl = entryRow(c[0], 'plan'), ac = actualRow(c[0]);
         pl.forEach(function (v, i) { tot.p[i] += v; }); ac.forEach(function (v, i) { tot.a[i] += v; });
-        return '<tr data-cat="' + c[0] + '"><td class="cf-c">' + esc(c[1]) + (AUTO[c[0]] ? ' <small title="' + esc(tt('מתעדכן אוטומטית', 'อัปเดตอัตโนมัติ', 'يتحدث تلقائياً')) + '">⚡</small>' : '') + '</td>' + cells(pl, ac) + '</tr>';
+        return '<tr data-cat="' + c[0] + '"><td class="cf-c">' + esc(L(c)) + (AUTO[c[0]] ? ' <small title="' + esc(tt('מתעדכן אוטומטית', 'อัปเดตอัตโนมัติ', 'يتحدث تلقائياً')) + '">⚡</small>' : '') + '</td>' + cells(pl, ac) + '</tr>';
       }).join('');
     };
     var inRows = rows(IN, totIn), outRows = rows(OUT, totOut);
@@ -159,7 +165,7 @@ var CashFlow = (function () {
       '<div class="cf-kpis">' + kpi(tt('יתרת פתיחה', 'ยอดยกมา', 'الرصيد الافتتاحي'), o) + kpi(tt('הכנסות עד היום', 'รายรับถึงวันนี้', 'الدخل حتى اليوم'), ytdIn, 'in') +
         kpi(tt('הוצאות עד היום', 'รายจ่ายถึงวันนี้', 'المصروفات حتى اليوم'), ytdOut, 'out') + kpi(tt('יתרה היום', 'ยอดคงเหลือ', 'الرصيد اليوم'), curM >= 0 ? bal.a[curM] : o, (curM >= 0 ? bal.a[curM] : o) < 0 ? 'neg' : '') +
         kpi(tt('צפי לסוף השנה', 'คาดการณ์สิ้นปี', 'المتوقع نهاية السنة'), (curM >= 0 ? bal.a[curM] : o) + sum(net.p.slice(curM + 1)), '') + '</div>' +
-      (lowM !== -1 ? '<div class="cf-warn">⚠️ ' + tt('היתרה צפויה לרדת מתחת לאפס ב', 'ยอดจะติดลบใน', 'سيصبح الرصيد سالباً في') + MONTHS[lowM] + ' ' + year + '</div>' : '') +
+      (lowM !== -1 ? '<div class="cf-warn">⚠️ ' + tt('היתרה צפויה לרדת מתחת לאפס ב', 'ยอดจะติดลบใน', 'سيصبح الرصيد سالباً في') + M(lowM) + ' ' + year + '</div>' : '') +
       '<div class="cf-bar">' +
         '<button class="cf-btn pri" data-a="add">＋ ' + tt('תנועה / תכנון', 'รายการ', 'حركة / خطة') + '</button>' +
         '<button class="cf-btn" data-a="opening">🏦 ' + tt('יתרת פתיחה', 'ยอดยกมา', 'الرصيد الافتتاحي') + '</button>' +
@@ -185,7 +191,7 @@ var CashFlow = (function () {
     document.getElementById('cfYear').onchange = function () { year = Number(this.value); open(); };
   }
 
-  function catName(c) { var x = IN.concat(OUT).find(function (y) { return y[0] === c; }); return x ? x[1] : c; }
+  function catName(c) { var x = IN.concat(OUT).find(function (y) { return y[0] === c; }); return x ? L(x) : c; }
 
   function addForm(cat) {
     var p = document.getElementById('cfPanel');
@@ -194,10 +200,10 @@ var CashFlow = (function () {
       '<div class="cf-g">' +
         '<label>' + tt('סוג', 'ชนิด', 'النوع') + '<select class="form-input" id="cfKind"><option value="actual">' + tt('בפועל', 'จริง', 'فعلي') + '</option><option value="plan">' + tt('תכנון', 'แผน', 'خطة') + '</option></select></label>' +
         '<label>' + tt('סעיף', 'หมวด', 'البند') + '<select class="form-input" id="cfCat">' +
-          '<optgroup label="' + tt('הכנסות', 'รายรับ', 'الدخل') + '">' + IN.map(function (c) { return '<option value="' + c[0] + '"' + (c[0] === cat ? ' selected' : '') + '>' + esc(c[1]) + '</option>'; }).join('') + '</optgroup>' +
-          '<optgroup label="' + tt('הוצאות', 'รายจ่าย', 'المصروفات') + '">' + OUT.map(function (c) { return '<option value="' + c[0] + '"' + (c[0] === cat ? ' selected' : '') + '>' + esc(c[1]) + '</option>'; }).join('') + '</optgroup></select></label>' +
+          '<optgroup label="' + tt('הכנסות', 'รายรับ', 'الدخل') + '">' + IN.map(function (c) { return '<option value="' + c[0] + '"' + (c[0] === cat ? ' selected' : '') + '>' + esc(L(c)) + '</option>'; }).join('') + '</optgroup>' +
+          '<optgroup label="' + tt('הוצאות', 'รายจ่าย', 'المصروفات') + '">' + OUT.map(function (c) { return '<option value="' + c[0] + '"' + (c[0] === cat ? ' selected' : '') + '>' + esc(L(c)) + '</option>'; }).join('') + '</optgroup></select></label>' +
         '<label>' + tt('משק', 'ฟาร์ม', 'المزرعة') + '<select class="form-input" id="cfF"><option value="0">' + tt('כללי', 'ทั่วไป', 'عام') + '</option>' + fs.map(function (f) { return '<option value="' + f.id + '"' + (ui.farm === f.id ? ' selected' : '') + '>' + esc(f.name) + '</option>'; }).join('') + '</select></label>' +
-        '<label>' + tt('חודש', 'เดือน', 'الشهر') + '<select class="form-input" id="cfM">' + MONTHS.map(function (mn, i) { return '<option value="' + i + '"' + (i === new Date().getMonth() ? ' selected' : '') + '>' + mn + '</option>'; }).join('') +
+        '<label>' + tt('חודש', 'เดือน', 'الشهر') + '<select class="form-input" id="cfM">' + MONTHS_.map(function (mn_, i) { return '<option value="' + i + '"' + (i === new Date().getMonth() ? ' selected' : '') + '>' + M(i) + '</option>'; }).join('') +
           '<option value="all">' + tt('כל השנה (מחולק ל־12)', 'ทั้งปี ÷12', 'السنة كلها ÷12') + '</option></select></label>' +
         '<label>' + tt('סכום ₪', 'จำนวน ₪', 'المبلغ ₪') + '<input class="form-input" id="cfAmt" type="number" step="any" inputmode="decimal"></label>' +
         '<label>' + tt('הערה', 'หมายเหตุ', 'ملاحظة') + '<input class="form-input" id="cfNote"></label>' +
@@ -224,7 +230,7 @@ var CashFlow = (function () {
     var autoTxt = AUTO[cat] ? '<div class="cf-muted">⚡ ' + (cat === 'labour' ? tt('בפועל כולל אוטומטית את עלות העבודה מיומן העבודה: ', 'รวมค่าแรงอัตโนมัติ: ', 'يشمل تلقائياً تكلفة العمل: ') : tt('בפועל כולל אוטומטית רכש ממסמכי ספקים: ', 'รวมการซื้ออัตโนมัติ: ', 'يشمل تلقائياً المشتريات: ')) + '<b>' + money(sum(autoRow(cat))) + '</b></div>' : '';
     p.innerHTML = '<div class="cf-form"><h3>' + esc(catName(cat)) + '</h3>' + autoTxt +
       (list.length ? list.map(function (e) {
-        return '<div class="cf-e"><span>' + MONTHS[e.m] + '</span><span class="cf-kd ' + e.kind + '">' + (e.kind === 'plan' ? tt('תכנון', 'แผน', 'خطة') : tt('בפועל', 'จริง', 'فعلي')) + '</span><b>' + money(e.amount) + '</b><small>' + esc(fname(e.farmId)) + (e.note ? ' · ' + esc(e.note) : '') + '</small>' +
+        return '<div class="cf-e"><span>' + M(e.m) + '</span><span class="cf-kd ' + e.kind + '">' + (e.kind === 'plan' ? tt('תכנון', 'แผน', 'خطة') : tt('בפועל', 'จริง', 'فعلي')) + '</span><b>' + money(e.amount) + '</b><small>' + esc(fname(e.farmId)) + (e.note ? ' · ' + esc(e.note) : '') + '</small>' +
           '<button class="cf-x" data-del="' + e.id + '">🗑</button></div>';
       }).join('') : '<div class="cf-muted">' + tt('אין תנועות ידניות בסעיף הזה', 'ไม่มีรายการ', 'لا حركات') + '</div>') +
       '<div class="cf-bar"><button class="cf-btn pri" data-addcat="' + cat + '">＋ ' + tt('הוספה לסעיף', 'เพิ่ม', 'إضافة') + '</button><button class="cf-btn ghost" data-a="hidepanel">' + tt('סגור', 'ปิด', 'إغلاق') + '</button></div></div>';
@@ -249,11 +255,11 @@ var CashFlow = (function () {
     var t = document.querySelector('.cf-t');
     if (!t) return;
     var f = farms().find(function (x) { return x.id === ui.farm; });
-    var html = '<!DOCTYPE html><html dir="rtl" lang="he"><head><meta charset="utf-8"><title>תזרים ' + year + '</title><style>' +
+    var html = '<!DOCTYPE html><html dir="' + (document.documentElement.dir || 'rtl') + '" lang="' + (document.documentElement.lang || 'he') + '"><head><meta charset="utf-8"><title>' + esc(tt('תזרים', 'กระแสเงินสด', 'التدفق النقدي')) + ' ' + year + '</title><style>' +
       'body{font-family:Rubik,Arial,sans-serif;margin:10px;color:#1b2a1f;}h1{font-size:1rem;color:#12401f;}table{width:100%;border-collapse:collapse;font-size:.62rem;}' +
       'th,td{border:1px solid #ddd;padding:3px;text-align:center;}td:first-child{text-align:right;white-space:nowrap;}tr.grp td{background:#eef7d4;font-weight:700;text-align:right;}' +
       'tr.tot td,tr.net td{font-weight:700;background:#f4f7f1;}tr.bal td{font-weight:700;background:#e8f0e0;}td.p{color:#777;}' +
-      '@page{size:A4 landscape;margin:8mm;}</style></head><body><h1>💰 תזרים מזומנים ' + year + ' — ' + esc(f ? f.name : 'כל המשקים') + '</h1>' + t.outerHTML + '</body></html>';
+      '@page{size:A4 landscape;margin:8mm;}</style></head><body><h1>💰 ' + esc(tt('תזרים מזומנים', 'กระแสเงินสด', 'التدفق النقدي')) + ' ' + year + ' — ' + esc(f ? f.name : tt('כל המשקים', 'ทุกฟาร์ม', 'كل المزارع')) + '</h1>' + t.outerHTML + '</body></html>';
     if (window.Util && Util.exportReport) Util.exportReport(html, 'cashflow-' + year + '.html');
   }
 
@@ -302,9 +308,9 @@ var CashFlow = (function () {
       '.cf-t thead tr:nth-child(2) th{top:27px;}.cf-t th.cur{background:var(--primary-soft,#eef7d4);}.cf-t th.sm{font-weight:400;font-size:.64rem;}' +
       '.cf-t td{padding:5px 4px;border-top:1px solid var(--line,#eef1ec);}.cf-t td.n{text-align:center;font-variant-numeric:tabular-nums;white-space:nowrap;}' +
       '.cf-t td.p{color:var(--text-muted,#7b867e);}.cf-t td.fut{color:#bbb;}.cf-t td.tot{font-weight:700;background:var(--tonal,#f6f8f4);}' +
-      '.cf-c{position:sticky;right:0;background:var(--card,#fff);text-align:right;white-space:nowrap;min-width:170px;z-index:1;}' +
+      '.cf-c{position:sticky;inset-inline-start:0;background:var(--card,#fff);text-align:start;white-space:nowrap;min-width:170px;z-index:1;}' +
       '.cf-t tr[data-cat]{cursor:pointer;}.cf-t tr[data-cat]:hover td{background:var(--tonal,#f6f8f4);}' +
-      '.cf-t tr.grp td{background:var(--primary-soft,#eef7d4);font-weight:700;position:sticky;right:0;}.cf-t tr.grp.out td{background:#fff4e2;}' +
+      '.cf-t tr.grp td{background:var(--primary-soft,#eef7d4);font-weight:700;}.cf-t tr.grp.out td{background:#fff4e2;}' +
       '.cf-t tr.tot td,.cf-t tr.net td{font-weight:700;background:var(--tonal,#f4f7f1);}.cf-t tr.bal td{font-weight:800;background:#e8f0e0;}' +
       '.cf-muted{font-size:.72rem;color:var(--text-muted,#6f7b72);margin-top:6px;}' +
       '.cf-form{border:1px solid var(--line,#e6ebe2);border-radius:16px;padding:12px 14px;margin-top:10px;}.cf-form h3{margin:0 0 8px;}' +
@@ -315,6 +321,8 @@ var CashFlow = (function () {
       '.cf-ol{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:4px 0;font-size:.84rem;}.cf-ol .form-input{width:140px;margin:0;}';
     document.head.appendChild(st);
   }
+
+  document.addEventListener('shorashim:lang', function () { if (document.getElementById('cfRoot') && D) render(); });
 
   return { open: open, close: close };
 })();

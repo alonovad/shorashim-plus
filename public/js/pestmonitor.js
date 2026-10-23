@@ -25,23 +25,31 @@ var PestMonitor = (function () {
   'use strict';
 
   var KEY_PREFIX = 'shorashim-pest-monitor-';   // + year
-  var DEFAULT_PESTS = ['חדקונית', 'כנימות מגן', 'אקריות קורים', 'עש תמר קטן', 'עש תמר גדול', 'כוויה שחורה'];
-  var RECS = ['המשך על פי תוכנית שנתית', 'ניטור צמוד בביקור הבא', 'טיפול נדרש - ראה הערות'];
+  // DATA KEY — default pest columns (renamable; stored as the season's column names)
+  var DEFAULT_PESTS = ['חדקונית', 'כנימות מגן', 'אקריות קורים', 'עש תמר קטן', 'עש תמר גדול', 'כוויה שחורה'];   // DATA KEY
+  var RECS = ['המשך על פי תוכנית שנתית', 'ניטור צמוד בביקור הבא', 'טיפול נדרש - ראה הערות'];   // DATA KEY — stored on visits
+  var RECS_TR = { 'המשך על פי תוכנית שנתית': ['ทำตามแผนประจำปี', 'الاستمرار حسب الخطة السنوية'], 'ניטור צמוד בביקור הבא': ['ติดตามใกล้ชิดในการเยี่ยมครั้งถัดไป', 'مراقبة دقيقة في الزيارة القادمة'],
+    'טיפול נדרש - ראה הערות': ['ต้องดำเนินการ - ดูหมายเหตุ', 'مطلوب علاج - انظر الملاحظات'] };
+  function recTr(r) { var x = RECS_TR[r]; return x ? tt(r, x[0], x[1]) : r; }
 
   // Tap scale → stored word. Index = score.
-  var LEVELS = ['ללא', 'קלה', 'בינונית', 'גבוהה', 'קשה - טיפול מיידי'];
-  var LEVEL_SHORT = ['ללא', 'קלה', 'בינונית', 'גבוהה', 'קשה'];
+  var LEVELS = ['ללא', 'קלה', 'בינונית', 'גבוהה', 'קשה - טיפול מיידי'];   // DATA KEY — rating words stored on visits
+  var LEVEL_SHORT_ = [['ללא', 'ไม่มี', 'لا يوجد'], ['קלה', 'น้อย', 'خفيفة'], ['בינונית', 'ปานกลาง', 'متوسطة'], ['גבוהה', 'สูง', 'عالية'], ['קשה', 'รุนแรง', 'شديدة']];
+  function levelShort(k) { var x = LEVEL_SHORT_[k]; return tt(x[0], x[1], x[2]); }
   var LEVEL_COL = ['#6aa84f', '#c5d94a', '#f0b33c', '#e8833a', '#d94b3f'];
 
   // Words → score (legacy texts included). Unknown text = undefined.
   var SCALE = {
-    'ללא': 0, 'אין': 0, 'נקי': 0,
-    'זניח': 1, 'בודדות': 1, 'זניח-נמוך': 1, 'נמוך/קלה': 1, 'קלה': 1, 'נמוך': 1,
-    'בינונית': 2, 'בינוני': 2,
-    'גבוהה': 3, 'גבוה': 3,
-    'קשה - טיפול מיידי': 4, 'קשה': 4
+    'ללא': 0, 'אין': 0, 'נקי': 0,   // DATA KEY
+    'זניח': 1, 'בודדות': 1, 'זניח-נמוך': 1, 'נמוך/קלה': 1, 'קלה': 1, 'נמוך': 1,   // DATA KEY
+    'בינונית': 2, 'בינוני': 2,   // DATA KEY
+    'גבוהה': 3, 'גבוה': 3,   // DATA KEY
+    'קשה - טיפול מיידי': 4, 'קשה': 4   // DATA KEY
   };
-  var SCALE_LABEL = ['אין נגיעות', 'נגיעות קלה', 'נגיעות בינונית', 'נגיעות גבוהה', 'נגיעות קשה'];
+  var SCALE_LABEL_ = [['אין נגיעות', 'ไม่พบการระบาด', 'لا إصابة'], ['נגיעות קלה', 'ระบาดเล็กน้อย', 'إصابة خفيفة'], ['נגיעות בינונית', 'ระบาดปานกลาง', 'إصابة متوسطة'],
+    ['נגיעות גבוהה', 'ระบาดสูง', 'إصابة عالية'], ['נגיעות קשה', 'ระบาดรุนแรง', 'إصابة شديدة']];
+  function scaleLabel(i) { var x = SCALE_LABEL_[i]; return tt(x[0], x[1], x[2]); }
+  var SCALE_LABEL = [0, 1, 2, 3, 4];
 
   var S = null;
   var year = String(new Date().getFullYear());
@@ -204,7 +212,7 @@ var PestMonitor = (function () {
     });
     if (!nums.length) return words ? tt('ללא דירוג', 'ไม่จัดอันดับ', 'بلا تصنيف') : '—';
     var avg = nums.reduce(function (a, b) { return a + b; }, 0) / nums.length;
-    return (Math.round(avg * 10) / 10) + ' · ' + SCALE_LABEL[worst];
+    return (Math.round(avg * 10) / 10) + ' · ' + scaleLabel(worst);
   }
   function plotWorst(pid) {
     var log = S.plots[pid];
@@ -353,7 +361,7 @@ var PestMonitor = (function () {
     var cards = order.map(function (i) { return visitCard(vs[i], i, p.id); }).join('') ||
       '<div class="pm2-empty">' + tt('עדיין אין ביקורים בחלקה הזו. לחץ "ביקור חדש".', 'ยังไม่มีการเยี่ยม', 'لا زيارات بعد') + '</div>';
     return info + head + legacy + sums + cards +
-      '<div class="pm2-legend"><b>' + tt('סולם הערכה', 'มาตรวัด', 'المقياس') + ':</b> ' + SCALE_LABEL.map(function (l, i) { return '<i style="background:' + LEVEL_COL[i] + '"></i>' + i + ' ' + l; }).join(' · ') + '</div>';
+      '<div class="pm2-legend"><b>' + tt('סולם הערכה', 'มาตรวัด', 'المقياس') + ':</b> ' + SCALE_LABEL.map(function (l, i) { return '<i style="background:' + LEVEL_COL[i] + '"></i>' + i + ' ' + scaleLabel(i); }).join(' · ') + '</div>';
   }
 
   function visitCard(v, i, pid) {
@@ -364,7 +372,8 @@ var PestMonitor = (function () {
     var rows = S.pests.map(function (name, j) {
       var cur = (v.r || [])[j] || '';
       var sc = scoreOf(cur);
-      var btns = LEVEL_SHORT.map(function (l, k) {
+      var btns = LEVEL_SHORT_.map(function (l_, k) {
+        var l = levelShort(k);
         return '<button type="button" class="pm2-lv' + (sc === k ? ' on' : '') + '" style="--c:' + LEVEL_COL[k] + '" data-lv="' + i + ':' + j + ':' + k + '">' + l + '</button>';
       }).join('');
       var odd = (sc === undefined) ? '<span class="pm2-odd" title="' + tt('ערך חופשי ישן', 'ค่าเดิม', 'قيمة قديمة') + '">“' + esc(cur) + '”</span>' : '';
@@ -379,7 +388,7 @@ var PestMonitor = (function () {
       rows +
       '<div class="pm2-grid2">' +
         '<label>' + tt('המלצת טיפול', 'คำแนะนำ', 'التوصية') + '<select class="pm2-in" data-v="' + i + '" data-f="rec">' +
-          recOpts.map(function (r) { return '<option' + (r === v.rec ? ' selected' : '') + '>' + esc(r) + '</option>'; }).join('') + '</select></label>' +
+          recOpts.map(function (r) { return '<option value="' + esc(r) + '"' + (r === v.rec ? ' selected' : '') + '>' + esc(recTr(r)) + '</option>'; }).join('') + '</select></label>' +
         '<label>' + tt('הערות', 'หมายเหตุ', 'ملاحظات') + '<textarea class="pm2-in" rows="2" data-v="' + i + '" data-f="n">' + esc(v.n) + '</textarea></label>' +
       '</div></div>';
   }
@@ -592,7 +601,7 @@ var PestMonitor = (function () {
     var blob = new Blob([JSON.stringify(S, null, 2)], { type: 'application/json' });
     var a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = 'פיקוח-מזיקים-' + (S.year || year) + '.json';
+    a.download = 'pest-monitoring-' + (S.year || year) + '.json';
     a.click();
     setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
   }
@@ -618,30 +627,32 @@ var PestMonitor = (function () {
     var visits = ((S.plots[plot.id] || {}).visits || []).filter(hasContent).slice()
       .sort(function (a, b) { return dmyKey(a.d).localeCompare(dmyKey(b.d)); });
     var widths = [9].concat(pests.map(function () { return Math.floor(46 / Math.max(pests.length, 1)); })).concat([22, 22]);
-    var head = ['תאריך ביקור'].concat(pests).concat(['המלצת טיפול', 'הערות'])
+    var head = [tt('תאריך ביקור', 'วันที่เยี่ยม', 'تاريخ الزيارة')].concat(pests).concat([tt('המלצת טיפול', 'คำแนะนำ', 'التوصية'), tt('הערות', 'หมายเหตุ', 'ملاحظات')])
       .map(function (h, i) { return '<th style="width:' + (widths[i] || 10) + '%">' + esc(h) + '</th>'; }).join('');
     var rows = visits.map(function (v) {
       var c = '<td class="c">' + esc(v.d) + '</td>';
       for (var j = 0; j < pests.length; j++) {
         var val = (v.r || [])[j] || '', sc = scoreOf(val);
-        c += '<td class="c"' + (sc != null && sc !== undefined ? ' style="background:' + LEVEL_COL[sc] + '33"' : '') + '>' + esc(val) + '</td>';
+        c += '<td class="c"' + (sc != null && sc !== undefined ? ' style="background:' + LEVEL_COL[sc] + '33"' : '') + '>' + esc(sc != null && sc !== undefined ? levelShort(sc) : val) + '</td>';
       }
-      return '<tr>' + c + '<td>' + esc(v.rec) + '</td><td>' + esc(v.n) + '</td></tr>';
-    }).join('') || '<tr><td colspan="' + (pests.length + 3) + '" class="c">אין ביקורים רשומים לחלקה זו</td></tr>';
+      return '<tr>' + c + '<td>' + esc(recTr(v.rec)) + '</td><td>' + esc(v.n) + '</td></tr>';
+    }).join('') || '<tr><td colspan="' + (pests.length + 3) + '" class="c">' + esc(tt('אין ביקורים רשומים לחלקה זו', 'ยังไม่มีการเยี่ยมในแปลงนี้', 'لا زيارات مسجلة لهذه القطعة')) + '</td></tr>';
     var fid = plot.farm_id || 0;
-    var meta = [['משק', farmName(fid)], ['חלקה', plot.name || ''], ['שטח (דונם)', plot.area ? (Math.round(plot.area * 10) / 10) : ''], ['שנת גידול', S.year || year], ['ביקורים', visits.length]]
+    var meta = [[tt('משק', 'ฟาร์ม', 'المزرعة'), farmName(fid)], [tt('חלקה', 'แปลง', 'القطعة'), plot.name || ''], [tt('שטח (דונם)', 'พื้นที่ (ไร่)', 'المساحة (دونم)'), plot.area ? (Math.round(plot.area * 10) / 10) : ''],
+      [tt('שנת גידול', 'ปีการเพาะปลูก', 'سنة الزراعة'), S.year || year], [tt('ביקורים', 'การเยี่ยม', 'الزيارات'), visits.length]]
       .filter(function (kv) { return String(kv[1] === 0 ? '0' : kv[1] || '').trim() !== ''; })
       .map(function (kv) { return '<td class="k">' + esc(kv[0]) + '</td><td>' + esc(kv[1]) + '</td>'; }).join('');
     var mapUrl = (S.withMap && window.ReportMap && ReportMap.getCached) ? ReportMap.getCached({ plotId: plot.id }) : null;
-    var sig = '<div class="sig">מבצע הפיקוח: <b>' + esc(S.inspector) + '</b>' + (S.signature ? ' &nbsp;&nbsp; חתימה: <span></span> &nbsp;&nbsp; תאריך: ____________' : '') + '</div>';
+    var sig = '<div class="sig">' + esc(tt('מבצע הפיקוח', 'ผู้ตรวจ', 'المفتش')) + ': <b>' + esc(S.inspector) + '</b>' + (S.signature ? ' &nbsp;&nbsp; ' + esc(tt('חתימה', 'ลายเซ็น', 'التوقيع')) + ': <span></span> &nbsp;&nbsp; ' + esc(tt('תאריך', 'วันที่', 'التاريخ')) + ': ____________' : '') + '</div>';
     return '<div class="report">' +
-      '<div class="band"><h3>דוח פיקוח מזיקים — ' + esc(plot.name || '') + '</h3>' +
-        '<div class="m">' + esc(farmName(fid)) + ' &nbsp;|&nbsp; מיקום: ' + esc(S.location) + ' &nbsp;|&nbsp; שנת גידול: ' + esc(S.year || year) + ' &nbsp;|&nbsp; מבצע הפיקוח: ' + esc(S.inspector) + '</div></div>' +
+      '<div class="band"><h3>' + esc(tt('דוח פיקוח מזיקים', 'รายงานตรวจศัตรูพืช', 'تقرير مراقبة الآفات')) + ' — ' + esc(plot.name || '') + '</h3>' +
+        '<div class="m">' + esc(farmName(fid)) + ' &nbsp;|&nbsp; ' + esc(tt('מיקום', 'สถานที่', 'الموقع')) + ': ' + esc(S.location) + ' &nbsp;|&nbsp; ' + esc(tt('שנת גידול', 'ปีการเพาะปลูก', 'سنة الزراعة')) + ': ' + esc(S.year || year) +
+        ' &nbsp;|&nbsp; ' + esc(tt('מבצע הפיקוח', 'ผู้ตรวจ', 'المفتش')) + ': ' + esc(S.inspector) + '</div></div>' +
       '<table class="meta"><tr>' + meta + '</tr></table>' +
       (mapUrl ? '<div class="mapwrap"><img src="' + mapUrl + '" alt=""></div>' : '') +
       '<table class="log"><thead><tr>' + head + '</tr></thead><tbody>' + rows + '</tbody></table>' +
-      '<div class="scale"><b>סולם הערכה:</b> &nbsp; ' + SCALE_LABEL.map(function (l, i) { return i + ' = ' + l; }).join(' &nbsp;|&nbsp; ') + '</div>' +
-      '<h4>סיכום שנתי — רמת נגיעות לפי מזיק (ממוצע · החמור שנרשם)</h4>' +
+      '<div class="scale"><b>' + esc(tt('סולם הערכה', 'มาตรวัด', 'المقياس')) + ':</b> &nbsp; ' + SCALE_LABEL.map(function (l, i) { return i + ' = ' + scaleLabel(i); }).join(' &nbsp;|&nbsp; ') + '</div>' +
+      '<h4>' + esc(tt('סיכום שנתי — רמת נגיעות לפי מזיק (ממוצע · החמור שנרשם)', 'สรุปประจำปี — ระดับการระบาดตามศัตรูพืช (เฉลี่ย · รุนแรงสุด)', 'ملخص سنوي — مستوى الإصابة لكل آفة (المتوسط · الأشد)')) + '</h4>' +
       '<table class="sum"><tr>' + pests.map(function (h) { return '<th>' + esc(h) + '</th>'; }).join('') + '</tr>' +
       '<tr>' + pests.map(function (p, j) { return '<td>' + esc(summaryFor(visits, j)) + '</td>'; }).join('') + '</tr></table>' +
       sig + '</div>';
@@ -660,7 +671,7 @@ var PestMonitor = (function () {
       'table.log td{font-size:9.5px;padding:5px 4px;border:1px solid #d6e0cf;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
       'table.log td.c{text-align:center;white-space:nowrap}' +
       '.scale{background:#f4f7f1;border:1px solid #d6e0cf;padding:6px 10px;font-size:9.5px;margin-top:9px;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
-      'h4{font-size:11px;color:#12401f;margin:12px 0 5px;border-right:4px solid #c5e663;padding-right:7px}' +
+      'h4{font-size:11px;color:#12401f;margin:12px 0 5px;border-inline-start:4px solid #c5e663;padding-inline-start:7px}' +
       'table.sum{width:100%;border-collapse:collapse}' +
       'table.sum th{background:#eef7d4;border:1px solid #d6e0cf;font-size:9.5px;padding:5px 3px;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
       'table.sum td{text-align:center;padding:8px 4px;font-size:10px;border:1px solid #d6e0cf}' +
@@ -670,9 +681,9 @@ var PestMonitor = (function () {
     if (saveTimer) persistNow();
     var sel = selectedPlots();
     if (!sel.length) { toast('❌ ' + tt('סמן ☑ לפחות חלקה אחת להדפסה', 'เลือกอย่างน้อยหนึ่งแปลง', 'اختر قطعة واحدة على الأقل')); return; }
-    var html = '<!DOCTYPE html>\n<html lang="he" dir="rtl">\n<head>\n<meta charset="UTF-8">\n<title>דוחות פיקוח מזיקים ' + esc(S.year || year) + '</title>\n' +
+    var html = '<!DOCTYPE html>\n<html lang="' + (document.documentElement.lang || 'he') + '" dir="' + (document.documentElement.dir || 'rtl') + '">\n<head>\n<meta charset="UTF-8">\n<title>' + esc(tt('דוחות פיקוח מזיקים', 'รายงานตรวจศัตรูพืช', 'تقارير مراقبة الآفات')) + ' ' + esc(S.year || year) + '</title>\n' +
       '<style>' + printStyles() + '</style>\n</head>\n<body>\n' + sel.map(reportHtml).join('\n') + '\n</body>\n</html>';
-    if (window.Util && typeof Util.exportReport === 'function') Util.exportReport(html, 'פיקוח_מזיקים_' + (S.year || year) + '.html');
+    if (window.Util && typeof Util.exportReport === 'function') Util.exportReport(html, 'pest-monitoring-' + (S.year || year) + '.html');
     toast('📄 ' + sel.length + ' ' + tt('דוחות נפתחו — בחר הדפסה / שמור כ-PDF', 'เอกสารเปิดแล้ว', 'فُتحت التقارير'));
   }
 
@@ -696,14 +707,14 @@ var PestMonitor = (function () {
       '.pm2-body{flex:1;min-height:0;display:flex;flex-direction:column;}' +
       '@media(min-width:900px){.pm2-body{flex-direction:row;}}' +
       '.pm2-side{background:var(--card,#fff);border-bottom:1px solid var(--line,#e6ebe2);}' +
-      '@media(min-width:900px){.pm2-side{width:330px;flex:none;border-bottom:0;border-left:1px solid var(--line,#e6ebe2);overflow-y:auto;}.pm2-cur{display:none !important;}.pm2-list{display:block !important;}}' +
+      '@media(min-width:900px){.pm2-side{width:330px;flex:none;border-bottom:0;border-inline-end:1px solid var(--line,#e6ebe2);overflow-y:auto;}.pm2-cur{display:none !important;}.pm2-list{display:block !important;}}' +
       '.pm2-cur{display:flex;width:100%;justify-content:space-between;align-items:center;border:0;background:none;padding:12px 14px;font:inherit;font-size:.9rem;color:inherit;cursor:pointer;}' +
       '.pm2-list{display:none;padding:10px 12px 14px;max-height:55dvh;overflow-y:auto;}.pm2-side.open .pm2-list{display:block;}' +
       '@media(min-width:900px){.pm2-list{max-height:none;}}' +
       '.pm2-hint{font-size:.7rem;color:var(--text-muted,#6f7b72);margin:6px 2px 8px;}' +
       '.pm2-farm{margin-bottom:6px;}.pm2-fh{display:flex;align-items:center;gap:6px;}' +
       '.pm2-ft{flex:1;display:flex;gap:8px;align-items:center;border:0;background:var(--tonal,#f1f4ee);border-radius:12px;padding:8px 10px;font:inherit;color:inherit;cursor:pointer;}' +
-      '.pm2-ft b{flex:1;text-align:right;font-size:.86rem;}.pm2-ft span{font-size:.72rem;color:var(--text-muted,#6f7b72);}.pm2-ft i{font-style:normal;font-size:.7rem;}' +
+      '.pm2-ft b{flex:1;text-align:start;font-size:.86rem;}.pm2-ft span{font-size:.72rem;color:var(--text-muted,#6f7b72);}.pm2-ft i{font-style:normal;font-size:.7rem;}' +
       '.pm2-plots{padding:4px 0 2px;}' +
       '.pm2-pl{display:flex;align-items:center;gap:8px;padding:8px 8px;border-radius:12px;cursor:pointer;}' +
       '.pm2-pl:hover{background:var(--tonal,#f1f4ee);}' +
@@ -734,7 +745,7 @@ var PestMonitor = (function () {
       '.pm2-legacy{background:#fff4e2;color:#7a4a00;border-radius:14px;padding:10px 12px;margin-bottom:12px;font-size:.82rem;}' +
       '.pm2-empty{padding:18px;text-align:center;color:var(--text-muted,#6f7b72);font-size:.84rem;}.pm2-empty.big{padding:50px 18px;}' +
       '.pm2-more{position:fixed;z-index:100001;background:var(--card,#fff);border:1px solid var(--line,#e6ebe2);border-radius:16px;box-shadow:0 12px 30px rgba(0,0,0,.18);padding:6px;display:flex;flex-direction:column;min-width:210px;}' +
-      '.pm2-more button,.pm2-more label{border:0;background:none;text-align:right;padding:10px 12px;border-radius:10px;font:inherit;font-size:.84rem;color:var(--text,#1b2a1f);cursor:pointer;}' +
+      '.pm2-more button,.pm2-more label{border:0;background:none;text-align:start;padding:10px 12px;border-radius:10px;font:inherit;font-size:.84rem;color:var(--text,#1b2a1f);cursor:pointer;}' +
       '.pm2-more button:hover,.pm2-more label:hover{background:var(--tonal,#f1f4ee);}.pm2-more .warn{color:#b3261e;}' +
       '.pm2-pop-back{position:fixed;inset:0;z-index:100002;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;padding:14px;}' +
       '.pm2-pop{background:var(--card,#fff);color:var(--text,#1b2a1f);border-radius:20px;padding:16px;width:100%;max-width:420px;max-height:80dvh;display:flex;flex-direction:column;}' +
@@ -742,6 +753,8 @@ var PestMonitor = (function () {
       '.pm2-cplist hr{border:0;border-top:1px solid var(--line,#e6ebe2);margin:6px 0;}';
     document.head.appendChild(st);
   }
+
+  document.addEventListener('shorashim:lang', function () { if (isOpen() && S && !editing()) render(); });
 
   return {
     open: open,

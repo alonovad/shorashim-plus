@@ -613,6 +613,13 @@ var AgriPlan = (function () {
   // ══════════════════════════════════════════════════════════════════
 
   function isOpen() { return !!document.getElementById('apRoot'); }
+  // New language: repaint whatever screen of the module is open.
+  document.addEventListener('shorashim:lang', function () {
+    if (!isOpen() || !S) return;
+    var a = document.activeElement;
+    if (a && a.closest && a.closest('#apRoot') && /INPUT|TEXTAREA|SELECT/.test(a.tagName)) return;
+    if (_openPlan) showPlan(_openPlan); else renderList();
+  });
   function close() {
     var m = document.getElementById('modalContainer');
     if (m) m.innerHTML = '';
@@ -729,7 +736,7 @@ var AgriPlan = (function () {
       '.apmp-h{padding:14px 16px 8px;display:flex;gap:8px;align-items:center;}.apmp-h b{flex:1;font-size:1rem;}' +
       '.apmp-h button{border:0;background:var(--tonal,#f1f4ee);border-radius:50%;width:32px;height:32px;cursor:pointer;color:inherit;}' +
       '.apmp-s{margin:0 16px 8px;width:auto !important;box-sizing:border-box;}.apmp-l{overflow-y:auto;padding:0 10px 12px;}' +
-      '.apmp-i{display:block;width:100%;text-align:right;border:0;background:none;padding:9px 8px;border-bottom:1px solid var(--line,#eef1ec);cursor:pointer;color:inherit;font:inherit;}' +
+      '.apmp-i{display:block;width:100%;text-align:start;border:0;background:none;padding:9px 8px;border-bottom:1px solid var(--line,#eef1ec);cursor:pointer;color:inherit;font:inherit;}' +
       '.apmp-i:hover{background:var(--tonal,#f1f4ee);}.apmp-i b{font-size:.9rem;}.apmp-i small{display:block;color:var(--text-muted,#777);font-size:.72rem;margin-top:2px;}' +
       '.ap-mat{display:grid;grid-template-columns:1.4fr .7fr .8fr .8fr 30px;gap:5px;margin-top:4px;align-items:center;}' +
       '.ap-out{background:var(--surface,#fff);border-radius:8px;padding:6px 9px;margin-top:6px;font-size:.78rem;' +

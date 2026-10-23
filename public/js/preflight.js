@@ -305,7 +305,10 @@ const HEB = /[\u0590-\u05FF]/;
 const OWN = ['orders.js','agriplan.js',
              'buildplan-core.js', 'buildplan-geom.js', 'buildplan-draw.js', 'buildplan-map.js', 'buildplan-ui.js', 'buildplan-link.js',
              'shed3d.js','rebar.js','buildplan-ledger.js','buildplan-plan.js','stickyactions.js',
-             'plotimport.js', 'plotregister.js', 'livingunit.js', 'livingedit.js', 'livingview3d.js', 'worklogedit.js', 'maintjournal.js', 'map-region.js'];
+             'plotimport.js', 'plotregister.js', 'livingunit.js', 'livingedit.js', 'livingview3d.js', 'worklogedit.js', 'maintjournal.js', 'map-region.js',
+             // Oct 2026 modules: every visible string through tt()
+             'home.js', 'weather.js', 'cashflow.js', 'knowledge.js', 'traps.js', 'pestmonitor.js', 'fleet.js',
+             'irrigation-sys.js', 'cropprog.js', 'opcost.js', 'prices.js', 'farm-intake.js', 'display-settings.js'];
 OWN.forEach(f => {
   if (!src[f]) return;
   let m = src[f].replace(/\/\*[\s\S]*?\*\//g, x => x.replace(/[^\n]/g, ' '))
@@ -336,6 +339,13 @@ OWN.forEach(f => {
     // by BP.dsp() instead. The marker has to be explicit and on the line,
     // so nothing is exempted by accident.
     if (/CATALOGUE KEY/.test(t)) return;
+    // A line that already carries its Thai text is a translation triplet
+    // ({ he, th, ar } or ['key', he, th, ar]) rendered through tt().
+    if (/[\u0E00-\u0E7F]/.test(raw)) return;
+    // Stored words that join saved records (pest columns, rating words,
+    // worker-group and budget-section names, units) are DATA KEYs: they are
+    // translated where they are shown, never where they are stored.
+    if (/DATA KEY/.test(t)) return;
     const re = /'((?:\\.|[^'\\])*)'/g; let g;
     while ((g = re.exec(line))) if (HEB.test(g[1])) hits.push(i + 1);
   });

@@ -287,11 +287,11 @@ var Traps = (function () {
 
   function printReport() {
     var weeks = lastWeeks(8), z = zones(), names = Object.keys(z).sort(function (a, b) { return a.localeCompare(b, 'he'); });
-    var html = '<!DOCTYPE html><html dir="rtl" lang="he"><head><meta charset="utf-8"><title>לכידות חדקונית ' + year + '</title><style>' +
+    var html = '<!DOCTYPE html><html dir="' + (document.documentElement.dir || 'rtl') + '" lang="' + (document.documentElement.lang || 'he') + '"><head><meta charset="utf-8"><title>' + esc(tt('לכידות חדקונית', 'การจับด้วงงวง', 'صيد السوسة')) + ' ' + year + '</title><style>' +
       'body{font-family:Rubik,Arial,sans-serif;margin:14px;color:#1b2a1f;}h1{font-size:1.1rem;color:#12401f;}table{width:100%;border-collapse:collapse;font-size:.8rem;}' +
-      'th{background:#eef7d4;padding:6px;text-align:center;}td{padding:6px;border-bottom:1px solid #ddd;text-align:center;}td:first-child{text-align:right;font-weight:700;}' +
-      '@page{size:A4 landscape;margin:10mm;}</style></head><body><h1>🪲 לכידות חדקונית הדקל האדומה לפי אזורים · ' + new Date().toLocaleDateString('he-IL') + '</h1>' +
-      '<table><tr><th>אזור</th>' + weeks.map(function (w) { return '<th>' + fmtD(w) + '</th>'; }).join('') + '<th>סה"כ</th></tr>' +
+      'th{background:#eef7d4;padding:6px;text-align:center;}td{padding:6px;border-bottom:1px solid #ddd;text-align:center;}td:first-child{text-align:start;font-weight:700;}' +
+      '@page{size:A4 landscape;margin:10mm;}</style></head><body><h1>🪲 ' + esc(tt('לכידות חדקונית הדקל האדומה לפי אזורים', 'การจับด้วงงวงมะพร้าวตามโซน', 'صيد سوسة النخيل الحمراء حسب المناطق')) + ' · ' + new Date().toLocaleDateString('he-IL') + '</h1>' +
+      '<table><tr><th>' + esc(tt('אזור', 'โซน', 'المنطقة')) + '</th>' + weeks.map(function (w) { return '<th>' + fmtD(w) + '</th>'; }).join('') + '<th>' + esc(tt('סה"כ', 'รวม', 'المجموع')) + '</th></tr>' +
       names.map(function (zn) { var sr = series(z[zn], weeks); return '<tr><td>' + esc(zn) + ' (' + z[zn].length + ')</td>' + sr.v.map(function (v, i) { return '<td>' + (sr.has[i] ? v : '·') + '</td>'; }).join('') + '<td><b>' + sr.v.reduce(function (a, b) { return a + b; }, 0) + '</b></td></tr>'; }).join('') +
       '</table></body></html>';
     if (window.Util && Util.exportReport) Util.exportReport(html, 'weevil-traps-' + year + '.html');
@@ -348,6 +348,8 @@ var Traps = (function () {
       '.tr-ck small{color:var(--text-muted,#6f7b72);}.tr-cn{font-weight:700;text-align:center;}.tr-x{border:0;background:var(--tonal,#f1f4ee);border-radius:9px;height:30px;cursor:pointer;}';
     document.head.appendChild(st);
   }
+
+  document.addEventListener('shorashim:lang', function () { if (document.getElementById('trRoot') && D && !document.querySelector('#trRoot .tr-form') && !map) render(); });
 
   return { open: open, close: close, _weekStart: weekStart };
 })();

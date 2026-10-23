@@ -39,16 +39,20 @@ var IrrigSys = (function () {
   function n1(x) { return (Math.round((Number(x) || 0) * 10) / 10).toLocaleString('he-IL'); }
   var DEFAULT_LPH = 8.5, DEV_PCT = 10;
 
-  var FILTERS = [['manual', 'ידני'], ['auto', 'אוטומטי'], ['auto-field', 'אוטומטי במגופי שטח'], ['none', 'ללא']];
-  var WATER = [['wells', 'בארות'], ['reclaimed', 'קולחין'], ['mekorot', 'מקורות'], ['mixed', 'מעורב'], ['other', 'אחר']];
+  var FILTERS = [['manual', 'ידני', 'มือ', 'يدوي'], ['auto', 'אוטומטי', 'อัตโนมัติ', 'تلقائي'], ['auto-field', 'אוטומטי במגופי שטח', 'อัตโนมัติที่วาล์วแปลง', 'تلقائي في صمامات الحقل'], ['none', 'ללא', 'ไม่มี', 'بدون']];
+  var WATER = [['wells', 'בארות', 'บ่อบาดาล', 'آبار'], ['reclaimed', 'קולחין', 'น้ำบำบัด', 'مياه معالجة'], ['mekorot', 'מקורות', 'เมโกโรต', 'مكوروت'], ['mixed', 'מעורב', 'ผสม', 'مختلط'], ['other', 'אחר', 'อื่นๆ', 'أخرى']];
+  // Label of a [key, he, th, ar] option in the current language.
+  function L(o) { return tt(o[1], o[2], o[3]); }
   // Per plot (v151+): irrigation computer, water type, emitter kind, and a
   // flow line per valve (planned vs measured, m³/h).
-  var CTRLS = [['', 'ללא מחשב'], ['galcon', 'גלקון'], ['netafim', 'נטפים (NMC / NetBeat)'], ['talgil', 'טלגיל (Dream)'], ['motorola', 'מוטורולה (IRRInet)'],
-    ['eldar', 'אלדר-שני'], ['bermad', 'ברמד'], ['other', 'אחר']];
-  var EMITS = [['drip', 'טפטפות'], ['sprinkler', 'מתזים'], ['minisprinkler', 'מיני-ממטירים'], ['sprinkler_big', 'ממטירים'], ['other', 'אחר']];
+  var CTRLS = [['', 'ללא מחשב', 'ไม่มีคอมพิวเตอร์', 'بدون حاسوب'], ['galcon', 'גלקון', 'Galcon', 'جالكون'], ['netafim', 'נטפים (NMC / NetBeat)', 'Netafim (NMC / NetBeat)', 'نطافيم (NMC / NetBeat)'],
+    ['talgil', 'טלגיל (Dream)', 'Talgil (Dream)', 'تلجيل (Dream)'], ['motorola', 'מוטורולה (IRRInet)', 'Motorola (IRRInet)', 'موتورولا (IRRInet)'],   // DATA KEY (brand / Latin labels)
+    ['eldar', 'אלדר-שני', 'Eldar-Shany', 'إلدار-شاني'], ['bermad', 'ברמד', 'Bermad', 'برماد'], ['other', 'אחר', 'อื่นๆ', 'أخرى']];   // DATA KEY (brand / Latin labels)
+  var EMITS = [['drip', 'טפטפות', 'หัวน้ำหยด', 'نقاطات'], ['sprinkler', 'מתזים', 'หัวพ่น', 'رشاشات'], ['minisprinkler', 'מיני-ממטירים', 'มินิสปริงเกอร์', 'مرشات صغيرة'],
+    ['sprinkler_big', 'ממטירים', 'สปริงเกอร์', 'مرشات'], ['other', 'אחר', 'อื่นๆ', 'أخرى']];
   function emitWord(i) { return (i && i.emit === 'sprinkler') ? tt('מתזים', 'หัวพ่น', 'رشاشات') : (i && (i.emit === 'minisprinkler' || i.emit === 'sprinkler_big')) ? tt('ממטירים', 'สปริงเกอร์', 'مرشات') : tt('טפטפות', 'หัวน้ำหยด', 'نقاط'); }
   function vflowSum(i, k) { return ((i && i.vflow) || []).reduce(function (a, r) { return a + (Number(r[k]) || 0); }, 0); }
-  function lbl(list, v) { var x = list.find(function (o) { return o[0] === v; }); return x ? x[1] : (v || ''); }
+  function lbl(list, v) { var x = list.find(function (o) { return o[0] === v; }); return x ? L(x) : (v || ''); }
   function isDate(p) { return /תמר/.test(String(p.crop_type || '')); }
 
   // ── nominal flow, m³/h ──
@@ -188,7 +192,9 @@ var IrrigSys = (function () {
       return headRow + rows + totRow;
     }).join('');
     return '<div class="ir-wrap"><table class="ir-tbl"><thead><tr>' +
-      ['חלקה', 'קו', 'מגופים', 'גידול / זן', 'עצים', 'דונם', 'נטיעה', 'אביזר השקיה', 'ספיקה נומינלית (מק״ש)', 'לדונם', 'ספיקה בפועל', 'סטייה'].map(function (h) { return '<th>' + h + '</th>'; }).join('') +
+      [tt('חלקה', 'แปลง', 'القطعة'), tt('קו', 'สาย', 'الخط'), tt('מגופים', 'วาล์ว', 'الصمامات'), tt('גידול / זן', 'พืช / พันธุ์', 'المحصول / الصنف'), tt('עצים', 'ต้น', 'أشجار'),
+       tt('דונם', 'ไร่', 'دونم'), tt('נטיעה', 'ปลูก', 'الزراعة'), tt('אביזר השקיה', 'หัวน้ำ', 'أداة الري'), tt('ספיקה נומינלית (מק״ש)', 'อัตราไหลตามสเปก (ลบ.ม./ชม.)', 'التدفق الاسمي (م³/س)'),
+       tt('לדונם', 'ต่อไร่', 'لكل دونم'), tt('ספיקה בפועל', 'อัตราไหลจริง', 'التدفق الفعلي'), tt('סטייה', 'ส่วนต่าง', 'الانحراف')].map(function (h) { return '<th>' + h + '</th>'; }).join('') +
       (can ? '<th></th>' : '') + '</tr></thead><tbody>' + body + '</tbody></table></div>';
   }
 
@@ -220,7 +226,7 @@ var IrrigSys = (function () {
     });
   }
 
-  function opts(list, cur) { return list.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === cur ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join(''); }
+  function opts(list, cur) { return list.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === cur ? ' selected' : '') + '>' + esc(L(o)) + '</option>'; }).join(''); }
 
   function editHeads(farmId) {
     var heads = S().getIrrHeads(farmId);
@@ -278,7 +284,7 @@ var IrrigSys = (function () {
     }
     function sel(id, label, list, val) {
       return '<div class="form-group"><label class="form-label">' + label + '</label><select class="form-input" id="' + id + '">' +
-        list.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === val ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></div>';
+        list.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === val ? ' selected' : '') + '>' + (o.length > 3 ? L(o) : o[1]) + '</option>'; }).join('') + '</select></div>';
     }
     // Older plots kept valves as a comma list; it seeds the per-valve table.
     if (!i.vflow && i.valves) i.vflow = String(i.valves).split(/[,،;]+/).map(function (x) { return x.trim(); }).filter(Boolean).map(function (n) { return { n: n, q: 0, a: 0, t: '' }; });

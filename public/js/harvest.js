@@ -57,14 +57,14 @@ var HarvestResults = (function () {
       label: function () { return tt('תמרים — סיכום תוצאות מיון (בית אריזה)', 'อินทผลัม — สรุปผลคัดแยก', 'تمور — ملخص نتائج الفرز'); },
       // Intake block as packing houses print it. 'calc' rows are derived.
       intake: [
-        { k: 'entry',   he: 'סה"כ משקל כניסה לבית אריזה' },
-        { k: 'wet',     he: 'משקל לח' },
-        { k: 'dry',     he: 'משקל לאחר יבוש' },
-        { k: 'dryLoss', he: 'סה"כ פחת ייבוש', calc: 'dryLoss' },
-        { k: 'mgadid',  he: 'סה"כ ג\' מגדיד' },
-        { k: 'primary', he: 'סה"כ ג\' ממיון ראשוני' },
-        { k: 'bonbon',  he: 'סה"כ ג\' ממיון בונבון' },
-        { k: 'loss',    he: 'פחת כללי', pctOf: 'entry' }
+        { k: 'entry',   he: 'סה"כ משקל כניסה לבית אריזה', th: 'น้ำหนักรวมเข้าโรงคัดบรรจุ', ar: 'إجمالي الوزن الداخل لبيت التعبئة' },
+        { k: 'wet',     he: 'משקל לח', th: 'น้ำหนักเปียก', ar: 'الوزن الرطب' },
+        { k: 'dry',     he: 'משקל לאחר יבוש', th: 'น้ำหนักหลังอบแห้ง', ar: 'الوزن بعد التجفيف' },
+        { k: 'dryLoss', he: 'סה"כ פחת ייבוש', th: 'สูญเสียจากการอบแห้งรวม', ar: 'إجمالي فاقد التجفيف', calc: 'dryLoss' },
+        { k: 'mgadid',  he: 'סה"כ ג\' מגדיד', th: 'เกรด C จากการตัดรวม', ar: 'إجمالي درجة ج من القطاف' },
+        { k: 'primary', he: 'סה"כ ג\' ממיון ראשוני', th: 'เกรด C จากการคัดแรก', ar: 'إجمالي درجة ج من الفرز الأولي' },
+        { k: 'bonbon',  he: 'סה"כ ג\' ממיון בונבון', th: 'เกรด C จากการคัดบอนบอน', ar: 'إجمالي درجة ج من فرز بونبون' },
+        { k: 'loss',    he: 'פחת כללי', th: 'สูญเสียรวม', ar: 'الفاقد العام', pctOf: 'entry' }
       ],
       // Fraction rows a dates packing house reports; {v} = the variety.
       fractions: [
@@ -87,8 +87,8 @@ var HarvestResults = (function () {
     'general': {
       label: function () { return tt('כללי — כמויות ומחירים לכל גידול', 'ทั่วไป — ปริมาณและราคา', 'عام — كميات وأسعار'); },
       intake: [
-        { k: 'entry', he: 'סה"כ משקל שנקטף' },
-        { k: 'loss',  he: 'פחת', pctOf: 'entry' }
+        { k: 'entry', he: 'סה"כ משקל שנקטף', th: 'น้ำหนักเก็บเกี่ยวรวม', ar: 'إجمالي الوزن المقطوف' },
+        { k: 'loss',  he: 'פחת', th: 'สูญเสีย', ar: 'الفاقد', pctOf: 'entry' }
       ],
       fractions: [
         ['export', '', ''],
@@ -354,7 +354,7 @@ var HarvestResults = (function () {
     var intake = fmt.intake.map(function (row) {
       var c = intakeCalc(r, row);
       var val = row.calc ? (c ? kg(c.kg) : '—') : null;
-      return '<div class="hv-in"><span>' + esc(row.he) + '</span>' +
+      return '<div class="hv-in"><span>' + esc(tt(row.he, row.th, row.ar)) + '</span>' +
         (row.calc
           ? '<span class="hv-c">' + val + '</span>'
           : '<input type="number" inputmode="decimal" class="form-input" data-in="' + row.k + '" value="' + esc((r.intake || {})[row.k] || '') + '"' + dis + '>') +
@@ -536,7 +536,7 @@ var HarvestResults = (function () {
     var t = totals(r);
     var intake = fmt.intake.map(function (row) {
       var c = intakeCalc(r, row), v = row.calc ? (c ? c.kg : '') : (r.intake || {})[row.k];
-      return '<tr><td>' + esc(row.he) + '</td><td class="n">' + (num(v) ? kg(v) : '') + '</td><td class="n">' + (c ? pct(c.pct) : '') + '</td></tr>';
+      return '<tr><td>' + esc(tt(row.he, row.th, row.ar)) + '</td><td class="n">' + (num(v) ? kg(v) : '') + '</td><td class="n">' + (c ? pct(c.pct) : '') + '</td></tr>';
     }).join('');
     var frac = '';
     TYPES.forEach(function (ty) {

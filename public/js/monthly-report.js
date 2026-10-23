@@ -17,6 +17,16 @@ var MonthlyReport = (function() {
     if (lang === 'ar') return ar || he;
     return he;
   }
+  // Month name in the current language (Intl), so every screen agrees.
+  function monthName(i) {
+    var lang = (typeof currentLang !== 'undefined') ? currentLang : 'he';
+    var loc = lang === 'th' ? 'th-TH' : lang === 'ar' ? 'ar' : 'he-IL';
+    try { return new Date(2000, i, 1).toLocaleDateString(loc, { month: 'long' }); } catch (e) { return String(i + 1); }
+  }
+  function dowShort(d) {
+    var x = [['א', 'อา', 'أحد'], ['ב', 'จ', 'إثن'], ['ג', 'อ', 'ثلا'], ['ד', 'พ', 'أرب'], ['ה', 'พฤ', 'خمي'], ['ו', 'ศ', 'جمع'], ['ש', 'ส', 'سبت']][d];
+    return tt(x[0], x[1], x[2]);
+  }
 
   // ── CONTRACT ──
   // The hardcoded constant below is now only the FALLBACK. The live contract
@@ -303,7 +313,7 @@ var MonthlyReport = (function() {
 
   function updateMonthLabel() {
     var el = document.getElementById('mrMonth');
-    if (el) el.textContent = MONTHS[state.month] + ' ' + state.year;
+    if (el) el.textContent = monthName(state.month) + ' ' + state.year;
   }
 
   function load() {
@@ -381,7 +391,7 @@ var MonthlyReport = (function() {
       var net = 0;
       shifts.forEach(function(s) { var g = recMin(s); net += Math.max(0, g - (g > 0 ? CONTRACT.breakMin : 0)); });
       rows.push({
-        d: dd, key: key, dateObj: dateObj, dow: DOW[dateObj.getDay()],
+        d: dd, key: key, dateObj: dateObj, dow: dowShort(dateObj.getDay()),
         type: type, holiday: holiday, shifts: shifts,
         std: standardFor(type), netMin: net,
         future: dateObj > new Date()

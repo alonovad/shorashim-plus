@@ -1076,3 +1076,9 @@ body:not(.layout-fresh) #hmNav { display: none !important; }
 /* The home screen has its own farm list — the floating farm picker steps aside there. */
 body.layout-fresh.hm-home #fabFarms,
 body.layout-fresh.hm-home #fabFarmsMenu { display: none !important; }
+
+/* The header and the bottom bar keep one layout in every language: switching
+   to Thai (left-to-right) used to flip them, sending the language button to
+   the other side under the finger. Text inside still runs in its own direction. */
+.header, .clock-bar, #hmNav { direction: rtl; }
+.header h1, .header .subtitle, .clock-bar > div, #hmNav span { unicode-bidi: plaintext; }

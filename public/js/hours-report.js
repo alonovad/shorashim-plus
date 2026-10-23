@@ -23,6 +23,16 @@ var HoursReport = (function() {
     if (lang === 'ar') return ar || he;
     return he;
   }
+  // Month name in the current language (Intl), so every screen agrees.
+  function monthName(i) {
+    var lang = (typeof currentLang !== 'undefined') ? currentLang : 'he';
+    var loc = lang === 'th' ? 'th-TH' : lang === 'ar' ? 'ar' : 'he-IL';
+    try { return new Date(2000, i, 1).toLocaleDateString(loc, { month: 'long' }); } catch (e) { return String(i + 1); }
+  }
+  function dowShort(d) {
+    var x = [['א', 'อา', 'أحد'], ['ב', 'จ', 'إثن'], ['ג', 'อ', 'ثلا'], ['ד', 'พ', 'أرب'], ['ה', 'พฤ', 'خمي'], ['ו', 'ศ', 'جمع'], ['ש', 'ส', 'سبت']][d];
+    return tt(x[0], x[1], x[2]);
+  }
 
   var MONTHS = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
 
@@ -322,7 +332,7 @@ var HoursReport = (function() {
 
           '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">' +
             '<button onclick="HoursReport._nav(-1)" style="border:none;background:var(--g6,#eef3ee);border-radius:8px;padding:6px 12px;cursor:pointer;font-family:inherit;font-size:1rem;">›</button>' +
-            '<div style="flex:1;text-align:center;font-weight:700;font-size:0.95rem;">' + MONTHS[state.month] + ' ' + state.year + '</div>' +
+            '<div style="flex:1;text-align:center;font-weight:700;font-size:0.95rem;">' + monthName(state.month) + ' ' + state.year + '</div>' +
             '<button onclick="HoursReport._nav(1)" style="border:none;background:var(--g6,#eef3ee);border-radius:8px;padding:6px 12px;cursor:pointer;font-family:inherit;font-size:1rem;">‹</button>' +
           '</div>' +
 

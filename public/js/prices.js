@@ -55,8 +55,13 @@ var PriceBook = (function () {
   // ── product identity ──
   function norm(s) {
     return String(s || '').toLowerCase()
-      .replace(/["'״׳`]/g, '').replace(/[\s\-_.,()\/\\]+/g, ' ').trim();
+      .replace(/["'״׳`]/g, '').replace(/[\s\-_.,()\/\\]+/g, ' ').trim();   // DATA KEY (matching only)
   }
+  var UNITS = ['ליטר', 'ק"ג', 'יחידה', 'מטר', 'טון'];   // DATA KEY — base unit stored on records
+  // Stored unit words (DATA KEYs) shown in the current language.
+  var UNIT_TR = { 'ק"ג': ['กก.', 'كغ'], 'ליטר': ['ลิตร', 'لتر'], 'יחידות': ['หน่วย', 'وحدات'], 'יחידה': ['หน่วย', 'وحدة'], 'גרם': ['กรัม', 'غرام'],
+    'מ"ק': ['ลบ.ม.', 'م³'], 'שק': ['กระสอบ', 'كيس'], 'מטר': ['เมตร', 'متر'], 'טון': ['ตัน', 'طن'] };
+  function unitTr(u) { var x = UNIT_TR[u]; return x ? tt(u, x[0], x[1]) : (u || ''); }
   function productKey(product, baseUnit) { return norm(product) + '|' + String(baseUnit || ''); }
 
   // ── settings (per user) ──
@@ -331,7 +336,7 @@ var PriceBook = (function () {
       '<div class="t"><b>' + esc(g.name) + '</b><span>' + g.recs.length + ' ' + tt('מחירים', 'ราคา', 'أسعار') + ' · ' +
         Object.keys(g.suppliers).length + ' ' + tt('ספקים', 'ผู้จัดหา', 'موردون') +
         (g.flagged.length ? ' · <span class="pb-up">⚠️ ' + g.flagged.length + '</span>' : '') + '</span></div>' +
-      '<div class="g"><div><small>' + tt('הזול ביותר', 'ถูกที่สุด', 'الأرخص') + '</small><span class="pb-ok">' + money(g.min.unitPrice) + '</span> / ' + esc(g.baseUnit) +
+      '<div class="g"><div><small>' + tt('הזול ביותר', 'ถูกที่สุด', 'الأرخص') + '</small><span class="pb-ok">' + money(g.min.unitPrice) + '</span> / ' + esc(unitTr(g.baseUnit)) +
         '<small>' + esc(g.min.supplier || '—') + ' · ' + day(g.min.date) + '</small></div>' +
       '<div><small>' + tt('אחרון', 'ล่าสุด', 'الأخير') + '</small><span class="' + (lastOver > s.pct ? 'pb-up' : '') + '">' + money(g.last.unitPrice) + '</span>' +
         (lastOver > 0.05 ? ' <span class="' + (lastOver > s.pct ? 'pb-up' : '') + '">(+' + Math.round(lastOver) + '%)</span>' : '') +
@@ -411,7 +416,7 @@ var PriceBook = (function () {
       '<input class="form-input" id="pbmProduct" placeholder="' + esc(tt('מוצר', 'สินค้า', 'المنتج')) + '">' +
       '<input class="form-input" id="pbmSupplier" placeholder="' + esc(tt('ספק', 'ผู้จัดหา', 'المورد')) + '">' +
       '<input class="form-input" id="pbmDate" type="date" value="' + today() + '">' +
-      '<select class="form-input" id="pbmUnit">' + ['ליטר', 'ק"ג', 'יחידה', 'מטר', 'טון'].map(function (u) { return '<option>' + esc(u) + '</option>'; }).join('') + '</select>' +
+      '<select class="form-input" id="pbmUnit">' + UNITS.map(function (u) { return '<option value="' + esc(u) + '">' + esc(unitTr(u)) + '</option>'; }).join('') + '</select>' +
       '<input class="form-input" id="pbmPrice" type="number" step="any" min="0" placeholder="' + esc(tt('₪ ליחידה לפני מע"מ', '₪/หน่วย', '₪/وحدة')) + '">' +
       '<select class="form-input" id="pbmKind"><option value="pesticide">🧪</option><option value="fertilizer">🌱</option><option value="equipment">🚜</option><option value="other" selected>📦</option></select>' +
       '<select class="form-input" id="pbmFarm"><option value="0">—</option>' + fs.map(function (f) { return '<option value="' + f.id + '">' + esc(f.name) + '</option>'; }).join('') + '</select>' +

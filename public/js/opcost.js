@@ -50,17 +50,18 @@ var OpCost = (function () {
   // budget lines with price per tree and required hourly output).
   function defaults() {
     var g = {};
-    ['תאילנדים שורשים', 'מלאווים', 'אגוזי', 'דיירי', 'הלאלי', 'רוחקין', 'בראשית', 'סנסן ודקל', 'אדיר שלמה', 'יובל בן עמי', 'נערן', 'זיו ליבה',
-     'ארנון צור', 'תאילנדים ייטב', 'נפאלים', 'אלון עובדיה', 'קבלנות פרדסים', 'פרדס איימן', 'מתנדבים', 'סרילנקה', 'תאילנדים גלגל', 'עובדי גד"ש מפנמה']
+    // DATA KEY — worker-group names as entered in the work log
+    ['תאילנדים שורשים', 'מלאווים', 'אגוזי', 'דיירי', 'הלאלי', 'רוחקין', 'בראשית', 'סנסן ודקל', 'אדיר שלמה', 'יובל בן עמי', 'נערן', 'זיו ליבה',   // DATA KEY
+     'ארנון צור', 'תאילנדים ייטב', 'נפאלים', 'אלון עובדיה', 'קבלנות פרדסים', 'פרדס איימן', 'מתנדבים', 'סרילנקה', 'תאילנדים גלגל', 'עובדי גד"ש מפנמה']   // DATA KEY
       .forEach(function (n) { g[n] = 45.5; });
-    g['שומר חדש'] = 44; g['פלסטינאים'] = 38.5; g['ישראלים'] = 46;
+    g['שומר חדש'] = 44; g['פלסטינאים'] = 38.5; g['ישראלים'] = 46;   // DATA KEY
     function sec(budget, target) { return { unit: 'tree', budget: budget, target: target }; }
     return {
       rateDefault: 45.5, dayHours: 8, groups: g, farmBudget: {},
       sections: {
-        'קיוץ': sec(10.5, 4.3), 'הפרייה': sec(4.1, 11.0), 'דילול': sec(60.5, 0.8), 'קשירה': sec(22.8, 2.0), 'שקים': sec(22.8, 2.0),
-        'גדיד': sec(60.5, 0.8), 'הורדת רשת/שקים': sec(15.5, 2.9), 'גיזום': sec(6.7, 6.8), 'טיפול קרקע ואחזקה': sec(41.4, 1.1),
-        'קשירה ושקים': sec(45.5, 1.0), 'לולבים': sec(2.1, 22.0), 'מיון ראשוני': sec(3.3, 0)
+        'קיוץ': sec(10.5, 4.3), 'הפרייה': sec(4.1, 11.0), 'דילול': sec(60.5, 0.8), 'קשירה': sec(22.8, 2.0), 'שקים': sec(22.8, 2.0),   // DATA KEY
+        'גדיד': sec(60.5, 0.8), 'הורדת רשת/שקים': sec(15.5, 2.9), 'גיזום': sec(6.7, 6.8), 'טיפול קרקע ואחזקה': sec(41.4, 1.1),   // DATA KEY
+        'קשירה ושקים': sec(45.5, 1.0), 'לולבים': sec(2.1, 22.0), 'מיון ראשוני': sec(3.3, 0)   // DATA KEY
       }
     };
   }
@@ -133,8 +134,12 @@ var OpCost = (function () {
     });
   }
 
-  var UNIT_LBL = { tree: 'עצים', dunam: 'דונם', qty: 'כמות', hour: 'שעות' };
-  var MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
+  var UNIT_LBL_ = { tree: ['עצים', 'ต้น', 'أشجار'], dunam: ['דונם', 'ไร่', 'دونم'], qty: ['כמות', 'จำนวน', 'كمية'], hour: ['שעות', 'ชั่วโมง', 'ساعات'] };
+  var UNIT_LBL = { tree: 1, dunam: 1, qty: 1, hour: 1 };
+  function unitLbl(u) { var x = UNIT_LBL_[u]; return x ? tt(x[0], x[1], x[2]) : u; }
+  var MONTHS_ = [['ינואר', 'มกราคม', 'يناير'], ['פברואר', 'กุมภาพันธ์', 'فبراير'], ['מרץ', 'มีนาคม', 'مارس'], ['אפריל', 'เมษายน', 'أبريل'], ['מאי', 'พฤษภาคม', 'مايو'], ['יוני', 'มิถุนายน', 'يونيو'],
+    ['יולי', 'กรกฎาคม', 'يوليو'], ['אוגוסט', 'สิงหาคม', 'أغسطس'], ['ספטמבר', 'กันยายน', 'سبتمبر'], ['אוקטובר', 'ตุลาคม', 'أكتوبر'], ['נובמבר', 'พฤศจิกายน', 'نوفمبر'], ['דצמבר', 'ธันวาคม', 'ديسمبر']];
+  function monthName(i) { var m = MONTHS_[i] || ['', '', '']; return tt(m[0], m[1], m[2]); }
 
   function ensureCss() {
     if (document.getElementById('ocCss')) return;
@@ -175,7 +180,7 @@ var OpCost = (function () {
       return '<tr>' + (ui.by === 'farm' ? '<td>' + esc(r.farm) + '</td>' : '') + (ui.by === 'group' ? '<td>' + esc(r.group) + '</td>' : '') +
         '<td><b>' + esc(r.section) + '</b>' + (r.priced ? '' : ' <span class="oc-muted">(' + tt('לא מתומחר', 'ไม่มีราคา', 'غير مسعّر') + ')</span>') + '</td>' +
         '<td class="num">' + r.n + '</td><td class="num">' + r1(r.labourH) + (r.missingH ? ' <span class="oc-muted" title="' + esc(tt('רישומים ללא שעות — חושבו לפי יום עבודה מלא', 'ไม่มีชั่วโมง', 'بلا ساعات')) + '">*' + r.missingH + '</span>' : '') + '</td>' +
-        '<td class="num">' + (r.unit === 'hour' ? '—' : r1(r.out) + ' <span class="oc-muted">' + tt(UNIT_LBL[r.unit]) + '</span>') + (r.missingOut ? ' <span class="oc-muted" title="' + esc(tt('רישומים ללא כמות', 'ไม่มีจำนวน', 'بلا كمية')) + '">∅' + r.missingOut + '</span>' : '') + '</td>' +
+        '<td class="num">' + (r.unit === 'hour' ? '—' : r1(r.out) + ' <span class="oc-muted">' + unitLbl(r.unit) + '</span>') + (r.missingOut ? ' <span class="oc-muted" title="' + esc(tt('רישומים ללא כמות', 'ไม่มีจำนวน', 'بلا كمية')) + '">∅' + r.missingOut + '</span>' : '') + '</td>' +
         '<td class="num">' + (r.target ? r1(r.target) : '—') + '</td>' +
         '<td class="num">' + (r.unit === 'hour' || !r.out ? '—' : r1(hourly)) + '</td>' +
         '<td class="num ' + (pct == null ? '' : pctCls(pct)) + '">' + (pct == null ? '—' : Math.round(pct) + '%') + '</td>' +
@@ -190,7 +195,9 @@ var OpCost = (function () {
       '<td colspan="6"></td><td class="num">' + money(tot.cost) + '</td><td class="num">' + (tot.budget ? money(tot.budget) : '—') + '</td>' +
       '<td class="num ' + (totDiff == null ? '' : totDiff >= 0 ? 'oc-good' : 'oc-bad') + '">' + (totDiff == null ? '—' : (totDiff >= 0 ? '+' : '−') + money(Math.abs(totDiff))) + '</td></tr>';
     var head = (ui.by === 'farm' ? '<th>' + tt('משק', 'ฟาร์ม', 'المزرعة') + '</th>' : '') + (ui.by === 'group' ? '<th>' + tt('קבוצת עובדים / ספק', 'กลุ่มคนงาน', 'مجموعة العمال') + '</th>' : '') +
-      ['סעיף תקציבי', 'רישומים', 'שעות עבודה', 'תפוקה', 'הספק שעתי נדרש', 'הספק שעתי בפועל', 'עמידה ביעד', 'תמחיר ליחידה', 'עלות בפועל ליחידה', 'עלות', 'תקציב', 'פער'].map(function (h) { return '<th>' + h + '</th>'; }).join('');
+      [tt('סעיף תקציבי', 'หมวดงบประมาณ', 'البند'), tt('רישומים', 'รายการ', 'السجلات'), tt('שעות עבודה', 'ชั่วโมงงาน', 'ساعات العمل'), tt('תפוקה', 'ผลผลิต', 'الإنتاج'),
+       tt('הספק שעתי נדרש', 'เป้าต่อชั่วโมง', 'الإنتاجية المطلوبة/ساعة'), tt('הספק שעתי בפועל', 'จริงต่อชั่วโมง', 'الإنتاجية الفعلية/ساعة'), tt('עמידה ביעד', 'บรรลุเป้า', 'تحقيق الهدف'),
+       tt('תמחיר ליחידה', 'ราคาต่อหน่วย', 'السعر للوحدة'), tt('עלות בפועל ליחידה', 'ต้นทุนจริง/หน่วย', 'التكلفة الفعلية/وحدة'), tt('עלות', 'ต้นทุน', 'التكلفة'), tt('תקציב', 'งบประมาณ', 'الميزانية'), tt('פער', 'ส่วนต่าง', 'الفرق')].map(function (h) { return '<th>' + h + '</th>'; }).join('');
     return '<div class="oc-wrap"><table class="oc-tbl"><thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody></table></div>';
   }
 
@@ -216,7 +223,7 @@ var OpCost = (function () {
     else {
       var rows = compute();
       body = '<div class="oc-bar">' +
-          '<button class="oc-btn ghost" id="ocPrev">→</button><b>' + MONTHS[ui.m] + ' ' + ui.y + '</b><button class="oc-btn ghost" id="ocNext">←</button>' +
+          '<button class="oc-btn ghost" id="ocPrev">→</button><b>' + monthName(ui.m) + ' ' + ui.y + '</b><button class="oc-btn ghost" id="ocNext">←</button>' +
           '<select class="form-input" id="ocFarm"><option value="0">' + tt('כל המשקים', 'ทุกฟาร์ม', 'كل المزارع') + '</option>' +
             farms.map(function (f) { return '<option value="' + f.id + '"' + (f.id === ui.farm ? ' selected' : '') + '>' + esc(f.name) + '</option>'; }).join('') + '</select>' +
           '<select class="form-input" id="ocBy">' + [['farm', tt('לפי משק וסעיף', 'ตามฟาร์ม', 'حسب المزرعة')], ['section', tt('לפי סעיף', 'ตามหมวด', 'حسب البند')], ['group', tt('לפי קבוצת עובדים / ספק', 'ตามกลุ่ม', 'حسب المجموعة')]]
@@ -237,7 +244,7 @@ var OpCost = (function () {
     document.getElementById('ocFarm').addEventListener('change', function () { ui.farm = Number(this.value) || 0; paint(); });
     document.getElementById('ocBy').addEventListener('change', function () { ui.by = this.value; paint(); });
     document.getElementById('ocPrint').addEventListener('click', function () {
-      var t = title + ' — ' + MONTHS[ui.m] + ' ' + ui.y + (ui.farm ? ' — ' + ((farms.find(function (f) { return f.id === ui.farm; }) || {}).name || '') : '');
+      var t = title + ' — ' + monthName(ui.m) + ' ' + ui.y + (ui.farm ? ' — ' + ((farms.find(function (f) { return f.id === ui.farm; }) || {}).name || '') : '');
       var html = '<!DOCTYPE html><html dir="rtl" lang="he"><head><meta charset="utf-8"><title>' + esc(t) + '</title><style>' +
         'body{font-family:Rubik,Arial,sans-serif;margin:14px;color:#222;}h1{font-size:1.1rem;color:#0c3b30;}' +
         'table{width:100%;border-collapse:collapse;font-size:.72rem;}th{background:#e1eee8;text-align:right;padding:5px;}td{padding:5px;border-bottom:1px solid #ddd;}' +
@@ -264,7 +271,7 @@ var OpCost = (function () {
       '<div id="ocSecs">' + Object.keys(known).sort(function (a, b) { return a.localeCompare(b, 'he'); }).map(function (k) {
         var s = cfg.sections[k] || { unit: 'tree', budget: '', target: '' };
         return '<div class="oc-row oc-sec-row" data-k="' + esc(k) + '"><b style="flex:1 1 150px;">' + esc(k) + '</b>' +
-          '<select class="form-input oc-unit"' + ro + '>' + Object.keys(UNIT_LBL).map(function (u) { return '<option value="' + u + '"' + (s.unit === u ? ' selected' : '') + '>' + tt('ל', 'ต่อ', 'لكل ') + tt(UNIT_LBL[u]) + '</option>'; }).join('') + '</select>' +
+          '<select class="form-input oc-unit"' + ro + '>' + Object.keys(UNIT_LBL).map(function (u) { return '<option value="' + u + '"' + (s.unit === u ? ' selected' : '') + '>' + tt('ל', 'ต่อ', 'لكل ') + unitLbl(u) + '</option>'; }).join('') + '</select>' +
           '<label>₪ <input class="form-input oc-budget" type="number" step="0.01" value="' + (s.budget !== '' ? s.budget : '') + '" style="width:80px;"' + ro + '></label>' +
           '<label>' + tt('הספק לשעה', 'ต่อชม.', 'لكل ساعة') + ' <input class="form-input oc-target" type="number" step="0.1" value="' + (s.target !== '' ? s.target : '') + '" style="width:70px;"' + ro + '></label>' +
           (isAdmin() ? '<button type="button" class="oc-btn ghost oc-calc" title="' + esc(tt('חשב הספק מתמחיר: מחיר שעה ÷ תמחיר', 'คำนวณ', 'احسب')) + '">÷</button>' : '') + '</div>';

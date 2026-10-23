@@ -41,11 +41,18 @@ var FarmIntake = (function () {
     equipment:  { ico: '🚜', he: 'ציוד', th: 'อุปกรณ์', ar: 'معدات' },
     other:      { ico: '📦', he: 'אחר', th: 'อื่นๆ', ar: 'أخرى' }
   };
-  var DOC_TYPE = {
-    invoice: 'חשבונית', delivery_note: 'תעודת משלוח', receipt: 'קבלה', equipment_photo: 'תמונת ציוד',
-    product_photo: 'תמונת מוצר', stock_list: 'רשימת מלאי', equipment_transfer: 'ניוד כלים', other: 'מסמך'
+  var DOC_TYPE_ = {
+    invoice: ['חשבונית', 'ใบแจ้งหนี้', 'فاتورة'], delivery_note: ['תעודת משלוח', 'ใบส่งของ', 'إشعار تسليم'], receipt: ['קבלה', 'ใบเสร็จ', 'إيصال'],
+    equipment_photo: ['תמונת ציוד', 'รูปอุปกรณ์', 'صورة معدات'], product_photo: ['תמונת מוצר', 'รูปสินค้า', 'صورة منتج'], stock_list: ['רשימת מלאי', 'รายการสต็อก', 'قائمة مخزون'],
+    equipment_transfer: ['ניוד כלים', 'ย้ายอุปกรณ์', 'نقل معدات'], other: ['מסמך', 'เอกสาร', 'مستند']
   };
-  var BASE_UNITS = ['ליטר', 'ק"ג', 'יחידה', 'מטר', 'טון'];
+  function docTypeLabel(k) { var x = DOC_TYPE_[k] || DOC_TYPE_.other; return tt(x[0], x[1], x[2]); }
+  var BASE_UNITS = ['ליטר', 'ק"ג', 'יחידה', 'מטר', 'טון'];   // DATA KEY — base unit stored on price records
+  // Stored unit words (DATA KEYs) shown in the current language.
+  var UNIT_TR = { 'ק"ג': ['กก.', 'كغ'], 'ליטר': ['ลิตร', 'لتر'], 'יחידות': ['หน่วย', 'وحدات'], 'יחידה': ['หน่วย', 'وحدة'], 'גרם': ['กรัม', 'غرام'],
+    'מ"ק': ['ลบ.ม.', 'م³'], 'שק': ['กระสอบ', 'كيس'], 'מטר': ['เมตร', 'متر'], 'טון': ['ตัน', 'طن'] };
+  function unitTr(u) { var x = UNIT_TR[u]; return x ? tt(u, x[0], x[1]) : (u || ''); }
+
   // Anthropic list prices, USD per million tokens [input, output] (Oct 2026,
   // platform.claude.com/docs/en/about-claude/pricing). Used to record what
   // each document read actually cost, from the usage the function returns.
@@ -64,7 +71,8 @@ var FarmIntake = (function () {
   // An invoice usually follows a delivery note that already brought the
   // goods into stock, so invoice lines default to "price only".
   var STOCK_DEFAULT = { delivery_note: true, stock_list: true, product_photo: true, equipment_photo: true, other: true };
-  var SPRAYER = [['airblast', 'מרסס מפוח (תותח)'], ['gun', 'מרסס רובה / צינור'], ['boom', 'מרסס מוט'], ['backpack', 'מרסס גב'], ['drench', 'מכל הגמעה']];
+  var SPRAYER = [['airblast', 'מרסס מפוח (תותח)', 'เครื่องพ่นลม (ปืนใหญ่)', 'رشاش هوائي (مدفع)'], ['gun', 'מרסס רובה / צינור', 'ปืนพ่น / สายยาง', 'رشاش مسدس / خرطوم'],
+    ['boom', 'מרסס מוט', 'เครื่องพ่นบูม', 'رشاش بذراع'], ['backpack', 'מרסס גב', 'เครื่องพ่นสะพายหลัง', 'رشاش ظهري'], ['drench', 'מכל הגמעה', 'ถังรดโคน', 'خزان سقي']];
   function kindLabel(k) { var d = KIND[k] || KIND.other; return d.ico + ' ' + tt(d.he, d.th, d.ar); }
 
   // ── Farm detail section ──
@@ -108,7 +116,7 @@ var FarmIntake = (function () {
       h += '<div class="fi-sub">' + tt('מסמכים שנקלטו', 'เอกสารที่รับ', 'المستندات المستلمة') + '</div><div class="fi-docs">' +
         info.docs.slice(0, 8).map(function (d) {
           return '<button type="button" class="fi-doc" data-fi-doc="' + esc(d.path) + '">' +
-            '<span>' + esc(tt(DOC_TYPE[d.type] || 'מסמך')) + (d.supplier ? ' · ' + esc(d.supplier) : '') + (d.doc_no ? ' #' + esc(d.doc_no) : '') + '</span>' +
+            '<span>' + esc(docTypeLabel(d.type)) + (d.supplier ? ' · ' + esc(d.supplier) : '') + (d.doc_no ? ' #' + esc(d.doc_no) : '') + '</span>' +
             '<small>' + (d.doc_date || new Date(d.at).toLocaleDateString('he-IL')) + ' · ' + d.items + ' ' + tt('שורות', 'แถว', 'سطور') + '</small></button>';
         }).join('') + '</div>';
     }
@@ -207,7 +215,7 @@ var FarmIntake = (function () {
     catalogue().forEach(function (p) { var n = String(p.productName || '').trim(); if (n && !seen[n]) { seen[n] = 1; out.push(n); } });
     return out;
   }
-  function norm(s) { return String(s || '').replace(/["'״׳\s\-]/g, '').toLowerCase(); }
+  function norm(s) { return String(s || '').replace(/["'״׳\s\-]/g, '').toLowerCase(); }   // DATA KEY (matching only)
   function matchPesticide(item) {
     var cat = catalogue();
     var want = item.catalogue_match || item.name;
@@ -321,7 +329,7 @@ var FarmIntake = (function () {
     var errs = S.results.filter(function (r) { return r.err; });
     var head = S.results.filter(function (r) { return r.res; }).map(function (r) {
       var d = r.res;
-      return '<div class="fi-dochead">📄 ' + esc(tt(DOC_TYPE[d.doc_type] || 'מסמך')) + (d.supplier ? ' · ' + esc(d.supplier) : '') +
+      return '<div class="fi-dochead">📄 ' + esc(docTypeLabel(d.doc_type)) + (d.supplier ? ' · ' + esc(d.supplier) : '') +
         (d.doc_no ? ' #' + esc(d.doc_no) : '') + (d.doc_date ? ' · ' + esc(d.doc_date) : '') +
         (d.notes ? '<small>' + esc(d.notes) + '</small>' : '') +
         (d.usage ? '<small>💵 ' + tt('עלות הקריאה', 'ค่าอ่าน', 'تكلفة القراءة') + ': ' + usd(readCost(d)) + ' (' + ((d.usage.input || 0) + (d.usage.output || 0)).toLocaleString() + ' tokens)</small>' : '') + '</div>';
@@ -338,7 +346,7 @@ var FarmIntake = (function () {
           }).join('') + '</select>' +
           (it.equipment_type === 'sprayer' ?
             '<select class="form-input fi-spk" data-i="' + i + '"><option value="">—</option>' + SPRAYER.map(function (o) {
-              return '<option value="' + o[0] + '"' + (it.sprayer_kind === o[0] ? ' selected' : '') + '>' + esc(o[1]) + '</option>';
+              return '<option value="' + o[0] + '"' + (it.sprayer_kind === o[0] ? ' selected' : '') + '>' + esc(tt(o[1], o[2], o[3])) + '</option>';
             }).join('') + '</select>' +
             '<input class="form-input fi-cap" data-i="' + i + '" type="number" min="0" value="' + (it.capacity_l || '') + '" placeholder="' + esc(tt('נפח (ל׳)', 'ลิตร', 'لتر')) + '">' : '') +
           '</div>';
@@ -357,7 +365,7 @@ var FarmIntake = (function () {
         '<div class="fi-r4">' +
           '<input class="form-input fi-price" data-i="' + i + '" type="number" step="any" min="0" value="' + (it.unit_price || '') + '" placeholder="' + esc(tt('₪ ליחידה', '₪/หน่วย', '₪/وحدة')) + '">' +
           '<select class="form-input fi-base" data-i="' + i + '"><option value="">' + tt('יחידת מחיר', 'หน่วยราคา', 'وحدة السعر') + '</option>' +
-            BASE_UNITS.map(function (u) { return '<option' + (it.base_unit === u ? ' selected' : '') + '>' + esc(u) + '</option>'; }).join('') + '</select>' +
+            BASE_UNITS.map(function (u) { return '<option value="' + esc(u) + '"' + (it.base_unit === u ? ' selected' : '') + '>' + esc(unitTr(u)) + '</option>'; }).join('') + '</select>' +
         '</div>' +
         (cmp.html ? '<div class="fi-cmp ' + (cmp.cls || '') + '">' + cmp.html + '</div>' : '') +
         '<div class="fi-r5">' +

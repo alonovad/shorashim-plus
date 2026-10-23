@@ -44,15 +44,15 @@ var Weather = (function () {
   // WMO weather codes → icon + Hebrew label.
   function wx(code) {
     var c = Number(code);
-    if (c === 0) return ['☀️', 'בהיר'];
-    if (c <= 2) return ['🌤️', 'מעונן חלקית'];
-    if (c === 3) return ['☁️', 'מעונן'];
-    if (c === 45 || c === 48) return ['🌫️', 'ערפל'];
-    if (c >= 51 && c <= 57) return ['🌦️', 'טפטוף'];
-    if (c >= 61 && c <= 67) return ['🌧️', 'גשם'];
-    if (c >= 71 && c <= 77) return ['🌨️', 'שלג'];
-    if (c >= 80 && c <= 82) return ['🌧️', 'ממטרים'];
-    if (c >= 95) return ['⛈️', 'סופות רעמים'];
+    if (c === 0) return ['☀️', tt('בהיר', 'แจ่มใส', 'صافٍ')];
+    if (c <= 2) return ['🌤️', tt('מעונן חלקית', 'มีเมฆบางส่วน', 'غائم جزئياً')];
+    if (c === 3) return ['☁️', tt('מעונן', 'มีเมฆมาก', 'غائم')];
+    if (c === 45 || c === 48) return ['🌫️', tt('ערפל', 'หมอก', 'ضباب')];
+    if (c >= 51 && c <= 57) return ['🌦️', tt('טפטוף', 'ฝนปรอย', 'رذاذ')];
+    if (c >= 61 && c <= 67) return ['🌧️', tt('גשם', 'ฝน', 'مطر')];
+    if (c >= 71 && c <= 77) return ['🌨️', tt('שלג', 'หิมะ', 'ثلج')];
+    if (c >= 80 && c <= 82) return ['🌧️', tt('ממטרים', 'ฝนซู่', 'زخات')];
+    if (c >= 95) return ['⛈️', tt('סופות רעמים', 'พายุฝนฟ้าคะนอง', 'عواصف رعدية')];
     return ['🌡️', ''];
   }
 
@@ -168,8 +168,8 @@ var Weather = (function () {
     }
     return out;
   }
-  var DAYS = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];
-  function dayName(iso) { return tt('יום', 'วัน', 'يوم') + ' ' + DAYS[new Date(iso + 'T12:00:00').getDay()]; }
+  var DAYS = [['א׳', 'อา.', 'أحد'], ['ב׳', 'จ.', 'إثنين'], ['ג׳', 'อ.', 'ثلاثاء'], ['ד׳', 'พ.', 'أربعاء'], ['ה׳', 'พฤ.', 'خميس'], ['ו׳', 'ศ.', 'جمعة'], ['ש׳', 'ส.', 'سبت']];
+  function dayName(iso) { return tt('יום', 'วัน', 'يوم') + ' ' + (function (d) { return tt(d[0], d[1], d[2]); })(DAYS[new Date(iso + 'T12:00:00').getDay()]); }
   function hh(iso) { return String(iso).slice(11, 13); }
 
   function ensureCss() {
@@ -335,6 +335,11 @@ var Weather = (function () {
     subs.push(done);
     if (!state.loading) load(false);
   }
+
+  document.addEventListener('shorashim:lang', function () {
+    var act = document.querySelector('.tab.active');
+    if (act && act.getAttribute('data-tab') === 'weather' && state.data) paint();
+  });
 
   return { render: render, refresh: function () { load(true); }, summary: summary, _sprayHour: sprayHour, _points: points };
 })();

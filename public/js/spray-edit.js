@@ -98,8 +98,8 @@ var SprayEdit = (function () {
       return PL[v] || String(v);
     }
     if (field === 'volumeUnit') {
-      var UL = { l_tree: 'ליטר/עץ', cc_tree: 'סמ"ק/עץ', l_dunam: 'ליטר/דונם' };
-      return UL[v] || UL.l_tree;
+      var UL = { l_tree: [tt('ליטר/עץ', 'ลิตร/ต้น', 'لتر/شجرة')], cc_tree: [tt('סמ"ק/עץ', 'ซีซี/ต้น', 'سم³/شجرة')], l_dunam: [tt('ליטר/דונם', 'ลิตร/ไร่', 'لتر/دونم')] };
+      return (UL[v] || UL.l_tree)[0];
     }
     if (field === 'farmId') {
       var fm = (window.SprayStore ? window.SprayStore.getFarms() : [])
@@ -260,7 +260,7 @@ var SprayEdit = (function () {
         '</select>' +
         '<label class="se-label">' + tt('יחידת מידה', 'หน่วย', 'الوحدة') + '</label>' +
         '<select id="seUnit" class="form-input">' +
-          [['l_tree', 'ליטר / עץ'], ['cc_tree', 'סמ"ק / עץ'], ['l_dunam', 'ליטר / דונם']]
+          [['l_tree', tt('ליטר / עץ', 'ลิตร / ต้น', 'لتر / شجرة')], ['cc_tree', tt('סמ"ק / עץ', 'ซีซี / ต้น', 'سم³ / شجرة')], ['l_dunam', tt('ליטר / דונם', 'ลิตร / ไร่', 'لتر / دونم')]]
             .map(function (u) {
               return '<option value="' + u[0] + '"' +
                 (((ev.volumeUnit || 'l_tree') === u[0]) ? ' selected' : '') + '>' + u[1] + '</option>';

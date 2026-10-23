@@ -39,7 +39,7 @@ var Fleet = (function () {
 
   var KINDS = [
     ['tractor', '🚜', 'טרקטור', 'รถแทรกเตอร์', 'جرار'],
-    ['atv', '🛻', 'טרקטורון / רכב שטח', 'ATV', 'مركبة صحراوية'],
+    ['atv', '🛻', 'טרקטורון / רכב שטח', 'ATV', 'مركبة صحراوية'],   // DATA KEY (brand / Latin labels)
     ['truck', '🚛', 'משאית', 'รถบรรทุก', 'شاحنة'],
     ['pickup', '🛻', 'טנדר', 'รถกระบะ', 'بيك أب'],
     ['car', '🚗', 'רכב פרטי / מסחרי', 'รถยนต์', 'سيارة'],
@@ -332,7 +332,9 @@ var Fleet = (function () {
     function iso(x) { return x.getFullYear() + '-' + ('0' + (x.getMonth() + 1)).slice(-2) + '-' + ('0' + x.getDate()).slice(-2); }
     return { from: iso(a), to: iso(b), cal: cal, work: work, open: !l.end };
   }
-  var MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
+  var MONTHS_ = [['ינואר', 'มกราคม', 'يناير'], ['פברואר', 'กุมภาพันธ์', 'فبراير'], ['מרץ', 'มีนาคม', 'مارس'], ['אפריל', 'เมษายน', 'أبريل'], ['מאי', 'พฤษภาคม', 'مايو'], ['יוני', 'มิถุนายน', 'يونيو'],
+    ['יולי', 'กรกฎาคม', 'يوليو'], ['אוגוסט', 'สิงหาคม', 'أغسطس'], ['ספטמבר', 'กันยายน', 'سبتمبر'], ['אוקטובר', 'ตุลาคม', 'أكتوبر'], ['נובמבר', 'พฤศจิกายน', 'نوفمبر'], ['דצמבר', 'ธันวาคม', 'ديسمبر']];
+  function monthName(i) { var m = MONTHS_[i] || ['', '', '']; return tt(m[0], m[1], m[2]); }
   var rep = { y: new Date().getFullYear(), m: new Date().getMonth(), farm: null, all: false };
 
   function reportRows() {
@@ -367,10 +369,10 @@ var Fleet = (function () {
         return '<tr class="fl-tot"><td colspan="5">' + tt('סה"כ', 'รวม', 'المجموع') + ' — ' + esc(t.name) + (t.plate ? ' (' + esc(t.plate) + ')' : '') + '</td><td>' + t.cal + '</td><td>' + t.work + '</td><td></td></tr>';
       }).join('') + '</tbody></table></div>'
       : '<div class="fi-off" style="padding:14px;">' + tt('לא היו ניודים בחודש הזה.', 'ไม่มีการย้ายในเดือนนี้', 'لا عمليات نقل هذا الشهر') + '</div>';
-    var title = tt('דוח ניוד כלים', 'รายงานการย้ายยานพาหนะ', 'تقرير نقل المركبات') + ' — ' + MONTHS[rep.m] + ' ' + rep.y;
+    var title = tt('דוח ניוד כלים', 'รายงานการย้ายยานพาหนะ', 'تقرير نقل المركبات') + ' — ' + monthName(rep.m) + ' ' + rep.y;
     modal('<h2>📊 ' + title + '</h2>' +
       '<div class="fl-bar"><button class="fl-btn ghost" id="flPrev">→</button>' +
-        '<span style="align-self:center;font-weight:700;">' + MONTHS[rep.m] + ' ' + rep.y + '</span>' +
+        '<span style="align-self:center;font-weight:700;">' + monthName(rep.m) + ' ' + rep.y + '</span>' +
         '<button class="fl-btn ghost" id="flNext">←</button>' +
         (farmId ? '<label style="align-self:center;font-size:.8rem;"><input type="checkbox" id="flAll"' + (rep.all ? ' checked' : '') + '> ' + tt('כל המשקים', 'ทุกฟาร์ม', 'كل المزارع') + '</label>' : '') +
         (rows.length ? '<button class="fl-btn ghost" id="flPrint">🖨️ ' + tt('הדפס / PDF', 'พิมพ์', 'طباعة') + '</button>' : '') + '</div>' +

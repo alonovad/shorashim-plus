@@ -36,14 +36,20 @@ var CropProgram = (function () {
   function r2(x) { return Math.round((Number(x) || 0) * 100) / 100; }
 
   var DEFAULT_STAGES = [
-    { v: 'mature', he: 'בוגר / מניב', coef: 1 },
-    { v: 'no-yield', he: 'אין יבול השנה', coef: 0.7 },
-    { v: 'young', he: 'צעיר', coef: 0.55 },
-    { v: 'grafted', he: 'מורכב / אחרי הרכבה', coef: 0.3 },
-    { v: 'planting', he: 'נטיעה חדשה', coef: 0.3 },
-    { v: 'remove', he: 'לעקירה', coef: 0 }
+    { v: 'mature', he: 'בוגר / מניב', th: 'โตเต็มที่ / ให้ผล', ar: 'ناضج / مثمر', coef: 1 },
+    { v: 'no-yield', he: 'אין יבול השנה', th: 'ไม่มีผลผลิตปีนี้', ar: 'لا محصول هذا العام', coef: 0.7 },
+    { v: 'young', he: 'צעיר', th: 'ต้นอ่อน', ar: 'صغير', coef: 0.55 },
+    { v: 'grafted', he: 'מורכב / אחרי הרכבה', th: 'ทาบกิ่งแล้ว', ar: 'مطعّم', coef: 0.3 },
+    { v: 'planting', he: 'נטיעה חדשה', th: 'ปลูกใหม่', ar: 'زراعة جديدة', coef: 0.3 },
+    { v: 'remove', he: 'לעקירה', th: 'รอถอน', ar: 'للقلع', coef: 0 }
   ];
-  var UNITS = ['ק"ג', 'ליטר', 'יחידות', 'גרם', 'מ"ק', 'שק'];
+  var UNITS = ['ק"ג', 'ליטר', 'יחידות', 'גרם', 'מ"ק', 'שק'];   // DATA KEY — stored on programme items
+  // Stored unit words (DATA KEYs) shown in the current language.
+  var UNIT_TR = { 'ק"ג': ['กก.', 'كغ'], 'ליטר': ['ลิตร', 'لتر'], 'יחידות': ['หน่วย', 'وحدات'], 'יחידה': ['หน่วย', 'وحدة'], 'גרם': ['กรัม', 'غرام'],
+    'מ"ק': ['ลบ.ม.', 'م³'], 'שק': ['กระสอบ', 'كيس'], 'מטר': ['เมตร', 'متر'], 'טון': ['ตัน', 'طن'] };
+  function unitTr(u) { var x = UNIT_TR[u]; return x ? tt(u, x[0], x[1]) : (u || ''); }
+  // A stage keeps its Hebrew name as typed; built-in stages also carry th/ar.
+  function stName(s) { if (!s) return ''; var d = DEFAULT_STAGES.find(function (x) { return x.v === s.v; }); return tt(s.he, s.th || (d && d.he === s.he ? d.th : ''), s.ar || (d && d.he === s.he ? d.ar : '')); }
 
   function program(crop) {
     var all = S().getCropPrograms ? S().getCropPrograms() : {};
@@ -85,7 +91,7 @@ var CropProgram = (function () {
         sum += L;
       });
     });
-    return item.unit === 'גרם' ? sum * 1000 : sum;
+    return item.unit === 'גרם' ? sum * 1000 : sum;   // DATA KEY
   }
   function applied(plot, item) { return manualApplied(plot, item) + loggedApplied(plot, item); }
   function pct(a, rec) { return rec > 0 ? Math.round(a / rec * 100) : null; }
@@ -195,8 +201,8 @@ var CropProgram = (function () {
       var st = stageOf(prog, p.stage);
       var stageCell = can
         ? '<select class="form-input cp-stage" data-p="' + p.id + '"><option value="">—</option>' + prog.stages.map(function (s) {
-            return '<option value="' + esc(s.v) + '"' + (s.v === p.stage ? ' selected' : '') + '>' + esc(s.he) + ' (' + s.coef + ')</option>'; }).join('') + '</select>'
-        : esc(st ? st.he : '');
+            return '<option value="' + esc(s.v) + '"' + (s.v === p.stage ? ' selected' : '') + '>' + esc(stName(s)) + ' (' + s.coef + ')</option>'; }).join('') + '</select>'
+        : esc(st ? stName(st) : '');
       var coefCell = can
         ? '<input class="form-input cp-coef" data-p="' + p.id + '" type="number" step="0.05" min="0" max="3" value="' + (p.coef != null ? p.coef : '') + '" placeholder="' + c + '">'
         : c;
@@ -217,10 +223,10 @@ var CropProgram = (function () {
     var head = '<tr><th>' + tt('חלקה', 'แปลง', 'القطعة') + '</th><th>' + tt('דונם', 'ไร่', 'دونم') + '</th><th>' + tt('עצים', 'ต้น', 'أشجار') + '</th><th>' + tt('זן', 'พันธุ์', 'الصنف') + '</th>' +
       '<th>' + tt('שלב', 'ระยะ', 'المرحلة') + '</th><th>' + tt('מקדם', 'สัมประสิทธิ์', 'المعامل') + '</th><th>' + tt('אפיון / סטטוס', 'สถานะ', 'الحالة') + '</th><th>' + tt('עדכון', 'อัปเดต', 'تحديث') + '</th>' +
       prog.items.map(function (it) {
-        return '<th>' + esc(it.name) + '<small>' + r2(it.rate) + ' ' + esc(it.unit) + '/' + (it.basis === 'tree' ? tt('עץ', 'ต้น', 'شجرة') : tt('ד׳', 'ไร่', 'دونم')) + (it.timing ? ' · ' + esc(it.timing) : '') + '</small></th>';
+        return '<th>' + esc(it.name) + '<small>' + r2(it.rate) + ' ' + esc(unitTr(it.unit)) + '/' + (it.basis === 'tree' ? tt('עץ', 'ต้น', 'شجرة') : tt('ד׳', 'ไร่', 'دونم')) + (it.timing ? ' · ' + esc(it.timing) : '') + '</small></th>';
       }).join('') + '</tr>';
     var totRow = '<tr class="tot"><td>' + tt('סה"כ', 'รวม', 'المجموع') + '</td><td class="num">' + r2(totA) + '</td><td class="num">' + totT.toLocaleString('he-IL') + '</td><td colspan="5"></td>' +
-      prog.items.map(function (it, k) { return '<td class="num">' + r2(tot[k]) + ' ' + esc(it.unit) + '<div class="cp-done">' + tt('בוצע', 'ทำแล้ว', 'نُفّذ') + ' ' + r2(totD[k]) + '</div>' + bar(pct(totD[k], tot[k])) + '</td>'; }).join('') + '</tr>';
+      prog.items.map(function (it, k) { return '<td class="num">' + r2(tot[k]) + ' ' + esc(unitTr(it.unit)) + '<div class="cp-done">' + tt('בוצע', 'ทำแล้ว', 'نُفّذ') + ' ' + r2(totD[k]) + '</div>' + bar(pct(totD[k], tot[k])) + '</td>'; }).join('') + '</tr>';
     return '<div class="cp-wrap"><table class="cp-tbl"><thead>' + head + '</thead><tbody>' + rows + (plots.length ? totRow : '') + '</tbody></table></div>';
   }
 
@@ -288,7 +294,7 @@ var CropProgram = (function () {
       return '<div class="cp-row cp-it" data-i="' + i + '">' +
         '<input class="form-input cp-it-name" value="' + esc(it.name || '') + '" placeholder="' + esc(tt('פריט (למשל ברזל, דשן 4-2-8, אבץ)', 'รายการ', 'البند')) + '" style="flex:2 1 170px;">' +
         '<input class="form-input cp-it-rate" type="number" step="any" min="0" value="' + (it.rate != null ? it.rate : '') + '" placeholder="' + esc(tt('כמות', 'จำนวน', 'الكمية')) + '" style="width:80px;">' +
-        '<select class="form-input cp-it-unit">' + UNITS.map(function (u) { return '<option' + (u === it.unit ? ' selected' : '') + '>' + esc(u) + '</option>'; }).join('') + '</select>' +
+        '<select class="form-input cp-it-unit">' + UNITS.map(function (u) { return '<option value="' + esc(u) + '"' + (u === it.unit ? ' selected' : '') + '>' + esc(unitTr(u)) + '</option>'; }).join('') + '</select>' +
         '<select class="form-input cp-it-basis"><option value="dunam"' + (it.basis !== 'tree' ? ' selected' : '') + '>' + tt('לדונם', 'ต่อไร่', 'لكل دونم') + '</option><option value="tree"' + (it.basis === 'tree' ? ' selected' : '') + '>' + tt('לעץ', 'ต่อต้น', 'لكل شجرة') + '</option></select>' +
         '<input class="form-input cp-it-timing" value="' + esc(it.timing || '') + '" placeholder="' + esc(tt('מועד / שלב (למשל אביב, אחרי חנטה)', 'ช่วงเวลา', 'التوقيت')) + '" style="flex:1 1 150px;">' +
         '<button type="button" class="btn-icon delete" onclick="this.parentNode.remove()">✕</button></div>';

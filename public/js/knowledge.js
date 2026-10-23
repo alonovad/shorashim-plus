@@ -285,6 +285,8 @@ var Knowledge = (function () {
     document.head.appendChild(st);
   }
 
+  document.addEventListener('shorashim:lang', function () { if (document.getElementById('kbRoot') && !document.querySelector('#kbRoot .kb-ed')) render(); });
+
   return { open: open, close: close, _cats: CATS };
 })();
 window.Knowledge = Knowledge;
