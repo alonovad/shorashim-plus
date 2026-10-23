@@ -267,7 +267,8 @@ var PriceBook = (function () {
       '.pb-a{border:0;background:transparent;color:var(--primary,#2d6a4f);cursor:pointer;font:inherit;padding:0;text-decoration:underline;}' +
       '.pb-empty{text-align:center;color:var(--text-muted,#777);padding:24px 8px;font-size:.86rem;}' +
       '.pb-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:6px;margin:8px 0;}' +
-      '.pb-form .form-input{margin:0;padding:8px 10px;font-size:.84rem;}';
+      '.pb-form .form-input{margin:0;padding:8px 10px;font-size:.84rem;}' +
+      '.pb-edit{background:var(--tonal,#f3f6ef);border-radius:14px;padding:10px;}.pb-fl{display:flex;flex-direction:column;gap:2px;}.pb-fl small{color:var(--text-muted,#6f7b72);font-size:.72rem;}';
     document.head.appendChild(st);
   }
 
@@ -366,10 +367,13 @@ var PriceBook = (function () {
         '<td><b>' + money(r.unitPrice) + '</b>' + (r.qty ? '<br><small>' + r.qty + ' ' + esc(r.unit || '') + '</small>' : '') + '</td>' +
         '<td>' + (r === g.min ? '<span class="pb-ok">' + tt('הזול', 'ถูกสุด', 'الأرخص') + '</span>' : '<span class="' + (p > s.pct ? 'pb-up' : '') + '">+' + Math.round(p * 10) / 10 + '%</span>') + '</td>' +
         '<td>' + (r.docPath ? '<button class="pb-a" data-pb-doc="' + esc(r.docPath) + '">📄</button>' : '') +
-          (canEd(r) ? ' <button class="pb-a" data-pb-del="' + r.id + '" data-pb-y="' + esc(y) + '" title="' + esc(tt('מחק', 'ลบ', 'حذف')) + '">🗑</button>' : '') + '</td></tr>';
+          (canEd(r) ? ' <button class="pb-a" data-pb-edit="' + r.id + '" title="' + esc(tt('ערוך', 'แก้ไข', 'تعديل')) + '">✏️</button>' +
+            ' <button class="pb-a" data-pb-del="' + r.id + '" data-pb-y="' + esc(y) + '" title="' + esc(tt('מחק', 'ลบ', 'حذف')) + '">🗑</button>' : '') + '</td></tr>';
     }).join('');
     return '<button class="pb-btn ghost" id="pbBackList">→ ' + tt('לכל המוצרים', 'กลับ', 'رجوع') + '</button>' +
-      '<h3 style="margin:10px 0 2px;">' + esc(g.name) + ' <small style="font-weight:400;color:var(--text-muted,#777);">/ ' + esc(g.baseUnit) + '</small></h3>' +
+      '<h3 style="margin:10px 0 2px;">' + esc(g.name) + ' <small style="font-weight:400;color:var(--text-muted,#777);">/ ' + esc(g.baseUnit) + '</small>' +
+        (isAdmin() ? ' <button class="pb-a" id="pbRename" title="' + esc(tt('שנה שם מוצר לכל הרשומות', 'เปลี่ยนชื่อสินค้า', 'إعادة تسمية المنتج')) + '">✏️ ' + tt('שם המוצר', 'ชื่อสินค้า', 'اسم المنتج') + '</button>' : '') + '</h3>' +
+      '<div id="pbEditBox"></div>' +
       '<div class="pb-sum"><span class="pb-chip">' + tt('הזול', 'ถูกสุด', 'الأرخص') + ': ' + money(g.min.unitPrice) + ' · ' + esc(g.min.supplier || '—') + '</span>' +
         '<span class="pb-chip">' + tt('היקר', 'แพงสุด', 'الأغلى') + ': ' + money(g.max.unitPrice) + '</span>' +
         (g.flagged.length ? '<span class="pb-chip warn">⚠️ ' + g.flagged.length + ' ' + tt('מעל', 'เกิน', 'فوق') + ' ' + s.pct + '%</span>' : '') + '</div>' +
@@ -412,11 +416,92 @@ var PriceBook = (function () {
           function () { toast('❌ ' + tt('לא ניתן לפתוח את המסמך', 'เปิดไม่ได้', 'تعذر الفتح')); });
       });
     });
+    document.querySelectorAll('[data-pb-edit]').forEach(function (el) {
+      el.addEventListener('click', function () {
+        var id = Number(el.getAttribute('data-pb-edit'));
+        var r = allRecords().find(function (x) { return x.id === id; });
+        if (r) editForm(r);
+      });
+    });
+    if ($('pbRename')) $('pbRename').addEventListener('click', renameForm);
     document.querySelectorAll('[data-pb-del]').forEach(function (el) {
       el.addEventListener('click', function () {
         if (!confirm(tt('למחוק את המחיר הזה מהמאגר?', 'ลบราคานี้?', 'حذف هذا السعر؟'))) return;
         removeRecord(Number(el.getAttribute('data-pb-del')), Number(el.getAttribute('data-pb-y'))).then(paint);
       });
+    });
+  }
+
+  // ── edit (admin: any record; others: their own) ──
+  function kindOpts(sel) {
+    return [['pesticide', '🧪 ' + tt('חומרי הדברה', 'สารเคมี', 'مبيدات')], ['fertilizer', '🌱 ' + tt('דשנים', 'ปุ๋ย', 'أسمدة')], ['equipment', '🚜 ' + tt('ציוד', 'อุปกรณ์', 'معدات')], ['other', '📦 ' + tt('אחר', 'อื่นๆ', 'أخرى')]]
+      .map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === sel ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('');
+  }
+  function lbl(t, inner) { return '<label class="pb-fl"><small>' + t + '</small>' + inner + '</label>'; }
+  function editForm(r) {
+    if (!canEd(r)) { if (window.Own) Own.denied(); return; }
+    var box = document.getElementById('pbEditBox');
+    if (!box) return;
+    var fs = (window.SprayStore && SprayStore.getFarms) ? SprayStore.getFarms() : [];
+    var units = UNITS.indexOf(r.baseUnit) === -1 && r.baseUnit ? [r.baseUnit].concat(UNITS) : UNITS;
+    box.innerHTML = '<div class="pb-form pb-edit"><b style="grid-column:1/-1;">✏️ ' + tt('עריכת רשומת מחיר', 'แก้ไขราคา', 'تعديل السعر') + '</b>' +
+      lbl(tt('מוצר', 'สินค้า', 'المنتج'), '<input class="form-input" id="pbeProduct" value="' + esc(r.product || r.name || '') + '">') +
+      lbl(tt('ספק', 'ผู้จัดหา', 'المورد'), '<input class="form-input" id="pbeSupplier" value="' + esc(r.supplier || '') + '">') +
+      lbl(tt('תאריך', 'วันที่', 'التاريخ'), '<input class="form-input" id="pbeDate" type="date" value="' + esc(r.date || today()) + '">') +
+      lbl(tt('יחידה', 'หน่วย', 'الوحدة'), '<select class="form-input" id="pbeUnit">' + units.map(function (u) { return '<option value="' + esc(u) + '"' + (u === r.baseUnit ? ' selected' : '') + '>' + esc(unitTr(u)) + '</option>'; }).join('') + '</select>') +
+      lbl(tt('₪ ליחידה לפני מע"מ', '₪/หน่วย', '₪/وحدة'), '<input class="form-input" id="pbePrice" type="number" step="any" min="0" value="' + esc(r.unitPrice) + '">') +
+      lbl(tt('כמות', 'จำนวน', 'الكمية'), '<input class="form-input" id="pbeQty" type="number" step="any" min="0" value="' + esc(r.qty || '') + '">') +
+      lbl(tt('מס׳ מסמך', 'เลขที่เอกสาร', 'رقم المستند'), '<input class="form-input" id="pbeDocNo" value="' + esc(r.docNo || '') + '">') +
+      lbl(tt('סוג', 'ประเภท', 'النوع'), '<select class="form-input" id="pbeKind">' + kindOpts(r.kind || 'other') + '</select>') +
+      lbl(tt('משק', 'ฟาร์ม', 'المزرعة'), '<select class="form-input" id="pbeFarm"><option value="0">—</option>' + fs.map(function (f) { return '<option value="' + f.id + '"' + (f.id === r.farmId ? ' selected' : '') + '>' + esc(f.name) + '</option>'; }).join('') + '</select>') +
+      '<div style="grid-column:1/-1;display:flex;gap:6px;"><button class="pb-btn" id="pbeSave" data-no-sticky data-no-back>💾 ' + tt('שמור שינויים', 'บันทึก', 'حفظ') + '</button>' +
+      '<button class="pb-btn ghost" id="pbeCancel">' + tt('ביטול', 'ยกเลิก', 'إلغاء') + '</button></div></div>';
+    box.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    document.getElementById('pbeCancel').addEventListener('click', function () { box.innerHTML = ''; });
+    document.getElementById('pbeSave').addEventListener('click', function () {
+      function v(id) { return (document.getElementById(id) || {}).value || ''; }
+      var product = v('pbeProduct').trim(), price = Number(v('pbePrice')), unit = v('pbeUnit');
+      if (!product || !(price > 0)) { toast('⚠️ ' + tt('חסר מוצר או מחיר', 'ขาดข้อมูล', 'ينقص المنتج أو السعر')); return; }
+      var oldY = Number(String(r.date || '').slice(0, 4));
+      var n = JSON.parse(JSON.stringify(r));
+      n.product = product.slice(0, 100); if (!n.name || n.name === r.product) n.name = n.product;
+      n.supplier = v('pbeSupplier').trim().slice(0, 80); n.date = v('pbeDate') || r.date;
+      n.baseUnit = unit.slice(0, 20); if (!r.unit || r.unit === r.baseUnit) n.unit = n.baseUnit;
+      n.unitPrice = Math.round(price * 10000) / 10000; n.qty = Number(v('pbeQty')) || 0;
+      n.docNo = v('pbeDocNo').trim().slice(0, 40); n.kind = v('pbeKind'); n.farmId = Number(v('pbeFarm')) || 0;
+      n.key = productKey(n.product, n.baseUnit);
+      n.editedBy = user().email || user().username || ''; n.editedAt = Date.now();
+      var newY = Number(String(n.date).slice(0, 4));
+      add([n]).then(function (ok) {
+        if (!ok) return false;
+        return newY !== oldY ? removeRecord(r.id, oldY) : true;
+      }).then(function (ok) {
+        if (!ok) return;
+        toast('✅ ' + tt('הרשומה עודכנה', 'อัปเดตแล้ว', 'تم التحديث'));
+        ui.open = n.key; ensureLoaded(range(settings())).then(paint);
+      });
+    });
+  }
+  // Admin: rename a product across all its loaded records (fix a typo or merge two names).
+  function renameForm() {
+    if (!isAdmin()) return;
+    var g = analyze(range(settings()), settings().pct).find(function (x) { return x.key === ui.open; });
+    var box = document.getElementById('pbEditBox');
+    if (!g || !box) return;
+    var all = allRecords().filter(function (r) { return r.key === g.key; });
+    box.innerHTML = '<div class="pb-form pb-edit"><b style="grid-column:1/-1;">✏️ ' + tt('שינוי שם המוצר', 'เปลี่ยนชื่อสินค้า', 'إعادة تسمية المنتج') + '</b>' +
+      '<small style="grid-column:1/-1;color:var(--text-muted,#777);">' + tt('יחול על כל', 'ใช้กับทั้งหมด', 'ينطبق على كل') + ' ' + all.length + ' ' + tt('הרשומות של המוצר בשנים שנטענו. שם זהה למוצר קיים מאחד ביניהם.', 'รายการ', 'السجلات') + '</small>' +
+      lbl(tt('שם חדש', 'ชื่อใหม่', 'اسم جديد'), '<input class="form-input" id="pbrName" value="' + esc(g.name) + '">') +
+      lbl(tt('סוג', 'ประเภท', 'النوع'), '<select class="form-input" id="pbrKind">' + kindOpts(g.recs[0].kind || 'other') + '</select>') +
+      '<div style="grid-column:1/-1;display:flex;gap:6px;"><button class="pb-btn" id="pbrSave" data-no-sticky data-no-back>💾 ' + tt('שמור', 'บันทึก', 'حفظ') + '</button>' +
+      '<button class="pb-btn ghost" id="pbrCancel">' + tt('ביטול', 'ยกเลิก', 'إلغاء') + '</button></div></div>';
+    document.getElementById('pbrCancel').addEventListener('click', function () { box.innerHTML = ''; });
+    document.getElementById('pbrSave').addEventListener('click', function () {
+      var name = ((document.getElementById('pbrName') || {}).value || '').trim().slice(0, 100), kind = (document.getElementById('pbrKind') || {}).value;
+      if (!name) return;
+      var k = productKey(name, g.baseUnit), stamp = Date.now(), who = user().email || user().username || '';
+      var recs = all.map(function (r) { var n = JSON.parse(JSON.stringify(r)); n.product = name; n.key = k; n.kind = kind; n.editedBy = who; n.editedAt = stamp; return n; });
+      add(recs).then(function (ok) { if (!ok) return; toast('✅ ' + tt('שם המוצר עודכן', 'อัปเดตแล้ว', 'تم التحديث')); ui.open = k; paint(); });
     });
   }
 
