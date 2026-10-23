@@ -108,6 +108,10 @@ var AgriPlan = (function () {
   var _aLastSaved = '';
   var _openPlan = null;          // plan id being edited
   var _rowFilter = { pid: null, q: '' };   // name filter for the open plan's rows (display only)
+  // Which farm groups of the open plan are unfolded: { '<planId>|<farmId>': true }.
+  // Remembered per device so a plan reopens the way it was left.
+  var _grpOpen = (function () { try { return JSON.parse(localStorage.getItem('ap-grp-open') || '{}') || {}; } catch (e) { return {}; } })();
+  function _grpSave() { try { localStorage.setItem('ap-grp-open', JSON.stringify(_grpOpen)); } catch (e) {} }
 
   // ── helpers ──
   function tt(he, th, ar) {
@@ -759,6 +763,22 @@ var AgriPlan = (function () {
       // One tinted band per orchard; rows sit inside it as white cards.
       '.ap-grp{background:var(--surface-glass,#eef2ee);border-radius:14px;padding:8px 8px 1px;margin-bottom:12px;}' +
       '.ap-grphd{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px;padding:2px 6px 8px;font-weight:800;font-size:.9rem;}' +
+      'details.ap-grp{border:1.5px solid var(--line,#dfe6dc);background:var(--card,#fff) !important;padding:4px 8px 1px !important;}' +
+      'details.ap-grp[open]{border-color:var(--primary,#2d6a4f);}details.ap-grp[open]>summary{border-bottom:1px dashed var(--line,#dfe6dc);margin-bottom:8px;}' +
+      'details.ap-grp>summary:hover{background:var(--tonal,#f3f6ef);border-radius:10px;}' +
+      'details.ap-grp>summary.ap-grphd{list-style:none;cursor:pointer;display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:6px 14px;padding:6px 6px 8px;}' +
+      'details.ap-grp>summary::-webkit-details-marker{display:none;}' +
+      '.ap-gname{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 8px;flex:1 1 220px;min-width:0;}' +
+      '.ap-gchev{display:inline-block;transition:transform .15s;color:var(--primary,#2d6a4f);font-size:.8rem;}details.ap-grp[open] .ap-gchev{transform:rotate(90deg);}' +
+      '[dir=rtl] .ap-gchev{transform:scaleX(-1);}[dir=rtl] details.ap-grp[open] .ap-gchev{transform:rotate(90deg);}' +
+      '.ap-gst{display:inline-flex;gap:6px;align-items:center;}.ap-gwarn{color:#b26a00;}' +
+      '.ap-gtodo{flex:1 1 300px;display:flex;flex-direction:column;gap:3px;font-weight:500;font-size:.78rem;min-width:0;}' +
+      '.ap-gop{display:flex;flex-wrap:wrap;gap:4px 6px;align-items:baseline;}' +
+      '.ap-gopn{font-weight:700;color:var(--primary,#2d6a4f);white-space:nowrap;}' +
+      '.ap-gm{background:var(--tonal,#eef3ea);border-radius:8px;padding:1px 7px;white-space:nowrap;}' +
+      'details.ap-grp:not([open]){padding-bottom:0;}details.ap-grp:not([open])>summary{padding-bottom:6px;}' +
+      '.ap-gbody{padding-top:2px;}' +
+      '.ap-grpbar{display:flex;gap:6px;align-items:center;margin:0 0 8px;}.ap-grpbar .ap-btn{padding:5px 11px;font-size:.78rem;}' +
       '.ap-row{background:var(--card-solid,#fff);border:1px solid var(--border,#e0e5e0);' +
         'border-inline-start:5px solid var(--mc,#1565c0);border-radius:10px;padding:10px;margin-bottom:8px;}' +
       '.ap-rowhd{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:-2px 0 8px;font-size:.84rem;font-weight:800;}' +
@@ -904,14 +924,37 @@ var AgriPlan = (function () {
       if (g.ops.indexOf(ol) < 0) g.ops.push(ol);
       shown++;
     });
-    var rows = gOrder.map(function (fk) {
-      var g = groups[fk];
-      return '<div class="ap-grp">' +
-        '<div class="ap-grphd">🌳 ' + esc(farmName(Number(fk))) +
-          '<span class="n">' + g.n + ' ' + tt('שורות', 'แถว', 'صفوف') + ' · ' +
-            g.trees.toLocaleString() + ' ' + tt('עצים', 'ต้น', 'شجرة') + ' · ' + esc(g.ops.join(', ')) + '</span>' +
-          (Number(fk) ? farmBadge(p, Number(fk)) + farmApproveBtn(p, Number(fk)) : '') +
-        '</div>' + farmIssues(p, Number(fk)) + g.html + '</div>';
+    // Each farm folds into one line: name and size on one side, what that
+    // farm has to do in this plan (per operation: materials and amounts) on
+    // the other. One farm only, or a filter on → unfolded.
+    var single = gOrder.length < 2;
+    var rows = (gOrder.length > 1 ? '<div class="ap-grpbar">' +
+        '<button class="ap-btn ghost" data-no-sticky data-no-back onclick="AgriPlan._grpAll(' + id + ',true)">▾ ' + tt('פתח הכל', 'เปิดทั้งหมด', 'فتح الكل') + '</button>' +
+        '<button class="ap-btn ghost" data-no-sticky data-no-back onclick="AgriPlan._grpAll(' + id + ',false)">▸ ' + tt('קפל הכל', 'พับทั้งหมด', 'طي الكل') + '</button>' +
+        '<span class="n">' + gOrder.length + ' ' + tt('משקים', 'ฟาร์ม', 'مزارع') + '</span></div>' : '') +
+      gOrder.map(function (fk) {
+      var g = groups[fk], fid = Number(fk);
+      var open = single || terms.length > 0 || !!_grpOpen[id + '|' + fk];
+      var ops = (t.farmOps && t.farmOps[fk]) || (t.farmOps && t.farmOps[fid]) || {};
+      var todo = Object.keys(ops).map(function (k) {
+        var o = ops[k];
+        var mm = Object.keys(o.mats || {}).sort().map(function (nm) {
+          return '<span class="ap-gm">' + esc(nm) + ' <b>' + fmtQtyS(o.mats[nm], U(nm, p)) + '</b></span>';
+        }).join('');
+        return mm ? '<div class="ap-gop"><span class="ap-gopn">' + esc(opLabel(o.method, o.round)) + '</span>' + mm + '</div>' : '';
+      }).join('');
+      var issues = farmIssues(p, fid);
+      return '<details class="ap-grp"' + (open ? ' open' : '') + ' ontoggle="AgriPlan._grpToggle(' + id + ',\'' + fk + '\',this.open)">' +
+        '<summary class="ap-grphd" onclick="if(event.target.closest(\'button,a,select,input,label\'))event.preventDefault();">' +
+          '<div class="ap-gname"><span class="ap-gchev">▸</span>🌳 ' + esc(farmName(fid)) +
+            '<span class="n">' + g.n + ' ' + tt('חלקות/שורות', 'แปลง/แถว', 'قطع/صفوف') + ' · ' +
+              g.trees.toLocaleString() + ' ' + tt('עצים', 'ต้น', 'شجرة') + '</span>' +
+            (issues ? '<span class="ap-gwarn" title="' + esc(tt('יש הערות לבדיקה', 'มีข้อควรตรวจ', 'توجد ملاحظات')) + '">⚠</span>' : '') +
+            (fid ? '<span class="ap-gst">' + farmBadge(p, fid) + farmApproveBtn(p, fid) + '</span>' : '') +
+          '</div>' +
+          '<div class="ap-gtodo">' + (todo || '<span class="n">' + esc(g.ops.join(', ')) + '</span>') + '</div>' +
+        '</summary>' +
+        '<div class="ap-gbody">' + issues + g.html + '</div></details>';
     }).join('');
     if (!allRows) {
       rows = '<div class="ap-empty">' + tt('אין עדיין שורות. הוסף משק שלם, בחר חלקות או הוסף שורה.',
@@ -1701,6 +1744,20 @@ var AgriPlan = (function () {
     if (host) host.innerHTML = '';
   }
 
+  function _grpToggle(pid, fk, isOpen) {
+    if (isOpen) _grpOpen[pid + '|' + fk] = true; else delete _grpOpen[pid + '|' + fk];
+    _grpSave();
+  }
+  function _grpAll(pid, isOpen) {
+    var p = planById(pid);
+    if (!p) return;
+    (p.rows || []).forEach(function (r) {
+      var k = pid + '|' + String(r.farmId == null ? 0 : r.farmId);
+      if (isOpen) _grpOpen[k] = true; else delete _grpOpen[k];
+    });
+    _grpSave();
+    document.querySelectorAll('details.ap-grp').forEach(function (d) { d.open = isOpen; });
+  }
   function _setRowFilter(pid, v) {
     _rowFilter = { pid: pid, q: String(v || '') };
     showPlan(pid);
@@ -3218,6 +3275,8 @@ var AgriPlan = (function () {
     _opChanged: _opChanged,
     _bulkOpChanged: _bulkOpChanged,
     _setRowFilter: _setRowFilter,
+    _grpToggle: _grpToggle,
+    _grpAll: _grpAll,
     _filterFarmPick: _filterFarmPick,
     _filterPlotPick: _filterPlotPick,
     _pickShown: _pickShown,
