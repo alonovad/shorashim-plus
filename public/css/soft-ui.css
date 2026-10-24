@@ -1,0 +1,76 @@
+/* soft-ui.css — softer inner screens (plot card, farm card, inner menus) — Oct 2026
+ * Scoped to windows (#modalContainer) and to the "soft" look (body.ui-soft),
+ * which is the default and can be switched off in Display settings.
+ *   - secondary actions: light, outlined, sized to their text, side by side
+ *   - one solid primary action (save)
+ *   - fields: thin border, white, focus ring
+ *   - sections: white cards with a soft shadow instead of tinted fills
+ */
+body.ui-soft #modalContainer .modal { background: #f7f9f5; }
+
+/* sections */
+body.ui-soft #modalContainer .pd-sec,
+body.ui-soft #modalContainer .form-section {
+  background: #fff !important; border: 1px solid #e6ebe2 !important; border-radius: 18px !important;
+  box-shadow: 0 2px 10px rgba(20, 40, 25, .05) !important;
+}
+
+/* secondary actions: outlined, auto width, wrap side by side */
+body.ui-soft #modalContainer .btn-admin,
+body.ui-soft #modalContainer .btn-submit,
+body.ui-soft #modalContainer .ir-e,
+body.ui-soft #modalContainer .btn-secondary,
+body.ui-soft #modalContainer .pd-sec button:not([class]),
+body.ui-soft #modalContainer .btn:not(.btn-primary):not(.btn-danger) {
+  display: inline-flex !important; align-items: center; justify-content: center; gap: 6px;
+  width: auto !important; min-height: 40px; margin: 4px 0 4px 6px !important; padding: 8px 14px !important;
+  background: #fff !important; color: var(--primary, #1d5a2c) !important;
+  border: 1px solid #d9e2d4 !important; border-radius: 14px !important;
+  box-shadow: 0 1px 2px rgba(20, 40, 25, .05) !important; background-image: none !important;
+  font-weight: 600 !important; font-size: .86rem !important; letter-spacing: 0;
+  transition: background .15s, border-color .15s, transform .1s;
+}
+body.ui-soft #modalContainer .btn-admin:hover,
+body.ui-soft #modalContainer .btn-submit:hover,
+body.ui-soft #modalContainer .ir-e:hover,
+body.ui-soft #modalContainer .btn:not(.btn-primary):not(.btn-danger):hover { background: #f1f6ee !important; border-color: #b9cdb2 !important; }
+body.ui-soft #modalContainer .btn-admin:active,
+body.ui-soft #modalContainer .btn-submit:active { transform: scale(.97); }
+
+/* destructive: quiet until needed */
+body.ui-soft #modalContainer .btn-danger,
+body.ui-soft #modalContainer button[onclick*="Delete"],
+body.ui-soft #modalContainer button[onclick*="delete"] {
+  background: #fff !important; color: #b3261e !important; border: 1px solid #f0c9c5 !important;
+  border-radius: 14px !important; box-shadow: none !important; background-image: none !important; width: auto !important;
+}
+
+/* the one primary action */
+body.ui-soft #modalContainer .pd-hsave,
+body.ui-soft #modalContainer .btn-primary {
+  background: #2f6f45 !important; background-image: none !important; color: #fff !important;
+  border: 0 !important; border-radius: 14px !important; box-shadow: 0 2px 6px rgba(47, 111, 69, .25) !important; font-weight: 700 !important;
+}
+
+/* entry points (recommendations etc.): tonal tiles, not heavy bars */
+body.ui-soft #modalContainer .pr-open-btn,
+body.ui-soft #modalContainer .fd-sat-btn {
+  background: #eaf3e6 !important; background-image: none !important; color: #1f4f2c !important;
+  border: 1px solid #d3e5cc !important; border-radius: 16px !important; box-shadow: none !important;
+  min-height: 46px; font-weight: 700 !important;
+}
+
+/* fields */
+body.ui-soft #modalContainer .form-input,
+body.ui-soft #modalContainer select.form-input,
+body.ui-soft #modalContainer textarea.form-input {
+  background: #fff !important; border: 1px solid #dde4d8 !important; border-radius: 12px !important;
+  box-shadow: none !important; padding: 9px 12px !important; font-size: .92rem;
+}
+body.ui-soft #modalContainer .form-input:focus {
+  border-color: #6aa36f !important; box-shadow: 0 0 0 3px rgba(106, 163, 111, .18) !important; outline: none;
+}
+body.ui-soft #modalContainer .form-label { font-size: .78rem !important; color: #5b665e !important; font-weight: 600 !important; margin-bottom: 4px; }
+
+/* bottom row of a window */
+body.ui-soft #modalContainer .modal-buttons { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-start; }
