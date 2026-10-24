@@ -1341,6 +1341,8 @@ var TimeClock = (function() {
         '<div style="margin-top:16px;padding-top:16px;border-top:2px solid #eee;">' +
           '<h4 style="font-weight:700;font-size:0.9rem;margin-bottom:8px;">💾 ' + tt('גיבוי ושחזור', 'สำรองและกู้คืน', 'نسخ احتياطي واستعادة') + '</h4>' +
           '<div style="display:grid;gap:8px;">' +
+            (window.currentUser && window.currentUser.role === 'admin' ? '<button id="tcFullBk" onclick="TimeClock._backupFull()" style="padding:12px;border-radius:10px;border:none;background:#1b5e20;color:white;font-family:inherit;font-size:0.9rem;font-weight:700;cursor:pointer;text-align:right;">' +
+              tt('🗄️ גיבוי מלא של כל המערכת - נתונים, קבצים ומשתמשים (ZIP)', '🗄️ สำรองทั้งระบบ (ZIP)', '🗄️ نسخة كاملة للنظام (ZIP)') + '</button>' : '') +
             '<button onclick="TimeClock._backupAll()" style="padding:12px;border-radius:10px;border:none;background:#1565c0;color:white;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">' + tt('⬇️ הורד גיבוי מלא (JSON)', '⬇️ ดาวน์โหลดสำรองทั้งหมด (JSON)', '⬇️ تنزيل نسخة كاملة (JSON)') + '</button>' +
             '<label style="padding:12px;border-radius:10px;border:2px dashed #999;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;display:block;color:#666;">' + tt('⬆️ שחזר מגיבוי', '⬆️ กู้คืนจากสำรอง', '⬆️ استعادة من نسخة') + '<input type="file" accept=".json" onchange="TimeClock._restoreBackup(this.files[0])" style="display:none;"></label>' +
           '</div>' +
@@ -1458,6 +1460,26 @@ var TimeClock = (function() {
     } else {
       _downloadBackup(backup);
     }
+  }
+
+  // Everything on the server - every collection, every uploaded file, the
+  // sign-in accounts - zipped by the backupAll function and downloaded.
+  function _backupFull() {
+    var btn = document.getElementById('tcFullBk');
+    if (!window.firebase || !firebase.app) return;
+    if (btn) { btn.disabled = true; btn.dataset.t = btn.textContent; btn.textContent = '⏳ ' + tt('מכין גיבוי מלא… זה יכול לקחת כמה דקות', 'กำลังเตรียม…', 'جارٍ التحضير…'); }
+    var fn = firebase.app().functions('us-central1').httpsCallable('backupAll', { timeout: 540000 });
+    fn({}).then(function (r) {
+      var d = r.data || {};
+      var a = document.createElement('a'); a.href = d.url; a.download = d.name || 'shorashim-backup.zip'; a.rel = 'noopener';
+      document.body.appendChild(a); a.click(); setTimeout(function () { a.remove(); }, 2000);
+      var c = d.counts || {};
+      if (typeof showToast === 'function') showToast('✅ ' + tt('הגיבוי הורד', 'ดาวน์โหลดแล้ว', 'تم التنزيل') + ': ' + Math.round((d.bytes || 0) / 1048576 * 10) / 10 + ' MB · ' +
+        (c.docs || 0) + ' ' + tt('מסמכים', 'เอกสาร', 'مستندات') + ' · ' + (c.files || 0) + ' ' + tt('קבצים', 'ไฟล์', 'ملفات') + ' · ' + (c.users || 0) + ' ' + tt('משתמשים', 'ผู้ใช้', 'مستخدمين'));
+    }, function (e) {
+      var code = String((e && e.code) || '');
+      if (typeof showToast === 'function') showToast('❌ ' + (/not-found/.test(code) ? tt('פונקציית הגיבוי עוד לא נפרסה (firebase deploy --only functions:backupAll)', 'ยังไม่ได้ติดตั้ง', 'الدالة غير منشورة') : tt('הגיבוי נכשל', 'ล้มเหลว', 'فشل') + ': ' + ((e && e.message) || code)));
+    }).then(function () { if (btn) { btn.disabled = false; btn.textContent = btn.dataset.t || btn.textContent; } });
   }
 
   function _downloadBackup(backup) {
@@ -1633,6 +1655,7 @@ var TimeClock = (function() {
     _changePassword: _changePassword,
     _exportCSV: _exportCSV,
     _backupAll: _backupAll,
+    _backupFull: _backupFull,
     _restoreBackup: _restoreBackup,
     _addCrop: _addCrop,
     _removeCrop: _removeCrop,

@@ -1860,3 +1860,99 @@ exports.planPdf = onCall(
     }
   }
 );
+
+// ═══════════════════════════════════════════
+// FULL BACKUP — everything the app keeps, in one ZIP (admin only)
+//   firestore/   every collection and sub-collection, one JSON file per
+//                collection path: [{ id, data }] (timestamps as ISO text)
+//   storage/     every uploaded file (labels, drawings, photos…)
+//   auth-users.json  the sign-in accounts with their roles
+//   manifest.json    when, by whom, counts
+//   The ZIP is streamed into Storage (backups/, closed to the app by the
+//   storage rules) and handed back as a one-off download link. The three
+//   newest backups are kept, older ones deleted.
+// ═══════════════════════════════════════════
+exports.backupAll = onCall(
+  { region: "us-central1", memory: "1GiB", timeoutSeconds: 540, maxInstances: 1, concurrency: 1 },
+  async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Sign in required");
+    const tok = request.auth.token || {};
+    if ((tok.firebase || {}).sign_in_provider === "phone") throw new HttpsError("permission-denied", "Not for recovery sessions");
+    if (tok.role !== "admin") throw new HttpsError("permission-denied", "Admin only");
+
+    const archiver = require("archiver");
+    const crypto = require("crypto");
+    const fs = getFirestore();
+    const bucket = getStorage().bucket("shorashim-plus.firebasestorage.app");
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    const path = "backups/shorashim-backup-" + stamp + ".zip";
+    const token = crypto.randomUUID();
+    const out = bucket.file(path).createWriteStream({
+      resumable: false, contentType: "application/zip",
+      metadata: { metadata: { firebaseStorageDownloadTokens: token } }
+    });
+    const zip = archiver("zip", { zlib: { level: 6 } });
+    const done = new Promise((resolve, reject) => { out.on("finish", resolve); out.on("error", reject); zip.on("error", reject); });
+    zip.pipe(out);
+
+    // Firestore values → plain JSON (Timestamp → ISO, refs → path, bytes → base64)
+    const plain = (v) => {
+      if (v === null || typeof v !== "object") return v;
+      if (typeof v.toDate === "function" && typeof v.seconds === "number") return { __ts: v.toDate().toISOString() };
+      if (typeof v.latitude === "number" && typeof v.longitude === "number" && Object.keys(v).length <= 2) return { __geo: [v.latitude, v.longitude] };
+      if (v.path && v.firestore) return { __ref: v.path };
+      if (Buffer.isBuffer(v) || v instanceof Uint8Array) return { __bytes: Buffer.from(v).toString("base64") };
+      if (Array.isArray(v)) return v.map(plain);
+      const o = {}; Object.keys(v).forEach((k) => { o[k] = plain(v[k]); }); return o;
+    };
+    const counts = { collections: 0, docs: 0, files: 0, fileBytes: 0, users: 0 };
+    async function dumpCollection(col) {
+      const snap = await col.get();
+      counts.collections++; counts.docs += snap.size;
+      zip.append(JSON.stringify(snap.docs.map((d) => ({ id: d.id, data: plain(d.data()) })), null, 1), { name: "firestore/" + col.path + ".json" });
+      for (const d of snap.docs) {
+        const subs = await d.ref.listCollections();
+        for (const s of subs) await dumpCollection(s);
+      }
+    }
+    for (const c of await fs.listCollections()) await dumpCollection(c);
+
+    // sign-in accounts (no passwords - Google sign-in)
+    const users = [];
+    let pageToken;
+    do {
+      const r = await getAuth().listUsers(1000, pageToken);
+      r.users.forEach((u) => users.push({
+        uid: u.uid, email: u.email || "", displayName: u.displayName || "", phoneNumber: u.phoneNumber || "",
+        disabled: !!u.disabled, customClaims: u.customClaims || {}, providers: (u.providerData || []).map((p) => p.providerId),
+        created: u.metadata.creationTime, lastSignIn: u.metadata.lastSignInTime
+      }));
+      pageToken = r.pageToken;
+    } while (pageToken);
+    counts.users = users.length;
+    zip.append(JSON.stringify(users, null, 1), { name: "auth-users.json" });
+
+    // uploaded files
+    const [files] = await bucket.getFiles();
+    for (const f of files) {
+      if (f.name.startsWith("backups/") || f.name.endsWith("/")) continue;
+      counts.files++; counts.fileBytes += Number(f.metadata.size) || 0;
+      zip.append(f.createReadStream(), { name: "storage/" + f.name });
+    }
+
+    zip.append(JSON.stringify({ app: "shorashim-plus", created: new Date().toISOString(), by: tok.email || request.auth.uid, counts,
+      note: "Code is in GitHub (alonovad/shorashim-plus). Firestore: firestore/<collection path>.json; Storage: storage/<path>." }, null, 1), { name: "manifest.json" });
+    await zip.finalize();
+    await done;
+
+    // keep the three newest backups
+    try {
+      const [old] = await bucket.getFiles({ prefix: "backups/" });
+      old.sort((a, b) => String(b.name).localeCompare(String(a.name))).slice(3).forEach((f) => f.delete().catch(() => {}));
+    } catch (e) { /* retention is best-effort */ }
+
+    const [meta] = await bucket.file(path).getMetadata();
+    const url = "https://firebasestorage.googleapis.com/v0/b/" + bucket.name + "/o/" + encodeURIComponent(path) + "?alt=media&token=" + token;
+    return { url, name: path.split("/").pop(), bytes: Number(meta.size) || 0, counts };
+  }
+);
