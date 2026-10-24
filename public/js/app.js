@@ -2258,7 +2258,9 @@
   function _buildPlotLayers(p) {
     if (!p.latlngs || p.latlngs.length === 0) return;
     var latlngs = p.latlngs.map(function(c) { return L.latLng(c.lat !== undefined ? c.lat : c[0], c.lng !== undefined ? c.lng : c[1]); });
-    p.layer = L.polygon(latlngs, {
+    // Look comes from plotmap.js (white outline, no colour per farm);
+    // p.color stays in the data for reports that still use it.
+    p.layer = L.polygon(latlngs, window.PlotMap ? PlotMap.base() : {
       color: p.color, fillColor: p.color, weight: 3, fillOpacity: 0.25
     });
     // Extra parts render as their own polygons in the plot's colour,
@@ -2280,23 +2282,30 @@
     if (!p.layer) return;
     p.layer.addTo(drawnItems);
     (p.partLayers || []).forEach(function (l) { l.addTo(drawnItems); });
-    var center = p.layer.getBounds().getCenter();
-    var label = L.divIcon({
-      className: '',
-      html: '<div style="background:' + p.color + ';color:white;padding:3px 10px;border-radius:8px;' +
-        'font-family:Heebo,sans-serif;font-size:12px;font-weight:700;white-space:nowrap;' +
-        'box-shadow:0 2px 8px rgba(0,0,0,0.3);text-align:center;">' + locName(p) + '</div>',
-      iconAnchor: [0, 0]
-    });
-    p.labelMarker = L.marker(center, { icon: label, interactive: false }).addTo(drawnItems);
+    // The label (name, crop, size, count) is drawn by plotmap.js.
+    if (window.PlotMap) { if (!(p.labelMarker && p.labelMarker._pm)) p.labelMarker = null; PlotMap.refresh(); }
+    else {
+      var center = p.layer.getBounds().getCenter();
+      var label = L.divIcon({
+        className: '',
+        html: '<div style="background:' + p.color + ';color:white;padding:3px 10px;border-radius:8px;' +
+          'font-family:Heebo,sans-serif;font-size:12px;font-weight:700;white-space:nowrap;' +
+          'box-shadow:0 2px 8px rgba(0,0,0,0.3);text-align:center;">' + locName(p) + '</div>',
+        iconAnchor: [0, 0]
+      });
+      p.labelMarker = L.marker(center, { icon: label, interactive: false }).addTo(drawnItems);
+    }
+    // A long press opens the small card (plotmap.js); lifting the finger
+    // must not also open the full plot card.
+    function _pmClick() { return window.PlotMap && PlotMap.swallowClick(); }
     p.layer.on('click', function() {
-      if (!drawMode) showPlotDetails(p.id);
+      if (!drawMode && !_pmClick()) showPlotDetails(p.id);
     });
     // A detached part is the plot. Clicking it opened nothing, which
     // made it look like scenery rather than land you own.
     (p.partLayers || []).forEach(function (l) {
-      l.on('click', function () { if (!drawMode) showPlotDetails(p.id); });
-      l.bindTooltip(p.name, { direction: 'center', className: 'plot-part-tip' });
+      l.on('click', function () { if (!drawMode && !_pmClick()) showPlotDetails(p.id); });
+      if (!window.PlotMap) l.bindTooltip(p.name, { direction: 'center', className: 'plot-part-tip' });
     });
   }
 

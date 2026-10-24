@@ -110,6 +110,9 @@ var PlotEdit = (function () {
   }
 
   function onHover(e) {
+    // The plot card on hover now comes from plotmap.js (it carries the
+    // registered vs. traced area too); two cards under one cursor is noise.
+    if (window.PlotMap) { hideCard(); return; }
     // Suppressed while drawing or editing — a readout following the cursor
     // over the vertex being dragged is in the way, not informative.
     if (S || (window.MapAccess && MapAccess.isDrawing && MapAccess.isDrawing())) {
