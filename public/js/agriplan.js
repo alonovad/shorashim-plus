@@ -822,7 +822,7 @@ var AgriPlan = (function () {
       '.ap-unit{flex:none;width:62px;border:1px solid var(--line,#dde5da);border-radius:10px;background:var(--card,#fff);color:var(--text,#1b2a1f);font:inherit;font-size:.78rem;padding:0 4px;}' +
       '.ap-prep{background:var(--primary-soft,#eef7d4);border-radius:14px;padding:10px 12px;margin-top:8px;}' +
       '.ap-zone{background:#fff7ef;border-radius:14px;padding:10px 12px;margin-top:8px;}' +
-      '.ap-zbody{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start;margin-top:6px;}.ap-zfig{flex:0 1 300px;}.ap-zin{flex:1 1 220px;display:flex;flex-direction:column;gap:5px;min-width:0;}' +
+      '.ap-zbody{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start;margin-top:6px;}.ap-zfig{flex:0 1 300px;}.ap-zfig.wide{flex:1 1 100%;}.ap-zopt{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;}.ap-zopt label{display:flex;flex-direction:column;gap:2px;font-size:.74rem;color:#5b665e;font-weight:600;}.ap-zopt select{min-width:120px;}.ap-zin{flex:1 1 220px;display:flex;flex-direction:column;gap:5px;min-width:0;}' +
       '.ap-zrow{display:flex;align-items:center;gap:6px;font-size:.82rem;}.ap-zrow span{flex:1;}.ap-zrow i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-inline-end:6px;vertical-align:-1px;}' +
       '.ap-zrow .ap-in{width:70px;margin:0;}.ap-zsum{font-weight:700;font-size:.82rem;}.ap-zsum.bad{color:#b3261e;}' +
       '.ap-ztbl{width:100%;border-collapse:collapse;font-size:.76rem;margin-top:6px;}.ap-ztbl th,.ap-ztbl td{padding:4px 6px;border-bottom:1px solid #eadfd3;text-align:start;}' +
@@ -1617,8 +1617,8 @@ var AgriPlan = (function () {
       (p.notes ? '<div class="ap-fc-sub" style="margin-top:3px;">' + esc(p.notes) + '</div>' : '') +
       (String(p.prep || '').trim() ? '<div class="ap-fc-sub" style="margin-top:4px;white-space:pre-line;background:#f4f9ea;border-radius:8px;padding:5px 8px;color:#1b2a1f;"><b>🧰 ' +
         tt('דגשים לביצוע', 'ข้อควรปฏิบัติ', 'إرشادات') + ':</b>\n' + esc(String(p.prep).replace(/\u2014/g, '-')) + '</div>' : '') +
-      (p.zones && p.zones.on ? '<div class="ap-fc-sub" style="margin-top:4px;display:flex;gap:8px;align-items:center;background:#fff7ef;border-radius:8px;padding:5px 8px;">' +
-        '<div style="flex:0 0 120px;">' + zonesFigure(p.zones, 120) + '</div><div style="font-size:.74rem;">' +
+      (p.zones && p.zones.on ? '<div class="ap-fc-sub" style="margin-top:4px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:#fff7ef;border-radius:8px;padding:5px 8px;">' +
+        '<div style="flex:0 1 ' + zW(p.zones, 120) + 'px;max-width:100%;">' + zonesFigure(p.zones, zW(p.zones, 120)) + '</div><div style="font-size:.74rem;">' +
         ZONES.filter(function (d) { return Number(p.zones.parts[d.k]) > 0; }).map(function (d) {
           return '<div><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:' + d.c + ';margin-inline-end:4px;"></span>' + esc(zName(d)) + ' <b>' + p.zones.parts[d.k] + '%</b></div>';
         }).join('') + '</div></div>' : '');
@@ -2452,6 +2452,7 @@ var AgriPlan = (function () {
     { k: 'heart',   c: '#ff9800', he: 'לב הדקל ובסיס הכפות', th: 'ยอดและโคนทาง', ar: 'قلب النخلة وقواعد السعف' },
     { k: 'fronds',  c: '#43a047', he: 'נוף / כפות', th: 'ทางใบ', ar: 'السعف' },
     { k: 'trunk',   c: '#8d6e63', he: 'גזע', th: 'ลำต้น', ar: 'الجذع' },
+    { k: 'shoots',  c: '#7cb342', he: 'חוטרים', th: 'หน่อ', ar: 'الفسائل' },
     { k: 'base',    c: '#1e88e5', he: 'בסיס הגזע / קרקע', th: 'โคนต้น/ดิน', ar: 'قاعدة الجذع/التربة' }
   ];
   function zName(z) { return tt(z.he, z.th, z.ar); }
@@ -2459,48 +2460,180 @@ var AgriPlan = (function () {
     if (!z || typeof z !== 'object') return null;
     var parts = {};
     ZONES.forEach(function (d) { var v = Number((z.parts || {})[d.k]); if (v > 0) parts[d.k] = Math.min(100, Math.round(v * 10) / 10); });
-    return { on: !!z.on, img: /^https:\/\//.test(String(z.img || '')) ? String(z.img) : '', parts: parts };
+    var sh = Math.round(Number(z.shoots) || 0);
+    return { on: !!z.on, img: /^https:\/\//.test(String(z.img || '')) ? String(z.img) : '', parts: parts,
+      tree: z.tree === 'young' ? 'young' : 'mature', shoots: sh > 0 ? Math.min(4, sh) : 0,
+      scene: ['lift', 'liftTractor', 'walk'].indexOf(z.scene) !== -1 ? z.scene : 'none' };
   }
   function zSum(z) { var s = 0; Object.keys((z && z.parts) || {}).forEach(function (k) { s += Number(z.parts[k]) || 0; }); return Math.round(s * 10) / 10; }
-  // Built-in palm. direction:ltr - RTL inheritance flips text-anchor.
+  // Built-in illustration: the palm with its parts highlighted, optional
+  // offshoots growing out of the trunk base, a young or mature tree, and
+  // how the crew works it - from an "Apron" boom lift (sprayer on the lift
+  // or towed behind it by a tractor) or on foot behind a tractor in a young
+  // orchard. direction:ltr - RTL inheritance flips text-anchor.
   function zoneSvg(z, w) {
-    var P = (z && z.parts) || {};
+    var o = { parts: (z && z.parts) || {}, scene: (z && z.scene) || 'none', young: !!(z && z.tree === 'young'), shoots: (z && z.shoots) || 0, w: w };
+    var P = o.parts, young = o.young || o.scene === 'walk', shoots = Math.max(0, Math.min(4, o.shoots | 0));
+    var C = {}; ZONES.forEach(function (d) { C[d.k] = d.c; });
     function on(k) { return Number(P[k]) > 0; }
-    function col(k, a) { var d = ZONES.find(function (x) { return x.k === k; }); return on(k) ? d.c : (a || 'none'); }
-    var fronds = '';
-    [[-120, 60], [-95, 30], [-60, 12], [-25, 4], [25, 4], [60, 12], [95, 30], [120, 60], [-135, 110], [135, 110]].forEach(function (d) {
-      fronds += '<path d="M150 150 Q ' + (150 + d[0] * 0.55) + ' ' + (d[1] - 10) + ' ' + (150 + d[0]) + ' ' + (d[1] + 40) + '" fill="none" stroke="#2e7d32" stroke-width="5" stroke-linecap="round"/>';
-    });
-    var bunch = function (x, y) {
-      var o = '<path d="M150 158 Q ' + ((150 + x) / 2) + ' ' + (y - 30) + ' ' + x + ' ' + (y - 12) + '" stroke="#c8a24a" stroke-width="2.5" fill="none"/>';
-      for (var i = 0; i < 9; i++) o += '<circle cx="' + (x - 9 + (i % 3) * 9) + '" cy="' + (y - 6 + Math.floor(i / 3) * 8) + '" r="4.3" fill="#e6a23c" stroke="#a86b14" stroke-width="1"/>';
-      return o;
-    };
-    var hl = function (k, shape) { return on(k) ? shape.replace('FILL', col(k)).replace('OP', '0.30') : ''; };
-    var labels = [
-      ['bunches', 262, 196, 196, 200], ['heart', 262, 150, 168, 156], ['fronds', 38, 46, 92, 70],
-      ['trunk', 38, 250, 140, 250], ['base', 262, 318, 190, 322]
-    ].filter(function (l) { return on(l[0]); }).map(function (l) {
-      var d = ZONES.find(function (x) { return x.k === l[0]; }), left = l[1] < 150;
-      return '<line x1="' + l[3] + '" y1="' + l[4] + '" x2="' + (left ? l[1] + 4 : l[1] - 4) + '" y2="' + l[2] + '" stroke="' + d.c + '" stroke-width="2"/>' +
-        '<circle cx="' + l[3] + '" cy="' + l[4] + '" r="3.5" fill="' + d.c + '"/>' +
-        '<text x="' + l[1] + '" y="' + (l[2] - 4) + '" font-size="14" font-weight="700" fill="' + d.c + '" text-anchor="' + (left ? 'end' : 'start') + '">' + esc(zName(d)) + '</text>' +
-        '<text x="' + l[1] + '" y="' + (l[2] + 15) + '" font-size="17" font-weight="800" fill="' + d.c + '" text-anchor="' + (left ? 'end' : 'start') + '">' + P[l[0]] + '%</text>';
+    // ---- palm, drawn in its own 300x340 frame (centre x=150, ground y=320) ----
+    function palm() {
+      var g = '';
+      if (on('fronds')) g += '<ellipse cx="150" cy="92" rx="150" ry="78" fill="' + C.fronds + '" fill-opacity=".22"/>';
+      [[-120, 60], [-95, 30], [-60, 12], [-25, 4], [25, 4], [60, 12], [95, 30], [120, 60], [-135, 110], [135, 110]].forEach(function (d) {
+        g += '<path d="M150 150 Q ' + (150 + d[0] * 0.55) + ' ' + (d[1] - 10) + ' ' + (150 + d[0]) + ' ' + (d[1] + 40) + '" fill="none" stroke="#2e7d32" stroke-width="5" stroke-linecap="round"/>';
+      });
+      g += '<rect x="138" y="160" width="24" height="160" rx="6" fill="#8d6e63"/>';
+      for (var y = 172; y < 318; y += 12) g += '<path d="M138 ' + y + ' L162 ' + (y + 6) + '" stroke="#6d4c41" stroke-width="2"/>';
+      if (on('trunk')) g += '<rect x="132" y="168" width="36" height="150" rx="8" fill="' + C.trunk + '" fill-opacity=".3" stroke="' + C.trunk + '" stroke-width="2"/>';
+      [[118, 205], [184, 205], [150, 214]].forEach(function (b) {
+        g += '<path d="M150 158 Q ' + ((150 + b[0]) / 2) + ' ' + (b[1] - 30) + ' ' + b[0] + ' ' + (b[1] - 12) + '" stroke="#c8a24a" stroke-width="2.5" fill="none"/>';
+        for (var i = 0; i < 9; i++) g += '<circle cx="' + (b[0] - 9 + (i % 3) * 9) + '" cy="' + (b[1] - 6 + Math.floor(i / 3) * 8) + '" r="4.3" fill="#e6a23c" stroke="#a86b14" stroke-width="1"/>';
+      });
+      if (on('bunches')) g += '<ellipse cx="150" cy="206" rx="62" ry="26" fill="' + C.bunches + '" fill-opacity=".3" stroke="' + C.bunches + '" stroke-width="2"/>';
+      if (on('heart')) g += '<circle cx="150" cy="156" r="20" fill="' + C.heart + '" fill-opacity=".3" stroke="' + C.heart + '" stroke-width="2"/>';
+      // offshoots (חוטרים) around the trunk base
+      // Offshoots grow out of the mother trunk near its base, leaning out
+      // diagonally: each is a short stem from the trunk's side with its own
+      // fan of fronds, drawn upright and rotated into place.
+      var spots = [[140, 302, -38, 1], [160, 296, 36, 1], [139, 314, -58, 0.8], [161, 312, 56, 0.8]];
+      for (var s = 0; s < shoots; s++) {
+        var sp = spots[s], k = sp[3], ls = 26 * k, lf = 36 * k, sh = '';
+        sh += '<path d="M-7 4 C -6 ' + (-ls * 0.5) + ' -4 ' + (-ls) + ' -2 ' + (-ls) + ' L 2 ' + (-ls) + ' C 4 ' + (-ls) + ' 6 ' + (-ls * 0.5) + ' 7 4 Z" fill="#8d6e63"/>';
+        for (var yy = -4; yy > -ls; yy -= 7) sh += '<path d="M-5 ' + yy + ' L5 ' + (yy - 3) + '" stroke="#6d4c41" stroke-width="1.5"/>';
+        [-75, -48, -22, 0, 22, 48, 75].forEach(function (deg) {
+          var r = deg * Math.PI / 180, L = lf * (Math.abs(deg) > 60 ? 0.75 : 1);
+          var ex = Math.sin(r) * L, ey = -ls - Math.cos(r) * L + (Math.abs(deg) > 40 ? L * 0.35 : 0);
+          var mx = Math.sin(r) * L * 0.4, my = -ls - Math.cos(r) * L * 0.8;
+          sh += '<path d="M0 ' + (-ls) + ' Q ' + mx.toFixed(1) + ' ' + my.toFixed(1) + ' ' + ex.toFixed(1) + ' ' + ey.toFixed(1) + '" fill="none" stroke="#3f7d2a" stroke-width="' + (3.4 * k).toFixed(1) + '" stroke-linecap="round"/>';
+        });
+        g += '<g transform="translate(' + sp[0] + ',' + sp[1] + ') rotate(' + sp[2] + ')">' + sh + '</g>';
+      }
+      if (shoots && on('shoots')) g += '<ellipse cx="150" cy="282" rx="82" ry="34" fill="' + C.shoots + '" fill-opacity=".25" stroke="' + C.shoots + '" stroke-width="2"/>';
+      if (on('base')) g += '<ellipse cx="150" cy="322" rx="48" ry="11" fill="' + C.base + '" fill-opacity=".3" stroke="' + C.base + '" stroke-width="2"/>';
+      return g;
+    }
+    // ---- people & machines ----
+    function worker(x, y, aimX, aimY, s) {         // standing worker, feet at (x,y), lance aimed at (aimX,aimY)
+      s = s || 1;
+      var sh = [x, y - 44 * s], hy = y - 54 * s;
+      var ang = Math.atan2(aimY - sh[1], aimX - sh[0]), ca = Math.cos(ang), sa = Math.sin(ang);
+      var h1 = [sh[0] + ca * 10 * s, sh[1] + sa * 10 * s + 3 * s], h2 = [sh[0] + ca * 20 * s, sh[1] + sa * 20 * s + 2 * s];
+      var tipL = [sh[0] + ca * 44 * s, sh[1] + sa * 44 * s];
+      return '<g stroke-linecap="round" stroke-linejoin="round">' +
+        '<path d="M' + (x - 4 * s) + ' ' + y + ' L' + x + ' ' + (y - 22 * s) + ' L' + (x + 4 * s) + ' ' + y + '" stroke="#37474f" stroke-width="' + 4.5 * s + '" fill="none"/>' +
+        '<path d="M' + (x - 6 * s) + ' ' + (y - 20 * s) + ' L' + (x - 6 * s) + ' ' + (y - 44 * s) + ' Q' + x + ' ' + (y - 48 * s) + ' ' + (x + 6 * s) + ' ' + (y - 44 * s) + ' L' + (x + 6 * s) + ' ' + (y - 20 * s) + ' Z" fill="#1565c0"/>' +
+        '<line x1="' + (h1[0] - ca * 16 * s) + '" y1="' + (h1[1] - sa * 16 * s) + '" x2="' + tipL[0] + '" y2="' + tipL[1] + '" stroke="#455a64" stroke-width="' + 2.4 * s + '"/>' +
+        '<path d="M' + sh[0] + ' ' + (sh[1] + 2 * s) + ' L' + h1[0] + ' ' + h1[1] + ' M' + sh[0] + ' ' + (sh[1] + 2 * s) + ' L' + h2[0] + ' ' + h2[1] + '" stroke="#1565c0" stroke-width="' + 3.6 * s + '" fill="none"/>' +
+        '<circle cx="' + h1[0] + '" cy="' + h1[1] + '" r="' + 1.8 * s + '" fill="#f1c27d"/><circle cx="' + h2[0] + '" cy="' + h2[1] + '" r="' + 1.8 * s + '" fill="#f1c27d"/>' +
+        '<circle cx="' + x + '" cy="' + hy + '" r="' + 6.5 * s + '" fill="#f1c27d"/>' +
+        '<path d="M' + (x - 7.5 * s) + ' ' + (hy - 1 * s) + ' A' + 7.5 * s + ' ' + 7.5 * s + ' 0 0 1 ' + (x + 7.5 * s) + ' ' + (hy - 1 * s) + ' Z" fill="#fdd835"/>' +
+        '<rect x="' + (x - 4 * s) + '" y="' + (hy + 1.5 * s) + '" width="' + 8 * s + '" height="' + 3.5 * s + '" rx="1.5" fill="#eceff1"/>' +
+        '</g>' + mist(tipL[0], tipL[1], aimX, aimY);
+    }
+    function mist(x1, y1, x2, y2) {                  // spray cone from nozzle to target
+      var a = Math.atan2(y2 - y1, x2 - x1), L = Math.hypot(x2 - x1, y2 - y1) * 0.92, w = L * 0.22;
+      var ex = x1 + Math.cos(a) * L, ey = y1 + Math.sin(a) * L, nx = -Math.sin(a) * w, ny = Math.cos(a) * w;
+      return '<path d="M' + x1 + ' ' + y1 + ' L' + (ex + nx) + ' ' + (ey + ny) + ' Q ' + (ex + Math.cos(a) * w * 0.6) + ' ' + (ey + Math.sin(a) * w * 0.6) + ' ' + (ex - nx) + ' ' + (ey - ny) + ' Z" fill="#81d4fa" fill-opacity=".45"/>' +
+        [0.35, 0.6, 0.8].map(function (t, i) { return '<circle cx="' + (x1 + (ex - x1) * t + nx * (i - 1) * 0.3) + '" cy="' + (y1 + (ey - y1) * t + ny * (i - 1) * 0.3) + '" r="2" fill="#4fc3f7"/>'; }).join('');
+    }
+    function wheel(x, y, r) { return '<circle cx="' + x + '" cy="' + y + '" r="' + r + '" fill="#263238"/><circle cx="' + x + '" cy="' + y + '" r="' + r * 0.45 + '" fill="#90a4ae"/>'; }
+    function tank(x, y, w, h) {                     // sprayer tank with its pump
+      return '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + h + '" rx="' + h * 0.45 + '" fill="#eceff1" stroke="#90a4ae" stroke-width="2"/>' +
+        '<rect x="' + (x + w * 0.4) + '" y="' + (y - 6) + '" width="' + w * 0.2 + '" height="7" rx="2" fill="#b0bec5"/>' +
+        '<text x="' + (x + w / 2) + '" y="' + (y + h * 0.62) + '" font-size="10" font-weight="700" fill="#607d8b" text-anchor="middle" direction="rtl" unicode-bidi="bidi-override">מרסס</text>';
+    }
+    function tractor(x, y, col) {                   // tractor facing right, rear wheel at x
+      col = col || '#c62828';
+      return '<rect x="' + (x + 6) + '" y="' + (y - 46) + '" width="62" height="24" rx="5" fill="' + col + '"/>' +
+        '<rect x="' + (x - 12) + '" y="' + (y - 78) + '" width="34" height="40" rx="4" fill="none" stroke="#37474f" stroke-width="3"/>' +
+        '<rect x="' + (x - 14) + '" y="' + (y - 82) + '" width="38" height="6" rx="2" fill="' + col + '"/>' +
+        '<rect x="' + (x + 48) + '" y="' + (y - 58) + '" width="6" height="14" fill="#37474f"/>' +
+        wheel(x, y - 20, 20) + wheel(x + 62, y - 12, 12);
+    }
+    function tractorAt(x, y, col, k) { return '<g transform="translate(' + x + ',' + y + ') scale(' + k + ')">' + tractor(0, 0, col) + '</g>'; }
+    function trailerAt(x, y, k) {                  // towed sprayer, hitch at its right end; wheels on the ground at y
+      return '<g transform="translate(' + x + ',' + y + ') scale(' + k + ')">' + tank(-92, -56, 84, 36) + wheel(-50, -16, 13) +
+        '<line x1="-8" y1="-28" x2="4" y2="-28" stroke="#37474f" stroke-width="4"/></g>';
+    }
+    // Telescopic boom lift ("אפרון"): low yellow chassis on four big wheels,
+    // operator cab on the chassis, a long yellow boom hinged at the rear and
+    // rising toward the palm, a railed work platform kept level at its tip.
+    function lift(withTank, aim) {
+      var Y = '#f6b80f', YD = '#c98d00', g = '';
+      var gy = 320, pv = [214, 282], tip = [352, 204];             // ground, boom hinge (rear), boom tip
+      var ang = Math.atan2(tip[1] - pv[1], tip[0] - pv[0]), nx = -Math.sin(ang), ny = Math.cos(ang);
+      function beam(p0, p1, w, col) {
+        return '<path d="M' + (p0[0] + nx * w) + ' ' + (p0[1] + ny * w) + ' L' + (p1[0] + nx * w) + ' ' + (p1[1] + ny * w) +
+          ' L' + (p1[0] - nx * w) + ' ' + (p1[1] - ny * w) + ' L' + (p0[0] - nx * w) + ' ' + (p0[1] - ny * w) + ' Z" fill="' + col + '" stroke="' + YD + '" stroke-width="1.2"/>';
+      }
+      function at(t) { return [pv[0] + (tip[0] - pv[0]) * t, pv[1] + (tip[1] - pv[1]) * t]; }
+      // chassis: low frame between two big off-road tyres, counterweight at the rear
+      g += '<path d="M196 300 L196 284 Q196 278 202 278 L326 278 Q332 278 332 284 L332 300 Z" fill="' + Y + '" stroke="' + YD + '" stroke-width="1.5"/>' +
+        '<rect x="190" y="276" width="20" height="18" rx="3" fill="' + YD + '"/>';
+      if (withTank) g += '<g transform="translate(232,262) scale(.55)">' + tank(0, 0, 84, 30) + '</g>';
+      // operator station at the front: seat, console, roll bar, beacon
+      g += '<rect x="300" y="262" width="28" height="16" rx="3" fill="' + Y + '" stroke="' + YD + '" stroke-width="1.2"/>' +
+        '<path d="M300 262 L304 240 L326 240 L328 262" fill="none" stroke="#37474f" stroke-width="2.2"/>' +
+        '<rect x="306" y="252" width="9" height="10" rx="2" fill="#37474f"/><circle cx="324" cy="238" r="2.6" fill="#e53935"/>';
+      // lift cylinder and the two boom sections (outer + telescopic)
+      g += '<line x1="262" y1="280" x2="' + at(0.38)[0] + '" y2="' + at(0.38)[1] + '" stroke="#9e9e9e" stroke-width="5" stroke-linecap="round"/>';
+      g += beam(at(0.5), tip, 3.8, Y) + beam(pv, at(0.56), 5.6, Y) + '<circle cx="' + pv[0] + '" cy="' + pv[1] + '" r="4.5" fill="' + YD + '"/>';
+      g += wheel(214, 302, 17) + wheel(314, 302, 17);
+      // platform kept level at the boom tip, workers beside the crown (not in it)
+      var k0 = tip[0] - 6, k1 = tip[0] + 44, fl = tip[1] + 6;
+      g += '<line x1="' + tip[0] + '" y1="' + tip[1] + '" x2="' + tip[0] + '" y2="' + fl + '" stroke="' + YD + '" stroke-width="5"/>';
+      g += '<rect x="' + k0 + '" y="' + fl + '" width="' + (k1 - k0) + '" height="5" rx="1.5" fill="' + Y + '" stroke="' + YD + '" stroke-width="1"/>';
+      g += worker(k0 + 14, fl, aim[0], aim[1], 0.62) + worker(k0 + 34, fl, aim[0], aim[1] + 10, 0.62);
+      g += '<path d="M' + k0 + ' ' + (fl - 20) + ' H' + k1 + ' M' + k0 + ' ' + (fl - 10) + ' H' + k1 +
+        ' M' + k0 + ' ' + (fl - 20) + ' V' + fl + ' M' + k1 + ' ' + (fl - 20) + ' V' + fl + ' M' + ((k0 + k1) / 2) + ' ' + (fl - 20) + ' V' + fl + '" stroke="' + YD + '" stroke-width="2" fill="none"/>';
+      return { g: g, hoseTop: [k0 + 2, fl + 2], pv: pv, tip: tip };
+    }
+    // ---- composition ----
+    var W = o.scene && o.scene !== 'none' ? 860 : 460, X0 = o.scene && o.scene !== 'none' ? -40 : -80;
+    var PX = o.scene && o.scene !== 'none' ? 480 : 150;   // palm centre x on the canvas
+    var sc = young ? 0.6 : 1;
+    var tf = 'translate(' + (PX - 150 * sc) + ',' + (320 - 320 * sc) + ') scale(' + sc + ')';
+    var heart = [PX, 320 - (320 - 156) * sc];
+    var body = '<rect x="' + X0 + '" y="0" width="' + W + '" height="340" fill="#f6faf3" rx="14"/>' +
+      '<rect x="' + X0 + '" y="318" width="' + W + '" height="22" fill="#d7c4a3"/>' +
+      '<g transform="' + tf + '">' + palm() + '</g>';
+    if (o.scene === 'lift' || o.scene === 'liftTractor') {
+      var L = lift(o.scene === 'lift', [heart[0] - 10, heart[1]]);
+      var hose = 'M' + L.pv[0] + ' ' + (L.pv[1] - 4) + ' L' + (L.tip[0] - 2) + ' ' + (L.tip[1] - 3);
+      if (o.scene === 'liftTractor') {
+        // tractor with a towed sprayer drives behind the lift; hose to the boom and up to the platform
+        body += trailerAt(92, 320, 0.7) + tractorAt(118, 320, '#2e7d32', 0.7);
+        body += L.g + '<path d="M40 284 C 90 250, 170 262, ' + L.pv[0] + ' ' + (L.pv[1] - 4) + ' ' + hose.slice(hose.indexOf('L')) + '" stroke="#ff7043" stroke-width="2.2" fill="none"/>';
+      } else {
+        body += L.g + '<path d="M244 268 C 230 270, 220 276, ' + hose.slice(1) + '" stroke="#ff7043" stroke-width="2.2" fill="none"/>';
+      }
+    } else if (o.scene === 'walk') {
+      // tractor with a sprayer drives along the row; the worker walks behind with the gun
+      body += tractor(230, 320, '#c62828') + tank(120, 262, 84, 36) + wheel(162, 304, 13) +
+        '<line x1="204" y1="292" x2="214" y2="292" stroke="#37474f" stroke-width="4"/>';
+      body += worker(330, 318, heart[0] - 10, heart[1] + 6, 1);
+      body += '<path d="M120 284 C 90 300, 230 330, 320 286" stroke="#ff7043" stroke-width="3" fill="none"/>';
+    }
+    // part labels, placed on the canvas (not scaled with a young palm)
+    function M(x, y) { return [PX - 150 * sc + x * sc, 320 - 320 * sc + y * sc]; }
+  var wide = o.scene && o.scene !== 'none';
+    body += [
+      ['bunches', 1, 196, 196, 200], ['heart', 1, 150, 168, 156], ['fronds', -1, 46, 92, 70],
+      ['trunk', -1, 250, 140, 250], ['shoots', 1, 278, 184, 286], ['base', 1, 318, 190, 322]
+    ].filter(function (l) { return on(l[0]) && (l[0] !== 'shoots' || shoots > 0); }).map(function (l) {
+      var d = ZONES.find(function (x) { return x.k === l[0]; }), right = l[1] > 0;
+      var pt = M(l[3], l[4]), ty = Math.min(M(0, l[2])[1], 330), tx = PX + (right ? 1 : -1) * (wide ? 156 : 112 * Math.max(sc, 0.8)), f1 = wide ? 19 : 14, f2 = wide ? 23 : 17;
+      return '<line x1="' + pt[0] + '" y1="' + pt[1] + '" x2="' + (right ? tx - 4 : tx + 4) + '" y2="' + ty + '" stroke="' + d.c + '" stroke-width="2"/>' +
+        '<circle cx="' + pt[0] + '" cy="' + pt[1] + '" r="3.5" fill="' + d.c + '"/>' +
+        '<text x="' + tx + '" y="' + (ty - 5) + '" font-size="' + f1 + '" font-weight="700" fill="' + d.c + '" text-anchor="' + (right ? 'start' : 'end') + '">' + esc(zName(d)) + '</text>' +
+        '<text x="' + tx + '" y="' + (ty + f2 - 2) + '" font-size="' + f2 + '" font-weight="800" fill="' + d.c + '" text-anchor="' + (right ? 'start' : 'end') + '">' + P[l[0]] + '%</text>';
     }).join('');
-    return '<svg style="direction:ltr;max-width:100%;height:auto;" viewBox="-80 0 460 340" width="' + (w || 300) + '" role="img" aria-label="spray diagram" font-family="Rubik, Heebo, Arial, sans-serif">' +
-      '<rect x="-80" y="0" width="460" height="340" fill="#f6faf3" rx="14"/>' +
-      '<rect x="-80" y="318" width="460" height="22" fill="#d7c4a3"/>' +
-      hl('fronds', '<ellipse cx="150" cy="92" rx="150" ry="78" fill="FILL" fill-opacity="OP"/>') +
-      fronds +
-      '<rect x="138" y="160" width="24" height="160" rx="6" fill="#8d6e63"/>' +
-      (function () { var o = ''; for (var y = 172; y < 318; y += 12) o += '<path d="M138 ' + y + ' L162 ' + (y + 6) + '" stroke="#6d4c41" stroke-width="2"/>'; return o; })() +
-      hl('trunk', '<rect x="132" y="168" width="36" height="150" rx="8" fill="FILL" fill-opacity="OP" stroke="FILL" stroke-width="2"/>') +
-      bunch(118, 205) + bunch(184, 205) + bunch(150, 214) +
-      hl('bunches', '<ellipse cx="150" cy="206" rx="62" ry="26" fill="FILL" fill-opacity="OP" stroke="FILL" stroke-width="2"/>') +
-      hl('heart', '<circle cx="150" cy="156" r="20" fill="FILL" fill-opacity="OP" stroke="FILL" stroke-width="2"/>') +
-      hl('base', '<ellipse cx="150" cy="322" rx="48" ry="11" fill="FILL" fill-opacity="OP" stroke="FILL" stroke-width="2"/>') +
-      labels + '</svg>';
+    return '<svg xmlns="http://www.w3.org/2000/svg" style="direction:ltr;max-width:100%;height:auto;" viewBox="' + X0 + ' 0 ' + W + ' 340" width="' + (o.w || 300) + '" role="img" aria-label="spray diagram" font-family="Rubik, Heebo, Arial, sans-serif">' + body + '</svg>';
   }
+  // A scene with machinery is wider than the palm alone.
+  function zWide(z) { return !!(z && !z.img && z.scene && z.scene !== 'none'); }
+  function zW(z, base) { return zWide(z) ? Math.round(base * 2.3) : base; }
   function zonesFigure(z, w) {
     if (z.img) return '<img src="' + esc(z.img) + '" alt="" style="max-width:100%;max-height:' + (w ? Math.round(w * 1.1) : 330) + 'px;border-radius:12px;display:block;">';
     return zoneSvg(z, w);
@@ -2536,7 +2669,13 @@ var AgriPlan = (function () {
           (z.img ? '<button type="button" class="ap-btn ghost" data-no-sticky data-no-back style="padding:4px 9px;font-size:.74rem;" onclick="AgriPlan._zImgDel(' + id + ')">🌴 ' + tt('חזור לאיור הדקל', 'กลับไปภาพต้นปาล์ม', 'العودة لرسم النخلة') + '</button>' : '') +
           '<button type="button" class="ap-btn ghost" data-no-sticky data-no-back style="padding:4px 9px;font-size:.74rem;color:#b3261e;" onclick="AgriPlan._zToggle(' + id + ')">✕ ' + tt('הסר', 'ลบ', 'إزالة') + '</button></span>') +
       '</div>' +
-      '<div class="ap-zbody"><div class="ap-zfig">' + zonesFigure(z, 300) + '</div>' +
+      (z.img ? '' : '<div class="ap-zopt">' +
+        zSel(id, 'tree', z.tree, [['mature', tt('עץ בוגר', 'ต้นโต', 'شجرة بالغة')], ['young', tt('עץ צעיר / נמוך', 'ต้นอ่อน', 'شجرة صغيرة')]], tt('עץ', 'ต้น', 'الشجرة'), ro) +
+        zSel(id, 'shoots', String(z.shoots || 0), [['0', '0'], ['1', '1'], ['2', '2'], ['3', '3'], ['4', '4']], tt('חוטרים בבסיס', 'หน่อที่โคน', 'فسائل عند القاعدة'), ro) +
+        zSel(id, 'scene', z.scene, [['none', tt('בלי ציוד', 'ไม่มีอุปกรณ์', 'بلا معدات')], ['lift', tt('אפרון עם מרסס עליו', 'รถกระเช้าพร้อมเครื่องพ่น', 'رافعة مع رشاش')],
+          ['liftTractor', tt('אפרון + טרקטור עם מרסס מאחור', 'รถกระเช้า + รถแทรกเตอร์', 'رافعة + جرار مع رشاش')], ['walk', tt('הליכה מאחורי טרקטור (מטע צעיר)', 'เดินตามรถแทรกเตอร์', 'سير خلف الجرار')]], tt('אופן עבודה', 'วิธีทำงาน', 'طريقة العمل'), ro) +
+      '</div>') +
+      '<div class="ap-zbody"><div class="ap-zfig' + (zWide(z) ? ' wide' : '') + '">' + zonesFigure(z, zW(z, 300)) + '</div>' +
         '<div class="ap-zin">' + ZONES.map(function (d) {
           return '<label class="ap-zrow"><span><i style="background:' + d.c + '"></i>' + esc(zName(d)) + '</span>' +
             '<input class="ap-in" type="number" min="0" max="100" step="5" value="' + (z.parts[d.k] || '') + '" placeholder="0" ' + (ro ? 'readonly ' : '') +
@@ -2544,6 +2683,21 @@ var AgriPlan = (function () {
         }).join('') +
         '<div class="ap-zsum' + (sum && sum !== 100 ? ' bad' : '') + '">' + tt('סה״כ', 'รวม', 'المجموع') + ' ' + sum + '%' + (sum && sum !== 100 ? ' - ' + tt('צריך להגיע ל-100%', 'ควรรวมเป็น 100%', 'يجب أن يكون 100%') : '') + '</div>' +
         zonesTable(z, p.rows) + '</div></div></div>';
+  }
+  function zSel(id, k, cur, opts, label, ro) {
+    return '<label>' + esc(label) + '<select class="ap-in"' + (ro ? ' disabled' : '') + ' onchange="AgriPlan._zOpt(' + id + ',\'' + k + '\',this.value)">' +
+      opts.map(function (o) { return '<option value="' + o[0] + '"' + (String(cur) === o[0] ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select></label>';
+  }
+  function _zOpt(pid, k, v) {
+    var p = editable(pid);
+    if (!p || !p.zones) return;
+    if (k === 'shoots') p.zones.shoots = Math.max(0, Math.min(4, Math.round(Number(v) || 0)));
+    else if (k === 'tree') p.zones.tree = v === 'young' ? 'young' : 'mature';
+    else if (k === 'scene') {
+      p.zones.scene = ['lift', 'liftTractor', 'walk'].indexOf(v) !== -1 ? v : 'none';
+      if (v === 'walk') p.zones.tree = 'young';         // on foot = a low, young orchard
+    }
+    save(); showPlan(pid);
   }
   function _zToggle(pid) {
     var p = editable(pid);
@@ -3281,7 +3435,7 @@ var AgriPlan = (function () {
       (String(p.prep || '').trim() ? '<div style="border:1.5px solid #1d5a2c;border-radius:8px;padding:6px 10px;margin:6px 0 10px;font-size:.8rem;background:#f4f9ea;-webkit-print-color-adjust:exact;print-color-adjust:exact;"><b>🧰 ' +
         tt('דגשים לביצוע והכנות', 'ข้อควรปฏิบัติ', 'إرشادات التنفيذ') + '</b><div style="white-space:pre-line;margin-top:3px;">' + esc(String(p.prep).replace(/\u2014/g, '-')) + '</div></div>' : '') +
       (p.zones && p.zones.on ? '<div style="display:flex;gap:12px;align-items:flex-start;border:1.5px solid #ef6c00;border-radius:8px;padding:6px 10px;margin:0 0 10px;font-size:.78rem;background:#fff7ef;break-inside:avoid;page-break-inside:avoid;-webkit-print-color-adjust:exact;print-color-adjust:exact;">' +
-        '<div style="flex:0 0 200px;">' + zonesFigure(p.zones, 200) + '</div><div style="flex:1;"><b>🌴 ' + tt('אופן הריסוס בעץ - חלוקת הנפח', 'วิธีพ่นบนต้น - สัดส่วนปริมาตร', 'طريقة الرش - توزيع الحجم') + '</b>' +
+        '<div style="flex:0 0 ' + zW(p.zones, 200) + 'px;">' + zonesFigure(p.zones, zW(p.zones, 200)) + '</div><div style="flex:1;"><b>🌴 ' + tt('אופן הריסוס בעץ - חלוקת הנפח', 'วิธีพ่นบนต้น - สัดส่วนปริมาตร', 'طريقة الرش - توزيع الحجم') + '</b>' +
         zonesTable(p.zones, rowsIn).replace('class="ap-ztbl"', 'style="width:100%;border-collapse:collapse;margin-top:4px;font-size:.76rem;"') + '</div></div>' : '') +
 
       '<table><thead><tr>' +
@@ -4392,6 +4546,7 @@ var AgriPlan = (function () {
     _prepTemplate: _prepTemplate,
     _tplToggle: _tplToggle,
     _zToggle: _zToggle,
+    _zOpt: _zOpt,
     _zSet: _zSet,
     _zImg: _zImg,
     _zImgDel: _zImgDel,
