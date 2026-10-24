@@ -1282,6 +1282,8 @@ var AgriPlan = (function () {
         tt('משק שלם', 'ทั้งฟาร์ม', 'مزرعة كاملة') + '</button>' +
       '<button class="ap-btn ghost" onclick="AgriPlan.pickPlots(' + id + ')">\u2611 ' +
         tt('בחר חלקות', 'เลือกแปลง', 'اختر القطع') + '</button>' +
+      '<button class="ap-btn ghost" onclick="AgriPlan.bulkEdit(' + id + ')">✏️ ' +
+        tt('עדכון חומרים בכל התוכנית', 'แก้สารทั้งแผน', 'تعديل المواد في كل الخطة') + '</button>' +
       '<button class="ap-btn ghost" onclick="AgriPlan.bulkMaterial(' + id + ')">\u2697\ufe0f ' +
         tt('חומר למספר משקים', 'สารหลายฟาร์ม', 'مادة لعدة مزارع') + '</button>' +
       '<button class="ap-btn ghost" onclick="AgriPlan.bulkCarrier(' + id + ')">\ud83d\udca7 ' +
@@ -2210,6 +2212,95 @@ var AgriPlan = (function () {
   }
 
   // ── Recommended start date for every orchard at once ──
+  // ── Edit a material everywhere in the plan at once ──
+  // One line per material as used in one operation (name + dose mode +
+  // method/round): change the dose, the mode, the price, replace it with
+  // another product, or take it out - in every orchard's row together.
+  var _be = [];
+  function beGroups(p) {
+    var g = {}, out = [];
+    p.rows.forEach(function (r) {
+      (r.materials || []).forEach(function (m) {
+        if (!m || !m.name) return;
+        var k = m.name + '|' + m.mode + '|' + opKey(r.method, r.round);
+        if (!g[k]) { g[k] = { name: m.name, mode: m.mode, op: opKey(r.method, r.round), method: r.method, round: r.round, rows: 0, vals: [], prices: [], farms: {} }; out.push(g[k]); }
+        var x = g[k]; x.rows++; x.farms[r.farmId] = 1;
+        if (x.vals.indexOf(m.value) < 0) x.vals.push(m.value);
+        if (x.prices.indexOf(m.price || 0) < 0) x.prices.push(m.price || 0);
+      });
+    });
+    return out.sort(function (a, b) { return a.name.localeCompare(b.name, 'he') || String(a.op).localeCompare(String(b.op)); });
+  }
+  function beModeOpts(gr, p) {
+    var u = U(gr.name, p);
+    return [['pct', '%'], ['cc', perUnitWord(u, gr.method)], ['lu', unitWord(u) + '/' + (isDunam(gr.method) ? tt('דונם', 'ไร่', 'دونم') : tt('עץ', 'ต้น', 'شجرة'))]]
+      .map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === gr.mode ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('');
+  }
+  function bulkEdit(pid) {
+    var p = editable(pid);
+    if (!p) return;
+    var host = document.getElementById('apPicker');
+    if (!host) return;
+    _be = beGroups(p);
+    if (!_be.length) { toast('⚠️ ' + tt('אין עדיין חומרים בתוכנית', 'ยังไม่มีสาร', 'لا مواد بعد')); return; }
+    var mats = knownMaterials().map(function (m) { return '<option value="' + esc(m) + '">'; }).join('');
+    host.innerHTML = '<div class="ap-card" style="border:1.5px solid var(--primary,#2d6a4f);">' +
+      '<div style="font-weight:800;margin-bottom:4px;">✏️ ' + tt('עדכון חומרים בכל התוכנית', 'แก้สารทั้งแผน', 'تعديل المواد في كل الخطة') + '</div>' +
+      '<div style="font-size:.76rem;color:var(--text-muted,#888);margin-bottom:8px;">' + tt('כל שינוי חל על כל המטעים שהחומר מופיע אצלם באותה פעולה. שדה שלא נגעת בו לא משתנה.', 'ใช้กับทุกสวน', 'يُطبق على كل البساتين') + '</div>' +
+      '<datalist id="apBeMats">' + mats + '</datalist>' +
+      '<div style="overflow-x:auto;"><table class="ap-be" style="width:100%;border-collapse:collapse;font-size:.82rem;"><thead><tr>' +
+        '<th>' + tt('חומר', 'สาร', 'مادة') + '</th><th>' + tt('פעולה', 'การดำเนินการ', 'العملية') + '</th><th>' + tt('מינון / ריכוז', 'อัตรา', 'الجرعة') + '</th><th>' + tt('יחידה', 'หน่วย', 'الوحدة') + '</th>' +
+        '<th>' + tt('מחיר', 'ราคา', 'السعر') + '</th><th>' + tt('הסר', 'ลบ', 'إزالة') + '</th></tr></thead><tbody>' +
+      _be.map(function (gr, i) {
+        var same = gr.vals.length === 1, nf = Object.keys(gr.farms).length;
+        var lo = Math.min.apply(null, gr.vals), hi = Math.max.apply(null, gr.vals);
+        return '<tr><td><input class="ap-in" id="apBeN' + i + '" list="apBeMats" value="' + esc(gr.name) + '" style="min-width:130px;"><small style="display:block;color:var(--text-muted,#888);">' + nf + ' ' + tt('משקים', 'ฟาร์ม', 'مزارع') + ' · ' + gr.rows + ' ' + tt('שורות', 'แถว', 'صفوف') + '</small></td>' +
+          '<td>' + esc(opLabel(gr.method, gr.round)) + '</td>' +
+          '<td><input class="ap-in" id="apBeV' + i + '" type="number" step="any" min="0" value="' + (same ? gr.vals[0] : '') + '" placeholder="' + (same ? '' : esc(lo + '–' + hi)) + '" style="width:90px;">' +
+            (same ? '' : '<small style="display:block;color:#b26a00;">' + tt('שונה בין מטעים', 'ต่างกันตามสวน', 'يختلف بين البساتين') + '</small>') + '</td>' +
+          '<td><select class="ap-in" id="apBeM' + i + '">' + beModeOpts(gr, p) + '</select></td>' +
+          '<td><input class="ap-in" id="apBeP' + i + '" type="number" step="any" min="0" value="' + (gr.prices.length === 1 && gr.prices[0] ? gr.prices[0] : '') + '" placeholder="₪" style="width:80px;"></td>' +
+          '<td style="text-align:center;"><input type="checkbox" id="apBeX' + i + '"></td></tr>';
+      }).join('') + '</tbody></table></div>' +
+      '<div style="display:flex;gap:6px;margin-top:8px;"><button class="ap-btn" data-no-back onclick="AgriPlan._beApply(' + pid + ')">✓ ' + tt('עדכן בכל התוכנית', 'อัปเดตทั้งแผน', 'تحديث في كل الخطة') + '</button>' +
+        '<button class="ap-btn ghost" data-no-sticky onclick="AgriPlan._cancelSeed()">' + tt('ביטול', 'ยกเลิก', 'إلغاء') + '</button></div></div>';
+    host.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+  function _beApply(pid) {
+    var p = editable(pid);
+    if (!p || !_be.length) return;
+    var g = function (id) { return document.getElementById(id); };
+    var changes = 0, removed = 0, rowsTouched = {};
+    _be.forEach(function (gr, i) {
+      var nm = String((g('apBeN' + i) || {}).value || '').trim(), vRaw = String((g('apBeV' + i) || {}).value || '').trim();
+      var md = (g('apBeM' + i) || {}).value || gr.mode, pRaw = String((g('apBeP' + i) || {}).value || '').trim(), del = !!(g('apBeX' + i) || {}).checked;
+      var v = vRaw === '' ? null : Number(vRaw), pr = pRaw === '' ? null : Number(pRaw);
+      var priceSame = gr.prices.length === 1 ? (gr.prices[0] || 0) : null;
+      var touched = del || (nm && nm !== gr.name) || md !== gr.mode || (v != null && !(gr.vals.length === 1 && v === gr.vals[0])) || (pr != null && pr !== priceSame);
+      if (!touched) return;
+      p.rows.forEach(function (r) {
+        if (opKey(r.method, r.round) !== gr.op) return;
+        var keep = [];
+        (r.materials || []).forEach(function (m) {
+          if (!m || m.name !== gr.name || m.mode !== gr.mode) { keep.push(m); return; }
+          rowsTouched[r.id] = 1;
+          if (del) { removed++; return; }
+          if (nm) m.name = nm;
+          m.mode = md;
+          if (v != null && v >= 0) m.value = v;
+          if (pr != null && pr >= 0) m.price = pr;
+          changes++; keep.push(m);
+        });
+        r.materials = keep;
+      });
+    });
+    var n = Object.keys(rowsTouched).length;
+    if (!n) { toast(tt('לא שונה דבר', 'ไม่มีการเปลี่ยนแปลง', 'لا تغيير')); return; }
+    _be = [];
+    save();
+    showPlan(pid);
+    toast('✅ ' + tt('עודכן ב־', 'อัปเดตใน ', 'تم التحديث في ') + n + ' ' + tt('שורות', 'แถว', 'صفوف') + (removed ? ' · ' + removed + ' ' + tt('הוסרו', 'ลบแล้ว', 'أُزيلت') : ''));
+  }
   function bulkStart(pid) {
     var p = editable(pid);
     if (!p) return;
@@ -4559,6 +4650,8 @@ var AgriPlan = (function () {
     splitApp: splitApp,
     _splitGo: _splitGo,
     bulkStart: bulkStart,
+    bulkEdit: bulkEdit,
+    _beApply: _beApply,
     _bsApply: _bsApply,
     _tplSave: _tplSave,
     _tplDel: _tplDel,
