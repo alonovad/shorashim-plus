@@ -147,13 +147,16 @@ var Home = (function () {
     { k: 'wx', ic: 'sun', he: 'תחזית', th: 'พยากรณ์', ar: 'توقعات' },
     { k: 'nav', ic: 'pin', he: 'ניווט', th: 'นำทาง', ar: 'ملاحة' },
     { k: 'map', ic: 'map', he: 'מפה', th: 'แผนที่', ar: 'خريطة' },
-    { k: 'hv', ic: 'box', he: 'מיון/קטיף', th: 'คัดแยก', ar: 'فرز/قطف' }
+    { k: 'hv', ic: 'box', he: 'מיון/קטיף', th: 'คัดแยก', ar: 'فرز/قطف' },
+    { k: 'sh', ic: 'tractor', he: 'משלוחים', th: 'การส่ง', ar: 'الشحنات', staff: true }
   ];
   function hubHtml(f) {
     var cx = 50, cy = 50, R = 37, lines = '', dots = '';
     var fl = (f && window.Fleet && Fleet.farmAlerts && S().canEditFarm && S().canEditFarm(f.id)) ? Fleet.farmAlerts(f.id).length : 0;
-    HUB.forEach(function (h, k) {
-      var a = 2 * Math.PI * k / HUB.length - Math.PI / 2;
+    var role = (window.currentUser || {}).role, isStaff = role === 'admin' || role === 'operator';
+    var hub = HUB.filter(function (h) { return !h.staff || (isStaff && (h.k !== 'sh' || window.Shipments)); });
+    hub.forEach(function (h, k) {
+      var a = 2 * Math.PI * k / hub.length - Math.PI / 2;
       var x = cx + R * Math.cos(a), y = cy + R * Math.sin(a);
       lines += '<line x1="' + cx + '%" y1="' + cy + '%" x2="' + x.toFixed(1) + '%" y2="' + y.toFixed(1) + '%"/>';
       var badge = (h.k === 'veh' && fl) ? '<i class="hm-hub-b">' + fl + '</i>' : '';
@@ -166,6 +169,7 @@ var Home = (function () {
   function hubGo(k, fid) {
     if (k === 'farm' || k === 'veh') { if (typeof window.showFarmDetailsGlobal === 'function') window.showFarmDetailsGlobal(fid); return; }
     if (k === 'hv') { if (window.HarvestResults && HarvestResults.openFarm) HarvestResults.openFarm(fid); return; }
+    if (k === 'sh') { if (window.Shipments) Shipments.open(fid); return; }
     if (k === 'irr') return go('irrigation');
     if (k === 'spray') return go('spray');
     if (k === 'wx') return go('weather');

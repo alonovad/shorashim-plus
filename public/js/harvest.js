@@ -314,6 +314,7 @@ var HarvestResults = (function () {
           '<span class="hv-kpi">' + kg(t.total) + ' ' + tt('ק"ג', 'กก.', 'كغ') + '</span>' +
           (t.total ? '<span class="hv-kpi p">' + tt('יצוא', 'ส่งออก', 'تصدير') + ' ' + pct(exp) + '</span>' : '') +
           (t.priced ? '<span class="hv-kpi">' + money(t.revenue) + '</span>' : '') +
+          (window.Shipments && canEdit() ? '<button type="button" class="hv-kpi" data-hvfin="' + esc(r.id) + '" data-hvf="' + esc(r.farmId) + '" style="border:0;cursor:pointer;">💰 ' + tt('חשבון ותזרים', 'บัญชีและกระแสเงิน', 'الحساب والتدفق') + '</button>' : '') +
         '</div></div>';
     }).join('');
 
@@ -333,7 +334,11 @@ var HarvestResults = (function () {
     var nb = document.getElementById('hvNew');
     if (nb) nb.addEventListener('click', function () { openEditor(null); });
     el.querySelectorAll('[data-hv]').forEach(function (c) {
-      c.addEventListener('click', function () { openEditor(this.getAttribute('data-hv')); });
+      c.addEventListener('click', function (e) {
+        var fb = e.target.closest('[data-hvfin]');
+        if (fb) { if (window.Shipments) Shipments.open(Number(fb.getAttribute('data-hvf')), 'fin', fb.getAttribute('data-hvfin')); return; }
+        openEditor(this.getAttribute('data-hv'));
+      });
     });
   }
 

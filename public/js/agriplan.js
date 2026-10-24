@@ -3563,7 +3563,6 @@ var AgriPlan = (function () {
     var contact = u.displayName || u.name || u.username || '';
     var ref = 'RFQ-' + year + '-' + String(p.id).slice(-5);
     var today = new Date().toLocaleDateString('he-IL');
-    var supplyBy = earliestDeadline(p, rows);
 
     var fOrder = [], byFarm = {};
     rows.forEach(function (r) {
@@ -3583,14 +3582,12 @@ var AgriPlan = (function () {
           '<div><span>' + tt('מס\' בקשה', 'เลขที่', 'رقم الطلب') + '</span><b>' + esc(ref) + '</b></div>' +
           '<div><span>' + tt('תאריך', 'วันที่', 'التاريخ') + '</span><b>' + esc(today) + '</b></div>' +
           (o.to ? '<div><span>' + tt('לכבוד', 'ถึง', 'إلى') + '</span><b>' + esc(o.to) + '</b></div>' : '') +
-          (o.due ? '<div class="hl"><span>' + tt('הגשת הצעה עד', 'ส่งภายใน', 'تقديم حتى') + '</span><b>' + esc(fmtDate(o.due)) + '</b></div>' : '') +
-          (supplyBy ? '<div class="hl"><span>' + tt('אספקה נדרשת עד', 'ส่งของภายใน', 'التوريد حتى') + '</span><b>' + esc(fmtDate(supplyBy)) + '</b></div>' : '') +
           '<div><span>' + tt('עונה', 'ฤดูกาล', 'الموسم') + '</span><b>' + esc(year) + '</b></div>' +
         '</div>' +
         (sub ? '<h2 class="unit">' + sub + '</h2>' : '');
     };
     var terms = '<div class="terms"><b>' + tt('נא לציין בהצעה:', 'โปรดระบุ:', 'يرجى ذكر:') + '</b> ' +
-      tt('מחיר ליחידה לפני מע"מ, גודל אריזה, זמינות במלאי, מועד אספקה ותנאי תשלום. ' +
+      tt('מחיר ליחידה לפני מע"מ, גודל אריזה, זמינות במלאי, ותנאי תשלום. ' +
          'הכמויות מחושבות לפי תוכנית הטיפול ועשויות להתעדכן.',
          'ราคาต่อหน่วยก่อนภาษี ขนาดบรรจุ สต็อก วันส่ง และเงื่อนไขการชำระ',
          'سعر الوحدة قبل الضريبة، حجم العبوة، التوفر، موعد التوريد وشروط الدفع') + '</div>';
@@ -3774,8 +3771,7 @@ var AgriPlan = (function () {
           '<div class="ap-rowgrid" style="grid-template-columns:1.4fr 1fr;margin-top:8px;">' +
             '<div><div class="ap-lbl">' + tt('לכבוד (ספק / מחסן)', 'ถึง (ผู้จัดหา)', 'إلى (المورد)') + '</div>' +
               '<input class="ap-in" id="apRfqTo" placeholder="' + tt('שם הספק', 'ชื่อผู้จัดหา', 'اسم المورد') + '"></div>' +
-            '<div><div class="ap-lbl">' + tt('הגשת הצעה עד', 'ส่งใบเสนอราคาภายใน', 'تقديم العرض حتى') + '</div>' +
-              '<input class="ap-in" id="apRfqDue" type="date"></div>' +
+
           '</div>' +
           '<div class="ap-lbl" style="margin-top:8px;">' + tt('מבנה המסמך', 'รูปแบบเอกสาร', 'شكل المستند') + '</div>' +
           '<div>' +

@@ -50,7 +50,7 @@ service cloud.firestore {
       // (shorashim-prices-ops) are commercial data: operator+ only, so a
       // worker cannot read what suppliers charge or what a crew costs.
       allow read: if isSignedIn() &&
-                     ((!docId.matches('shorashim-prices-.*') && !docId.matches('shorashim-cashflow-.*')) || isOperatorOrAbove());
+                     ((!docId.matches('shorashim-prices-.*') && !docId.matches('shorashim-cashflow-.*') && !docId.matches('shorashim-shipments-.*')) || isOperatorOrAbove());
 
       // TEMPORARY (broad grant): any signed-in user may write
       // shorashim-users. The app writes the WHOLE users blob for ordinary
@@ -178,6 +178,12 @@ service cloud.firestore {
       // also read-restricted to operator+ above.
       allow write: if isOperatorOrAbove() &&
                       docId.matches('shorashim-cashflow-[0-9]{4}');
+
+      // Operator+: fruit shipments, packhouse intake, crates and the
+      // cash-flow stage of sorting results (shipments.js) — commercial, so
+      // also read-restricted to operator+ above.
+      allow write: if isOperatorOrAbove() &&
+                      docId.matches('shorashim-shipments-[0-9]{4}');
 
       // Worker+: plot recommendations and their follow-up (plotrec.js) —
       // tasks are marked done in the field; coefficients and imported

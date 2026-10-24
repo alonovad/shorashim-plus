@@ -1975,6 +1975,7 @@
     'חזר חיבור — מסנכרן נתונים': { th: 'เชื่อมต่อแล้ว — กำลังซิงค์ข้อมูล', ar: 'عاد الاتصال — جاري المزامنة' },
     'אין חיבור — עובד במצב לא מקוון': { th: 'ไม่มีสัญญาณ — ทำงานแบบออฟไลน์', ar: 'لا يوجد اتصال — العمل بدون إنترنت' },
     'תפריט': { th: 'เมนู', ar: 'القائمة' },
+    'משלוחי פרי, קליטה ותזרים': { th: 'การส่งผลผลิต รับเข้า และกระแสเงิน', ar: 'الشحنات والاستلام والتدفق' },
     'בטל פעולה': { th: 'ยกเลิกการกระทำ', ar: 'تراجع' },
     'המיקום שלי': { th: 'ตำแหน่งของฉัน', ar: 'موقعي' },
     'שפה': { th: 'ภาษา', ar: 'اللغة' },
@@ -8059,6 +8060,8 @@
     matrixHtml += farmBranchSummary(farmPlots);
     if (window.Satellite && farmPlots.length) matrixHtml += '<button type="button" class="fd-sat-btn" onclick="Satellite.open(' + farm.id + ')">🛰️ ' + t('מצב הצמחייה מהלוויין') + ' <span>NDVI</span></button>';
     if (window.HarvestResults && HarvestResults.openFarm) matrixHtml += '<button type="button" class="fd-sat-btn fd-hv-btn" onclick="HarvestResults.openFarm(' + farm.id + ')">📦 ' + t('תוצאות מיון/קטיף') + '</button>';
+    var _role = (window.currentUser || {}).role;
+    if (window.Shipments && (_role === 'admin' || _role === 'operator')) matrixHtml += '<button type="button" class="fd-sat-btn fd-hv-btn" onclick="Shipments.open(' + farm.id + ')">🚚 ' + t('משלוחי פרי, קליטה ותזרים') + '</button>';
     var farmQty = wlQtyTotals(farmWorklog);
     if (Object.keys(farmQty).length) {
       matrixHtml += '<div style="background: #fff8e1; padding: 8px 10px; border-radius: 10px; margin: -8px 0 16px; font-size: 0.8rem; text-align: center; color: #e65100;">' +
