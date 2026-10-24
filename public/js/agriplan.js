@@ -626,11 +626,29 @@ var AgriPlan = (function () {
     return d;
   }
 
+  function treeKey(r) { return (r.plotId ? 'p' + r.plotId : 'f' + (r.farmId || 0)) + '|' + String(r.cohort || ''); }
+  // "ריסוס: 9,613 עצים · 144,195 ל' | הגמעה ידנית: 9,613 עצים · 9,613 ל'"
+  function opsLine(t, sep) {
+    return (t.ops || []).map(function (o) {
+      return '<span style="white-space:nowrap;">' + esc(opLabel(o.method, o.round)) + ': ' + Math.round(o.qty).toLocaleString() + ' ' + qtyWord(o.method) +
+        (o.water > 0 ? ' · ' + n1(o.water).toLocaleString() + ' ' + tt('ל\' תמיסה', 'ล. สารละลาย', 'ل محلول') : '') + '</span>';
+    }).join(sep || ' | ');
+  }
+  function treesText(t) {
+    return t.trees.toLocaleString() + ' ' + tt('עצים', 'ต้น', 'شجرة') + (t.dunam ? ' · ' + n1(t.dunam).toLocaleString() + ' ' + tt('דונם', 'ไร่', 'دونم') : '');
+  }
   function totals(plan) {
     var byMat = {}, byFarm = {}, farmMat = {}, farmOps = {}, price = {};
-    var waterL = 0, trees = 0, dunam = 0;
+    var waterL = 0, uT = {}, uD = {}, byOp = {}, opOrder = [];
     (plan.rows || []).forEach(function (r) {
-      if (isDunam(r.method)) dunam += Number(r.trees) || 0; else trees += Number(r.trees) || 0;
+      // A tree that is sprayed AND drenched is still one tree: count each
+      // plot (+ sub-group) once, and give each operation its own count and
+      // solution volume.
+      var tk = treeKey(r), q = Number(r.trees) || 0;
+      if (isDunam(r.method)) uD[tk] = Math.max(uD[tk] || 0, q); else uT[tk] = Math.max(uT[tk] || 0, q);
+      var opk = opKey(r.method, r.round);
+      if (!byOp[opk]) { byOp[opk] = { method: r.method, round: String(r.round || '').trim(), qty: 0, water: 0 }; opOrder.push(opk); }
+      byOp[opk].qty += q; byOp[opk].water += rowCarrierL(r);
       waterL += rowCarrierL(r);
       var fid = (r.farmId === null || r.farmId === undefined) ? 0 : r.farmId;
       if (!byFarm[fid]) byFarm[fid] = 0;
@@ -656,7 +674,11 @@ var AgriPlan = (function () {
       if (price[nm]) cost += byMat[nm] * price[nm];
       else unpriced.push(nm);
     });
+    var trees = 0, dunam = 0;
+    Object.keys(uT).forEach(function (k) { trees += uT[k]; });
+    Object.keys(uD).forEach(function (k) { dunam += uD[k]; });
     return {
+      ops: opOrder.map(function (k) { return byOp[k]; }),
       byMat: byMat, byFarm: byFarm, farmMat: farmMat, farmOps: farmOps, price: price,
       cost: cost, unpriced: unpriced, waterL: waterL, trees: trees, dunam: dunam
     };
@@ -904,8 +926,9 @@ var AgriPlan = (function () {
               dlChip(earliestDeadline(p, p.rows), false) + '</span></div>' +
           '<div style="font-size:.78rem;color:var(--text-muted,#888);margin-top:4px;">' +
             (p.rows || []).length + ' ' + tt('שורות', 'แถว', 'صفوف') +
-            ' \u00b7 ' + t.trees.toLocaleString() + ' ' + tt('עצים', 'ต้น', 'شجرة') + (t.dunam ? ' · ' + n1(t.dunam).toLocaleString() + ' ' + tt('דונם', 'ไร่', 'دونم') : '') +
+            ' \u00b7 ' + treesText(t) +
             (t.cost ? ' \u00b7 ' + money(t.cost) : '') + '</div>' +
+          ((t.ops || []).length > 1 ? '<div style="font-size:.74rem;color:var(--text-muted,#888);margin-top:2px;">' + opsLine(t) + '</div>' : '') +
           (mats ? '<div style="font-size:.76rem;margin-top:4px;">' + mats + '</div>' : '') +
           '<div style="font-size:.72rem;color:var(--text-muted,#999);margin-top:4px;">' +
             tt('נוצר ע"י', 'สร้างโดย', 'أنشأها') + ': ' + esc(ownerLabel(p)) +
@@ -1045,10 +1068,11 @@ var AgriPlan = (function () {
       if (!matchesAny(terms, [r.farmId ? farmName(r.farmId) : '', pl ? pl.name : '', r.cohort || '',
                               opLabel(r.method, r.round)])) return;
       var fk = String(r.farmId == null ? 0 : r.farmId);
-      if (!groups[fk]) { groups[fk] = { html: '', n: 0, trees: 0, ops: [] }; gOrder.push(fk); }
+      if (!groups[fk]) { groups[fk] = { html: '', n: 0, trees: 0, ops: [], seen: {} }; gOrder.push(fk); }
       var g = groups[fk];
       g.html += rowHtml(p, r, i, ro);
-      g.n++; g.trees += Number(r.trees) || 0;
+      g.n++;
+      if (!isDunam(r.method)) { var tk0 = treeKey(r), q0 = Number(r.trees) || 0; if (q0 > (g.seen[tk0] || 0)) { g.trees += q0 - (g.seen[tk0] || 0); g.seen[tk0] = q0; } }
       var ol = opLabel(r.method, r.round);
       if (g.ops.indexOf(ol) < 0) g.ops.push(ol);
       shown++;
@@ -1082,7 +1106,7 @@ var AgriPlan = (function () {
       return '<details class="ap-grp"' + (open ? ' open' : '') + ' ontoggle="AgriPlan._grpToggle(' + id + ',\'' + fk + '\',this.open)">' +
         '<summary class="ap-grphd" onclick="if(event.target.closest(\'button,a,select,input,label\'))event.preventDefault();">' +
           '<div class="ap-gname"><span class="ap-gchev">▸</span>🌳 ' + esc(farmName(fid)) +
-            '<span class="n">' + g.n + ' ' + tt('חלקות/שורות', 'แปลง/แถว', 'قطع/صفوف') + ' · ' +
+            '<span class="n">' + (Object.keys(g.seen).length || g.n) + ' ' + tt('חלקות', 'แปลง', 'قطع') + (g.n > Object.keys(g.seen).length ? ' (' + g.n + ' ' + tt('שורות', 'แถว', 'صفوف') + ')' : '') + ' · ' +
               g.trees.toLocaleString() + ' ' + tt('עצים', 'ต้น', 'شجرة') + '</span>' +
             (issues ? '<span class="ap-gwarn" title="' + esc(tt('יש הערות לבדיקה', 'มีข้อควรตรวจ', 'توجد ملاحظات')) + '">⚠</span>' : '') +
             (fid ? '<span class="ap-gst">' + farmBadge(p, fid) + farmApproveBtn(p, fid) + logToggle(p, fid, ro) + farmTools + '</span>' : '') +
@@ -1160,8 +1184,9 @@ var AgriPlan = (function () {
       '<div class="ap-plan">' +
         '<div class="ap-plan-hd">📋 ' + tt('פרטי התוכנית', 'รายละเอียดแผน', 'تفاصيل الخطة') +
           '<span class="n">' + allRows + ' ' + tt('שורות', 'แถว', 'صفوف') + ' · ' +
-            t.trees.toLocaleString() + ' ' + tt('עצים', 'ต้น', 'شجرة') + (t.dunam ? ' · ' + n1(t.dunam).toLocaleString() + ' ' + tt('דונם', 'ไร่', 'دونم') : '') + '</span>' +
-          (p.deadline ? dlChip(p.deadline, false) : '') + '</div>' +
+            treesText(t) + '</span>' +
+          (p.deadline ? dlChip(p.deadline, false) : '') +
+          ((t.ops || []).length > 1 ? '<div class="n" style="flex-basis:100%;font-weight:400;">' + opsLine(t) + '</div>' : '') + '</div>' +
         '<div class="ap-plan-grid">' +
           '<div><div class="ap-lbl">' + tt('שם התוכנית', 'ชื่อแผน', 'اسم الخطة') + '</div>' +
             '<input class="ap-in" value="' + esc(p.name) + '" ' +
@@ -3203,8 +3228,8 @@ var AgriPlan = (function () {
         '<div class="kpi">' +
           (p.target ? tt('מזיק', 'ศัตรูพืช', 'الآفة') + ': ' + esc(p.target) + ' · ' : '') +
           tt('עונה', 'ฤดูกาล', 'الموسم') + ' ' + esc(year) + ' · ' +
-          t.trees.toLocaleString() + ' ' + tt('עצים', 'ต้น', 'شجرة') + (t.dunam ? ' · ' + n1(t.dunam).toLocaleString() + ' ' + tt('דונם', 'ไร่', 'دونم') : '') + ' · ' +
-          n1(t.waterL).toLocaleString() + ' ' + tt('ליטר תמיסה', 'ลิตร', 'لتر محلول') +
+          treesText(t) + ' · ' +
+          ((t.ops || []).length > 1 ? opsLine(t, ' · ') : n1(t.waterL).toLocaleString() + ' ' + tt('ליטר תמיסה', 'ลิตร', 'لتر محلول')) +
           (earliestDeadline(p, rowsIn) ? ' \u00b7 ' + tt('לסיום עד', 'เสร็จภายใน', 'الإنهاء حتى') + ' ' +
             fmtDate(earliestDeadline(p, rowsIn)) : '') +
         '</div></div>' +
@@ -3699,7 +3724,7 @@ var AgriPlan = (function () {
         g.info[k] = { name: pl ? pl.name : tt('כלל המשק', 'ทั้งฟาร์ม', 'كل المزرعة'), trees: 0, ops: [] };
         g.keys.push(k);
       }
-      g.info[k].trees += Number(r.trees) || 0;
+      if (!isDunam(r.method)) g.info[k].trees = Math.max(g.info[k].trees, Number(r.trees) || 0);
       var lbl = opLabel(r.method, r.round);
       if (g.info[k].ops.indexOf(lbl) < 0) g.info[k].ops.push(lbl);
     });
