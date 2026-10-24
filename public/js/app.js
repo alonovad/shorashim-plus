@@ -293,6 +293,7 @@
     }, 0);
     document.getElementById('loginScreen').style.display = 'none';
     document.getElementById('mainApp').style.display = 'flex';
+    if (window.bootMark) bootMark('app');
     
     // Show/hide admin tabs
     var adminTabs = document.querySelectorAll('.admin-only');
@@ -393,6 +394,7 @@
       if (!firebaseUser) { _handledUid = null; return; }
       if (firebaseUser.uid === _handledUid) return; // already booted this session
       _handledUid = firebaseUser.uid;
+      if (window.bootMark) bootMark('auth');
 
       var flow = _authFlow;
       _authFlow = null;
@@ -11709,6 +11711,7 @@
     _rtStarted = true;
     DB.listen('plotMapperSprayData', function(data) {
       if (data) {
+        if (window.bootMark) bootMark('data');
         _applyPlotData(data);
       }
     });

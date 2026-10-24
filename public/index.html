@@ -2,6 +2,31 @@
 <html lang="he" dir="rtl">
 <head>
 <meta charset="UTF-8">
+<script>
+  // Startup timing (Oct 2026): how long each stage of opening the app took,
+  // kept for the last 20 opens on this device and shown in Display settings.
+  // Stages: code loaded (DOM ready) · signed in · app on screen · first data
+  // from the server. Measured, not guessed, before changing anything.
+  (function () {
+    var marks = {}, done = false;
+    function save() {
+      if (done) return; done = true;
+      try {
+        var n = performance.getEntriesByType('navigation')[0] || {};
+        var rec = { at: Date.now(), dcl: Math.round(n.domContentLoadedEventEnd || 0), auth: marks.auth || 0, app: marks.app || 0, data: marks.data || 0,
+          net: (navigator.connection && navigator.connection.effectiveType) || '' };
+        var list = JSON.parse(localStorage.getItem('shorashim-startup') || '[]');
+        list.push(rec); localStorage.setItem('shorashim-startup', JSON.stringify(list.slice(-20)));
+      } catch (e) {}
+    }
+    window.bootMark = function (k) {
+      if (marks[k]) return;
+      marks[k] = Math.round(performance.now());
+      if (k === 'data') save();
+    };
+    setTimeout(save, 30000);
+  })();
+</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>שורשים+</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>

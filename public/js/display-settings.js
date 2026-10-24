@@ -308,7 +308,7 @@ var DisplaySettings = (function() {
           '<button type="button" class="ds-reset" id="dsReset">' + tt('איפוס להגדרות ברירת המחדל', 'รีเซ็ตเป็นค่าเริ่มต้น', 'إعادة التعيين للافتراضي') + '</button>' +
           '<div style="text-align:center;margin-top:12px;font-size:0.72rem;color:var(--text-muted);">' +
             tt('הבחירה נשמרת במכשיר הזה', 'บันทึกไว้ในอุปกรณ์นี้', 'يُحفظ الاختيار على هذا الجهاز') +
-          '</div>' +
+          '</div>' + speedHtml() +
         '</div>' +
       '</div>';
 
@@ -365,6 +365,25 @@ var DisplaySettings = (function() {
     });
 
     document.getElementById('dsReset').addEventListener('click', resetDefaults);
+  }
+
+  // ── Startup timing (recorded by index.html) and document sizes ──
+  function speedHtml() {
+    var list = [], doc = null;
+    try { list = JSON.parse(localStorage.getItem('shorashim-startup') || '[]'); } catch (e) {}
+    try { doc = JSON.parse(localStorage.getItem('shorashim-docsize-agriplan') || 'null'); } catch (e) {}
+    if (!list.length && !doc) return '';
+    function s(ms) { return ms ? (ms / 1000).toFixed(1) : '-'; }
+    function med(k) { var v = list.slice(-5).map(function (r) { return r[k]; }).filter(Boolean).sort(function (a, b) { return a - b; }); return v.length ? v[Math.floor(v.length / 2)] : 0; }
+    var last = list[list.length - 1];
+    var row = function (label, k) { return '<tr><td>' + label + '</td><td><b>' + s(last && last[k]) + '</b></td><td>' + s(med(k)) + '</td></tr>'; };
+    return '<div style="margin-top:14px;border-top:1px solid var(--line,#e6ebe2);padding-top:10px;font-size:.74rem;color:var(--text-muted);">' +
+      '<div style="font-weight:700;margin-bottom:4px;">' + tt('זמני פתיחת האפליקציה (שניות)', 'เวลาเปิดแอป (วินาที)', 'أوقات فتح التطبيق (ث)') + '</div>' +
+      (list.length ? '<table style="width:100%;border-collapse:collapse;text-align:center;"><tr><th style="text-align:right"></th><th>' + tt('אחרון', 'ล่าสุด', 'الأخير') + '</th><th>' + tt('חציון 5 אחרונים', 'มัธยฐาน 5', 'وسيط آخر 5') + '</th></tr>' +
+        row(tt('קוד נטען', 'โหลดโค้ด', 'تحميل الكود'), 'dcl') + row(tt('התחברות', 'เข้าสู่ระบบ', 'تسجيل الدخول'), 'auth') +
+        row(tt('מסך מוכן', 'หน้าจอพร้อม', 'الشاشة جاهزة'), 'app') + row(tt('נתונים מהשרת', 'ข้อมูลจากเซิร์ฟเวอร์', 'بيانات الخادم'), 'data') + '</table>' : '') +
+      (doc ? '<div style="margin-top:6px;">' + tt('מסמך תוכניות הטיפול', 'เอกสารแผน', 'مستند الخطط') + ' ' + doc.y + ': <b>' + doc.kb + ' KB</b> ' + tt('מתוך 1024 KB מותרים', 'จาก 1024 KB', 'من 1024 KB') + '</div>' : '') +
+    '</div>';
   }
 
   // ── Reset ──

@@ -515,6 +515,9 @@ var AgriPlan = (function () {
   function load() {
     var y = year;
     return Promise.all([DB.loadAsync(KEY_PREFIX + y), DB.loadAsync(APPROVALS_PREFIX + y)]).then(function (r) {
+      // size of the season document (Firestore caps a document at 1 MB);
+      // shown in Display settings so growth is seen long before the cap
+      try { localStorage.setItem('shorashim-docsize-agriplan', JSON.stringify({ y: y, kb: Math.round(JSON.stringify(r[0] || {}).length / 1024) })); } catch (e) {}
       A = normApprovalDoc(r[1]);
       return attach(normalise(r[0]), A);
     });
