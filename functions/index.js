@@ -1785,3 +1785,78 @@ exports.recExtract = onCall(
     };
   }
 );
+
+// ═══════════════════════════════════════════
+// PLAN PDF — a treatment-plan document printed by a real Chrome
+//   The app used to photograph the page in the browser and slice the
+//   picture into A4 sheets: cut rows, odd page breaks, soft text. Chrome's
+//   own print engine lays the pages out properly (rows never split, table
+//   headers repeat, text stays sharp and selectable). The browser sends the
+//   finished HTML; this returns the PDF. If this function is missing or
+//   fails, the app falls back to its old in-browser method.
+// ═══════════════════════════════════════════
+const PDF_HOSTS = [
+  "fonts.googleapis.com", "fonts.gstatic.com",               // Rubik / Heebo
+  "server.arcgisonline.com", "services.arcgisonline.com",     // satellite map tiles
+  "firebasestorage.googleapis.com", "storage.googleapis.com"  // label images
+];
+let _pdfBrowser = null;
+async function pdfBrowser() {
+  if (_pdfBrowser && _pdfBrowser.connected) return _pdfBrowser;
+  const chromium = require("@sparticuz/chromium");
+  const puppeteer = require("puppeteer-core");
+  _pdfBrowser = await puppeteer.launch({
+    args: chromium.args, defaultViewport: { width: 1123, height: 794 },
+    executablePath: await chromium.executablePath(), headless: chromium.headless
+  });
+  return _pdfBrowser;
+}
+exports.planPdf = onCall(
+  { region: "us-central1", memory: "2GiB", cpu: 1, timeoutSeconds: 120, maxInstances: 3, concurrency: 1 },
+  async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Sign in required");
+    const tok = request.auth.token || {};
+    const fb = tok.firebase || {};
+    if (fb.sign_in_provider === "phone") throw new HttpsError("permission-denied", "Not for recovery sessions");
+    if (tok.role !== undefined && tok.role !== null && !["admin", "operator"].includes(tok.role)) {
+      throw new HttpsError("permission-denied", "Operator or admin required");
+    }
+    const { html, landscape } = request.data || {};
+    if (typeof html !== "string" || html.length < 50 || html.length > 8 * 1024 * 1024) {
+      throw new HttpsError("invalid-argument", "html missing or too large");
+    }
+    const browser = await pdfBrowser();
+    const page = await browser.newPage();
+    try {
+      // The document may load only fonts, map tiles and label images from
+      // the hosts above (nothing internal); every request, scripted or not,
+      // goes through this filter. Its one script fits each orchard sheet to
+      // a page (see agriplan.js FIT_JS) and sets data-fit when done.
+      await page.setRequestInterception(true);
+      page.on("request", (r) => {
+        const u = r.url();
+        if (u.startsWith("data:") || u.startsWith("about:")) return r.continue();
+        let host = "";
+        try { const x = new URL(u); host = x.protocol === "https:" ? x.hostname : ""; } catch (e) { host = ""; }
+        if (host && PDF_HOSTS.includes(host)) return r.continue();
+        return r.abort();
+      });
+      // Lay out at the printed width (A4 minus 14 mm margins) so the fit
+      // script measures what will actually print.
+      const land = landscape !== false;
+      await page.emulateMediaType("print");
+      await page.setViewport({ width: Math.round(((land ? 297 : 210) - 28) * 96 / 25.4), height: 800 });
+      await page.setContent(html, { waitUntil: "networkidle0", timeout: 60000 });
+      await page.evaluateHandle("document.fonts.ready");
+      await page.waitForFunction("document.documentElement.dataset.fit === '1'", { timeout: 5000 }).catch(() => {});
+      const pdf = await page.pdf({
+        format: "A4", landscape: land, printBackground: true, preferCSSPageSize: true
+      });
+      return { pdf: Buffer.from(pdf).toString("base64") };
+    } catch (err) {
+      throw new HttpsError("internal", "PDF failed: " + (err && err.message ? err.message.slice(0, 200) : "unknown"));
+    } finally {
+      try { await page.close(); } catch (e) {}
+    }
+  }
+);

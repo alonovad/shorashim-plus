@@ -4172,7 +4172,52 @@ var AgriPlan = (function () {
     }
     return renderPart(0).then(function () { return pdf.output('blob'); });
   }
+  // ── PDF: printed by Chrome on the server (functions: planPdf) ──
+  // Real print layout: rows are never cut, table headers repeat, text is
+  // sharp. Emoji are dropped (the server has no colour-emoji font, and
+  // small emoji read as clutter on a printed sheet). If the function is not
+  // there or fails, the old in-browser method below still makes the file.
+  var _srvPdfOff = false;
+  var EMOJI_RE = /(?:[\u2600-\u27BF\u2B50\u2B55\u2934\u2935]|[\uD83C-\uDBFF][\uDC00-\uDFFF])[\uFE0F\u200D]?/g;
+  // An orchard sheet (map + plot table) a little taller than one page used
+  // to spill a single row onto a page of its own. Before printing, the map
+  // is shrunk just enough for the sheet to fit (never below 60 mm); a sheet
+  // far taller than a page is left to flow, its rows unbroken.
+  function FIT_JS(land) {
+    return '(function(){function go(){try{var mm=96/25.4,H=((' + (land ? 210 : 297) + ')-28)*mm-6;' +
+      'document.querySelectorAll(".ps-page").forEach(function(pg){var h=pg.getBoundingClientRect().height;' +
+        'if(h<=H||h>H*1.4)return;var sv=pg.querySelector(".ps-map svg");if(!sv)return;' +
+        'var sh=sv.getBoundingClientRect().height,nh=sh-(h-H);if(nh<60*mm)nh=60*mm;' +
+        'var w=sv.getBoundingClientRect().width;sv.style.width=(w*nh/sh)+"px";sv.removeAttribute("width");});' +
+      '}catch(e){}document.documentElement.dataset.fit="1";}' +
+      'if(document.readyState==="complete")go();else window.addEventListener("load",go);})();';
+  }
+  function serverPdf(html, land) {
+    if (_srvPdfOff || !window.firebase || !firebase.app) return Promise.reject(new Error('no-server'));
+    var fix = '<style>.hd-ico:empty{display:none}tr,.farm,.mt-card,.ap-log{break-inside:avoid;page-break-inside:avoid}' +
+      'thead{display:table-header-group}h2,h3{break-after:avoid;page-break-after:avoid}</style>';
+    var clean = String(html).replace(EMOJI_RE, '').replace(/<\/head>/i, fix + '</head>').replace(/<\/body>/i, '<script>' + FIT_JS(land) + '</script></body>');
+    var fn = firebase.app().functions('us-central1').httpsCallable('planPdf', { timeout: 120000 });
+    return fn({ html: clean, landscape: land }).then(function (r) {
+      var b64 = r && r.data && r.data.pdf;
+      if (!b64) throw new Error('empty');
+      var bin = atob(b64), u = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+      return new Blob([u], { type: 'application/pdf' });
+    }, function (e) {
+      var code = String((e && e.code) || '');
+      if (/not-found|unimplemented|permission-denied|unauthenticated/.test(code)) _srvPdfOff = true;
+      throw e;
+    });
+  }
   function pdfFromHtml(html, orientation) {
+    var land = orientation !== 'portrait';
+    return serverPdf(html, land).catch(function (e) {
+      console.warn('[AgriPlan pdf] server print unavailable, using in-browser method:', e && (e.code || e.message));
+      return localPdf(html, orientation);
+    });
+  }
+  function localPdf(html, orientation) {
     return new Promise(function (resolve, reject) {
       var land = orientation !== 'portrait', W = land ? 1123 : 794;
       var ifr = document.createElement('iframe');
