@@ -627,6 +627,7 @@ var ReportMap = (function () {
       '.ps-tbl td{font-size:.72rem;padding:4px 6px;border:none;border-bottom:1px solid #ecebe7;background:#fff;vertical-align:middle;}' +
       '.ps-tbl tr:nth-child(even) td{background:#fafaf8;}' +
       '.ps-tbl td.n{font-variant-numeric:tabular-nums;white-space:nowrap;}' +
+      '.ps-tbl td.ps-x{font-size:.68rem;line-height:1.45;min-width:46%;}.ps-x .px-op{font-weight:700;color:' + c1 + ';}.ps-x .px-t{color:#5a655c;}' +
       '.ps-no{display:inline-block;min-width:18px;height:18px;line-height:18px;border-radius:9px;background:' + c2 + ';color:#fff;' +
         'font-size:.64rem;font-weight:700;text-align:center;padding:0 4px;}' +
       '.ps-tbl tr.ps-env td{color:#7a756f;background:#fff;border-top:1px dashed ' + line + ';}' +
@@ -720,10 +721,14 @@ var ReportMap = (function () {
         (totTrees ? '<span class="ps-kpi">' + fmtNum(totTrees) + ' ' + tt('עצים', 'ต้น', 'شجرة') + '</span>' : '') +
       '</div></div>';
 
+    // opts.extra: { head, cells: { plotId: html } } — a column the caller
+    // fills per plot (the treatment plan: trees, materials, sprayer fills).
+    // With it the table needs the full width, so it goes under the map.
+    var extra = opts && opts.extra && opts.extra.cells ? opts.extra : null;
     var body = drawn.length
-      ? '<div class="ps-body"><div class="ps-map">' + satSquareSvg(drawn, c1, c2, ghosts) + '</div>' +
-          '<div class="ps-tbl">' + tableHtml(chosen, anyDate, totArea, totTrees) + '</div></div>'
-      : '<div class="ps-tbl">' + tableHtml(chosen, anyDate, totArea, totTrees) + '</div>';
+      ? '<div class="ps-body"' + (extra ? ' style="flex-direction:column;"' : '') + '><div class="ps-map"' + (extra ? ' style="max-width:100%;margin:0 auto;"' : '') + '>' + satSquareSvg(drawn, c1, c2, ghosts) + '</div>' +
+          '<div class="ps-tbl"' + (extra ? ' style="width:100%;"' : '') + '>' + tableHtml(chosen, anyDate, totArea, totTrees, extra) + '</div></div>'
+      : '<div class="ps-tbl">' + tableHtml(chosen, anyDate, totArea, totTrees, extra) + '</div>';
 
     var missingGeo = chosen.length - drawn.length;
     var note = missingGeo
@@ -743,7 +748,7 @@ var ReportMap = (function () {
     return [p.crop_type, p.variety].filter(Boolean).map(escH).join(' · ');
   }
 
-  function tableHtml(rows, anyDate, totArea, totTrees) {
+  function tableHtml(rows, anyDate, totArea, totTrees, extra) {
     // Columns follow the branches present: plant counts only when some plot
     // counts plants, young/missing only for orchards and vineyards, a
     // sowing/planting date only for annual crops.
@@ -758,6 +763,7 @@ var ReportMap = (function () {
       (anyYm ? '<th>' + tt('צעירים', 'ต้นอ่อน', 'صغيرة') + '</th><th>' + tt('חסרים', 'ขาด', 'ناقصة') + '</th>' : '') +
       (anyDate ? '<th>' + tt('זכרים', 'ตัวผู้', 'ذكور') + '</th>' : '') +
       (anyPlant ? '<th>' + tt('זריעה / שתילה', 'หว่าน/ปลูก', 'البذر / الزراعة') + '</th>' : '') +
+      (extra ? '<th>' + escH(extra.head || '') + '</th>' : '') +
       '</tr></thead><tbody>';
     rows.forEach(function (o) {
       var p = o.p, bd = bdefOf(p);
@@ -771,12 +777,13 @@ var ReportMap = (function () {
                  '<td class="n">' + (bd.ym && p.missing_trees ? fmtNum(p.missing_trees) : '—') + '</td>' : '') +
         (anyDate ? '<td class="n">' + (isDate(p) && p.male_trees ? fmtNum(p.male_trees) : '—') + '</td>' : '') +
         (anyPlant ? '<td class="n">' + (bd.plant && p.planting_date ? fmtDay(p.planting_date) : '—') + '</td>' : '') +
+        (extra ? '<td class="ps-x">' + (extra.cells[p.id] || '<span style="color:#9a958f;">' + tt('לא בתוכנית', 'ไม่อยู่ในแผน', 'ليست في الخطة') + '</span>') + '</td>' : '') +
         '</tr>';
     });
     h += '</tbody><tfoot><tr><td></td><td>' + tt('סה"כ', 'รวม', 'المجموع') + '</td><td></td>' +
       '<td class="n">' + fmtNum(totArea, 2) + '</td>' +
       (anyCount ? '<td class="n">' + (totTrees ? fmtNum(totTrees) : '—') + '</td>' : '') +
-      (anyYm ? '<td></td><td></td>' : '') + (anyDate ? '<td></td>' : '') + (anyPlant ? '<td></td>' : '') +
+      (anyYm ? '<td></td><td></td>' : '') + (anyDate ? '<td></td>' : '') + (anyPlant ? '<td></td>' : '') + (extra ? '<td></td>' : '') +
       '</tr></tfoot></table>';
     return h;
   }
