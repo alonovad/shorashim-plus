@@ -16,13 +16,14 @@
  *
  * Data: appData/shorashim-shipments-YYYY (season: from July, else last year)
  *   { notes: [{ id, farmId, growerNo, intakeNo, type, harvestDate, exitDate,
- *               dest, note, pallets: [{ id, barcode, crates, grossFarm,
+ *               dest, note, pallets: [{ id, barcode, ptype (wood|plastic|none), crates, grossFarm,
  *               weighDate, grossPh }] }],
  *     crates: [{ id, farmId, date, kind: 'in'|'out', qty, pallets, type, note }],
  *     fin: { [harvestReportId]: { prices: {code: {price, change}}, sortMode,
  *            sortRate, sortTotal, basisNet, basisVat, pct, pctMonth,
  *            finalMonth, receipts: [{ id, date, type, amount, newSeason, note }] } },
- *     tare: { [farmId]: kg per crate }, low: { [farmId]: crates } }
+ *     tare: { [farmId]: kg per crate }, ptare: { [farmId]: { wood, plastic } kg },
+ *     low: { [farmId]: crates } }
  *   Operator+ read and write (firestore.rules) — commercial data.
  * Public: Shipments.open(farmId?, tab?, reportId?)
  */
@@ -65,7 +66,7 @@ var Shipments = (function () {
     d = d && typeof d === 'object' ? d : {};
     return { notes: Array.isArray(d.notes) ? d.notes : [], crates: Array.isArray(d.crates) ? d.crates : [],
       fin: d.fin && typeof d.fin === 'object' ? d.fin : {}, tare: d.tare && typeof d.tare === 'object' ? d.tare : {},
-      low: d.low && typeof d.low === 'object' ? d.low : {} };
+      low: d.low && typeof d.low === 'object' ? d.low : {}, ptare: d.ptare && typeof d.ptare === 'object' ? d.ptare : {} };
   }
   function load() {
     if (typeof DB === 'undefined') { D = norm(null); HVD = { reports: [] }; return Promise.resolve(); }
@@ -94,15 +95,23 @@ var Shipments = (function () {
 
   // ── maths ──
   function tareOf(fid) { var t = D && D.tare[String(fid)]; return t != null && t !== '' ? num(t) : 1.15; }
-  function palletCalc(p, tare) {
-    var crates = num(p.crates), tw = crates * tare;
+  // Pallet weight by type, per farm (kg): wood 25, plastic 18 unless set.
+  var PDEF = { wood: 25, plastic: 18, none: 0 };
+  function palletKg(fid, type) {
+    if (!type || type === 'none') return 0;
+    var o = (D && D.ptare && D.ptare[String(fid)]) || {};
+    return o[type] != null && o[type] !== '' ? num(o[type]) : PDEF[type] || 0;
+  }
+  function ptypeLabel(t) { return t === 'plastic' ? tt('פלסטיק', 'พลาสติก', 'بلاستيك') : t === 'none' ? tt('ללא', 'ไม่มี', 'بدون') : tt('עץ', 'ไม้', 'خشب'); }
+  function palletCalc(p, tare, fid) {
+    var crates = num(p.crates), pk = palletKg(fid, p.ptype || 'wood'), tw = crates * tare + pk;
     var nf = num(p.grossFarm) ? num(p.grossFarm) - tw : 0, np = num(p.grossPh) ? num(p.grossPh) - tw : 0;
-    return { crates: crates, tare: tw, netFarm: nf, netPh: np, diff: (num(p.grossFarm) && num(p.grossPh)) ? np - nf : null };
+    return { crates: crates, tare: tw, pallet: pk, netFarm: nf, netPh: np, diff: (num(p.grossFarm) && num(p.grossPh)) ? np - nf : null };
   }
   function noteCalc(n) {
     var t = tareOf(n.farmId), o = { pallets: 0, crates: 0, netFarm: 0, netPh: 0, diff: 0, both: 0, pending: false };
     (n.pallets || []).forEach(function (p) {
-      var c = palletCalc(p, t);
+      var c = palletCalc(p, t, n.farmId);
       o.pallets++; o.crates += c.crates; o.netFarm += c.netFarm; o.netPh += c.netPh;
       if (c.diff != null) { o.diff += c.diff; o.both += c.netFarm; } else if (num(p.grossFarm)) o.pending = true;
     });
@@ -158,7 +167,9 @@ var Shipments = (function () {
       kpi(tt('ממתינים לקליטה', 'รอรับเข้า', 'بانتظار الاستلام'), fmt(tot.pending) + ' ' + tt('תעודות', 'ใบ', 'سندات'), tot.pending ? 'warn' : '') + '</div>';
     var bar = '<div class="sh-bar"><button class="sh-btn pri" data-a="newnote">＋ ' + tt('תעודת משלוח', 'ใบส่งใหม่', 'سند شحن جديد') + '</button>' +
       '<label class="sh-tare">⚖️ ' + tt('טרה לארגז (ק"ג)', 'น้ำหนักลัง (กก.)', 'وزن الصندوق (كغ)') + ' <input class="form-input" id="shTare" type="number" step="0.01" value="' + tareOf(ui.farm) + '"></label>' +
-      '<span class="sh-mut">' + tt('כל שורה = משטח. נטו = ברוטו פחות ארגזים × טרה; הפער מחושב אוטומטית.', 'แต่ละแถว = พาเลท', 'كل صف = منصة') + '</span></div>';
+      '<label class="sh-tare">🪵 ' + tt('משטח עץ (ק"ג)', 'พาเลทไม้ (กก.)', 'منصة خشب (كغ)') + ' <input class="form-input" id="shPw" type="number" step="0.1" value="' + palletKg(ui.farm, 'wood') + '"></label>' +
+      '<label class="sh-tare">▦ ' + tt('משטח פלסטיק (ק"ג)', 'พาเลทพลาสติก (กก.)', 'منصة بلاستيك (كغ)') + ' <input class="form-input" id="shPp" type="number" step="0.1" value="' + palletKg(ui.farm, 'plastic') + '"></label>' +
+      '<span class="sh-mut">' + tt('כל שורה = משטח. נטו = ברוטו פחות ארגזים × טרה ופחות משקל המשטח; הפער מחושב אוטומטית.', 'แต่ละแถว = พาเลท', 'كل صف = منصة') + '</span></div>';
     var list = ns.map(function (n) {
       var c = noteCalc(n), t = tareOf(n.farmId), op = !!ui.open[n.id];
       var dp = c.both ? c.diff / c.both * 100 : 0;
@@ -172,12 +183,12 @@ var Shipments = (function () {
         (mine(n) ? '<button class="sh-btn ghost sm" data-edit="' + n.id + '">✏️</button>' : '') + '</div>';
       if (!op) return '<div class="sh-note">' + hd + '</div>';
       var rows = (n.pallets || []).map(function (p, i) {
-        var pc = palletCalc(p, t);
-        return '<tr><td>' + (i + 1) + '</td><td>' + esc(p.barcode || '—') + '</td><td class="n">' + fmt(pc.crates) + '</td><td class="n">' + (num(p.grossFarm) ? fmt(p.grossFarm) : '—') + '</td><td class="n a">' + (pc.netFarm ? fmt(pc.netFarm, 1) : '—') + '</td>' +
+        var pc = palletCalc(p, t, n.farmId);
+        return '<tr><td>' + (i + 1) + '</td><td>' + esc(p.barcode || '—') + '</td><td>' + ptypeLabel(p.ptype || 'wood') + '</td><td class="n">' + fmt(pc.crates) + '</td><td class="n">' + (num(p.grossFarm) ? fmt(p.grossFarm) : '—') + '</td><td class="n a">' + (pc.netFarm ? fmt(pc.netFarm, 1) : '—') + '</td>' +
           '<td>' + fmtD(p.weighDate) + '</td><td class="n">' + (num(p.grossPh) ? fmt(p.grossPh) : '—') + '</td><td class="n a">' + (pc.netPh ? fmt(pc.netPh, 1) : '—') + '</td><td class="n a">' + fmt(pc.tare, 1) + '</td>' +
           '<td class="n a ' + (pc.diff == null ? '' : pc.diff < 0 ? 'neg' : pc.diff > 0 ? 'pos' : '') + '">' + (pc.diff == null ? '—' : signed(pc.diff, 1)) + '</td></tr>';
       }).join('');
-      return '<div class="sh-note">' + hd + '<div class="sh-tw"><table><thead><tr><th>#</th><th>' + tt('ברקוד', 'บาร์โค้ด', 'باركود') + '</th><th>' + tt('ארגזים', 'ลัง', 'صناديق') + '</th><th>' + tt('ברוטו משק', 'รวมฟาร์ม', 'إجمالي مزرعة') + '</th><th>' + tt('נטו משק', 'สุทธิฟาร์ม', 'صافي مزرعة') + '</th>' +
+      return '<div class="sh-note">' + hd + '<div class="sh-tw"><table><thead><tr><th>#</th><th>' + tt('ברקוד', 'บาร์โค้ด', 'باركود') + '</th><th>' + tt('משטח', 'พาเลท', 'منصة') + '</th><th>' + tt('ארגזים', 'ลัง', 'صناديق') + '</th><th>' + tt('ברוטו משק', 'รวมฟาร์ม', 'إجمالي مزرعة') + '</th><th>' + tt('נטו משק', 'สุทธิฟาร์ม', 'صافي مزرعة') + '</th>' +
         '<th>' + tt('שקילה ב"א', 'ชั่งที่โรงคัด', 'وزن ب.ت') + '</th><th>' + tt('ברוטו ב"א', 'รวมโรงคัด', 'إجمالي ب.ت') + '</th><th>' + tt('נטו ב"א', 'สุทธิโรงคัด', 'صافي ب.ت') + '</th><th>' + tt('טרה', 'น้ำหนักลัง', 'الوزن الفارغ') + '</th><th>' + tt('פער ב"א−משק', 'ส่วนต่าง', 'الفرق') + '</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
         (n.note ? '<div class="sh-mut" style="padding:6px 10px;">' + esc(n.note) + '</div>' : '') +
         (window.Comments ? Comments.block('ship:' + n.id, tt('תעודת מגדל', 'ใบส่ง', 'سند') + ' ' + (n.growerNo || '')) : '') + '</div>';
@@ -191,9 +202,10 @@ var Shipments = (function () {
     var t = tareOf(n.farmId);
     var types = [tt('יבש', 'แห้ง', 'جاف'), tt('עסיסי', 'ฉ่ำ', 'عصيري'), tt('רטוב', 'เปียก', 'رطب')];
     var rows = n.pallets.map(function (p, i) {
-      var pc = palletCalc(p, t);
+      var pc = palletCalc(p, t, n.farmId);
       return '<tr><td>' + (i + 1) + '</td>' +
         '<td><input class="form-input" data-p="' + i + '" data-k="barcode" value="' + esc(p.barcode || '') + '"></td>' +
+        '<td><select class="form-input" data-p="' + i + '" data-k="ptype">' + ['wood', 'plastic', 'none'].map(function (x) { return '<option value="' + x + '"' + ((p.ptype || 'wood') === x ? ' selected' : '') + '>' + ptypeLabel(x) + '</option>'; }).join('') + '</select></td>' +
         '<td><input class="form-input n" type="number" data-p="' + i + '" data-k="crates" value="' + esc(p.crates) + '"></td>' +
         '<td><input class="form-input n" type="number" step="any" data-p="' + i + '" data-k="grossFarm" value="' + esc(p.grossFarm || '') + '"></td>' +
         '<td class="a n" id="shNf' + i + '">' + (pc.netFarm ? fmt(pc.netFarm, 1) : '') + '</td>' +
@@ -216,9 +228,9 @@ var Shipments = (function () {
         '<button class="sh-btn" data-a="addp">＋ ' + tt('משטח', 'พาเลท', 'منصة') + '</button>' +
         '<span class="sh-mut">' + tt('הוסף', 'เพิ่ม', 'أضف') + '</span><input class="form-input sh-mini" id="shAddN" type="number" value="5" min="1" max="60">' +
         '<span class="sh-mut">' + tt('משטחים של', 'พาเลท ของ', 'منصات من') + '</span><input class="form-input sh-mini" id="shAddC" type="number" value="100">' +
-        '<span class="sh-mut">' + tt('ארגזים', 'ลัง', 'صناديق') + '</span><button class="sh-btn" data-a="addmany">＋</button>' +
-        '<span class="sh-mut">· ' + tt('טרה', 'น้ำหนักลัง', 'الوزن الفارغ') + ' ' + t + ' ' + tt('ק"ג לארגז', 'กก./ลัง', 'كغ/صندوق') + '</span></div>' +
-      '<div class="sh-tw"><table class="sh-edit"><thead><tr><th>#</th><th>' + tt('ברקוד', 'บาร์โค้ด', 'باركود') + '</th><th>' + tt('ארגזים', 'ลัง', 'صناديق') + '</th><th>' + tt('ברוטו משק', 'รวมฟาร์ม', 'إجمالي مزرعة') + '</th><th>' + tt('נטו משק', 'สุทธิฟาร์ม', 'صافي مزرعة') + '</th><th>' + tt('תאריך שקילה ב"א', 'วันที่ชั่งโรงคัด', 'تاريخ الوزن ب.ت') + '</th><th>' + tt('ברוטו ב"א', 'รวมโรงคัด', 'إجمالي ب.ت') + '</th><th>' + tt('נטו ב"א', 'สุทธิโรงคัด', 'صافي ب.ت') + '</th><th>' + tt('פער', 'ส่วนต่าง', 'الفرق') + '</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+        '<span class="sh-mut">' + tt('ארגזים, משטח', 'ลัง, พาเลท', 'صناديق، منصة') + '</span><select class="form-input sh-mini" id="shAddT">' + ['wood', 'plastic', 'none'].map(function (x) { return '<option value="' + x + '">' + ptypeLabel(x) + '</option>'; }).join('') + '</select><button class="sh-btn" data-a="addmany">＋</button>' +
+        '<span class="sh-mut">· ' + tt('טרה', 'น้ำหนักลัง', 'الوزن الفارغ') + ' ' + t + ' ' + tt('ק"ג לארגז', 'กก./ลัง', 'كغ/صندوق') + ' · ' + tt('משטח עץ', 'พาเลทไม้', 'منصة خشب') + ' ' + palletKg(n.farmId, 'wood') + ' · ' + tt('פלסטיק', 'พลาสติก', 'بلاستيك') + ' ' + palletKg(n.farmId, 'plastic') + '</span></div>' +
+      '<div class="sh-tw"><table class="sh-edit"><thead><tr><th>#</th><th>' + tt('ברקוד', 'บาร์โค้ด', 'باركود') + '</th><th>' + tt('משטח', 'พาเลท', 'منصة') + '</th><th>' + tt('ארגזים', 'ลัง', 'صناديق') + '</th><th>' + tt('ברוטו משק', 'รวมฟาร์ม', 'إجمالي مزرعة') + '</th><th>' + tt('נטו משק', 'สุทธิฟาร์ม', 'صافي مزرعة') + '</th><th>' + tt('תאריך שקילה ב"א', 'วันที่ชั่งโรงคัด', 'تاريخ الوزن ب.ت') + '</th><th>' + tt('ברוטו ב"א', 'รวมโรงคัด', 'إجمالي ب.ت') + '</th><th>' + tt('נטו ב"א', 'สุทธิโรงคัด', 'صافي ب.ت') + '</th><th>' + tt('פער', 'ส่วนต่าง', 'الفرق') + '</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
       fld(tt('הערה', 'หมายเหตุ', 'ملاحظة'), '<input class="form-input" id="shNo" value="' + esc(n.note || '') + '">') +
       '<div class="sh-bar"><button class="sh-btn pri" data-a="savenote">💾 ' + tt('שמור תעודה', 'บันทึกใบส่ง', 'حفظ السند') + '</button>' +
         (!n._new ? '<button class="sh-btn warn" data-a="delnote">🗑 ' + tt('מחק', 'ลบ', 'حذف') + '</button>' : '') +
@@ -430,7 +442,7 @@ var Shipments = (function () {
       var i = Number(t.getAttribute('data-p')), k = t.getAttribute('data-k'), p = ui.edit.pallets[i];
       if (!p) return;
       p[k] = t.value;
-      var pc = palletCalc(p, tareOf(ui.edit.farmId));
+      var pc = palletCalc(p, tareOf(ui.edit.farmId), ui.edit.farmId);
       var a = document.getElementById('shNf' + i), b = document.getElementById('shNp' + i), c = document.getElementById('shDf' + i);
       if (a) a.textContent = pc.netFarm ? fmt(pc.netFarm, 1) : '';
       if (b) b.textContent = pc.netPh ? fmt(pc.netPh, 1) : '';
@@ -439,10 +451,15 @@ var Shipments = (function () {
   }
   function onChange(e) {
     var t = e.target;
+    if (t.hasAttribute('data-p') && t.tagName === 'SELECT') { onInput(e); return; }
     if (t.id === 'shSeason') { season = Number(t.value); ui.edit = null; return load().then(render); }
     if (t.id === 'shFarm') { ui.farm = t.value; ui.edit = null; ui.crateForm = null; return render(); }
     if (t.id === 'shRep') { ui.rep = t.value; return render(); }
     if (t.id === 'shTare') { var v = num(t.value); return commit(function (b) { b.tare[ui.farm] = v; }).then(render); }
+    if (t.id === 'shPw' || t.id === 'shPp') {
+      var pv = num(t.value), pkind = t.id === 'shPw' ? 'wood' : 'plastic';
+      return commit(function (b) { b.ptare[ui.farm] = b.ptare[ui.farm] || {}; b.ptare[ui.farm][pkind] = pv; }).then(render);
+    }
     if (t.id === 'shLow') { var lv = num(t.value); return commit(function (b) { b.low[ui.farm] = lv; }).then(render); }
     if (t.hasAttribute('data-fp')) {
       var code = t.getAttribute('data-fp'), k = t.getAttribute('data-k'), val = t.value;
@@ -472,18 +489,19 @@ var Shipments = (function () {
     if (k === 'close') return close();
     if (k === 'back') { ui.edit = null; return render(); }
     if (k === 'newnote') { ui.edit = { _new: true, id: uid(), farmId: Number(ui.farm), growerNo: '', intakeNo: '', type: tt('יבש', 'แห้ง', 'جاف'), harvestDate: today(), exitDate: today(), dest: '', note: '', pallets: [] }; return render(); }
-    if (k === 'addp') { readNote(); var last = ui.edit.pallets[ui.edit.pallets.length - 1]; ui.edit.pallets.push({ id: uid(), barcode: '', crates: last ? last.crates : 100, grossFarm: '', weighDate: last ? last.weighDate : '', grossPh: '' }); return render(); }
+    if (k === 'addp') { readNote(); var last = ui.edit.pallets[ui.edit.pallets.length - 1]; ui.edit.pallets.push({ id: uid(), barcode: '', ptype: last ? (last.ptype || 'wood') : 'wood', crates: last ? last.crates : 100, grossFarm: '', weighDate: last ? last.weighDate : '', grossPh: '' }); return render(); }
     if (k === 'addmany') {
       readNote();
       var nn = Math.max(1, Math.min(60, num((document.getElementById('shAddN') || {}).value) || 1)), cc = num((document.getElementById('shAddC') || {}).value) || 100;
-      for (var q = 0; q < nn; q++) ui.edit.pallets.push({ id: uid() + q, barcode: '', crates: cc, grossFarm: '', weighDate: '', grossPh: '' });
+      var pt = (document.getElementById('shAddT') || {}).value || 'wood';
+      for (var q = 0; q < nn; q++) ui.edit.pallets.push({ id: uid() + q, barcode: '', ptype: pt, crates: cc, grossFarm: '', weighDate: '', grossPh: '' });
       return render();
     }
     if (k === 'savenote') {
       readNote();
       var nt = ui.edit; delete nt._new;
       if (!nt.growerNo) { toast('⚠️ ' + tt('חסר מספר תעודת מגדל', 'ขาดเลขใบส่ง', 'رقم السند ناقص')); return; }
-      nt.pallets = nt.pallets.map(function (p) { return { id: p.id, barcode: String(p.barcode || '').trim(), crates: num(p.crates), grossFarm: num(p.grossFarm) || '', weighDate: p.weighDate || '', grossPh: num(p.grossPh) || '' }; });
+      nt.pallets = nt.pallets.map(function (p) { return { id: p.id, barcode: String(p.barcode || '').trim(), ptype: p.ptype || 'wood', crates: num(p.crates), grossFarm: num(p.grossFarm) || '', weighDate: p.weighDate || '', grossPh: num(p.grossPh) || '' }; });
       return commit(function (b) {
         var i = b.notes.findIndex(function (x) { return String(x.id) === String(nt.id); });
         if (i !== -1 && !mine(b.notes[i])) { Own.denied(); return false; }
