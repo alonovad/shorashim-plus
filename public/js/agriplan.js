@@ -2541,7 +2541,7 @@ var AgriPlan = (function () {
     function tank(x, y, w, h) {                     // sprayer tank with its pump
       return '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + h + '" rx="' + h * 0.45 + '" fill="#eceff1" stroke="#90a4ae" stroke-width="2"/>' +
         '<rect x="' + (x + w * 0.4) + '" y="' + (y - 6) + '" width="' + w * 0.2 + '" height="7" rx="2" fill="#b0bec5"/>' +
-        '<text x="' + (x + w / 2) + '" y="' + (y + h * 0.62) + '" font-size="10" font-weight="700" fill="#607d8b" text-anchor="middle" direction="rtl" unicode-bidi="bidi-override">מרסס</text>';
+        '<text x="' + (x + w / 2) + '" y="' + (y + h * 0.62) + '" font-size="10" font-weight="700" fill="#607d8b" text-anchor="middle"' + ((typeof currentLang !== 'undefined' && currentLang === 'th') ? '' : ' direction="rtl" unicode-bidi="bidi-override"') + '>' + esc(tt('מרסס', 'เครื่องพ่น', 'رشاش')) + '</text>';
     }
     function tractor(x, y, col) {                   // tractor facing right, rear wheel at x
       col = col || '#c62828';
