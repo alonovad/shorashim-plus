@@ -46,8 +46,8 @@ var PlotMap = (function () {
   function sat() { return typeof isSatellite === 'undefined' || !!isSatellite; }
   function base() {
     return sat()
-      ? { color: '#ffffff', opacity: 0.9, weight: 2.4, fillColor: '#ffffff', fillOpacity: 0.10, dashArray: null }
-      : { color: '#2f6f45', opacity: 0.9, weight: 2.4, fillColor: '#2f6f45', fillOpacity: 0.08, dashArray: null };
+      ? { color: '#eef2f7', opacity: 1, weight: 3.4, fillColor: '#ffffff', fillOpacity: 0.10, dashArray: null, className: 'pm-plot' }
+      : { color: '#2f6f45', opacity: 0.95, weight: 3.2, fillColor: '#2f6f45', fillOpacity: 0.08, dashArray: null, className: 'pm-plot pm-plot-m' };
   }
   function hot() { return { color: '#ffd84a', opacity: 1, weight: 3.4, fillColor: '#ffd84a', fillOpacity: 0.18, dashArray: null }; }
   function partStyle(s) { var o = {}; Object.keys(s).forEach(function (k) { o[k] = s[k]; }); o.dashArray = '7,5'; o.weight = 2; return o; }
@@ -57,6 +57,8 @@ var PlotMap = (function () {
     if (!p.layer || !p.layer.setStyle) return;
     var s = p.id === hotId ? hot() : base();
     p.layer.setStyle(s);
+    // silver glow (CSS on the SVG path); className only applies at creation
+    [p.layer].concat(p.partLayers || []).forEach(function (l) { if (l && l._path) { l._path.classList.add('pm-plot'); l._path.classList.toggle('pm-plot-m', !sat()); } });
     (p.partLayers || []).forEach(function (l) { if (l.setStyle) l.setStyle(partStyle(s)); });
   }
 
@@ -230,7 +232,7 @@ var PlotMap = (function () {
   function soon() { if (!timer) timer = setTimeout(refresh, 40); }
 
   // ── Card (hover / long press) ──
-  var card = null, hideT = null, swallowUntil = 0;
+  var card = null, swallowUntil = 0;
   var canHover = window.matchMedia && matchMedia('(hover: hover) and (pointer: fine)').matches;
 
   function lastWork(p) {
@@ -263,7 +265,7 @@ var PlotMap = (function () {
     if (ev.operatorName) m += (m ? ' · ' : '') + ev.operatorName;
     return { t: tt('ריסוס', 'การพ่น', 'رش') + ' · ' + day(ev.date), m: m };
   }
-  function cardHtml(p) {
+  function cardHtml(p, pinned) {
     var f = farmOf(p), br = branchOf(p), w = countWord(p);
     var crop = String(p.crop_type || '').trim(), variety = String(p.variety || '').trim();
     var yr = String(p.planting_date || '').slice(0, 4);
@@ -293,63 +295,73 @@ var PlotMap = (function () {
     if (sp) { var s = sprayText(sp); rows += '<div class="pm-row"><i>🧪</i><div><div class="pm-t">' + esc(s.t) + '</div><div class="pm-m">' + esc(s.m) + '</div></div></div>'; }
     if (!rows) rows = '<div class="pm-row pm-none">' + tt('אין עדיין פעולות ביומן לחלקה הזו', 'ยังไม่มีบันทึก', 'لا توجد سجلات بعد') + '</div>';
     return '<div class="pm-h"><span>' + cropIco(p) + ' ' + esc(plotName(p)) + '</span>' +
-        (canHover ? '' : '<button type="button" class="pm-x" aria-label="' + tt('סגור', 'ปิด', 'إغلاق') + '" data-no-sticky data-no-back>✕</button>') + '</div>' +
+        (!pinned ? '' : '<button type="button" class="pm-x" aria-label="' + tt('סגור', 'ปิด', 'إغلاق') + '" data-no-sticky data-no-back>✕</button>') + '</div>' +
       '<div class="pm-sub">' + esc(sub) + '</div>' +
       '<div class="pm-kpi">' + k + '</div>' + rows +
-      '<button type="button" class="pm-open" data-no-sticky data-no-back>' + tt('פתח כרטיס חלקה', 'เปิดการ์ดแปลง', 'افتح بطاقة القطعة') + '</button>';
+      (pinned ? '<button type="button" class="pm-open" data-no-sticky data-no-back>' + tt('פתח כרטיס חלקה', 'เปิดการ์ดแปลง', 'افتح بطاقة القطعة') + '</button>'
+              : '<div class="pm-hint">' + tt('לחיצה על החלקה פותחת את הכרטיס המלא', 'คลิกแปลงเพื่อเปิดการ์ด', 'انقر القطعة لفتح البطاقة') + '</div>');
   }
+  // Hover: a light "peek" that ignores the mouse (pointer-events:none), built
+  // once per plot and only slid along with the pointer (transform, one per
+  // frame). Long press / right click: a pinned card with buttons.
+  var shown = null, pinnedNow = false, raf = 0, lastPt = null;
   function ensureCard() {
     if (card) return card;
     card = document.createElement('div');
     card.className = 'pm-card';
-    card.addEventListener('mouseenter', function () { clearTimeout(hideT); });
-    card.addEventListener('mouseleave', function () { hideSoon(); });
     document.body.appendChild(card);
     return card;
   }
-  function show(p, pt) {
+  function place(pt) {
+    if (!card || !pt) return;
+    var r = map.getContainer().getBoundingClientRect(), cw = card.offsetWidth, ch = card.offsetHeight;
+    var ax = r.left + pt.x, ay = r.top + pt.y;
+    // beside the pointer, on the side with room, never off the map
+    var left = ax + 22 + cw > r.right ? ax - 22 - cw : ax + 22;
+    var top = Math.min(Math.max(ay - ch / 2, r.top + 8), r.bottom - ch - 8);
+    card.style.transform = 'translate3d(' + Math.round(Math.max(r.left + 8, left)) + 'px,' + Math.round(top) + 'px,0)';
+  }
+  function follow(pt) {
+    lastPt = pt;
+    if (raf) return;
+    raf = requestAnimationFrame(function () { raf = 0; place(lastPt); });
+  }
+  function show(p, pt, pinned) {
     if (typeof drawMode !== 'undefined' && drawMode) return;
-    clearTimeout(hideT);
     var c = ensureCard();
-    c.innerHTML = cardHtml(p);
-    c.querySelector('.pm-open').onclick = function () { hide(); if (typeof showPlotDetails === 'function') showPlotDetails(p.id); };
-    var x = c.querySelector('.pm-x'); if (x) x.onclick = hide;
-    c.classList.toggle('pm-sheet', !canHover);
-    c.style.display = 'block';
-    if (canHover && pt) {
-      var r = map.getContainer().getBoundingClientRect(), cw = c.offsetWidth, ch = c.offsetHeight;
-      var ax = r.left + pt.x, ay = r.top + pt.y;
-      // beside the pointer, on the side with room, never off the map
-      var left = ax + 18 + cw > r.right ? ax - 18 - cw : ax + 18;
-      var top = Math.min(Math.max(ay - ch / 2, r.top + 8), r.bottom - ch - 8);
-      c.style.left = Math.max(r.left + 8, left) + 'px';
-      c.style.top = top + 'px';
-    } else {
-      c.style.left = ''; c.style.top = '';
+    if (shown !== p.id || pinnedNow !== !!pinned || c.style.display !== 'block') {
+      shown = p.id; pinnedNow = !!pinned;
+      c.innerHTML = cardHtml(p, pinnedNow);
+      var o = c.querySelector('.pm-open'); if (o) o.onclick = function () { hide(); if (typeof showPlotDetails === 'function') showPlotDetails(p.id); };
+      var x = c.querySelector('.pm-x'); if (x) x.onclick = hide;
+      c.classList.toggle('pm-peek', !pinnedNow);
+      c.classList.toggle('pm-sheet', pinnedNow && !canHover);
+      c.style.display = 'block';
     }
+    if (pinnedNow && !canHover) c.style.transform = ''; else place(pt);
     if (hotId !== p.id) { var prev = hotId; hotId = p.id; [prev, p.id].forEach(function (id) { var q = plots.find(function (z) { return z.id === id; }); if (q) paint(q); }); }
   }
   function hide() {
-    clearTimeout(hideT);
     if (card) card.style.display = 'none';
+    shown = null; pinnedNow = false;
     if (hotId != null) { var q = plots.find(function (z) { return z.id === hotId; }); hotId = null; if (q) paint(q); }
   }
-  function hideSoon() { clearTimeout(hideT); hideT = setTimeout(hide, 220); }
+  function hideSoon() { if (!pinnedNow) hide(); }
 
   function wire(p) {
     [p.layer].concat(p.partLayers || []).forEach(function (l) {
       if (!l || l._pmWired) return;
       l._pmWired = true;
       if (canHover) {
-        l.on('mouseover', function (e) { show(p, e.containerPoint); });
-        l.on('mousemove', function (e) { if (card && card.style.display === 'block' && hotId === p.id) show(p, e.containerPoint); });
+        l.on('mouseover', function (e) { if (!pinnedNow) show(p, e.containerPoint, false); });
+        l.on('mousemove', function (e) { if (!pinnedNow && shown === p.id) follow(e.containerPoint); });
         l.on('mouseout', hideSoon);
       }
       // long press on touch (and right click with a mouse)
       l.on('contextmenu', function (e) {
         if (e.originalEvent) L.DomEvent.preventDefault(e.originalEvent);
         swallowUntil = Date.now() + 800;
-        show(p, e.containerPoint);
+        show(p, e.containerPoint, true);
       });
     });
   }
@@ -363,6 +375,8 @@ var PlotMap = (function () {
     s.id = 'pmCss';
     s.textContent =
       '.pm-wrap{background:none;border:0}' +
+      '.pm-plot{filter:drop-shadow(0 0 1.5px rgba(255,255,255,.95)) drop-shadow(0 0 5px rgba(205,218,232,.6))}' +
+      '.pm-plot-m{filter:drop-shadow(0 0 2px rgba(255,255,255,.9))}' +
       '.pm-lbl{position:absolute;left:0;top:0;transform:translate(-50%,-50%);text-align:center;white-space:nowrap;pointer-events:none;color:#fff;font-family:Heebo,sans-serif;line-height:1.28;' +
         'text-shadow:0 1px 2px rgba(0,0,0,.8),0 0 6px rgba(0,0,0,.5)}' +
       '.pm-lbl b{display:block;font-size:14px;font-weight:800}' +
@@ -371,8 +385,9 @@ var PlotMap = (function () {
       '.pm-lbl.pm-dk{color:#1f3b27;text-shadow:0 0 3px #fff,0 0 6px #fff,0 0 2px #fff}' +
       '.pm-farm{position:absolute;left:0;top:0;transform:translate(-50%,-115%);white-space:nowrap;pointer-events:none;background:rgba(20,26,22,.62);color:#fff;font:700 11.5px Heebo,sans-serif;' +
         'padding:3px 10px;border-radius:9px;backdrop-filter:blur(4px)}' +
-      '.pm-card{position:fixed;z-index:1200;display:none;width:260px;background:rgba(255,255,255,.98);color:#26302a;border-radius:16px;box-shadow:0 8px 28px rgba(0,0,0,.28);' +
+      '.pm-card{position:fixed;left:0;top:0;z-index:1200;display:none;will-change:transform;width:260px;background:rgba(255,255,255,.98);color:#26302a;border-radius:16px;box-shadow:0 8px 28px rgba(0,0,0,.28);' +
         'padding:12px 14px;font:12.5px Heebo,sans-serif;direction:rtl;text-align:right}' +
+      '.pm-card.pm-peek{pointer-events:none}.pm-hint{margin-top:6px;font-size:11px;color:#8a948d;text-align:center}' +
       '.pm-card.pm-sheet{left:10px!important;right:10px;bottom:calc(10px + env(safe-area-inset-bottom));top:auto!important;width:auto;border-radius:20px;max-width:520px;margin:0 auto}' +
       '.pm-h{display:flex;justify-content:space-between;align-items:center;font-size:15px;font-weight:800}' +
       '.pm-x{border:0;background:#f1f4ef;border-radius:50%;width:28px;height:28px;cursor:pointer;color:#55605a}' +
@@ -394,7 +409,7 @@ var PlotMap = (function () {
     css();
     map.on('zoomend', soon);
     map.on('layeradd layerremove', function (e) { if (e.layer instanceof L.TileLayer) soon(); });
-    map.on('movestart zoomstart', function () { if (canHover) hide(); });
+    map.on('movestart zoomstart', function () { if (canHover && !pinnedNow) hide(); });
     map.on('click', function () { if (Date.now() >= swallowUntil) hide(); });
     drawnItems.on('layeradd layerremove', function () { if (!busy) soon(); });
     document.addEventListener('shorashim:plots-rendered', function () { setTimeout(soon, 0); });
