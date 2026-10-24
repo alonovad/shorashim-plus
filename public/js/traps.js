@@ -395,6 +395,16 @@ var Traps = (function () {
       var nSel = Object.keys(mm.sel).length;
       bar = '<div class="tr-mode">▦ <b>' + esc(mm.name) + '</b> — ' + tt('הקש על החלקות שבאזור', 'แตะแปลงในโซน', 'اضغط على قطع المنطقة') + ' (' + nSel + ')' +
         '<span class="tr-bar"><button class="tr-btn pri" data-m="pdone">✔ ' + tt('שמור אזור', 'บันทึกโซน', 'حفظ المنطقة') + '</button><button class="tr-btn" data-m="pall">' + tt('כל חלקות המשק', 'ทุกแปลง', 'كل القطع') + '</button><button class="tr-btn ghost" data-m="cancel">' + tt('ביטול', 'ยกเลิก', 'إلغاء') + '</button></span></div>';
+    } else if (mm && mm.kind === 'edit') {
+      var ns = Object.keys(mm.sel).length, nmv = Object.keys(mm.moved).length;
+      bar = '<div class="tr-mode">✋ ' + (mm.box ? '<b>' + tt('הקש על שתי פינות של מלבן סביב המלכודות', 'แตะสองมุมของสี่เหลี่ยม', 'اضغط زاويتين لمستطيل') + ' (' + mm.box.length + '/2)</b>'
+          : tt('גרור מלכודת כדי להזיז אותה · הקש עליה כדי לסמן', 'ลากเพื่อย้าย · แตะเพื่อเลือก', 'اسحب للنقل · اضغط للتحديد')) +
+        ' · ' + tt('מסומנות', 'เลือก', 'محددة') + ': <b>' + ns + '</b>' +
+        '<span class="tr-bar"><button class="tr-btn' + (mm.box ? ' on' : '') + '" data-m="ebox">▭ ' + tt('סימון במלבן', 'เลือกเป็นสี่เหลี่ยม', 'تحديد بمستطيل') + '</button>' +
+          '<button class="tr-btn" data-m="eall">☑ ' + tt('סמן הכל', 'เลือกทั้งหมด', 'تحديد الكل') + '</button>' +
+          (ns ? '<button class="tr-btn" data-m="enone">' + tt('נקה סימון', 'ล้าง', 'مسح التحديد') + '</button><button class="tr-btn warn" data-m="edel">🗑 ' + tt('מחק מסומנות', 'ลบที่เลือก', 'حذف المحدد') + ' (' + ns + ')</button>' : '') +
+          '<button class="tr-btn pri" data-m="esave">✔ ' + (nmv ? tt('שמור', 'บันทึก', 'حفظ') + ' ' + nmv + ' ' + tt('הזזות', 'การย้าย', 'نقلات') : tt('סיום', 'เสร็จ', 'إنهاء')) + '</button>' +
+          '<button class="tr-btn ghost" data-m="cancel">' + tt('ביטול', 'ยกเลิก', 'إلغاء') + '</button></span></div>';
     } else if (mm && mm.kind === 'place') {
       var cur = trapById(mm.queue[mm.i]);
       bar = '<div class="tr-mode">📍 ' + (cur ? tt('הקש היכן תלויה המלכודת', 'แตะตำแหน่งกับดัก', 'اضغط مكان المصيدة') + ' <b>' + esc(cur.name) + '</b> (' + (mm.i + 1) + '/' + mm.queue.length + ')' : '') +
@@ -409,11 +419,13 @@ var Traps = (function () {
       return '<div class="tr-zc' + (act ? ' on' : '') + '"><div class="tr-zch">' + nameHtml + '</div>' +
         '<div class="tr-zs">' + (drawn ? '✅ ' + (d.plotIds ? tt('לפי', 'ตาม', 'حسب') + ' ' + d.plotIds.length + ' ' + tt('חלקות', 'แปลง', 'قطع') : tt('מסומן במפה', 'วาดแล้ว', 'مرسومة')) : '⚪ ' + tt('עוד לא סומן במפה', 'ยังไม่วาด', 'غير مرسومة')) +
           ' · ' + tz.length + ' ' + tt('מלכודות', 'กับดัก', 'مصائد') + (tz.length ? ' · ' + placed + ' ' + tt('ממוקמות', 'วางแล้ว', 'موضوعة') : '') + '</div>' +
+        (mm && mm.kind === 'edit' && tz.length ? '<div class="tr-zb"><button class="tr-btn" data-m="zsel" data-zn="' + esc(zn) + '">☑ ' + tt('סמן את כל מלכודות האזור', 'เลือกกับดักทั้งโซน', 'تحديد كل مصائد المنطقة') + ' (' + tz.length + ')</button></div>' : '') +
         (mm ? '' : '<div class="tr-zb">' +
           (can ? '<button class="tr-btn" data-zm="draw" data-zn="' + esc(zn) + '">✏️ ' + (drawn ? tt('צייר מחדש', 'วาดใหม่', 'أعد الرسم') : tt('צייר', 'วาด', 'ارسم')) + '</button>' +
             '<button class="tr-btn" data-zm="plots" data-zn="' + esc(zn) + '">▦ ' + tt('מחלקות', 'จากแปลง', 'من القطع') + '</button>' : '') +
           '<button class="tr-btn" data-zm="add" data-zn="' + esc(zn) + '">➕ ' + tt('מלכודות', 'กับดัก', 'مصائد') + '</button>' +
           (tz.length ? '<button class="tr-btn' + (ui.zopen === zn ? ' on' : '') + '" data-zm="list" data-zn="' + esc(zn) + '">☰ ' + tz.length + '</button>' : '') +
+          (tz.length && tz.every(mine) ? '<button class="tr-btn warn" data-zm="deltraps" data-zn="' + esc(zn) + '" title="' + esc(tt('מחק את כל המלכודות באזור', 'ลบกับดักทั้งหมด', 'حذف كل المصائد')) + '">🗑 ' + tz.length + '</button>' : '') +
           (tz.length ? '<button class="tr-btn" data-zm="place" data-zn="' + esc(zn) + '">📍 ' + tt('מקם', 'วาง', 'ضع') + (tz.length - placed ? ' (' + (tz.length - placed) + ')' : '') + '</button>' : '') +
           (can ? '<button class="tr-btn ghost" data-zm="ren" data-zn="' + esc(zn) + '" title="' + esc(tt('שנה שם', 'เปลี่ยนชื่อ', 'إعادة تسمية')) + '">✎</button>' +
             '<button class="tr-btn ghost warn" data-zm="del" data-zn="' + esc(zn) + '" title="' + esc(tt('מחק אזור', 'ลบโซน', 'حذف المنطقة')) + '">🗑</button>' : '') +
@@ -429,6 +441,7 @@ var Traps = (function () {
       '<div class="tr-bar" style="align-items:center;"><b>🧭 ' + tt('אזורי לכידה של', 'โซนของ', 'مناطق') + '</b>' +
         '<select class="form-input tr-y" id="trZF"' + (mm ? ' disabled' : '') + '>' + fs.map(function (f) { return '<option value="' + f.id + '"' + (String(f.id) === String(ui.zf) ? ' selected' : '') + '>' + esc(f.name) + '</option>'; }).join('') +
           '<option value=""' + (!ui.zf ? ' selected' : '') + '>' + tt('— ללא שיוך למשק —', '— ไม่ระบุฟาร์ม —', '— بلا مزرعة —') + '</option></select></div>' +
+      (mm ? '' : (D.traps.some(function (t) { return t.lat != null && t.lat !== '' && mine(t); }) ? '<div class="tr-bar"><button class="tr-btn pri" data-m="edit">✋ ' + tt('הזזה ומחיקה של מלכודות במפה', 'ย้าย/ลบกับดักบนแผนที่', 'نقل وحذف المصائد على الخريطة') + '</button></div>' : '')) +
       bar +
       '<div class="tr-zm"><div class="tr-zl">' + (cards || '<div class="tr-muted">' + tt('אין עדיין אזורים במשק הזה. הוסף אזור למטה.', 'ยังไม่มีโซน', 'لا مناطق بعد') + '</div>') +
         (mm ? '' : '<div class="tr-zc tr-znew"><b>＋ ' + tt('אזור חדש', 'โซนใหม่', 'منطقة جديدة') + '</b><input class="form-input" id="trZNew" placeholder="' + esc(tt('שם האזור, למשל: פצאל צפון', 'ชื่อโซน', 'اسم المنطقة')) + '">' +
@@ -475,6 +488,18 @@ var Traps = (function () {
     D.traps.forEach(function (t) {
       if (t.lat == null || t.lat === '' || !isFinite(Number(t.lat))) return;
       if ((zoneFarm(t.zone) || (t.farmId ? Number(t.farmId) : null)) !== fid) return;
+      if (mm && mm.kind === 'edit') {
+        var mv = mm.moved[t.id], la = mv ? mv.lat : Number(t.lat), ln = mv ? mv.lng : Number(t.lng), on = !!mm.sel[t.id], own = mine(t);
+        var mk = L.marker([la, ln], { draggable: own && !mm.box, keyboard: false, icon: L.divIcon({ className: 'tr-dm', iconSize: [22, 22], iconAnchor: [11, 11],
+          html: '<span style="background:' + trapCol(t) + ';' + (on ? 'outline:3px solid #ffeb3b;outline-offset:1px;' : '') + (own ? '' : 'opacity:.5;') + '"></span>' }) }).addTo(map);
+        mk.bindTooltip(esc(t.name) + ' · ' + esc(t.zone), { direction: 'top', offset: [0, -10] });
+        if (own) {
+          mk.on('click', function (ev) { L.DomEvent.stopPropagation(ev); if (mm.box) return; if (mm.sel[t.id]) delete mm.sel[t.id]; else mm.sel[t.id] = 1; zoneManager(); });
+          mk.on('dragend', function () { var q = mk.getLatLng(); mm.moved[t.id] = { lat: +q.lat.toFixed(6), lng: +q.lng.toFixed(6) }; zoneManager(); });
+        }
+        b.extend([la, ln]);
+        return;
+      }
       var cur = mm && mm.kind === 'place' && String(mm.queue[mm.i]) === String(t.id);
       L.circleMarker([Number(t.lat), Number(t.lng)], { radius: cur ? 10 : 7, color: cur ? '#ffeb3b' : '#fff', weight: 2, fillColor: trapCol(t), fillOpacity: 1, interactive: !mm }).addTo(map)
         .bindTooltip(esc(t.name) + ' · ' + esc(t.zone), { direction: 'top' });
@@ -489,8 +514,19 @@ var Traps = (function () {
     if (keep) map.setView(keep.c, keep.z);
     else if (b.isValid()) map.fitBounds(b, { padding: [24, 24], maxZoom: 17 });
     else map.setView([32.03, 35.47], 13);
+    if (mm && mm.kind === 'edit' && mm.box && mm.box.length === 1) L.circleMarker([mm.box[0].lat, mm.box[0].lng], { radius: 6, color: '#000', weight: 1, fillColor: '#ffeb3b', fillOpacity: 1, interactive: false }).addTo(map);
     map.on('click', function (ev) {
       var m2 = mapMode; if (!m2) return;
+      if (m2.kind === 'edit') {
+        if (!m2.box) return;
+        m2.box.push({ lat: ev.latlng.lat, lng: ev.latlng.lng });
+        if (m2.box.length === 2) {
+          var bb = L.latLngBounds([m2.box[0].lat, m2.box[0].lng], [m2.box[1].lat, m2.box[1].lng]);
+          editable().forEach(function (t) { var mv = m2.moved[t.id]; if (bb.contains([mv ? mv.lat : Number(t.lat), mv ? mv.lng : Number(t.lng)])) m2.sel[t.id] = 1; });
+          m2.box = null;
+        }
+        zoneManager(); return;
+      }
       if (m2.kind === 'zone') { m2.pts.push({ lat: +ev.latlng.lat.toFixed(6), lng: +ev.latlng.lng.toFixed(6) }); zoneManager(); return; }
       if (m2.kind === 'place') {
         var t = trapById(m2.queue[m2.i]);
@@ -502,8 +538,16 @@ var Traps = (function () {
     });
   }
 
-  function onMapTool(k) {
+  // traps on this farm's map that this user may move or delete
+  function editable() {
+    var fid = ui.zf ? Number(ui.zf) : null;
+    return D.traps.filter(function (t) {
+      return t.lat != null && t.lat !== '' && isFinite(Number(t.lat)) && mine(t) && (zoneFarm(t.zone) || (t.farmId ? Number(t.farmId) : null)) === fid;
+    });
+  }
+  function onMapTool(k, zn) {
     var mm = mapMode;
+    if (k === 'edit') { mapMode = { kind: 'edit', sel: {}, moved: {}, box: null }; return zoneManager(); }
     if (k === 'cancel') {
       var placed = mm && mm.kind === 'place' && mm.i > 0;
       mapMode = null;
@@ -511,6 +555,23 @@ var Traps = (function () {
       return;
     }
     if (!mm) return;
+    if (mm.kind === 'edit') {
+      if (k === 'ebox') { mm.box = mm.box ? null : []; return zoneManager(); }
+      if (k === 'eall') { editable().forEach(function (t) { mm.sel[t.id] = 1; }); return zoneManager(); }
+      if (k === 'enone') { mm.sel = {}; return zoneManager(); }
+      if (k === 'zsel') { D.traps.forEach(function (t) { if (t.zone === zn && mine(t)) mm.sel[t.id] = 1; }); return zoneManager(); }
+      if (k === 'edel') {
+        var ids = Object.keys(mm.sel);
+        return delTraps(ids, function () { ids.forEach(function (id) { delete mm.moved[id]; }); mm.sel = {}; zoneManager(); });
+      }
+      if (k === 'esave') {
+        var n = 0;
+        Object.keys(mm.moved).forEach(function (id) { var t = trapById(id); if (t && mine(t)) { t.lat = mm.moved[id].lat; t.lng = mm.moved[id].lng; n++; } });
+        mapMode = null;
+        if (!n) return zoneManager();
+        return persist().then(function (ok) { if (ok) toast('✅ ' + n + ' ' + tt('מלכודות הוזזו', 'กับดักถูกย้าย', 'مصائد نُقلت')); zoneManager(); });
+      }
+    }
     if (k === 'zundo') { mm.pts.pop(); zoneManager(); return; }
     if (k === 'pskip') { mm.i++; if (mm.i >= mm.queue.length) { onMapTool('cancel'); return; } zoneManager(); return; }
     if (k === 'pall') {
@@ -592,8 +653,11 @@ var Traps = (function () {
     if (k === 'del') {
       var tr2 = D.traps.filter(function (t) { return t.zone === zn; });
       if (!zmCan(zn) || tr2.some(function (t) { return !mine(t); })) { if (window.Own) Own.denied(); return; }
-      if (!confirm(tt('למחוק את האזור', 'ลบโซน', 'حذف المنطقة') + ' "' + zn + '"?')) return;
-      var also = tr2.length && confirm(tt('למחוק גם את', 'ลบด้วย', 'حذف أيضًا') + ' ' + tr2.length + ' ' + tt('המלכודות שבאזור ואת הספירות שלהן?\n(ביטול = המלכודות יישארו, בלי אזור)', 'กับดักในโซน?', 'مصائد المنطقة؟'));
+      var also = false;
+      if (tr2.length) {
+        also = confirm(tt('למחוק את האזור', 'ลบโซน', 'حذف المنطقة') + ' "' + zn + '" ' + tt('ואת כל', 'และกับดักทั้ง', 'وكل') + ' ' + tr2.length + ' ' + tt('המלכודות שבו, כולל הספירות שלהן?', 'กับดักพร้อมการนับ?', 'المصائد مع عدّاتها؟'));
+        if (!also && !confirm(tt('למחוק רק את האזור? המלכודות יישארו, בלי אזור.', 'ลบเฉพาะโซน? กับดักยังอยู่', 'حذف المنطقة فقط؟ تبقى المصائد بلا منطقة.'))) return;
+      } else if (!confirm(tt('למחוק את האזור', 'ลบโซน', 'حذف المنطقة') + ' "' + zn + '"?')) return;
       if (also) {
         var ids = tr2.map(function (t) { return String(t.id); });
         D.traps = D.traps.filter(function (t) { return ids.indexOf(String(t.id)) === -1; });
@@ -926,7 +990,7 @@ var Traps = (function () {
       if (k === 'print') return printReport();
       if (k === 'chart') return chartView();
     }
-    var mt = t.closest('[data-m]'); if (mt) return onMapTool(mt.getAttribute('data-m'));
+    var mt = t.closest('[data-m]'); if (mt) return onMapTool(mt.getAttribute('data-m'), mt.getAttribute('data-zn'));
     var zm = t.closest('[data-zm]'); if (zm) return onZm(zm.getAttribute('data-zm'), zm.getAttribute('data-zn'));
     var dt = t.closest('[data-deltrap]');
     if (dt) { var from = ui.view; return delTraps([dt.getAttribute('data-deltrap')], function () { if (from === 'zm') zoneManager(); else zoneView(ui.zone); }); }
@@ -979,6 +1043,7 @@ var Traps = (function () {
       '.tr-chart{border:1px solid var(--line,#e6ebe2);border-radius:14px;padding:8px;background:var(--card,#fff);}' +
       '.tr-lgs{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin:0 4px 6px;}.tr-lg{font-size:.82rem;}.tr-lg i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-inline-end:5px;vertical-align:-1px;}' +
       '.tr-mode{background:#fffbea;border-radius:12px;padding:8px 10px;font-size:.84rem;margin-top:6px;}.tr-mode .tr-bar{margin:6px 0 0;}' +
+      '.tr-dm{background:none;border:0}.tr-dm span{display:block;width:18px;height:18px;margin:2px;border-radius:50%;border:2.5px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.45);cursor:grab;}' +
       '.tr-ztip{background:rgba(255,255,255,.88);border:0;border-radius:8px;font-size:.72rem;padding:2px 6px;box-shadow:none;}' +
       '.ts-tbl{min-width:0;}.ts-tbl .form-input{margin:0;}.ts-tbl tr.lo td{background:#fff8d6;}.ts-c{width:80px;}' +
       '.tr-ck small{color:var(--text-muted,#6f7b72);}.tr-cn{font-weight:700;text-align:center;}.tr-x{border:0;background:var(--tonal,#f1f4ee);border-radius:9px;height:30px;cursor:pointer;}';
