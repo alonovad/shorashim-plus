@@ -4056,9 +4056,7 @@ var AgriPlan = (function () {
     return Promise.all(els.map(function (el) {
       var u = el.getAttribute('href') || el.getAttribute('xlink:href') || '';
       if (!/^https?:/.test(u)) return null;
-      cache[u] = cache[u] || fetch(u, { mode: 'cors' }).then(function (r) { if (!r.ok) throw 0; return r.blob(); }).then(function (b) {
-        return new Promise(function (res) { var fr = new FileReader(); fr.onload = function () { res(fr.result); }; fr.onerror = function () { res(null); }; fr.readAsDataURL(b); });
-      }).catch(function () { return null; });
+      cache[u] = cache[u] || toDataUrl(u);
       return cache[u].then(function (d) { if (d) { el.setAttribute('href', d); el.removeAttribute('xlink:href'); } else el.remove(); });
     }).concat(Array.prototype.slice.call(doc.querySelectorAll('img')).map(function (im) {
       var u = im.getAttribute('src') || '';
@@ -4066,22 +4064,24 @@ var AgriPlan = (function () {
       return toDataUrl(u).then(function (d) { if (d) im.setAttribute('src', d); });
     })));
   }
+  var _dl = {};      // url -> Promise<dataURL|null>, shared by every file of a ZIP
   function toDataUrl(u) {
-    return fetch(u, { mode: 'cors' }).then(function (r) { if (!r.ok) throw 0; return r.blob(); }).then(function (b) {
+    if (_dl[u]) return _dl[u];
+    return (_dl[u] = fetch(u, { mode: 'cors' }).then(function (r) { if (!r.ok) throw 0; return r.blob(); }).then(function (b) {
       return new Promise(function (res) { var fr = new FileReader(); fr.onload = function () { res(fr.result); }; fr.onerror = function () { res(null); }; fr.readAsDataURL(b); });
-    }).catch(function () { return null; });
+    }).catch(function () { return null; }));
   }
+  var _css = {};
   function inlineFonts(doc) {
     var links = Array.prototype.slice.call(doc.querySelectorAll('link[rel="stylesheet"]'));
     return Promise.all(links.map(function (l) {
       var href = l.getAttribute('href') || '';
       if (!/^https?:/.test(href)) return null;
-      return fetch(href, { mode: 'cors' }).then(function (r) { return r.ok ? r.text() : ''; }).then(function (css) {
+      _css[href] = _css[href] || fetch(href, { mode: 'cors' }).then(function (r) { return r.ok ? r.text() : ''; }).then(function (css) {
         var urls = css.match(/url\((https?:[^)]+)\)/g) || [];
-        return Promise.all(urls.map(function (m) { var u = m.slice(4, -1).replace(/['"]/g, ''); return toDataUrl(u).then(function (d) { if (d) css = css.split(u).join(d); }); })).then(function () {
-          var st = doc.createElement('style'); st.textContent = css; doc.head.appendChild(st);
-        });
-      }).catch(function () {});
+        return Promise.all(urls.map(function (m) { var u = m.slice(4, -1).replace(/['"]/g, ''); return toDataUrl(u).then(function (d) { if (d) css = css.split(u).join(d); }); })).then(function () { return css; });
+      }).catch(function () { return ''; });
+      return _css[href].then(function (css) { if (css) { var st = doc.createElement('style'); st.textContent = css; doc.head.appendChild(st); } });
     }));
   }
   // ── Page layout for the PDF ──
@@ -4095,7 +4095,7 @@ var AgriPlan = (function () {
     var parts = Array.prototype.slice.call(d.querySelectorAll('body > .page, body > section.page, body > .ps-page, body > .mt-page, body > section.ps-page, body > .lb-page'));
     if (!parts.length) parts = [d.body];
     var opts = w.JSON.parse(JSON.stringify({ margin: 0, image: { type: 'jpeg', quality: 0.97 },
-      html2canvas: { scale: 3, useCORS: true, windowWidth: W, backgroundColor: '#ffffff', logging: false, foreignObjectRendering: true },
+      html2canvas: { scale: 2.4, useCORS: true, windowWidth: W, backgroundColor: '#ffffff', logging: false, foreignObjectRendering: true },
       jsPDF: { unit: 'mm', format: 'a4', orientation: land ? 'landscape' : 'portrait' } }));
     var pdf = null, first = true;
     function safeCuts(el) {
@@ -4216,15 +4216,17 @@ var AgriPlan = (function () {
     function say(t) { if (prog) prog.textContent = t; }
     say('⏳ ' + tt('טוען…', 'กำลังโหลด…', 'جارٍ التحميل…'));
     loadScript(CDN_ZIP, function () { return !!window.JSZip; }).then(function () {
-      var zip = new window.JSZip(), i = 0, fails = [];
+      var zip = new window.JSZip(), i = 0, fails = [], doneN = 0;
       function next() {
         if (i >= s.files.length) return Promise.resolve();
         var f = s.files[i++];
-        say('⏳ ' + tt('מכין', 'กำลังทำ', 'جارٍ التحضير') + ' ' + i + '/' + s.files.length + ' - ' + f.farm);
+        say('⏳ ' + tt('מכין', 'กำลังทำ', 'جارٍ التحضير') + ' ' + (doneN + 1) + '/' + s.files.length + ' - ' + f.farm);
         var doc = exportPages(p, buildPages(f.rows, s.mode), { prices: s.prices, fileName: f.name, returnHtml: true }, f.farm);
-        return pdfFromHtml(doc.html, doc.orientation).then(function (b) { zip.file(f.name + '.pdf', b); }, function (e) { console.warn('[AgriPlan zip]', f.farm, e); fails.push(f.farm); }).then(next);
+        return pdfFromHtml(doc.html, doc.orientation).then(function (b) { zip.file(f.name + '.pdf', b); }, function (e) { console.warn('[AgriPlan zip]', f.farm, e); fails.push(f.farm); }).then(function () { doneN++; }).then(next);
       }
-      return next().then(function () {
+      // two files at a time: rendering waits on downloads and the browser
+      // does both at once
+      return Promise.all([next(), next()]).then(function () {
         if (fails.length === s.files.length) throw new Error('all');
         say('⏳ ' + tt('אורז…', 'กำลังบีบอัด…', 'جارٍ الضغط…'));
         return zip.generateAsync({ type: 'blob' });
