@@ -964,10 +964,36 @@
 <script>
   // Register service worker for offline support
   if ('serviceWorker' in navigator) {
+    // A page always runs one whole version (see sw.js). When a deploy
+    // installs a new worker, the page reloads by itself if no window is
+    // open; otherwise a bar asks to finish and reload, and the reload
+    // happens on its own once the window is closed. So nobody keeps
+    // working in a version that no longer exists.
+    var hadCtl = !!navigator.serviceWorker.controller, swReloading = false;
     navigator.serviceWorker.register('/sw.js').then(function(reg) {
-      console.log('SW registered');
+      function chk() { try { reg.update(); } catch (e) {} }
+      document.addEventListener('visibilitychange', function() { if (!document.hidden) chk(); });
+      setInterval(chk, 15 * 60 * 1000);
     }).catch(function(err) {
       console.warn('SW registration failed:', err);
+    });
+    navigator.serviceWorker.addEventListener('controllerchange', function() {
+      if (!hadCtl) { hadCtl = true; return; }        // first install, same version
+      var mc = document.getElementById('modalContainer');
+      function busy() { return !!(mc && mc.children.length); }
+      function go() { if (swReloading) return; swReloading = true; location.reload(); }
+      if (!busy()) return go();
+      var tx = function(he, en) { return (typeof t === 'function') ? t(he) : he; };
+      var bar = document.createElement('div');
+      bar.id = 'swUpdBar';
+      bar.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:100000;background:#2f6f45;color:#fff;padding:10px 14px;display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap;font-weight:600;box-shadow:0 2px 10px rgba(0,0,0,.2);direction:rtl;';
+      bar.innerHTML = '<span>🔄 ' + tx('גרסה חדשה של האפליקציה הותקנה. שמור וסגור את החלון והאפליקציה תתרענן מעצמה') + '</span>' +
+        '<button style="background:#fff;color:#2f6f45;border:0;border-radius:12px;padding:6px 14px;font-weight:700;cursor:pointer;">' + tx('רענן עכשיו') + '</button>';
+      bar.querySelector('button').onclick = go;
+      document.body.appendChild(bar);
+      // reload once the window is closed (2 s grace for a save in flight)
+      new MutationObserver(function() { if (!busy()) setTimeout(function() { if (!busy()) go(); }, 2000); })
+        .observe(mc, { childList: true });
     });
   }
 
