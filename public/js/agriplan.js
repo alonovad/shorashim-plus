@@ -3995,6 +3995,28 @@ var AgriPlan = (function () {
         return new Promise(function (res) { var fr = new FileReader(); fr.onload = function () { res(fr.result); }; fr.onerror = function () { res(null); }; fr.readAsDataURL(b); });
       }).catch(function () { return null; });
       return cache[u].then(function (d) { if (d) { el.setAttribute('href', d); el.removeAttribute('xlink:href'); } else el.remove(); });
+    }).concat(Array.prototype.slice.call(doc.querySelectorAll('img')).map(function (im) {
+      var u = im.getAttribute('src') || '';
+      if (!/^https?:/.test(u)) return null;
+      return toDataUrl(u).then(function (d) { if (d) im.setAttribute('src', d); });
+    })));
+  }
+  function toDataUrl(u) {
+    return fetch(u, { mode: 'cors' }).then(function (r) { if (!r.ok) throw 0; return r.blob(); }).then(function (b) {
+      return new Promise(function (res) { var fr = new FileReader(); fr.onload = function () { res(fr.result); }; fr.onerror = function () { res(null); }; fr.readAsDataURL(b); });
+    }).catch(function () { return null; });
+  }
+  function inlineFonts(doc) {
+    var links = Array.prototype.slice.call(doc.querySelectorAll('link[rel="stylesheet"]'));
+    return Promise.all(links.map(function (l) {
+      var href = l.getAttribute('href') || '';
+      if (!/^https?:/.test(href)) return null;
+      return fetch(href, { mode: 'cors' }).then(function (r) { return r.ok ? r.text() : ''; }).then(function (css) {
+        var urls = css.match(/url\((https?:[^)]+)\)/g) || [];
+        return Promise.all(urls.map(function (m) { var u = m.slice(4, -1).replace(/['"]/g, ''); return toDataUrl(u).then(function (d) { if (d) css = css.split(u).join(d); }); })).then(function () {
+          var st = doc.createElement('style'); st.textContent = css; doc.head.appendChild(st);
+        });
+      }).catch(function () {});
     }));
   }
   function pdfFromHtml(html, orientation) {
@@ -4010,34 +4032,21 @@ var AgriPlan = (function () {
         sc.onerror = function () { if (!done) { done = true; clearTimeout(kill); ifr.remove(); reject(new Error('html2pdf')); } };
         sc.onload = function () {
           var ready = (d.fonts && d.fonts.ready) ? d.fonts.ready : Promise.resolve();
-          ready.then(function () { return inlineImages(d); }).then(function () {
+          ready.then(function () { return Promise.all([inlineImages(d), inlineFonts(d)]); }).then(function () {
             // A sheet ends with break-after and the orchard page starts with
             // break-before; html2pdf honours both and leaves an empty page.
             var fix = d.createElement('style');
             fix.textContent = '.page{break-after:auto !important;page-break-after:auto !important;}.page+.page{break-before:page;page-break-before:always;}';
             d.head.appendChild(fix);
-            // html2canvas misplaces Hebrew (RTL) words inside a line, so
-            // words run together. Each word gets its own inline box; the
-            // spaces stay as gaps between the boxes. Not inside SVG maps.
-            var tw = d.createTreeWalker(d.body, 4, null), tn, nodes = [];
-            while ((tn = tw.nextNode())) nodes.push(tn);
-            nodes.forEach(function (t) {
-              var par = t.parentNode;
-              if (!par || /^(SCRIPT|STYLE|TITLE)$/.test(par.nodeName) || (par.closest && par.closest('svg'))) return;
-              if (!/\S\s+\S/.test(t.nodeValue)) return;
-              var frag = d.createDocumentFragment();
-              t.nodeValue.split(/(\s+)/).forEach(function (w) {
-                if (!w) return;
-                if (/^\s+$/.test(w)) { frag.appendChild(d.createTextNode(w)); return; }
-                var sp = d.createElement('span'); sp.style.display = 'inline-block'; sp.textContent = w; frag.appendChild(sp);
-              });
-              par.replaceChild(frag, t);
-            });
+            // Text is laid out by the browser itself (foreignObject
+            // rendering) — html2canvas's own text engine misplaces Hebrew
+            // words and the punctuation around them. In that mode outside
+            // resources cannot load, so fonts and images were inlined above.
             // Built in the frame's own realm: html2pdf checks "instanceof
             // Array", which fails for an array made in the parent window.
             return w.html2pdf().set(w.JSON.parse(JSON.stringify({
               margin: [8, 8, 8, 8], image: { type: 'jpeg', quality: 0.92 },
-              html2canvas: { scale: 1.6, useCORS: true, windowWidth: W, backgroundColor: '#ffffff', logging: false },
+              html2canvas: { scale: 1.6, useCORS: true, windowWidth: W, backgroundColor: '#ffffff', logging: false, foreignObjectRendering: true, x: 0, y: 0, scrollX: 0, scrollY: 0, width: W },
               jsPDF: { unit: 'mm', format: 'a4', orientation: land ? 'landscape' : 'portrait' },
               pagebreak: { mode: ['css'], avoid: ['tr', '.ps-map'] }
             }))).from(d.body).outputPdf('blob');
