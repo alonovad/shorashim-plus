@@ -1,4 +1,4 @@
-var CACHE_NAME = 'shorashim-v161';
+var CACHE_NAME = 'shorashim-v162';
 // CDN libs — these never change, safe to cache-first
 var CDN_URLS = [
   'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js',
@@ -170,17 +170,28 @@ self.addEventListener('fetch', function(event) {
   var fresh = event.request.mode === 'navigate'
     ? new Request(event.request.url, { cache: 'no-cache', credentials: 'same-origin' })
     : new Request(event.request, { cache: 'no-cache' });
-  event.respondWith(
-    fetch(fresh).then(function(response) {
-      if (response && response.status === 200) {
-        var clone = response.clone();
-        caches.open(CACHE_NAME).then(function(cache) {
-          cache.put(event.request, clone);
-        });
-      }
-      return response;
-    }).catch(function() {
-      return caches.match(event.request);
-    })
-  );
+  // Network-first with a time limit: if the server has not answered in
+  // 1.5 s and a cached copy exists, the cached copy is served at once; the
+  // network answer still lands in the cache for the next open. On a good
+  // connection nothing changes — the fresh file wins the race.
+  var net = fetch(fresh).then(function(response) {
+    if (response && response.status === 200) {
+      var clone = response.clone();
+      caches.open(CACHE_NAME).then(function(cache) {
+        cache.put(event.request, clone);
+      });
+    }
+    return response;
+  });
+  event.respondWith(new Promise(function(resolve) {
+    var settled = false;
+    function give(r) { if (!settled && r) { settled = true; resolve(r); } }
+    var timer = setTimeout(function() {
+      caches.match(event.request).then(function(c) { give(c); });
+    }, 1500);
+    net.then(function(r) { clearTimeout(timer); give(r); }, function() {
+      clearTimeout(timer);
+      caches.match(event.request).then(function(c) { if (c) give(c); else if (!settled) { settled = true; resolve(Response.error()); } });
+    });
+  }));
 });
