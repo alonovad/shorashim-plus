@@ -4019,6 +4019,91 @@ var AgriPlan = (function () {
       }).catch(function () {});
     }));
   }
+  // ── Page layout for the PDF ──
+  // Each part of the document (treatment sheet, orchard page, materials
+  // page) starts a new page. A part taller than a page is cut only where no
+  // text line, table row, map or bordered box is crossed — the lowest such
+  // point that fits. Parts are rendered one at a time by the browser
+  // (foreignObject) at 3× for sharp text.
+  function composePdf(w, d, land, W) {
+    var PW = land ? 297 : 210, PH = land ? 210 : 297, M = 8, CW = PW - 2 * M, CH = PH - 2 * M;
+    var parts = Array.prototype.slice.call(d.querySelectorAll('body > .page, body > section.page, body > .ps-page, body > .mt-page, body > section.ps-page'));
+    if (!parts.length) parts = [d.body];
+    var opts = w.JSON.parse(JSON.stringify({ margin: 0, image: { type: 'jpeg', quality: 0.97 },
+      html2canvas: { scale: 3, useCORS: true, windowWidth: W, backgroundColor: '#ffffff', logging: false, foreignObjectRendering: true },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: land ? 'landscape' : 'portrait' } }));
+    var pdf = null, first = true;
+    function safeCuts(el) {
+      var top = el.getBoundingClientRect().top, iv = [];
+      var pagePx = CH * (el.getBoundingClientRect().width / CW);
+      function add(r) { if (r.height > 0 && r.height < pagePx * 0.95) iv.push([r.top - top, r.bottom - top]); }
+      el.querySelectorAll('tr, img, svg, h1, h2, h3, h4, li, .ps-map, .ps-head').forEach(function (e) { add(e.getBoundingClientRect()); });
+      // A heading stays with the start of what follows it.
+      el.querySelectorAll('h1, h2, h3, h4, .section-title, .sec-h').forEach(function (h) {
+        var nx = h.nextElementSibling; if (!nx) return;
+        var a = h.getBoundingClientRect(), b = nx.getBoundingClientRect();
+        add({ top: a.top, bottom: Math.min(b.bottom, b.top + 70), height: Math.min(b.bottom, b.top + 70) - a.top });
+      });
+      el.querySelectorAll('*').forEach(function (e) {
+        var cs = w.getComputedStyle(e);
+        if (parseFloat(cs.borderTopWidth) > 0 && parseFloat(cs.borderBottomWidth) > 0) add(e.getBoundingClientRect());
+      });
+      var tw = d.createTreeWalker(el, 4, null), tn, rg = d.createRange();
+      while ((tn = tw.nextNode())) { if (!tn.nodeValue.trim()) continue; rg.selectNodeContents(tn); Array.prototype.forEach.call(rg.getClientRects(), add); }
+      return { iv: iv, pagePx: pagePx };
+    }
+    function cutAt(iv, from, limit) {
+      // the lowest y in (from, limit] that no interval crosses
+      var y = limit, guard = 0;
+      while (y > from && guard++ < 5000) {
+        var hit = null;
+        for (var i = 0; i < iv.length; i++) if (iv[i][0] < y - 0.5 && iv[i][1] > y + 0.5) { if (!hit || iv[i][0] < hit[0]) hit = iv[i]; }
+        if (!hit) return y;
+        y = hit[0];
+      }
+      return limit;
+    }
+    function renderPart(k) {
+      if (k >= parts.length) { parts.forEach(function (x) { x.style.display = ''; }); return Promise.resolve(); }
+      // Only this part is shown while it renders: it sits at the top of the
+      // page, where the browser renderer places it reliably.
+      parts.forEach(function (x, i) { x.style.display = i === k ? '' : 'none'; });
+      var el = parts[k];
+      el.style.breakBefore = 'auto'; el.style.marginTop = '0';
+      var g = safeCuts(el), hPx = el.getBoundingClientRect().height, wPx = el.getBoundingClientRect().width;
+      return w.html2pdf().set(opts).from(el).toCanvas().get('canvas').then(function (cv) {
+        var ratio = cv.width / wPx, mmPerPx = CW / wPx, y0 = 0;
+        function begin() {
+          if (!pdf) return w.html2pdf().set(opts).from(d.createElement('div')).toPdf().get('pdf').then(function (p) { pdf = p; });
+          return Promise.resolve();
+        }
+        return begin().then(function () {
+          // Slightly taller than a page: shrink to fit rather than spill a
+          // row or two onto a page of their own.
+          if (hPx > g.pagePx && hPx <= g.pagePx * 1.15) {
+            var f = g.pagePx / hPx, wmm = CW * f;
+            if (!first) pdf.addPage();
+            first = false;
+            pdf.addImage(cv.toDataURL('image/jpeg', 0.97), 'JPEG', M + (CW - wmm) / 2, M, wmm, CH);
+            return;
+          }
+          while (y0 < hPx - 1) {
+            var lim = Math.min(hPx, y0 + g.pagePx), y1 = lim >= hPx ? hPx : cutAt(g.iv, y0, lim);
+            if (y1 - y0 < g.pagePx * 0.25) y1 = lim;          // no good cut: rather cut than leave a stub
+            var sh = Math.round((y1 - y0) * ratio), sc = d.createElement('canvas');
+            sc.width = cv.width; sc.height = Math.max(1, sh);
+            var cx = sc.getContext('2d'); cx.fillStyle = '#ffffff'; cx.fillRect(0, 0, sc.width, sc.height);
+            cx.drawImage(cv, 0, Math.round(y0 * ratio), cv.width, sh, 0, 0, cv.width, sh);
+            if (!first) pdf.addPage();
+            first = false;
+            pdf.addImage(sc.toDataURL('image/jpeg', 0.97), 'JPEG', M, M, CW, (y1 - y0) * mmPerPx);
+            y0 = y1;
+          }
+        });
+      }).then(function () { return renderPart(k + 1); });
+    }
+    return renderPart(0).then(function () { return pdf.output('blob'); });
+  }
   function pdfFromHtml(html, orientation) {
     return new Promise(function (resolve, reject) {
       var land = orientation !== 'portrait', W = land ? 1123 : 794;
@@ -4036,7 +4121,7 @@ var AgriPlan = (function () {
             // A sheet ends with break-after and the orchard page starts with
             // break-before; html2pdf honours both and leaves an empty page.
             var fix = d.createElement('style');
-            fix.textContent = '.page{break-after:auto !important;page-break-after:auto !important;}.page+.page{break-before:page;page-break-before:always;}';
+            fix.textContent = '.page{break-after:auto !important;page-break-after:auto !important;}.page+.page{break-before:page;page-break-before:always;}.ps-head h2{white-space:nowrap;}';
             d.head.appendChild(fix);
             // Text is laid out by the browser itself (foreignObject
             // rendering) — html2canvas's own text engine misplaces Hebrew
@@ -4044,12 +4129,7 @@ var AgriPlan = (function () {
             // resources cannot load, so fonts and images were inlined above.
             // Built in the frame's own realm: html2pdf checks "instanceof
             // Array", which fails for an array made in the parent window.
-            return w.html2pdf().set(w.JSON.parse(JSON.stringify({
-              margin: [8, 8, 8, 8], image: { type: 'jpeg', quality: 0.92 },
-              html2canvas: { scale: 1.6, useCORS: true, windowWidth: W, backgroundColor: '#ffffff', logging: false, foreignObjectRendering: true, x: 0, y: 0, scrollX: 0, scrollY: 0, width: W },
-              jsPDF: { unit: 'mm', format: 'a4', orientation: land ? 'landscape' : 'portrait' },
-              pagebreak: { mode: ['css'], avoid: ['tr', '.ps-map'] }
-            }))).from(d.body).outputPdf('blob');
+            return composePdf(w, d, land, W);
           }).then(function (blob) {
             if (done) return; done = true; clearTimeout(kill); ifr.remove(); resolve(blob);
           }, function (e) { if (done) return; done = true; clearTimeout(kill); ifr.remove(); reject(e); });
