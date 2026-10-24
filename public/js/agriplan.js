@@ -924,6 +924,77 @@ var AgriPlan = (function () {
     showPlan(p.id);
   }
 
+  // ── Take an orchard out of a plan: delete its rows, or move them to
+  // another plan of the same season (or a new one). The target plan's
+  // approval for that farm is reset by the change, as with any edit.
+  var _mv = null;
+  function farmRowsOf(p, fid) { return (p.rows || []).filter(function (r) { return Number(r.farmId) === Number(fid); }); }
+  function _farmDel(pid, fid) {
+    var p = editable(pid);
+    if (!p) return;
+    var n = farmRowsOf(p, fid).length;
+    if (!n || !confirm(tt('להוציא את', 'เอา', 'إزالة') + ' "' + farmName(fid) + '" ' + tt('מהתוכנית?', 'ออกจากแผน?', 'من الخطة؟') + '\n' +
+      n + ' ' + tt('שורות יימחקו.', 'แถวจะถูกลบ', 'صفوف ستُحذف.'))) return;
+    var before = JSON.parse(JSON.stringify(farmRowsOf(p, fid)));
+    p.rows = (p.rows || []).filter(function (r) { return Number(r.farmId) !== Number(fid); });
+    if (p.approvals) delete p.approvals[String(fid)];
+    _mv = null;
+    save();
+    if (window.Audit && Audit.log) Audit.log('delete', 'agriplan', pid + ':farm:' + fid, { before: before });
+    toast('🗑 ' + farmName(fid) + ' ' + tt('הוצא מהתוכנית', 'ถูกนำออก', 'أُزيلت من الخطة'));
+    showPlan(pid);
+  }
+  function _farmMove(pid, fid) {
+    if (!editable(pid)) return;
+    _mv = (_mv && _mv.pid === pid && _mv.fid === fid) ? null : { pid: pid, fid: fid };
+    showPlan(pid);
+    if (_mv) setTimeout(function () { var e = document.getElementById('apMvTo'); if (e) e.scrollIntoView({ block: 'center', behavior: 'smooth' }); }, 60);
+  }
+  function moveBox(p, fid) {
+    var others = (S.plans || []).filter(function (x) { return x.id !== p.id && canEdit(x); });
+    var n = farmRowsOf(p, fid).length;
+    return '<div class="ap-card" style="background:var(--tonal,#f3f6ef);margin-bottom:8px;">' +
+      '<div style="font-weight:800;margin-bottom:6px;">↪ ' + tt('העברת', 'ย้าย', 'نقل') + ' ' + esc(farmName(fid)) + ' (' + n + ' ' + tt('שורות', 'แถว', 'صفوف') + ') ' + tt('לתוכנית:', 'ไปยังแผน:', 'إلى الخطة:') + '</div>' +
+      '<select class="ap-in" id="apMvTo" style="max-width:420px;">' +
+        others.map(function (x) { return '<option value="' + x.id + '">' + esc((x.name || tt('ללא שם', 'ไม่มีชื่อ', 'بلا اسم')) + (farmRowsOf(x, fid).length ? ' — ' + tt('כבר כולל את המטע', 'มีสวนนี้แล้ว', 'تتضمن البستان') : '')) + '</option>'; }).join('') +
+        '<option value="new">＋ ' + tt('תוכנית חדשה', 'แผนใหม่', 'خطة جديدة') + ': ' + esc((p.name || '') + ' — ' + farmName(fid)) + '</option>' +
+      '</select>' +
+      '<div style="display:flex;gap:6px;margin-top:8px;"><button class="ap-btn" data-no-back onclick="AgriPlan._farmMoveGo(' + p.id + ',' + fid + ')">↪ ' + tt('העבר', 'ย้าย', 'نقل') + '</button>' +
+      '<button class="ap-btn ghost" data-no-sticky onclick="AgriPlan._farmMove(' + p.id + ',' + fid + ')">' + tt('ביטול', 'ยกเลิก', 'إلغاء') + '</button></div>' +
+      '<div style="font-size:.74rem;color:var(--text-muted,#888);margin-top:4px;">' + tt('המטע יוסר מהתוכנית הזו. בתוכנית היעד הוא יחכה לאישור מחדש.', 'สวนจะถูกนำออกจากแผนนี้', 'سيُزال البستان من هذه الخطة.') + '</div></div>';
+  }
+  function _farmMoveGo(pid, fid) {
+    var p = editable(pid);
+    if (!p) return;
+    var v = (document.getElementById('apMvTo') || {}).value, dst;
+    if (v === 'new') {
+      var u = window.currentUser || {};
+      dst = normPlan({ id: uid(), name: (p.name || '') + ' — ' + farmName(fid), target: p.target || '', createdAt: Date.now(), createdBy: u.username || '' });
+      ['prep', 'docTitle', 'docSub', 'deadline', 'zones', 'diagram'].forEach(function (k) { if (p[k] != null) dst[k] = JSON.parse(JSON.stringify(p[k])); });
+      S.plans.push(dst);
+    } else {
+      dst = planById(Number(v));
+      if (!dst || !canEdit(dst)) { denied(); return; }
+    }
+    var moving = farmRowsOf(p, fid);
+    if (!moving.length) return;
+    dst.rows = (dst.rows || []).concat(JSON.parse(JSON.stringify(moving)));
+    // the farm's own note travels with it
+    if (p.farmNotes && p.farmNotes[String(fid)] != null) {
+      dst.farmNotes = dst.farmNotes || {};
+      if (!dst.farmNotes[String(fid)]) dst.farmNotes[String(fid)] = p.farmNotes[String(fid)];
+      delete p.farmNotes[String(fid)];
+    }
+    if (dst.approvals) delete dst.approvals[String(fid)];
+    p.rows = (p.rows || []).filter(function (r) { return Number(r.farmId) !== Number(fid); });
+    if (p.approvals) delete p.approvals[String(fid)];
+    _mv = null;
+    save();
+    if (window.Audit && Audit.log) Audit.log('update', 'agriplan', pid + ':farm:' + fid, { movedTo: dst.id, rows: moving.length });
+    toast('↪ ' + farmName(fid) + ' ' + tt('הועבר אל', 'ย้ายไป', 'نُقل إلى') + ' "' + (dst.name || '—') + '"');
+    showPlan(pid);
+  }
+
   function delPlan(id) {
     var before = planById(id);
     if (!before) return;
@@ -988,17 +1059,23 @@ var AgriPlan = (function () {
         return mm ? '<div class="ap-gop"><span class="ap-gopn">' + esc(opLabel(o.method, o.round)) + '</span>' + mm + '</div>' : '';
       }).join('');
       var issues = farmIssues(p, fid);
+      var mv = _mv && _mv.pid === id && _mv.fid === fid;
+      if (mv) open = true;
+      var farmTools = (!ro && fid) ? '<span class="ap-gtools">' +
+        '<button class="ap-btn ghost ap-mini" data-no-sticky data-no-back title="' + esc(tt('העבר את המטע לתוכנית אחרת', 'ย้ายไปแผนอื่น', 'نقل إلى خطة أخرى')) + '" onclick="AgriPlan._farmMove(' + id + ',' + fid + ')">↪ ' + tt('העבר', 'ย้าย', 'نقل') + '</button>' +
+        '<button class="ap-btn ghost ap-mini" data-no-sticky data-no-back style="color:#b3261e;" title="' + esc(tt('הוצא את המטע מהתוכנית', 'เอาออกจากแผน', 'إزالة من الخطة')) + '" onclick="AgriPlan._farmDel(' + id + ',' + fid + ')">🗑</button></span>' : '';
+      var mvBox = mv ? moveBox(p, fid) : '';
       return '<details class="ap-grp"' + (open ? ' open' : '') + ' ontoggle="AgriPlan._grpToggle(' + id + ',\'' + fk + '\',this.open)">' +
         '<summary class="ap-grphd" onclick="if(event.target.closest(\'button,a,select,input,label\'))event.preventDefault();">' +
           '<div class="ap-gname"><span class="ap-gchev">▸</span>🌳 ' + esc(farmName(fid)) +
             '<span class="n">' + g.n + ' ' + tt('חלקות/שורות', 'แปลง/แถว', 'قطع/صفوف') + ' · ' +
               g.trees.toLocaleString() + ' ' + tt('עצים', 'ต้น', 'شجرة') + '</span>' +
             (issues ? '<span class="ap-gwarn" title="' + esc(tt('יש הערות לבדיקה', 'มีข้อควรตรวจ', 'توجد ملاحظات')) + '">⚠</span>' : '') +
-            (fid ? '<span class="ap-gst">' + farmBadge(p, fid) + farmApproveBtn(p, fid) + '</span>' : '') +
+            (fid ? '<span class="ap-gst">' + farmBadge(p, fid) + farmApproveBtn(p, fid) + farmTools + '</span>' : '') +
           '</div>' +
           '<div class="ap-gtodo">' + (todo || '<span class="n">' + esc(g.ops.join(', ')) + '</span>') + '</div>' +
         '</summary>' +
-        '<div class="ap-gbody">' + issues + g.html + '</div></details>';
+        '<div class="ap-gbody">' + mvBox + issues + g.html + '</div></details>';
     }).join('');
     if (!allRows) {
       rows = '<div class="ap-empty">' + tt('אין עדיין שורות. הוסף משק שלם, בחר חלקות או הוסף שורה.',
@@ -3694,6 +3771,9 @@ var AgriPlan = (function () {
     printPlan: printPlan,
     toOrder: toOrder,
     approveFarm: approveFarm,
+    _farmDel: _farmDel,
+    _farmMove: _farmMove,
+    _farmMoveGo: _farmMoveGo,
     approveAll: approveAll,
     revokeFarm: revokeFarm,
     revokeAll: revokeAll,
