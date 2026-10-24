@@ -1,4 +1,4 @@
-/* report-map.js — satellite overview image for printed reports
+/* report-map.js - satellite overview image for printed reports
  * ------------------------------------------------------------------
  * Composites Esri World Imagery tiles onto a canvas, draws the farm's
  * plot polygons on top with names, a scale bar and baked-in imagery
@@ -10,11 +10,11 @@
  *   printed. A Leaflet map there would need its own script, its own
  *   async tile loads, and would very likely print half-drawn or blank.
  *   A single <img> with a data URL is already fully resolved by the time
- *   the print dialog opens — nothing to race.
+ *   the print dialog opens - nothing to race.
  *
  * WHY A CACHE AND NOT AN AWAIT AT EXPORT TIME:
  *   window.open() must run inside the user-gesture context or popup
- *   blockers eat it — app.js already refuses to export while field
+ *   blockers eat it - app.js already refuses to export while field
  *   reports are still loading for exactly this reason. So the image is
  *   rendered ahead of time into a cache, and the export reads it
  *   synchronously. If it is not ready, the caller refuses and asks the
@@ -33,7 +33,7 @@ var ReportMap = (function () {
   var TILE = 256;
   var MAX_Z = 19;
   var MIN_Z = 9;
-  var W = 1000;          // canvas px — ~A4 landscape content width at print
+  var W = 1000;          // canvas px - ~A4 landscape content width at print
   var H = 660;
   var MARGIN = 70;       // px of surrounding area kept on every side
   var TILE_TIMEOUT = 9000;
@@ -77,7 +77,7 @@ var ReportMap = (function () {
 
   // Every ring a plot owns, primary plus any detached parts. A printed
   // spray report that drew only the primary ring showed half a plot as the
-  // whole plot — and the map on a report is exactly what someone checks
+  // whole plot - and the map on a report is exactly what someone checks
   // when they want to know what was treated.
   function ringsOf(plot) {
     var out = [];
@@ -113,7 +113,7 @@ var ReportMap = (function () {
   }
 
   // Zoom in as far as the plots allow while still leaving MARGIN px of
-  // surrounding ground on each side — the context is the point, but a
+  // surrounding ground on each side - the context is the point, but a
   // plot lost in an ocean of neighbouring fields is not a plot map.
   function fitZoom(box) {
     for (var z = MAX_Z; z >= MIN_Z; z--) {
@@ -334,7 +334,7 @@ var ReportMap = (function () {
     });
   }
 
-  // Geometry signature — a redrawn plot must invalidate the cached image.
+  // Geometry signature - a redrawn plot must invalidate the cached image.
   function sigOf(sets) {
     return signature((sets.subject || []).concat(sets.context || []));
   }
@@ -351,7 +351,7 @@ var ReportMap = (function () {
   }
 
   // The מטע's main plot: an explicit main_plot_id on the farm if one is
-  // set, otherwise the largest plot by area — on a date farm that is the
+  // set, otherwise the largest plot by area - on a date farm that is the
   // block the grower means when they say "the orchard".
   function mainPlotOf(farmId) {
     var mine = allPlots().filter(function (p) { return p.farm_id === farmId; });
@@ -478,8 +478,8 @@ var ReportMap = (function () {
 
   function storeApi() { return window.SprayStore || {}; }
 
-  // Rings for a plot: stored latlngs (+ detached parts), or — for a plot
-  // drawn this session and not reloaded yet — its live Leaflet layer.
+  // Rings for a plot: stored latlngs (+ detached parts), or - for a plot
+  // drawn this session and not reloaded yet - its live Leaflet layer.
   function sheetRings(p) {
     var r = ringsOf(p);
     if (r.length) return r;
@@ -604,7 +604,7 @@ var ReportMap = (function () {
     var soft = TH.soft || '#e4eee8', line = TH.line || '#c6d8cd';
     return '' +
       '.ps-page{break-before:page;page-break-before:always;padding:4mm 6mm 0;break-inside:avoid;page-break-inside:avoid;}' +
-      // Consecutive orchard sheets share a page when they fit — a two-plot
+      // Consecutive orchard sheets share a page when they fit - a two-plot
       // orchard does not earn a page of its own.
       '.ps-page+.ps-page{break-before:auto;page-break-before:auto;margin-top:9mm;}' +
       '.ps-head{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap;' +
@@ -712,7 +712,7 @@ var ReportMap = (function () {
     var others = only ? objs.filter(function (o) { return !pick[o.p.id] && !o.container; }) : [];
 
     var head = '<div class="ps-head"><div>' +
-        '<h2>' + escH(farm ? nameOf(farm) : '') + ' — ' + tt('חלקות המשק', 'แปลงในฟาร์ม', 'قطع المزرعة') + '</h2>' +
+        '<h2>' + escH(farm ? nameOf(farm) : '') + ' - ' + tt('חלקות המשק', 'แปลงในฟาร์ม', 'قطع المزرعة') + '</h2>' +
         '<div class="ps-sub">' + tt('מצב לתאריך', 'ข้อมูล ณ วันที่', 'حتى تاريخ') + ' ' +
           new Date().toLocaleDateString('he-IL') + '</div>' +
       '</div><div class="ps-kpis">' +
@@ -721,7 +721,7 @@ var ReportMap = (function () {
         (totTrees ? '<span class="ps-kpi">' + fmtNum(totTrees) + ' ' + tt('עצים', 'ต้น', 'شجرة') + '</span>' : '') +
       '</div></div>';
 
-    // opts.extra: { head, cells: { plotId: html } } — a column the caller
+    // opts.extra: { head, cells: { plotId: html } } - a column the caller
     // fills per plot (the treatment plan: trees, materials, sprayer fills).
     // With it the table needs the full width, so it goes under the map.
     var extra = opts && opts.extra && opts.extra.cells ? opts.extra : null;
@@ -732,8 +732,8 @@ var ReportMap = (function () {
 
     var missingGeo = chosen.length - drawn.length;
     var note = missingGeo
-      ? '<div class="ps-note">' + missingGeo + ' ' + tt('חלקות ללא גבולות מסומנים במפה — מופיעות ברשימה בלבד',
-          'แปลงที่ไม่มีขอบเขตบนแผนที่ — แสดงในรายการเท่านั้น', 'قطع بلا حدود على الخريطة — تظهر في القائمة فقط') + '</div>'
+      ? '<div class="ps-note">' + missingGeo + ' ' + tt('חלקות ללא גבולות מסומנים במפה - מופיעות ברשימה בלבד',
+          'แปลงที่ไม่มีขอบเขตบนแผนที่ - แสดงในรายการเท่านั้น', 'قطع بلا حدود على الخريطة - تظهر في القائمة فقط') + '</div>'
       : '';
 
     if (others.length) {
@@ -770,19 +770,19 @@ var ReportMap = (function () {
       h += '<tr' + (o.container ? ' class="ps-env"' : '') + '><td><span class="ps-no">' + o.no + '</span></td>' +
         '<td><b>' + escH(nameOf(p)) + '</b>' + (o.container ? ' <span class="ps-envtag">' +
           tt('מעטפת · לא נספר בסה"כ', 'ขอบเขตรวม · ไม่นับรวม', 'إطار · لا يُحتسب') + '</span>' : '') + '</td>' +
-        '<td>' + (cropOf(p) || '—') + '</td>' +
+        '<td>' + (cropOf(p) || '-') + '</td>' +
         '<td class="n">' + fmtNum(p.area, 2) + '</td>' +
-        (anyCount ? '<td class="n">' + (bd.count && p.tree_count ? fmtNum(p.tree_count) : '—') + '</td>' : '') +
-        (anyYm ? '<td class="n">' + (bd.ym && p.young_trees ? fmtNum(p.young_trees) : '—') + '</td>' +
-                 '<td class="n">' + (bd.ym && p.missing_trees ? fmtNum(p.missing_trees) : '—') + '</td>' : '') +
-        (anyDate ? '<td class="n">' + (isDate(p) && p.male_trees ? fmtNum(p.male_trees) : '—') + '</td>' : '') +
-        (anyPlant ? '<td class="n">' + (bd.plant && p.planting_date ? fmtDay(p.planting_date) : '—') + '</td>' : '') +
+        (anyCount ? '<td class="n">' + (bd.count && p.tree_count ? fmtNum(p.tree_count) : '-') + '</td>' : '') +
+        (anyYm ? '<td class="n">' + (bd.ym && p.young_trees ? fmtNum(p.young_trees) : '-') + '</td>' +
+                 '<td class="n">' + (bd.ym && p.missing_trees ? fmtNum(p.missing_trees) : '-') + '</td>' : '') +
+        (anyDate ? '<td class="n">' + (isDate(p) && p.male_trees ? fmtNum(p.male_trees) : '-') + '</td>' : '') +
+        (anyPlant ? '<td class="n">' + (bd.plant && p.planting_date ? fmtDay(p.planting_date) : '-') + '</td>' : '') +
         (extra ? '<td class="ps-x">' + (extra.cells[p.id] || '<span style="color:#9a958f;">' + tt('לא בתוכנית', 'ไม่อยู่ในแผน', 'ليست في الخطة') + '</span>') + '</td>' : '') +
         '</tr>';
     });
     h += '</tbody><tfoot><tr><td></td><td>' + tt('סה"כ', 'รวม', 'المجموع') + '</td><td></td>' +
       '<td class="n">' + fmtNum(totArea, 2) + '</td>' +
-      (anyCount ? '<td class="n">' + (totTrees ? fmtNum(totTrees) : '—') + '</td>' : '') +
+      (anyCount ? '<td class="n">' + (totTrees ? fmtNum(totTrees) : '-') + '</td>' : '') +
       (anyYm ? '<td></td><td></td>' : '') + (anyDate ? '<td></td>' : '') + (anyPlant ? '<td></td>' : '') + (extra ? '<td></td>' : '') +
       '</tr></tfoot></table>';
     return h;
@@ -795,7 +795,7 @@ var ReportMap = (function () {
   // gets its own cell inside a square, so a scattered orchard still reads
   // as plots, not dots. Tiles
   // are plain <image> elements inside the SVG: synchronous to build, no
-  // canvas, no CORS — the print window loads them itself, and if imagery
+  // canvas, no CORS - the print window loads them itself, and if imagery
   // is unreachable the polygons and data still print over a plain ground.
   // SVG units are tied to print: 8 units = 1 mm, so label sizes below are
   // real legibility limits (16 units = 2 mm).
@@ -1036,7 +1036,7 @@ var ReportMap = (function () {
       '" font-weight="700" fill="#fff">' + escH(nm) + '</text>';
   }
 
-  // White on a dark halo — readable over bright soil and dark canopy alike.
+  // White on a dark halo - readable over bright soil and dark canopy alike.
   // direction="rtl" on the <text> keeps Hebrew + numbers in reading order;
   // the <svg> stays pinned ltr so text-anchor keeps its meaning.
   function labelText(x, y, txt, fs, bold) {
@@ -1054,7 +1054,7 @@ var ReportMap = (function () {
 
 
   return {
-    // Synchronous read for generatePdfHtml — never triggers work.
+    // Synchronous read for generatePdfHtml - never triggers work.
     getCached: function (arg) {
       var target = asTarget(arg);
       var k = key(target);
@@ -1081,7 +1081,7 @@ var ReportMap = (function () {
     },
     mainPlotOf: mainPlotOf,
     isReady: function (arg) { return !!this.getCached(arg); },
-    // "Nothing more to wait for" — either the image is ready or it has
+    // "Nothing more to wait for" - either the image is ready or it has
     // definitively failed. Export gates use this, not isReady, so a farm whose
     // map cannot be built never becomes an unexportable farm.
     isSettled: function (arg) {
@@ -1095,7 +1095,7 @@ var ReportMap = (function () {
         function () { return false; });
     },
     // Warm every farm the user can see, quietly, off the critical path.
-    // Reports carry the main plot of a מטע, so warm those — warming farm
+    // Reports carry the main plot of a מטע, so warm those - warming farm
     // overviews nobody prints would just burn tile requests.
     warm: function () {
       var farms = (window.SprayStore && window.SprayStore.getFarms)
@@ -1129,7 +1129,7 @@ var ReportMap = (function () {
 })();
 window.ReportMap = ReportMap;
 
-// Plot geometry arrives with the app data, not at DOMContentLoaded — warm
+// Plot geometry arrives with the app data, not at DOMContentLoaded - warm
 // once the store is populated, and again whenever plots change.
 (function () {
   var warmed = false;
