@@ -35,6 +35,17 @@ jobs:
       - name: Preflight
         run: node public/js/preflight.js
 
+      # Phones only pick up a new version when CACHE_NAME in sw.js changes
+      # (sw.js serves one whole installed version). Shipping changed files
+      # under the live CACHE_NAME would leave everyone on the old version.
+      - name: CACHE_NAME must change
+        run: |
+          NEW=$(grep -oP "CACHE_NAME = '\K[^']+" public/sw.js)
+          LIVE=$(curl -fsS --max-time 20 https://shorashim-plus.web.app/sw.js | grep -oP "CACHE_NAME = '\K[^']+" || true)
+          echo "repo: $NEW  live: ${LIVE:-unknown}"
+          if [ -z "$LIVE" ]; then echo "::warning::could not read the live sw.js; not checked"; exit 0; fi
+          if [ "$LIVE" = "$NEW" ]; then echo "::error::CACHE_NAME $NEW is already live: bump it in public/sw.js"; exit 1; fi
+
       - name: Write credential
         env:
           SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}

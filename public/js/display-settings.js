@@ -91,12 +91,15 @@ var DisplaySettings = (function() {
   }
 
   function loadSettings() {
-    var out = { theme: DEFAULT_THEME, tune: cleanTune(null), layout: DEFAULT_LAYOUT };
+    // win: look of inner windows (plot card, farm card, forms) —
+    // 'soft' (css/soft-ui.css, default) or 'classic'.
+    var out = { theme: DEFAULT_THEME, tune: cleanTune(null), layout: DEFAULT_LAYOUT, win: 'soft' };
     try {
       var saved = JSON.parse(localStorage.getItem('shorashim-display-settings') || 'null');
       if (saved && THEMES[saved.theme]) out.theme = saved.theme;
       if (saved && saved.tune) out.tune = cleanTune(saved.tune);
       if (saved && LAYOUTS.indexOf(saved.layout) !== -1) out.layout = saved.layout;
+      if (saved && saved.win === 'classic') out.win = 'classic';
     } catch (e) { console.warn('Failed to load display settings:', e); }
     return out;
   }
@@ -105,7 +108,8 @@ var DisplaySettings = (function() {
     try {
       localStorage.setItem('shorashim-display-settings',
         JSON.stringify({ theme: settings.theme, tune: cleanTune(settings.tune),
-          layout: LAYOUTS.indexOf(settings.layout) !== -1 ? settings.layout : DEFAULT_LAYOUT }));
+          layout: LAYOUTS.indexOf(settings.layout) !== -1 ? settings.layout : DEFAULT_LAYOUT,
+          win: settings.win === 'classic' ? 'classic' : 'soft' }));
     } catch (e) { console.warn('Failed to save display settings:', e); }
   }
 
@@ -215,6 +219,8 @@ var DisplaySettings = (function() {
     var metaC = (layout === 'classic' && theme.metaClassic) ? theme.metaClassic : theme.meta;
     var meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.setAttribute('content', (tune.sat !== 1 || tune.hue !== 0) ? (tuneColor(metaC, tune.sat, tune.hue) || metaC) : metaC);
+    // Soft inner windows are drawn for the light themes only.
+    body.classList.toggle('ui-soft', saved.win !== 'classic' && !theme.dark);
     if (wasFresh !== (layout === 'fresh')) {
       try { document.dispatchEvent(new CustomEvent('shorashim:layout', { detail: { layout: layout } })); } catch (e) {}
     }
@@ -275,6 +281,11 @@ var DisplaySettings = (function() {
             '<button type="button" data-layout="fresh" class="' + (settings.layout === 'fresh' ? 'on' : '') + '">✨ ' + tt('חדשה', 'ใหม่', 'جديد') + '</button>' +
             '<button type="button" data-layout="classic" class="' + (settings.layout === 'classic' ? 'on' : '') + '">' + tt('קלאסית', 'คลาสสิก', 'كلاسيكي') + '</button>' +
           '</div>' +
+          '<div class="ds-lbl">' + tt('עיצוב חלונות וכרטיסים', 'รูปแบบหน้าต่างและการ์ด', 'تصميم النوافذ والبطاقات') + '</div>' +
+          '<div class="ds-seg" id="dsWin" style="margin-bottom:16px;">' +
+            '<button type="button" data-win="soft" class="' + (settings.win !== 'classic' ? 'on' : '') + '">' + tt('רך', 'นุ่มนวล', 'ناعم') + '</button>' +
+            '<button type="button" data-win="classic" class="' + (settings.win === 'classic' ? 'on' : '') + '">' + tt('קלאסי', 'คลาสสิก', 'كلاسيكي') + '</button>' +
+          '</div>' +
           '<div class="ds-lbl">' + tt('ערכת צבעים', 'ชุดสี', 'نظام الألوان') + '</div>' +
           '<div id="dsThemeList" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">' + cards + '</div>' +
 
@@ -317,6 +328,13 @@ var DisplaySettings = (function() {
       });
     });
 
+    document.querySelectorAll('#dsWin button[data-win]').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        settings.win = this.getAttribute('data-win');
+        commit(true);
+      });
+    });
+
     document.querySelectorAll('#dsThemeList button[data-theme]').forEach(function(btn) {
       btn.addEventListener('click', function() {
         settings.theme = this.getAttribute('data-theme');
@@ -351,7 +369,7 @@ var DisplaySettings = (function() {
 
   // ── Reset ──
   function resetDefaults() {
-    var fresh = { theme: DEFAULT_THEME, tune: cleanTune(null), layout: DEFAULT_LAYOUT };
+    var fresh = { theme: DEFAULT_THEME, tune: cleanTune(null), layout: DEFAULT_LAYOUT, win: 'soft' };
     saveSettings(fresh);
     applyAll(fresh);
     showSettings();
