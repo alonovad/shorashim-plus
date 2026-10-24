@@ -2462,6 +2462,14 @@ var AgriPlan = (function () {
     if (!host) return;
     if (!p.rows.length) { toast('⚠️ ' + tt('הוסף קודם שורות לתוכנית', 'เพิ่มแถวก่อน', 'أضف صفوفاً أولاً')); return; }
     var ops = planOps(p);
+    // The filters redraw this panel: read what was just chosen/typed first
+    // (the redraw used to rebuild the selector from the old value, so the
+    // operation filter never took and a volume meant for spraying also
+    // landed on the drench rows). A new operation starts a clean selection.
+    var o0 = document.getElementById('apBvOp'), q0 = document.getElementById('apBvQ'), v0 = document.getElementById('apBvVal');
+    if (o0) { if (o0.value !== _bv.op) _bv.sel = {}; _bv.op = o0.value; }
+    if (q0) _bv.q = q0.value;
+    if (v0) _bv.val = v0.value;
     host.innerHTML =
       '<div class="ap-card" style="border:1.5px solid var(--primary,#2d6a4f);">' +
         '<div style="font-weight:800;margin-bottom:6px;">💧 ' + tt('שינוי נפח לעץ בבת אחת', 'เปลี่ยนปริมาตรต่อต้นพร้อมกัน', 'تغيير الحجم لكل شجرة دفعة واحدة') + '</div>' +
@@ -2481,8 +2489,6 @@ var AgriPlan = (function () {
           '<span id="apBvN" style="font-size:.78rem;color:var(--text-muted,#888);"></span>' +
         '</div></div>';
     var opEl = document.getElementById('apBvOp'), qEl = document.getElementById('apBvQ'), vEl = document.getElementById('apBvVal');
-    // Keep what was typed across the redraws the filters trigger.
-    _bv.op = opEl.value; _bv.q = qEl.value; _bv.val = vEl.value;
     vEl.addEventListener('input', function () { _bv.val = vEl.value; });
     var q = _bv.q.trim().toLowerCase();
     var groups = {}, order = [];
@@ -2528,8 +2534,14 @@ var AgriPlan = (function () {
     if (!p) return;
     var v = Number((document.getElementById('apBvVal') || {}).value);
     if (!(v > 0)) { toast('⚠️ ' + tt('הכנס נפח חדש לעץ', 'ใส่ปริมาตร', 'أدخل الحجم')); return; }
-    var n = 0;
-    p.rows.forEach(function (r) { if (_bv.sel[String(r.id)]) { r.carrier = v; n++; } });
+    var n = 0, q = String(_bv.q || '').trim().toLowerCase();
+    p.rows.forEach(function (r) {
+      if (!_bv.sel[String(r.id)]) return;
+      // only rows shown under the current filters - never a hidden one
+      if (_bv.op && opKey(r.method, r.round) !== _bv.op) return;
+      if (q) { var pl = plotById(r.plotId); if ((farmName(r.farmId) + ' ' + (pl ? pl.name : '') + (r.cohort ? ' - ' + r.cohort : '')).toLowerCase().indexOf(q) === -1) return; }
+      r.carrier = v; n++;
+    });
     if (!n) { toast('⚠️ ' + tt('לא סומנו שורות', 'ไม่ได้เลือก', 'لم تُحدد صفوف')); return; }
     _bv.sel = {};
     save();
