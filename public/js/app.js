@@ -1477,6 +1477,7 @@
 
     // ── Spray PDF export ──
     'יומן ריסוסים': { th: 'บันทึกการพ่นยา', ar: 'سجل الرش' },
+    'טוען תוכניות טיפול — נסה שוב בעוד רגע': { th: 'กำลังโหลดแผน — ลองอีกครั้ง', ar: 'جارٍ تحميل الخطط — حاول بعد لحظة' },
     'יומן ריסוסים - שורשים פלוס': { th: 'บันทึกการพ่นยา - ชอราชิม พลัส', ar: 'سجل الرش - شوراشيم بلس' },
     'תאריך הפקה:': { th: 'วันที่ออกรายงาน:', ar: 'تاريخ الإصدار:' },
     'מפעיל': { th: 'ผู้ปฏิบัติงาน', ar: 'مشغل' },
@@ -5352,6 +5353,13 @@
       showToast('❌ ' + t('אין יומני ריסוס לייצוא'));
       return;
     }
+    // Approved treatment plans chosen for the log (agriplan.js) are read
+    // ahead; same refuse-and-retry as the field reports below.
+    if (window.AgriPlan && AgriPlan.logPending && AgriPlan.logPending()) {
+      AgriPlan.prepareLog();
+      showToast('⏳ ' + t('טוען תוכניות טיפול — נסה שוב בעוד רגע'));
+      return;
+    }
 
     // Field reports load asynchronously. Exporting before they arrive would
     // produce a PDF missing its chain lines — an incomplete document is worse
@@ -5656,6 +5664,7 @@
         t('שורות המסומנות "שחזור רטרואקטיבי" נבנו לאחר מעשה מתוך אסמכתאות ועדויות, ואינן רישום שנערך במועד הריסוס. מקור השחזור ורמת הוודאות מצוינים בכל שורה.') +
         '</div>\n';
     }
+    if (window.AgriPlan && AgriPlan.logSection) html += AgriPlan.logSection(farmId);
     if (TH.footer) html += '<div class="farm-footer">' + TH.footer + '</div>\n';
     if (TH.signature) {
       html += '<div class="sigrow">' +
@@ -11679,6 +11688,8 @@
   // until a full reload.
   var _rtStarted = false;
   function startRealtimeSync() {
+    // Approved plans printed in the spray log are read ahead (see export).
+    setTimeout(function () { if (window.AgriPlan && AgriPlan.prepareLog) AgriPlan.prepareLog(); }, 3000);
     if (_rtStarted) return;
     if (typeof DB === 'undefined' || typeof db === 'undefined') return;
     _rtStarted = true;

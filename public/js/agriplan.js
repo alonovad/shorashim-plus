@@ -383,6 +383,10 @@ var AgriPlan = (function () {
       // { farmId: { by, at, sig } }, attached from the approvals document
       // by attach(). Never read from the plan document: operators write that.
       approvals: {},
+      // { farmId: true } — once a farm is approved, whether this plan is
+      // printed in that farm's spray log (יומן ריסוסים). Not signed: turning
+      // it on or off does not send the farm back for approval.
+      inLog: (p.inLog && typeof p.inLog === 'object') ? p.inLog : {},
       rows: Array.isArray(p.rows) ? p.rows.map(normRow) : []
     };
   }
@@ -1071,7 +1075,7 @@ var AgriPlan = (function () {
             '<span class="n">' + g.n + ' ' + tt('חלקות/שורות', 'แปลง/แถว', 'قطع/صفوف') + ' · ' +
               g.trees.toLocaleString() + ' ' + tt('עצים', 'ต้น', 'شجرة') + '</span>' +
             (issues ? '<span class="ap-gwarn" title="' + esc(tt('יש הערות לבדיקה', 'มีข้อควรตรวจ', 'توجد ملاحظات')) + '">⚠</span>' : '') +
-            (fid ? '<span class="ap-gst">' + farmBadge(p, fid) + farmApproveBtn(p, fid) + farmTools + '</span>' : '') +
+            (fid ? '<span class="ap-gst">' + farmBadge(p, fid) + farmApproveBtn(p, fid) + logToggle(p, fid, ro) + farmTools + '</span>' : '') +
           '</div>' +
           '<div class="ap-gtodo">' + (todo || '<span class="n">' + esc(g.ops.join(', ')) + '</span>') + '</div>' +
         '</summary>' +
@@ -1290,6 +1294,85 @@ var AgriPlan = (function () {
   function farmIssues(p, fid) {
     return (_issues && _issues.pid === p.id && _issues.fid === fid && _issues.errors.length) ? issuesBox(_issues.errors) : '';
   }
+  // ── In the farm's spray log or not ──
+  function logToggle(p, fid, ro) {
+    if (farmState(p, fid) !== 'approved') return '';
+    var on = !!(p.inLog && p.inLog[String(fid)]);
+    if (ro) return on ? '<span class="ap-st ok">📒 ' + tt('ביומן הריסוס', 'ในบันทึกพ่นยา', 'في سجل الرش') + '</span>' : '';
+    return '<button class="ap-btn ' + (on ? 'ok' : 'ghost') + ' ap-mini" data-no-sticky data-no-back title="' + esc(tt('האם התוכנית תודפס ביומן הריסוס של המשק', 'พิมพ์ในบันทึกพ่นยาของฟาร์ม', 'طباعة الخطة في سجل رش المزرعة')) + '" onclick="AgriPlan._logToggle(' + p.id + ',' + fid + ')">📒 ' +
+      (on ? tt('כלול ביומן הריסוס ✓', 'อยู่ในบันทึก ✓', 'ضمن سجل الرش ✓') : tt('הכלל ביומן הריסוס', 'ใส่ในบันทึก', 'تضمين في سجل الرش')) + '</button>';
+  }
+  function _logToggle(pid, fid) {
+    var p = editable(pid);
+    if (!p) return;
+    p.inLog = p.inLog || {};
+    if (p.inLog[String(fid)]) delete p.inLog[String(fid)]; else p.inLog[String(fid)] = true;
+    save();
+    _log.ready = false; prepareLog();
+    toast('📒 ' + farmName(fid) + ': ' + (p.inLog[String(fid)] ? tt('התוכנית תודפס ביומן הריסוס', 'จะพิมพ์ในบันทึก', 'ستُطبع في سجل الرش') : tt('התוכנית לא תודפס ביומן הריסוס', 'จะไม่พิมพ์', 'لن تُطبع في سجل الرش')));
+    showPlan(pid);
+  }
+  // The spray log is built synchronously when its window opens (a window
+  // opened after an await is blocked as a pop-up), so the approved plans it
+  // prints are read ahead of time: prepareLog() fills _log, logPending()
+  // tells the export to wait, logSection(farmId) returns the HTML.
+  var _log = { ready: false, busy: false, byFarm: {} };
+  function prepareLog() {
+    if (_log.busy || !window.DB || !DB.read) return Promise.resolve();
+    _log.busy = true;
+    var now = new Date().getFullYear(), yrs = [now - 1, now, now + 1];
+    return Promise.all(yrs.map(function (y) {
+      return Promise.all([DB.read(KEY_PREFIX + y), DB.read(APPROVALS_PREFIX + y)]);
+    })).then(function (res) {
+      var by = {};
+      res.forEach(function (r, i) {
+        var pd = r[0] && r[0].data, ad = r[1] && r[1].data;
+        var plans = (pd && Array.isArray(pd.plans)) ? attach({ plans: pd.plans.map(normPlan) }, normApprovalDoc(ad)).plans : [];
+        plans.forEach(function (pl) {
+          Object.keys(pl.inLog || {}).forEach(function (fk) {
+            var fid = Number(fk);
+            if (!pl.inLog[fk] || farmState(pl, fid) !== 'approved') return;
+            var rows = pl.rows.filter(function (x) { return Number(x.farmId) === fid; });
+            if (!rows.length) return;
+            (by[fid] = by[fid] || []).push({ year: yrs[i], p: pl, rows: rows, at: (pl.approvals[String(fid)] || {}).at || 0 });
+          });
+        });
+      });
+      _log = { ready: true, busy: false, byFarm: by };
+    }, function () { _log.busy = false; });
+  }
+  function logPending() { return !_log.ready; }
+  function logSection(farmId) {
+    if (!_log.ready) return '';
+    var fids = farmId != null ? [Number(farmId)] : Object.keys(_log.byFarm).map(Number);
+    var out = '';
+    fids.forEach(function (fid) {
+      (_log.byFarm[fid] || []).sort(function (a, b) { return (earliestDeadline(a.p, a.rows) || '9') < (earliestDeadline(b.p, b.rows) || '9') ? -1 : 1; }).forEach(function (it) {
+        var p = it.p;
+        out += '<div class="ap-log" style="margin:18px 16px 0;break-inside:avoid;page-break-inside:avoid;">' +
+          '<div style="font-weight:700;font-size:.95rem;margin-bottom:4px;">🧪 ' + tt('תוכנית טיפול מאושרת', 'แผนที่อนุมัติ', 'خطة معالجة معتمدة') + ': ' + esc(p.docTitle || p.name || '—') +
+            (farmId == null ? ' · ' + esc(farmName(fid)) : '') + '</div>' +
+          '<div style="font-size:.74rem;color:#7a756f;margin-bottom:6px;">' + (p.target ? tt('מטרה', 'เป้าหมาย', 'الهدف') + ': ' + esc(p.target) + ' · ' : '') +
+            (it.at ? tt('אושר', 'อนุมัติ', 'اعتُمد') + ' ' + new Date(it.at).toLocaleDateString('he-IL') : '') + '</div>' +
+          '<table><thead><tr><th>' + tt('אופן יישום', 'วิธี', 'الطريقة') + '</th><th>' + tt('חלקה', 'แปลง', 'قطعة') + '</th><th>' + tt('עצים / דונם', 'ต้น/ไร่', 'أشجار/دونم') + '</th>' +
+            '<th>' + tt('חומרים ומינון', 'สารและอัตรา', 'المواد والجرعة') + '</th><th>' + tt('סיבוב / מועד', 'รอบ / เวลา', 'الجولة / الموعد') + '</th><th>' + tt('סיום עד', 'ภายใน', 'حتى') + '</th></tr></thead><tbody>' +
+          it.rows.map(function (r) {
+            var pl = r.plotId ? plotById(r.plotId) : null;
+            var mats = (r.materials || []).filter(function (m) { return m && m.name; }).map(function (m) {
+              return esc(m.name) + ' ' + esc(doseText(m, p, r.method)) + ' (' + fmtQty(rowMaterialL(r, m), U(m.name, p)) + ')';
+            }).join('<br>');
+            return '<tr><td>' + esc(methodLabel(r.method)) + '</td><td>' + esc(pl ? pl.name : tt('כלל המשק', 'ทั้งฟาร์ม', 'كل المزرعة')) + '</td>' +
+              '<td>' + (Number(r.trees) || 0).toLocaleString() + ' ' + qtyWord(r.method) + '</td><td>' + (mats || '—') + '</td>' +
+              '<td>' + esc([r.round, r.timing].filter(Boolean).join(' · ') || '—') + '</td><td>' + esc(fmtDate(effDeadline(p, r)) || '—') + '</td></tr>';
+          }).join('') + '</tbody></table>' +
+          (String(p.prep || '').trim() ? '<div style="font-size:.74rem;white-space:pre-line;margin-top:4px;color:#4a4540;">' + esc(String(p.prep).trim()) + '</div>' : '') +
+        '</div>';
+      });
+    });
+    return out ? '<div style="margin-top:22px;border-top:2px solid #e6e0d8;padding-top:6px;"><div style="margin:8px 16px 0;font-weight:800;font-size:1.02rem;">' +
+      tt('תוכניות טיפול מאושרות', 'แผนที่อนุมัติ', 'خطط معالجة معتمدة') + '</div>' + out + '</div>' : '';
+  }
+
   function farmApproveBtn(p, fid) {
     if (!isAdmin()) return '';
     return farmState(p, fid) === 'approved' ?
@@ -3895,6 +3978,10 @@ var AgriPlan = (function () {
     farmState: farmState,
     openPlan: openPlan,
     farmCard: farmCard,
+    _logToggle: _logToggle,
+    prepareLog: prepareLog,
+    logPending: logPending,
+    logSection: logSection,
     approvalState: approvalState,
     save: save,
     totals: totals,
