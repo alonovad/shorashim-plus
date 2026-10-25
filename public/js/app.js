@@ -1484,6 +1484,17 @@
     'יומן ריסוסים': { th: 'บันทึกการพ่นยา', ar: 'سجل الرش' },
     'גרסה חדשה של האפליקציה הותקנה. שמור וסגור את החלון והאפליקציה תתרענן מעצמה': { th: 'ติดตั้งเวอร์ชันใหม่แล้ว บันทึกและปิดหน้าต่าง แอปจะรีเฟรชเอง', ar: 'تم تثبيت إصدار جديد. احفظ وأغلق النافذة وسيُحدَّث التطبيق تلقائياً' },
     'רענן עכשיו': { th: 'รีเฟรชตอนนี้', ar: 'تحديث الآن' },
+    'ביום': { th: 'ทั้งวัน', ar: 'خلال اليوم' },
+    'רוח עד': { th: 'ลมสูงสุด', ar: 'رياح حتى' },
+    'תנאי הריסוס עכשיו לא מתאימים': { th: 'สภาพอากาศตอนนี้ไม่เหมาะกับการพ่น', ar: 'ظروف الرش الآن غير مناسبة' },
+    'לשמור את הרישום בכל זאת?': { th: 'บันทึกต่อหรือไม่?', ar: 'حفظ السجل على أي حال؟' },
+    'רוח': { th: 'ลม', ar: 'رياح' },
+    'לחות': { th: 'ความชื้น', ar: 'رطوبة' },
+    'גשם': { th: 'ฝน', ar: 'مطر' },
+    'קמ"ש': { th: 'กม./ชม.', ar: 'كم/س' },
+    'מ"מ': { th: 'มม.', ar: 'مم' },
+    'תחנת': { th: 'สถานี', ar: 'محطة' },
+    'ק"מ': { th: 'กม.', ar: 'كم' },
     'חלקה ראשית במשק': { th: 'แปลงหลักของฟาร์ม', ar: 'القطعة الرئيسية في المزرعة' },
     'החלקה הראשית לא נשמרה': { th: 'บันทึกแปลงหลักไม่สำเร็จ', ar: 'لم تُحفظ القطعة الرئيسية' },
     'האפליקציה עודכנה לגרסה חדשה': { th: 'แอปอัปเดตเป็นเวอร์ชันใหม่แล้ว', ar: 'تم تحديث التطبيق إلى إصدار جديد' },
@@ -5136,6 +5147,22 @@
       _byFarm[fid].plotIds.push(pid);
     });
 
+    // A spray recorded as happening now, in conditions the forecast marks as
+    // unsuitable (wind, heat, rain), asks once. Uses the weather already
+    // loaded on this device; when it is not, nothing is asked.
+    if (date === new Date().toISOString().slice(0, 10) && window.Weather && Weather.summary) {
+      var _bad = [];
+      farmGroups.forEach(function(g) {
+        Weather.summary(g.farmId, function(w) {
+          if (w && w.spray && w.spray[0] === 'bad') {
+            var f = (farms || []).find(function(x) { return x.id === g.farmId; });
+            _bad.push((f ? f.name : '') + ': ' + (w.spray[1] || '') + ' (' + w.temp + '°, ' + t('רוח') + ' ' + w.wind + ' ' + t('קמ"ש') + ')');
+          }
+        });
+      });
+      if (_bad.length && !confirm('⚠️ ' + t('תנאי הריסוס עכשיו לא מתאימים') + ':\n' + _bad.join('\n') + '\n\n' + t('לשמור את הרישום בכל זאת?'))) return;
+    }
+
     var allLinkedIds = (window.SprayLink ? window.SprayLink.getSelectedReportIds() : []);
     var linkedReportObjs = (window.SprayLink && window.SprayLink.reportsById)
       ? window.SprayLink.reportsById(allLinkedIds) : [];
@@ -5154,6 +5181,7 @@
       return _nextId++;
     };
 
+    var _newSprayIds = [];
     farmGroups.forEach(function(g) {
       // A scouting report hangs off a single plot, so it belongs to a single
       // farm — carry each one only into the record it actually justifies.
@@ -5198,9 +5226,11 @@
         reconstruction: reconMeta ? JSON.parse(JSON.stringify(reconMeta)) : null
       });
       if (window.Own) Own.stamp(sprayEvents[sprayEvents.length - 1]);
+      _newSprayIds.push(sprayEvents[sprayEvents.length - 1].id);
     });
 
     saveData();
+    attachSprayWeather(_newSprayIds);
 
     if (farmGroups.length > 1) {
       var _labels = farmGroups.map(function(g) {
@@ -5329,6 +5359,7 @@
         html += '<input type="checkbox" class="hist-select" value="' + event.id + '">';
       }
       html += '<span class="history-date">' + formatDate(event.date) + reconBadge + '</span>';
+      var _wx = window.sprayWxLine(event);
       var revCount = (event.revisions || []).length;
       var revBadge = revCount
         ? '<span class="rev-badge" title="' + t('נערך') + '">✏ ' + revCount + '</span>' : '';
@@ -5338,6 +5369,7 @@
           ? '<button type="button" class="history-edit" onclick="SprayEdit.open(' + event.id + ')">✏️</button>'
           : '') + '</span>';
       html += '</div>';
+      if (_wx) html += '<div class="history-wx" style="font-size:.72rem;color:var(--text-muted);margin:-2px 0 4px;">' + _wx + '</div>';
       // Which grower's log this record lands in — stamped on new records,
       // derived from the first plot for legacy ones.
       var evFarmId = event.farmId || null;
@@ -5425,6 +5457,47 @@
         { detail: { shown: sorted.length, filteredOut: filteredOut } }));
     } catch (e) {}
   }
+
+  // ── Weather on spray records (IMS, functions: imsData) ──
+  // A spray entered on the day gets the nearest station's reading at the
+  // moment it was keyed in; a back-dated one gets that day's summary. Stored
+  // on the record (ev.weather) and printed in the spray log. Best-effort:
+  // without the function or a station nothing is added.
+  function attachSprayWeather(ids) {
+    if (!ids || !ids.length || !window.firebase || !firebase.app || !window.Weather || !Weather._points) return;
+    var pts = Weather._points(), today = new Date().toISOString().slice(0, 10);
+    var fn = firebase.app().functions('us-central1').httpsCallable('imsData', { timeout: 60000 });
+    ids.forEach(function(id) {
+      var ev = sprayEvents.find(function(e) { return e.id === id; });
+      var pt = ev && pts.find(function(q) { return q.id === ev.farmId; });
+      if (!ev || !pt) return;
+      var live = ev.date === today;
+      var call = live ? fn({ mode: 'at', lat: pt.lat, lon: pt.lon, at: new Date(ev.enteredAt || Date.now()).toISOString() })
+                      : fn({ mode: 'days', points: [{ id: 'p', lat: pt.lat, lon: pt.lon }], from: ev.date, to: ev.date });
+      call.then(function(r) {
+        var d = r && r.data, w = null;
+        if (live && d && !d.none) w = { kind: 'at', at: d.at, station: d.station, km: d.dist_km, temp: d.temp, rh: d.rh, ws: d.ws, wsmax: d.wsmax, rain: d.rain };
+        if (!live && d && d.points && d.points.p) {
+          var x = d.points.p, dy = (x.days || [])[0] || {};
+          if (dy.tmax != null) w = { kind: 'day', station: (x.stations.temp || {}).name, km: (x.stations.temp || {}).km, tmax: dy.tmax, tmin: dy.tmin, wsmax: dy.wsmax, ws: dy.ws, rain: dy.rain };
+        }
+        if (!w) return;
+        var cur = sprayEvents.find(function(e) { return e.id === id; });
+        if (!cur || cur.weather) return;
+        cur.weather = w;
+        saveData();
+      }).catch(function(e) { console.warn('[spray weather]', e && (e.code || e.message)); });
+    });
+  }
+  window.sprayWxLine = function(ev) {
+    var w = ev && ev.weather;
+    if (!w) return '';
+    var n = function(v, u) { return v == null ? '' : (Math.round(v * 10) / 10) + u; };
+    var parts = w.kind === 'at'
+      ? [n(w.temp, '°'), w.ws != null ? t('רוח') + ' ' + n(w.ws, '') + (w.wsmax != null ? '–' + Math.round(w.wsmax) : '') + ' ' + t('קמ"ש') : '', w.rh != null ? t('לחות') + ' ' + Math.round(w.rh) + '%' : '', w.rain ? t('גשם') + ' ' + n(w.rain, '') : '']
+      : [t('ביום') + ': ' + n(w.tmax, '°') + '/' + n(w.tmin, '°'), w.wsmax != null ? t('רוח עד') + ' ' + Math.round(w.wsmax) + ' ' + t('קמ"ש') : '', w.rain ? t('גשם') + ' ' + n(w.rain, '') + ' ' + t('מ"מ') : ''];
+    return '🌡 ' + parts.filter(Boolean).join(' · ') + (w.station ? ' (' + t('תחנת') + ' ' + w.station + (w.km != null ? ', ' + w.km + ' ' + t('ק"מ') : '') + ')' : '');
+  };
 
   function formatDate(dateStr) {
     var d = new Date(dateStr);
@@ -5710,7 +5783,8 @@
       }
 
       html += '<tr' + (rr ? ' class="row-reconstructed"' : '') + '>' +
-        '<td class="event-date">' + formatDate(event.date) + pdfRecon + '</td>' +
+        '<td class="event-date">' + formatDate(event.date) + pdfRecon +
+          (event.weather ? '<div class="pest-meta">' + window.sprayWxLine(event) + '</div>' : '') + '</td>' +
         '<td>' + (event.operator || '') +
           (isOrphanEvent(event)
             ? '<div class="pest-meta">⚠ ' + t('ללא חלקה מזוהה') + '</div>' : '') + '</td>' +

@@ -261,6 +261,8 @@ var Home = (function () {
   function alertsPanel(f, w) {
     var items = [];
     if (w && w.alerts) w.alerts.forEach(function (a) { items.push([a[0] === 'bad' ? 'r' : 'o', a[1], '']); });
+    // measured at the nearest IMS station now (heat, frost, wind, rain)
+    if (f && window.Weather && Weather.farmAlerts) Weather.farmAlerts(f.id).forEach(function (a) { items.push([a.cls === 'bad' ? 'r' : 'o', a.text, a.when]); });
     if (f && window.Fleet && Fleet.farmAlerts && S().canEditFarm && S().canEditFarm(f.id)) {
       Fleet.farmAlerts(f.id).forEach(function (a) { items.push([a.cls === 'bad' ? 'r' : 'o', a.text, a.when]); });
     }

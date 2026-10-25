@@ -1956,3 +1956,235 @@ exports.backupAll = onCall(
     return { url, name: path.split("/").pop(), bytes: Number(meta.size) || 0, counts };
   }
 );
+
+// ═══════════════════════════════════════════
+// IMS DATA — history and point-in-time readings from the nearest IMS
+// stations (Oct 2026). One callable, two modes:
+//   mode "days": { points:[{id,lat,lon}], from, to } → per point, per day:
+//       rain (mm), Tmax/Tmin/Tmean (°C), RH, wind mean/max (km/h),
+//       radiation (MJ/m²), ET0 (mm, FAO-56 Penman-Monteith from the
+//       station's radiation; Hargreaves when it has none) - each element
+//       from the nearest station that measures it
+//   mode "at":   { lat, lon, at } → the reading closest to that time
+// Daily figures are cached in Firestore (imsDaily/{station}_{yyyy-mm}),
+// closed months for good, the current month for 3 hours. The app never
+// reads that collection directly (rules deny it); only this function does.
+// ═══════════════════════════════════════════
+const IMS_ELEMENTS = { temp: "TD", rain: "Rain", rad: "Grad", wind: "WS" };
+async function imsGet(path) {
+  const r = await fetch(IMS_BASE + path, { headers: { Authorization: "ApiToken " + String(IMS_TOKEN.value() || "").trim() } });
+  if (!r.ok) { console.error("ims", path, r.status, (await r.text()).slice(0, 200)); throw new HttpsError("unavailable", "IMS " + r.status); }
+  return r.json();
+}
+async function imsStationList() {
+  if (!_imsStations || Date.now() - _imsStationsAt > 12 * 3600 * 1000) {
+    const all = await imsGet("/stations");
+    _imsStations = (Array.isArray(all) ? all : []).filter((s) => s && s.active !== false && s.location &&
+      isFinite(s.location.latitude) && isFinite(s.location.longitude));
+    _imsStationsAt = Date.now();
+  }
+  return _imsStations;
+}
+function imsKm(a, b, c, d) {
+  const rad = (x) => x * Math.PI / 180;
+  const x = Math.sin(rad(c - a) / 2) ** 2 + Math.cos(rad(a)) * Math.cos(rad(c)) * Math.sin(rad(d - b) / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+}
+function imsHas(s, ch) { return (s.monitors || []).some((m) => m && m.name === ch && m.active !== false); }
+// nearest station measuring channel ch (any station when the list has no monitor info)
+function imsNearest(list, lat, lon, ch) {
+  let best = null, bd = Infinity;
+  const anyInfo = list.some((s) => Array.isArray(s.monitors) && s.monitors.length);
+  for (const s of list) {
+    if (anyInfo && ch && !imsHas(s, ch)) continue;
+    const d = imsKm(lat, lon, Number(s.location.latitude), Number(s.location.longitude));
+    if (d < bd) { bd = d; best = s; }
+  }
+  return best ? { s: best, km: Math.round(bd * 10) / 10 } : null;
+}
+const ymd = (d) => d.toISOString().slice(0, 10);
+// FAO-56 daily reference evapotranspiration (mm)
+function et0Daily(dy, lat, z) {
+  if (dy.tmax == null || dy.tmin == null) return null;
+  const doy = Math.floor((Date.UTC(+dy.d.slice(0, 4), +dy.d.slice(5, 7) - 1, +dy.d.slice(8, 10)) - Date.UTC(+dy.d.slice(0, 4), 0, 0)) / 864e5);
+  const phi = lat * Math.PI / 180, dr = 1 + 0.033 * Math.cos(2 * Math.PI * doy / 365), dec = 0.409 * Math.sin(2 * Math.PI * doy / 365 - 1.39);
+  const ws = Math.acos(Math.max(-1, Math.min(1, -Math.tan(phi) * Math.tan(dec))));
+  const Ra = 24 * 60 / Math.PI * 0.082 * dr * (ws * Math.sin(phi) * Math.sin(dec) + Math.cos(phi) * Math.cos(dec) * Math.sin(ws));
+  const T = (dy.tmax + dy.tmin) / 2;
+  if (dy.rs == null || dy.rhmax == null || dy.ws == null) {
+    return { v: Math.max(0, 0.0023 * (T + 17.8) * Math.sqrt(Math.max(0, dy.tmax - dy.tmin)) * Ra * 0.408), m: "hg" };
+  }
+  const e0 = (t) => 0.6108 * Math.exp(17.27 * t / (t + 237.3));
+  const D = 4098 * e0(T) / ((T + 237.3) ** 2), P = 101.3 * ((293 - 0.0065 * z) / 293) ** 5.26, g = 0.000665 * P;
+  const es = (e0(dy.tmax) + e0(dy.tmin)) / 2, ea = (e0(dy.tmin) * dy.rhmax / 100 + e0(dy.tmax) * dy.rhmin / 100) / 2;
+  const u2 = (dy.ws / 3.6) * 4.87 / Math.log(67.8 * 10 - 5.42);
+  const Rso = (0.75 + 2e-5 * z) * Ra, Rs = Math.min(dy.rs, Rso || dy.rs);
+  const Rnl = 4.903e-9 * (((dy.tmax + 273.16) ** 4 + (dy.tmin + 273.16) ** 4) / 2) * (0.34 - 0.14 * Math.sqrt(Math.max(0, ea))) * (1.35 * (Rso ? Rs / Rso : 1) - 0.35);
+  const Rn = 0.77 * Rs - Rnl;
+  const v = (0.408 * D * Rn + g * 900 / (T + 273) * u2 * (es - ea)) / (D + g * (1 + 0.34 * u2));
+  return { v: Math.max(0, v), m: "pm" };
+}
+// 10-minute records → one summary per local day
+function imsAggregate(rows) {
+  const by = {};
+  for (const row of rows || []) {
+    const d = String(row.datetime || "").slice(0, 10);
+    if (!d) continue;
+    const ch = {};
+    (row.channels || []).forEach((c) => { if (c && c.valid !== false && isFinite(c.value)) ch[c.name] = Number(c.value); });
+    const a = by[d] || (by[d] = { n: 0, t: [], rh: [], ws: [], wsmax: null, rain: 0, rainN: 0, g: [] });
+    a.n++;
+    if (ch.TD != null) a.t.push(ch.TD);
+    if (ch.RH != null) a.rh.push(ch.RH);
+    if (ch.WS != null) a.ws.push(ch.WS);
+    if (ch.WSmax != null) a.wsmax = Math.max(a.wsmax == null ? -1 : a.wsmax, ch.WSmax);
+    if (ch.Rain != null) { a.rain += ch.Rain; a.rainN++; }
+    if (ch.Grad != null) a.g.push(Math.max(0, ch.Grad));
+  }
+  const out = {};
+  const mean = (x) => x.reduce((s, v) => s + v, 0) / x.length;
+  const r1 = (x) => Math.round(x * 10) / 10;
+  Object.keys(by).forEach((d) => {
+    const a = by[d], o = { d, n: a.n };
+    if (a.t.length >= 72) { o.tmax = r1(Math.max(...a.t)); o.tmin = r1(Math.min(...a.t)); o.tmean = r1(mean(a.t)); }
+    if (a.rh.length >= 72) { o.rh = Math.round(mean(a.rh)); o.rhmax = Math.max(...a.rh); o.rhmin = Math.min(...a.rh); }
+    if (a.ws.length >= 72) o.ws = r1(mean(a.ws) * 3.6);
+    if (a.wsmax != null) o.wsmax = r1(a.wsmax * 3.6);
+    if (a.rainN >= 72) o.rain = r1(a.rain);
+    if (a.g.length >= 120) o.rs = Math.round(mean(a.g) * 0.0864 * 100) / 100;   // W/m² mean → MJ/m²/day
+    out[d] = o;
+  });
+  return out;
+}
+// one station-month of daily summaries, from the cache or from IMS
+async function imsMonth(sid, ym) {
+  const db = getFirestore(), ref = db.collection("imsDaily").doc(sid + "_" + ym);
+  const now = new Date(), curYm = now.toISOString().slice(0, 7);
+  const snap = await ref.get();
+  if (snap.exists) {
+    const c = snap.data();
+    if (c.closed || (ym === curYm && Date.now() - (c.at || 0) < 3 * 3600 * 1000)) return c.days || {};
+  }
+  const y = +ym.slice(0, 4), m = +ym.slice(5, 7), last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const to = ym === curYm ? now.getUTCDate() : last;
+  const j = await imsGet("/stations/" + sid + "/data?from=" + ym.replace("-", "/") + "/01&to=" + ym.replace("-", "/") + "/" + String(to).padStart(2, "0"));
+  const days = imsAggregate((j && j.data) || []);
+  if (ym === curYm) delete days[ymd(now)];          // today is not a whole day yet
+  await ref.set({ days, at: Date.now(), closed: ym < curYm });
+  return days;
+}
+exports.imsData = onCall(
+  { region: "us-central1", secrets: [IMS_TOKEN], memory: "512MiB", timeoutSeconds: 120, maxInstances: 3 },
+  async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Sign in required");
+    const q = request.data || {}, list = await imsStationList();
+    if (q.mode === "at") {
+      const lat = Number(q.lat), lon = Number(q.lon), at = new Date(q.at || Date.now());
+      if (!isFinite(lat) || !isFinite(lon) || isNaN(at)) throw new HttpsError("invalid-argument", "lat, lon, at");
+      const n = imsNearest(list, lat, lon, "TD");
+      if (!n) return { none: true };
+      // the day before to the day after (UTC dates), so the local day is covered in any season
+      const d0 = new Date(at.getTime() - 864e5).toISOString().slice(0, 10).replace(/-/g, "/"), d1 = new Date(at.getTime() + 864e5).toISOString().slice(0, 10).replace(/-/g, "/");
+      const j = await imsGet("/stations/" + n.s.stationId + "/data?from=" + d0 + "&to=" + d1);
+      let best = null, bd = Infinity;
+      for (const row of (j && j.data) || []) { const dt = Math.abs(new Date(row.datetime) - at); if (dt < bd) { bd = dt; best = row; } }
+      if (!best || bd > 90 * 60 * 1000) return { none: true, station: String(n.s.name || ""), dist_km: n.km };
+      const ch = {}; (best.channels || []).forEach((c) => { if (c && c.valid !== false) ch[c.name] = c.value; });
+      const k = (v) => v == null ? null : Math.round(v * 3.6 * 10) / 10;
+      return { station: String(n.s.name || ""), id: n.s.stationId, dist_km: n.km, at: best.datetime,
+        temp: ch.TD != null ? ch.TD : null, rh: ch.RH != null ? ch.RH : null, ws: k(ch.WS), wsmax: k(ch.WSmax), wd: ch.WD != null ? ch.WD : null, rain: ch.Rain != null ? ch.Rain : null };
+    }
+    // mode "days"
+    const pts = Array.isArray(q.points) ? q.points.slice(0, 30) : [];
+    const from = new Date(String(q.from || "") + "T00:00:00Z"), to = new Date(String(q.to || "") + "T00:00:00Z");
+    if (isNaN(from) || isNaN(to) || to < from || (to - from) / 864e5 > 400) throw new HttpsError("invalid-argument", "from / to (max 400 days)");
+    const months = [];
+    for (let d = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), 1)); d <= to; d.setUTCMonth(d.getUTCMonth() + 1)) months.push(d.toISOString().slice(0, 7));
+    const cache = {};
+    const stationDays = async (sid) => {
+      if (!cache[sid]) {
+        cache[sid] = {};
+        for (const ym of months) { try { Object.assign(cache[sid], await imsMonth(sid, ym)); } catch (e) { console.error("imsMonth", sid, ym, e.message); } }
+      }
+      return cache[sid];
+    };
+    const out = {};
+    for (const p of pts) {
+      const lat = Number(p.lat), lon = Number(p.lon);
+      if (!isFinite(lat) || !isFinite(lon)) continue;
+      const st = {}; for (const k of Object.keys(IMS_ELEMENTS)) st[k] = imsNearest(list, lat, lon, IMS_ELEMENTS[k]);
+      if (!st.temp) continue;
+      const src = {}; for (const k of Object.keys(st)) if (st[k]) src[k] = await stationDays(st[k].s.stationId);
+      const z = Number((st.temp.s.location || {}).altitude) || 0;
+      const days = [];
+      for (let d = new Date(from); d <= to; d.setUTCDate(d.getUTCDate() + 1)) {
+        const k = ymd(d), t = (src.temp || {})[k] || {}, r = (src.rain || {})[k] || {}, g = (src.rad || {})[k] || {}, w = (src.wind || {})[k] || {};
+        const dy = { d: k, tmax: t.tmax, tmin: t.tmin, tmean: t.tmean, rh: t.rh, rhmax: t.rhmax, rhmin: t.rhmin,
+          ws: w.ws != null ? w.ws : t.ws, wsmax: w.wsmax != null ? w.wsmax : t.wsmax, rain: r.rain, rs: g.rs };
+        const e = et0Daily(dy, lat, z);
+        days.push({ d: k, tmax: dy.tmax, tmin: dy.tmin, tmean: dy.tmean, rh: dy.rh, ws: dy.ws, wsmax: dy.wsmax, rain: dy.rain, rs: dy.rs,
+          et0: e ? Math.round(e.v * 10) / 10 : null, et0m: e ? e.m : null });
+      }
+      const nm = (x) => x ? { name: String(x.s.name || ""), km: x.km } : null;
+      out[p.id] = { stations: { temp: nm(st.temp), rain: nm(st.rain), rad: nm(st.rad), wind: nm(st.wind) }, days };
+    }
+    return { points: out };
+  }
+);
+
+// ═══════════════════════════════════════════
+// WEATHER ALERTS — every 30 minutes, the latest reading of the IMS station
+// nearest each farm: heat (≥ 40°), frost (≤ 2°), strong wind (≥ 30 km/h, or
+// gusts ≥ 45), rain falling. Written to appData/shorashim-wx-alerts, which
+// the home screen and the weather tab show; an alert keeps the time it
+// started while it lasts.
+// ═══════════════════════════════════════════
+const { onSchedule } = require("firebase-functions/v2/scheduler");
+exports.wxAlerts = onSchedule(
+  { region: "us-central1", schedule: "every 30 minutes", timeZone: "Asia/Jerusalem", secrets: [IMS_TOKEN], memory: "256MiB", timeoutSeconds: 120 },
+  async () => {
+    const db = getFirestore();
+    const pd = await db.collection("appData").doc("plotMapperSprayData").get();
+    const v = (pd.exists && pd.data().value) || {};
+    const plots = Array.isArray(v.plots) ? v.plots : [], farms = Array.isArray(v.farms) ? v.farms : [];
+    const prevSnap = await db.collection("appData").doc("shorashim-wx-alerts").get();
+    const prev = (prevSnap.exists && prevSnap.data().value && prevSnap.data().value.farms) || {};
+    const list = await imsStationList();
+    const latest = {};
+    const out = {};
+    for (const f of farms) {
+      // the farm's largest plot stands for its location
+      let best = null;
+      for (const p of plots) {
+        if (p.farm_id !== f.id || !Array.isArray(p.latlngs) || !p.latlngs.length) continue;
+        if (!best || (Number(p.area) || 0) > (Number(best.area) || 0)) best = p;
+      }
+      if (!best) continue;
+      const ll = best.latlngs.map((c) => [Number(c.lat !== undefined ? c.lat : c[0]), Number(c.lng !== undefined ? c.lng : c[1])]).filter((c) => isFinite(c[0]) && isFinite(c[1]));
+      if (!ll.length) continue;
+      const lat = ll.reduce((s, c) => s + c[0], 0) / ll.length, lon = ll.reduce((s, c) => s + c[1], 0) / ll.length;
+      const n = imsNearest(list, lat, lon, "TD");
+      if (!n) continue;
+      const sid = n.s.stationId;
+      if (!latest[sid]) {
+        try {
+          const j = await imsGet("/stations/" + sid + "/data/latest");
+          const row = (j && j.data && j.data[0]) || {}, ch = {};
+          (row.channels || []).forEach((c) => { if (c && c.valid !== false) ch[c.name] = c.value; });
+          latest[sid] = { dt: row.datetime || "", ch };
+        } catch (e) { latest[sid] = { dt: "", ch: {} }; }
+      }
+      const ch = latest[sid].ch, items = [];
+      const ws = ch.WS != null ? ch.WS * 3.6 : null, gust = ch.WSmax != null ? ch.WSmax * 3.6 : null;
+      if (ch.TD != null && ch.TD >= 40) items.push({ k: "heat", val: Math.round(ch.TD) });
+      if (ch.TD != null && ch.TD <= 2) items.push({ k: "frost", val: Math.round(ch.TD * 10) / 10 });
+      if ((ws != null && ws >= 30) || (gust != null && gust >= 45)) items.push({ k: "wind", val: Math.round(ws || 0), gust: gust != null ? Math.round(gust) : null });
+      if (ch.Rain != null && ch.Rain > 0) items.push({ k: "rain", val: Math.round(ch.Rain * 10) / 10 });
+      if (!items.length) continue;
+      const was = ((prev[f.id] || {}).items) || [];
+      items.forEach((it) => { const o = was.find((x) => x.k === it.k); it.since = o && o.since ? o.since : Date.now(); });
+      out[f.id] = { station: String(n.s.name || ""), km: n.km, at: latest[sid].dt, items };
+    }
+    await db.collection("appData").doc("shorashim-wx-alerts").set({ value: { at: Date.now(), farms: out }, updatedAt: new Date() });
+  }
+);

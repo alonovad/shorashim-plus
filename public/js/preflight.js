@@ -308,7 +308,7 @@ const OWN = ['orders.js','agriplan.js',
              'plotimport.js', 'plotregister.js', 'livingunit.js', 'livingedit.js', 'livingview3d.js', 'worklogedit.js', 'maintjournal.js', 'map-region.js',
              // Oct 2026 modules: every visible string through tt()
              'home.js', 'weather.js', 'cashflow.js', 'knowledge.js', 'traps.js', 'satellite.js', 'plotrec.js', 'ownership.js', 'comments.js', 'pestmonitor.js', 'fleet.js',
-             'irrigation-sys.js', 'cropprog.js', 'opcost.js', 'prices.js', 'farm-intake.js', 'display-settings.js', 'shipments.js', 'plotmap.js'];
+             'irrigation-sys.js', 'cropprog.js', 'opcost.js', 'prices.js', 'farm-intake.js', 'display-settings.js', 'shipments.js', 'plotmap.js', 'wxhist.js'];
 OWN.forEach(f => {
   if (!src[f]) return;
   let m = src[f].replace(/\/\*[\s\S]*?\*\//g, x => x.replace(/[^\n]/g, ' '))

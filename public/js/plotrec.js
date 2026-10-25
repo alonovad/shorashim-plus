@@ -99,7 +99,10 @@ var PlotRec = (function () {
     d = d && typeof d === 'object' ? d : {};
     return { kc: d.kc && typeof d.kc === 'object' ? d.kc : {}, recs: Array.isArray(d.recs) ? d.recs : [],
              auto: d.auto && typeof d.auto === 'object' ? d.auto : {}, sources: Array.isArray(d.sources) ? d.sources : [],
-             kcBy: d.kcBy && typeof d.kcBy === 'object' ? d.kcBy : {} };
+             kcBy: d.kcBy && typeof d.kcBy === 'object' ? d.kcBy : {},
+             // irrigation actually given, typed in per plot and week:
+             // { plotId: { 'YYYY-MM-DD' (Sunday): m³ } } (wxhist.js)
+             given: d.given && typeof d.given === 'object' ? d.given : {} };
   }
   function load() {
     if (typeof DB === 'undefined') { D = norm(null); return Promise.resolve(); }
@@ -702,6 +705,16 @@ var PlotRec = (function () {
 
   document.addEventListener('shorashim:lang', function () { if (document.getElementById('prRoot') && ctx) render(); });
 
-  return { open: open, close: close, _irr: irrCalc };
+  // for wxhist.js: recommended (Kc × measured ET0) vs given, per plot and week
+  function setGiven(pid, wk, m3) {
+    if (!canWork()) { toast('⛔ ' + tt('אין הרשאה', 'ไม่มีสิทธิ์', 'لا صلاحية')); return Promise.resolve(false); }
+    return load().then(function () {                        // fresh copy, then one field
+      var g = D.given[String(pid)] = D.given[String(pid)] || {};
+      if (m3 === '' || m3 == null || !isFinite(Number(m3))) delete g[wk]; else g[wk] = Math.round(Number(m3) * 10) / 10;
+      return persist();
+    });
+  }
+  function getGiven(pid, wk) { var g = D && D.given[String(pid)]; return g && g[wk] != null ? g[wk] : null; }
+  return { open: open, close: close, _irr: irrCalc, ready: load, setGiven: setGiven, getGiven: getGiven };
 })();
 window.PlotRec = PlotRec;

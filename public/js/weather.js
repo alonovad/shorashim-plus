@@ -197,7 +197,7 @@ var Weather = (function () {
       '.wx-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}' +
       '.wx-chip{background:var(--g6,#eef3ef);border-radius:10px;padding:4px 9px;font-size:.74rem;}' +
       '.wx-chip.bad{background:#fdecea;color:#b3261e;font-weight:600;}.wx-chip.mid{background:#fff4e0;color:#9a5b00;font-weight:600;}' +
-      '.wx-chip.good{background:#e6f5ee;color:#16785c;font-weight:600;}' +
+      '.wx-chip.good{background:#e6f5ee;color:#16785c;font-weight:600;}.wx-chip.warn{background:#e8f1fb;color:#1f5f99;font-weight:600;}' +
       '.wx-st{margin-top:8px;font-size:.76rem;background:#eef4fb;color:#1f4f80;border-radius:10px;padding:6px 9px;}' +
       '.wx-days{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-top:10px;}' +
       '.wx-day{background:var(--g6,#f2f5f2);border-radius:12px;padding:6px 2px;text-align:center;font-size:.72rem;}' +
@@ -210,6 +210,26 @@ var Weather = (function () {
   }
 
   function root() { return document.getElementById('weatherRoot'); }
+
+  // ── measured alerts from IMS stations (functions: wxAlerts, every 30 min) ──
+  // appData/shorashim-wx-alerts { at, farms: { farmId: { station, km, at, items:[{k,val,gust,since}] } } }
+  var wxAl = null;
+  (function listenAlerts() {
+    if (typeof DB === 'undefined' || !DB.listen) { setTimeout(listenAlerts, 1500); return; }
+    try { DB.listen('shorashim-wx-alerts', function (d) { wxAl = d || null; var el = root(); if (el && state.data) paint(); }); } catch (e) {}
+  })();
+  function farmAlerts(fid) {
+    var f = wxAl && wxAl.farms && wxAl.farms[fid];
+    if (!f || !wxAl.at || Date.now() - wxAl.at > 2 * 3600 * 1000) return [];     // stale (function stopped) = nothing
+    return (f.items || []).map(function (it) {
+      var txt = it.k === 'heat' ? '🔥 ' + tt('חום כבד', 'ร้อนจัด', 'حر شديد') + ' ' + it.val + '°'
+        : it.k === 'frost' ? '❄️ ' + tt('קרה', 'น้ำค้างแข็ง', 'صقيع') + ' ' + it.val + '°'
+        : it.k === 'wind' ? '💨 ' + tt('רוח חזקה', 'ลมแรง', 'رياح قوية') + ' ' + it.val + (it.gust ? ' (' + tt('משבים', 'กระโชก', 'هبات') + ' ' + it.gust + ')' : '') + ' ' + tt('קמ״ש', 'กม./ชม.', 'كم/س')
+        : '🌧 ' + tt('יורד גשם', 'ฝนตก', 'تمطر');
+      var since = it.since ? new Date(it.since).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }) : '';
+      return { cls: it.k === 'rain' ? 'warn' : 'bad', text: txt + ' · ' + tt('תחנת', 'สถานี', 'محطة') + ' ' + f.station, when: since ? tt('מאז', 'ตั้งแต่', 'منذ') + ' ' + since : '' };
+    });
+  }
 
   function stationHtml(fid) {
     if (state.ims && state.ims[fid]) {
@@ -247,7 +267,9 @@ var Weather = (function () {
       '<div class="wx-row"><span class="wx-chip">💧 ET0 ' + tt('היום', 'วันนี้', 'اليوم') + ' ' + r1(et0) + ' ' + tt('מ״מ', 'มม.', 'مم') + ' = ' + r1(et0) + ' ' + tt('מ״ק/ד׳', 'ลบ.ม./ไร่', 'م³/دونم') + '</span>' +
         '<span class="wx-chip">' + tt('השבוע', 'สัปดาห์นี้', 'هذا الأسبوع') + ' ' + r1(et7) + ' ' + tt('מ״ק/ד׳', 'ลบ.ม./ไร่', 'م³/دونم') + '</span>' +
         al.map(function (a) { return '<span class="wx-chip ' + a[0] + '">' + esc(a[1]) + '</span>'; }).join('') + '</div>' +
-      stationHtml(p.id) + '</div>';
+      stationHtml(p.id) +
+      farmAlerts(p.id).map(function (a) { return '<div class="wx-chip ' + (a.cls === 'bad' ? 'bad' : 'warn') + '" style="display:block;margin-top:6px;">' + esc(a.text) + (a.when ? ' · ' + esc(a.when) : '') + '</div>'; }).join('') +
+      (window.WxHist && !state.imsErr ? '<button class="wx-btn" style="margin-top:8px;" data-wx-hist="' + p.id + '">📊 ' + tt('נתונים נמדדים: גשם, חום, השקיה', 'ข้อมูลที่วัด', 'البيانات المقاسة') + '</button>' : '') + '</div>';
   }
 
   function detailHtml(x) {
@@ -306,6 +328,9 @@ var Weather = (function () {
     document.getElementById('wxRefresh').addEventListener('click', function () { load(true); });
     var b = document.getElementById('wxBack');
     if (b) b.addEventListener('click', function () { state.open = null; paint(); });
+    el.querySelectorAll('[data-wx-hist]').forEach(function (b) {
+      b.addEventListener('click', function (e) { e.stopPropagation(); WxHist.open(Number(b.getAttribute('data-wx-hist'))); });
+    });
     el.querySelectorAll('[data-wx-farm]').forEach(function (c) {
       c.addEventListener('click', function () { if (state.open) return; state.open = Number(c.getAttribute('data-wx-farm')); paint(); window.scrollTo(0, 0); });
     });
@@ -342,6 +367,6 @@ var Weather = (function () {
     if (act && act.getAttribute('data-tab') === 'weather' && state.data) paint();
   });
 
-  return { render: render, refresh: function () { load(true); }, summary: summary, _sprayHour: sprayHour, _points: points };
+  return { render: render, refresh: function () { load(true); }, summary: summary, farmAlerts: farmAlerts, _sprayHour: sprayHour, _points: points };
 })();
 window.Weather = Weather;
