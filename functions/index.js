@@ -2085,6 +2085,15 @@ exports.imsData = onCall(
   async (request) => {
     if (!request.auth) throw new HttpsError("unauthenticated", "Sign in required");
     const q = request.data || {}, list = await imsStationList();
+    // mode "stations": the stations around a point and what each measures -
+    // so the choice of station can be checked, not taken on trust
+    if (q.mode === "stations") {
+      const lat = Number(q.lat), lon = Number(q.lon);
+      if (!isFinite(lat) || !isFinite(lon)) throw new HttpsError("invalid-argument", "lat, lon");
+      return { stations: list.map((st) => ({ id: st.stationId, name: String(st.name || ""), km: Math.round(imsKm(lat, lon, Number(st.location.latitude), Number(st.location.longitude)) * 10) / 10,
+        channels: (st.monitors || []).filter((m) => m && m.active !== false).map((m) => m.name) }))
+        .filter((x) => x.km <= (Number(q.km) || 60)).sort((a, b) => a.km - b.km) };
+    }
     if (q.mode === "at") {
       const lat = Number(q.lat), lon = Number(q.lon), at = new Date(q.at || Date.now());
       if (!isFinite(lat) || !isFinite(lon) || isNaN(at)) throw new HttpsError("invalid-argument", "lat, lon, at");
