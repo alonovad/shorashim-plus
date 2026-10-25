@@ -2033,9 +2033,16 @@ function et0Daily(dy, lat, z) {
   const ws = Math.acos(Math.max(-1, Math.min(1, -Math.tan(phi) * Math.tan(dec))));
   const Ra = 24 * 60 / Math.PI * 0.082 * dr * (ws * Math.sin(phi) * Math.sin(dec) + Math.cos(phi) * Math.cos(dec) * Math.sin(ws));
   const T = (dy.tmax + dy.tmin) / 2;
-  if (dy.rs == null || dy.rhmax == null || dy.ws == null) {
+  // humidity or wind missing: temperature only (Hargreaves)
+  if (dy.rhmax == null || dy.ws == null) {
     return { v: Math.max(0, 0.0023 * (T + 17.8) * Math.sqrt(Math.max(0, dy.tmax - dy.tmin)) * Ra * 0.408), m: "hg" };
   }
+  // radiation missing: still Penman-Monteith with the measured humidity and
+  // wind, radiation estimated from the day's temperature range (FAO-56
+  // eq. 50, kRs 0.16 inland) - FAO's recommended route, better than
+  // Hargreaves when humidity and wind are measured
+  let est = false;
+  if (dy.rs == null) { dy = Object.assign({}, dy, { rs: 0.16 * Math.sqrt(Math.max(0, dy.tmax - dy.tmin)) * Ra }); est = true; }
   const e0 = (t) => 0.6108 * Math.exp(17.27 * t / (t + 237.3));
   const D = 4098 * e0(T) / ((T + 237.3) ** 2), P = 101.3 * ((293 - 0.0065 * z) / 293) ** 5.26, g = 0.000665 * P;
   const es = (e0(dy.tmax) + e0(dy.tmin)) / 2, ea = (e0(dy.tmin) * dy.rhmax / 100 + e0(dy.tmax) * dy.rhmin / 100) / 2;
@@ -2044,7 +2051,7 @@ function et0Daily(dy, lat, z) {
   const Rnl = 4.903e-9 * (((dy.tmax + 273.16) ** 4 + (dy.tmin + 273.16) ** 4) / 2) * (0.34 - 0.14 * Math.sqrt(Math.max(0, ea))) * (1.35 * (Rso ? Rs / Rso : 1) - 0.35);
   const Rn = 0.77 * Rs - Rnl;
   const v = (0.408 * D * Rn + g * 900 / (T + 273) * u2 * (es - ea)) / (D + g * (1 + 0.34 * u2));
-  return { v: Math.max(0, v), m: "pm" };
+  return { v: Math.max(0, v), m: est ? "pm-est" : "pm" };
 }
 // 10-minute records → one summary per local day
 function imsAggregate(rows) {
