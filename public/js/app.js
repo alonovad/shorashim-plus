@@ -2533,6 +2533,21 @@
   // the plot rows on the farm page so both behave identically.
   // plot.layer only exists once the map has drawn its polygons — a plot with
   // no geometry, or a cold load where drawing hasn't run, must not throw.
+  // Primary plot from anywhere (home plot table): same write as the plot
+  // card's button; also refreshes window.currentUser, which other modules read.
+  window.setPrimaryPlot = function(plotId) {
+    var usersData = JSON.parse(localStorage.getItem('shorashim-users') || '{}');
+    if (!currentUser || !usersData[currentUser.username]) return false;
+    usersData[currentUser.username].primary_plot_id = plotId || null;
+    DB.save('shorashim-users', usersData);
+    users = usersData;
+    currentUser = usersData[currentUser.username];
+    window.currentUser = currentUser;
+    var p = plotId ? plots.find(function(x) { return x.id === plotId; }) : null;
+    showToast(p ? '⭐ ' + locName(p) : '📍 ' + t('חלקה ראשית בוטלה'));
+    return true;
+  };
+  window.openPlotCard = function(plotId) { showPlotDetails(plotId); };
   window.goToPlotOnMap = function(plotId) {
     var plot = plots.find(function(p) { return p.id === plotId; });
     if (!plot) return;

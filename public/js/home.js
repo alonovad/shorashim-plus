@@ -239,7 +239,9 @@ var Home = (function () {
     // under a header that counted them all).
     var rows = f.plots.map(function (p, i) {
       var st = p.stage ? '<span class="hm-chip">' + esc(p.stage) + '</span>' : '';
-      return '<tr' + (i >= 8 ? ' class="hm-more"' : '') + '><td><b>' + esc(p.name) + '</b></td><td>' + esc(p.crop_type || '') + '</td><td>' + fmt(p.area) + '</td><td>' + (p.tree_count ? fmt(p.tree_count, 0) : '—') + '</td><td>' + st + '</td></tr>';
+      var prim = window.currentUser && window.currentUser.primary_plot_id === p.id;
+      return '<tr class="hm-pr' + (i >= 8 ? ' hm-more' : '') + '" onclick="Home._plot(' + p.id + ')"><td><button type="button" class="hm-star' + (prim ? ' on' : '') + '" data-no-sticky data-no-back title="' +
+        esc(prim ? tt('חלקה ראשית - לחץ לביטול', 'แปลงหลัก', 'القطعة الرئيسية') : tt('קבע כחלקה ראשית', 'ตั้งเป็นแปลงหลัก', 'تعيين كقطعة رئيسية')) + '" onclick="event.stopPropagation();Home._primary(' + p.id + ')">' + (prim ? '★' : '☆') + '</button><b>' + esc(p.name) + '</b></td><td>' + esc(p.crop_type || '') + '</td><td>' + fmt(p.area) + '</td><td>' + (p.tree_count ? fmt(p.tree_count, 0) : '—') + '</td><td>' + st + '</td></tr>';
     }).join('');
     return '<div class="hm-pn"><h4>' + tt('חלקות', 'แปลง', 'القطع') + ' · ' + esc(f.name) +
       (f.plots.length > 8 ? ' <small>(' + f.plots.length + ')</small>' : '') + '</h4>' +
@@ -491,6 +493,8 @@ var Home = (function () {
       '.hm-fc.on .hm-chips span{background:rgba(255,255,255,.14);color:#fff;}.hm-fc.on .hm-fc-go{background:var(--lime);color:var(--lime-ink);}' +
       '.hm-side{display:grid;gap:12px;align-content:start;}' +
       '.hm-pn{background:var(--card);border:1px solid var(--line);border-radius:22px;padding:12px 16px;}.hm-pn h4{margin:0 0 6px;font-size:.95rem;}.hm-pn h4 small{color:var(--text-muted);font-weight:400;}' +
+      '.hm-pr{cursor:pointer}.hm-pr:hover td{background:var(--tonal,#f3f6ef)}' +
+      '.hm-star{border:0;background:none;color:#b8bfb9;font-size:1rem;line-height:1;padding:0 0 0 6px;cursor:pointer;vertical-align:-1px}.hm-star.on{color:#f2b705}.hm-star:hover{color:#f2b705}' +
       '.hm-pn .hm-more{display:none}.hm-pn.open .hm-more{display:table-row}' +
       '.hm-all{display:block;width:100%;margin-top:8px;border:1px solid var(--line);background:var(--card);color:var(--primary,#1d5a2c);border-radius:12px;padding:7px;font:inherit;font-weight:600;font-size:.8rem;cursor:pointer;}' +
       '.hm-tb{width:100%;border-collapse:collapse;font-size:.8rem;}.hm-tb td,.hm-tb th{padding:7px 4px;border-bottom:1px solid var(--line);text-align:right;}.hm-tb tr:last-child td{border-bottom:0;}.hm-tb th{color:var(--text-muted);font-weight:400;font-size:.72rem;}' +
@@ -517,6 +521,17 @@ var Home = (function () {
     document.head.appendChild(st);
   }
 
-  return { render: render, enter: enter, leave: leave, openSheet: openSheet, _farms: farmsData };
+  function _plot(id) { if (window.openPlotCard) openPlotCard(id); }
+  function _primary(id) {
+    if (!window.setPrimaryPlot) return;
+    var cur = window.currentUser && window.currentUser.primary_plot_id, next = cur === id ? null : id;
+    if (!setPrimaryPlot(next)) return;
+    // redraw only the stars: the list stays open where it is
+    document.querySelectorAll('.hm-star').forEach(function (b) {
+      var m = String(b.getAttribute('onclick')).match(/_primary\((\d+)\)/), on = !!m && Number(m[1]) === next;
+      b.classList.toggle('on', on); b.textContent = on ? '★' : '☆';
+    });
+  }
+  return { render: render, enter: enter, leave: leave, openSheet: openSheet, _farms: farmsData, _plot: _plot, _primary: _primary };
 })();
 window.Home = Home;
