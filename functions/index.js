@@ -1973,10 +1973,22 @@ const IMS_MAX_KM = { temp: 30, rain: 25, rad: 25, wind: 30 };   // beyond this a
 // IMS stamps every observation in Israel WINTER time (UTC+2) whatever offset
 // the text carries (API documentation); read it that way, return true UTC.
 function imsTime(dt) { const m = String(dt || "").match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?)/); return m ? new Date(m[1] + "+02:00") : null; }
+// Gentle on the IMS server: at most two requests in flight per instance,
+// and every response size is logged (Cloud Logging) so the load is known.
+let _imsActive = 0; const _imsWait = [];
 async function imsGet(path) {
-  const r = await fetch(IMS_BASE + path, { headers: { Authorization: "ApiToken " + String(IMS_TOKEN.value() || "").trim() } });
-  if (!r.ok) { console.error("ims", path, r.status, (await r.text()).slice(0, 200)); throw new HttpsError("unavailable", "IMS " + r.status); }
-  return r.json();
+  if (_imsActive >= 2) await new Promise((res) => _imsWait.push(res));
+  _imsActive++;
+  try {
+    const r = await fetch(IMS_BASE + path, { headers: { Authorization: "ApiToken " + String(IMS_TOKEN.value() || "").trim() } });
+    const text = await r.text();
+    console.log("ims", path, r.status, text.length + " bytes");
+    if (!r.ok) { console.error("ims", path, r.status, text.slice(0, 200)); throw new HttpsError("unavailable", "IMS " + r.status); }
+    return JSON.parse(text);
+  } finally {
+    _imsActive--;
+    const next = _imsWait.shift(); if (next) next();
+  }
 }
 async function imsStationList() {
   if (!_imsStations || Date.now() - _imsStationsAt > 12 * 3600 * 1000) {
@@ -2088,14 +2100,25 @@ async function imsMonth(sid, ym, st) {
   const db = getFirestore(), ref = db.collection("imsDaily").doc(sid + "_" + ym);
   const now = new Date(), curYm = now.toISOString().slice(0, 7);
   const snap = await ref.get();
+  let have = {};
   if (snap.exists) {
     const c = snap.data();
-    if ((c.v || 1) >= IMS_CACHE_V && (c.closed || (ym === curYm && Date.now() - (c.at || 0) < 3 * 3600 * 1000))) return c.days || {};
+    if ((c.v || 1) >= IMS_CACHE_V) {
+      have = c.days || {};
+      // a closed month never changes; the current one is refreshed at most every 6 h
+      if (c.closed || (ym === curYm && Date.now() - (c.at || 0) < 6 * 3600 * 1000)) return have;
+    }
   }
   const y = +ym.slice(0, 4), m = +ym.slice(5, 7), last = new Date(Date.UTC(y, m, 0)).getUTCDate();
   const to = ym === curYm ? now.getUTCDate() : last;
-  const rows = await imsFetchRange(st || { stationId: sid }, ym.replace("-", "/") + "/01", ym.replace("-", "/") + "/" + String(to).padStart(2, "0"));
-  const days = imsAggregate(rows);
+  // only the days not stored yet (the current month grows a day at a time)
+  const haveDays = Object.keys(have).map((d) => +d.slice(8, 10)).filter((n) => n >= 1);
+  const fromDay = haveDays.length ? Math.max(...haveDays) + 1 : 1;
+  let days = Object.assign({}, have);
+  if (fromDay <= to) {
+    const rows = await imsFetchRange(st || { stationId: sid }, ym.replace("-", "/") + "/" + String(fromDay).padStart(2, "0"), ym.replace("-", "/") + "/" + String(to).padStart(2, "0"));
+    Object.assign(days, imsAggregate(rows));
+  }
   if (ym === curYm) delete days[ymd(now)];          // today is not a whole day yet
   await ref.set({ days, at: Date.now(), closed: ym < curYm, v: IMS_CACHE_V });
   return days;
@@ -2138,13 +2161,13 @@ exports.imsData = onCall(
     const months = [];
     for (let d = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), 1)); d <= to; d.setUTCMonth(d.getUTCMonth() + 1)) months.push(d.toISOString().slice(0, 7));
     const cache = {};
-    // a station's months, four at a time
+    // a station's months, one at a time
     const stationDays = (stn) => {
       const sid = stn.stationId;
       if (!cache[sid]) cache[sid] = (async () => {
         const acc = {}, queue = months.slice();
         const worker = async () => { while (queue.length) { const ym = queue.shift(); try { Object.assign(acc, await imsMonth(sid, ym, stn)); } catch (e) { console.error("imsMonth", sid, ym, e.message); } } };
-        await Promise.all([worker(), worker(), worker(), worker()]);
+        await worker();                          // one month at a time per station
         return acc;
       })();
       return cache[sid];
@@ -2185,7 +2208,7 @@ exports.imsData = onCall(
 // ═══════════════════════════════════════════
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 exports.wxAlerts = onSchedule(
-  { region: "us-central1", schedule: "every 30 minutes", timeZone: "Asia/Jerusalem", secrets: [IMS_TOKEN], memory: "256MiB", timeoutSeconds: 120 },
+  { region: "us-central1", schedule: "every 60 minutes", timeZone: "Asia/Jerusalem", secrets: [IMS_TOKEN], memory: "256MiB", timeoutSeconds: 120 },
   async () => {
     const db = getFirestore();
     const pd = await db.collection("appData").doc("plotMapperSprayData").get();
