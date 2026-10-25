@@ -54,11 +54,11 @@ var WxHist = (function () {
   }
   function fetchDays(pt, from, to) {
     var fn = firebase.app().functions('us-central1').httpsCallable('imsData', { timeout: 120000 });
-    return fn({ mode: 'days', points: [{ id: 'p', lat: pt.lat, lon: pt.lon }], from: from, to: to }).then(function (r) { return (r && r.data && r.data.points && r.data.points.p) || null; });
+    return fn({ mode: 'days', points: [{ id: 'p', lat: pt.lat, lon: pt.lon, station: pt.station }], from: from, to: to }).then(function (r) { return (r && r.data && r.data.points && r.data.points.p) || null; });
   }
 
   function open(fid) {
-    ui.fid = fid; ui.cur = ui.prev = null; ui.err = '';
+    ui.fid = fid; ui.cur = ui.prev = null; ui.err = ''; ui.pick = null;
     try { var st = JSON.parse(localStorage.getItem('shorashim-wxhist-' + fid) || '{}'); ui.base = Number(st.base) || 18; ui.from = st.from || ''; } catch (e) { ui.base = 18; ui.from = ''; }
     if (!ui.from) ui.from = new Date().getFullYear() + '-01-01';
     ensureCss();
@@ -206,7 +206,9 @@ var WxHist = (function () {
         ' <span class="wh-lg">(' + tt('אשתקד באותו מועד', 'ปีก่อน', 'العام الماضي') + ': ' + Math.round(g0.length ? g0[g0.length - 1][1] : 0) + ')</span></div>' +
       lineSvg(g1, g0) + '<div class="wh-lg"><i style="background:#d9822b"></i>' + tt('השנה', 'ปีนี้', 'هذا العام') + ' &nbsp; <i style="background:#c8d3c4"></i>' + tt('אשתקד', 'ปีก่อน', 'العام الماضي') +
       ' · ' + tt('מעלות־יום = סכום (ממוצע יומי פחות טמפ׳ הבסיס) בימים שמעליה', 'ผลรวมของ (เฉลี่ย − ฐาน)', 'مجموع (المتوسط − الأساس)') + '</div></div>';
-    return '<div class="wh-src">' + stationsLine(ui.cur) + (miss ? ' · ' + miss + ' ' + tt('ימים בלי נתוני טמפרטורה', 'วันไม่มีข้อมูล', 'أيام بلا بيانات') : '') + '</div>' +
+    return '<div class="wh-src">' + stationsLine(ui.cur) + (miss ? ' · ' + miss + ' ' + tt('ימים בלי נתוני טמפרטורה', 'วันไม่มีข้อมูล', 'أيام بلا بيانات') : '') +
+        (S().canEditFarm && S().canEditFarm(ui.fid) ? ' <button class="wh-btn" style="padding:3px 9px;font-size:.72rem;" data-wh="pick">🛰 ' + tt('בחירת תחנה', 'เลือกสถานี', 'اختيار المحطة') + '</button>' : '') + '</div>' +
+      (ui.pick ? pickHtml() : '') +
       k + rain + dd + irrigation(cAll) + events(c);
   }
 
@@ -280,15 +282,46 @@ var WxHist = (function () {
   }
 
   function saveSettings() { try { localStorage.setItem('shorashim-wxhist-' + ui.fid, JSON.stringify({ base: ui.base, from: ui.from })); } catch (e) {} }
+  // Choosing the station that stands for the farm. Mountain and valley lie
+  // side by side here, so the nearest station can have another climate
+  // altogether (a valley farm 17 km from a hilltop station); the list shows
+  // distance, altitude when IMS gives it, and what each station measures.
+  function pickHtml() {
+    if (ui.pick === 'load') return '<div class="wh-sec">⏳ ' + tt('טוען רשימת תחנות…', 'กำลังโหลด…', 'جارٍ التحميل…') + '</div>';
+    var cur = point(ui.fid), chosen = cur && cur.station;
+    var lab = function (ch) { return [ch.indexOf('TD') >= 0 ? tt('טמפ׳', 'อุณหภูมิ', 'حرارة') : '', ch.indexOf('Rain') >= 0 ? tt('גשם', 'ฝน', 'مطر') : '', ch.indexOf('WS') >= 0 ? tt('רוח', 'ลม', 'رياح') : '', ch.indexOf('Grad') >= 0 ? tt('קרינה', 'รังสี', 'إشعاع') : ''].filter(Boolean).join(' · '); };
+    return '<div class="wh-sec"><h3>🛰 ' + tt('התחנה שמייצגת את המשק', 'สถานีของฟาร์ม', 'محطة المزرعة') + '</h3>' +
+      '<div class="wh-lg" style="margin-bottom:6px;">' + tt('ברירת המחדל היא התחנה הקרובה ביותר. במשק בעמק ליד תחנה בהר כדאי לבחור תחנה בעמק גם אם היא רחוקה יותר. הבחירה חלה על כל נתוני השירות המטאורולוגי של המשק: מזג אוויר, רישומי ריסוס והתראות.', 'ค่าเริ่มต้นคือสถานีที่ใกล้ที่สุด', 'الافتراضي هو الأقرب') + '</div>' +
+      '<select class="form-input" id="whStation" style="width:100% !important;"><option value="">' + tt('אוטומטי - הקרובה ביותר', 'อัตโนมัติ', 'تلقائي - الأقرب') + '</option>' +
+      (ui.pick || []).filter(function (x) { return x.channels.indexOf('TD') >= 0 || x.channels.indexOf('Rain') >= 0; }).map(function (x) {
+        return '<option value="' + esc(x.id) + '"' + (String(chosen) === String(x.id) ? ' selected' : '') + '>' + esc(x.name) + ' · ' + x.km + ' ' + tt('ק״מ', 'กม.', 'كم') + (x.alt != null ? ' · ' + x.alt + ' ' + tt('מ׳', 'ม.', 'م') : '') + ' · ' + esc(lab(x.channels)) + '</option>';
+      }).join('') + '</select></div>';
+  }
+  function loadStations() {
+    var pt = point(ui.fid); if (!pt) return;
+    ui.pick = 'load'; paint();
+    var fn = firebase.app().functions('us-central1').httpsCallable('imsData', { timeout: 60000 });
+    fn({ mode: 'stations', lat: pt.lat, lon: pt.lon, km: 70 }).then(function (r) { ui.pick = (r && r.data && r.data.stations) || []; paint(); },
+      function (e) { ui.pick = null; toast('❌ ' + ((e && (e.code || e.message)) || '')); paint(); });
+  }
   function onClick(e) {
     if (e.target.id === 'whRoot') return close();
     var b = e.target.closest('[data-wh]'); if (!b) return;
     var k = b.getAttribute('data-wh');
     if (k === 'close') return close();
+    if (k === 'pick') { if (ui.pick) { ui.pick = null; return paint(); } return loadStations(); }
     if (k === 'print') return printReport();
   }
   function onChange(e) {
     var t = e.target;
+    if (t.id === 'whStation') {
+      var r = S().setImsStation ? S().setImsStation(ui.fid, t.value) : { ok: false };
+      if (!r.ok) { toast('⛔ ' + tt('אין הרשאה לשנות את המשק', 'ไม่มีสิทธิ์', 'لا صلاحية')); return; }
+      toast('✅ ' + tt('התחנה נשמרה למשק', 'บันทึกแล้ว', 'تم الحفظ'));
+      if (window.Weather && Weather.refresh) try { Weather.refresh(); } catch (er) {}
+      ui.pick = null;
+      return open(ui.fid);
+    }
     if (t.id === 'whBase') { var v = Number(t.value); if (isFinite(v)) { ui.base = v; saveSettings(); paint(); } return; }
     if (t.id === 'whFrom') {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(t.value)) return;

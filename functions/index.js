@@ -1339,12 +1339,9 @@ exports.imsWeather = onCall(
     for (const p of pts) {
       const lat = Number(p.lat), lon = Number(p.lon);
       if (!isFinite(lat) || !isFinite(lon)) continue;
-      let best = null, bd = Infinity;
-      for (const s of _imsStations) {
-        const d = km(lat, lon, Number(s.location.latitude), Number(s.location.longitude));
-        if (d < bd) { bd = d; best = s; }
-      }
-      if (!best) continue;
+      const pk = imsPick(_imsStations, lat, lon, "TD", p.station);
+      if (!pk) continue;
+      const best = pk.s, bd = pk.km;
       const sid = best.stationId;
       let latest = _imsLatest[sid];
       if (!latest || Date.now() - latest.at > 10 * 60 * 1000) {
@@ -1997,6 +1994,14 @@ function imsKm(a, b, c, d) {
 }
 function imsHas(s, ch) { return (s.monitors || []).some((m) => m && m.name === ch && m.active !== false); }
 // nearest station measuring channel ch (any station when the list has no monitor info)
+// a farm's chosen station (farm.ims_station) wins for every element it measures
+function imsPick(list, lat, lon, ch, sid) {
+  if (sid != null && sid !== "") {
+    const s = list.find((x) => String(x.stationId) === String(sid));
+    if (s && (!ch || imsHas(s, ch) || !(s.monitors || []).length)) return { s, km: Math.round(imsKm(lat, lon, Number(s.location.latitude), Number(s.location.longitude)) * 10) / 10, chosen: true };
+  }
+  return imsNearest(list, lat, lon, ch);
+}
 function imsNearest(list, lat, lon, ch) {
   let best = null, bd = Infinity;
   const anyInfo = list.some((s) => Array.isArray(s.monitors) && s.monitors.length);
@@ -2090,14 +2095,15 @@ exports.imsData = onCall(
     if (q.mode === "stations") {
       const lat = Number(q.lat), lon = Number(q.lon);
       if (!isFinite(lat) || !isFinite(lon)) throw new HttpsError("invalid-argument", "lat, lon");
-      return { stations: list.map((st) => ({ id: st.stationId, name: String(st.name || ""), km: Math.round(imsKm(lat, lon, Number(st.location.latitude), Number(st.location.longitude)) * 10) / 10,
+      return { stations: list.filter((st) => !/_1m$/i.test(String(st.name || ""))).map((st) => ({ id: st.stationId, name: String(st.name || ""), km: Math.round(imsKm(lat, lon, Number(st.location.latitude), Number(st.location.longitude)) * 10) / 10,
+        alt: st.location.altitude != null ? st.location.altitude : (st.altitude != null ? st.altitude : null),
         channels: (st.monitors || []).filter((m) => m && m.active !== false).map((m) => m.name) }))
         .filter((x) => x.km <= (Number(q.km) || 60)).sort((a, b) => a.km - b.km) };
     }
     if (q.mode === "at") {
       const lat = Number(q.lat), lon = Number(q.lon), at = new Date(q.at || Date.now());
       if (!isFinite(lat) || !isFinite(lon) || isNaN(at)) throw new HttpsError("invalid-argument", "lat, lon, at");
-      const n = imsNearest(list, lat, lon, "TD");
+      const n = imsPick(list, lat, lon, "TD", q.station);
       if (!n) return { none: true };
       // the day before to the day after (UTC dates), so the local day is covered in any season
       const d0 = new Date(at.getTime() - 864e5).toISOString().slice(0, 10).replace(/-/g, "/"), d1 = new Date(at.getTime() + 864e5).toISOString().slice(0, 10).replace(/-/g, "/");
@@ -2129,7 +2135,7 @@ exports.imsData = onCall(
       const lat = Number(p.lat), lon = Number(p.lon);
       if (!isFinite(lat) || !isFinite(lon)) continue;
       const st = {};
-      for (const k of Object.keys(IMS_ELEMENTS)) { const n = imsNearest(list, lat, lon, IMS_ELEMENTS[k]); st[k] = n && n.km <= IMS_MAX_KM[k] ? n : null; }
+      for (const k of Object.keys(IMS_ELEMENTS)) { const n = imsPick(list, lat, lon, IMS_ELEMENTS[k], p.station); st[k] = n && (n.chosen || n.km <= IMS_MAX_KM[k]) ? n : null; }
       if (!st.temp) continue;
       const src = {}; for (const k of Object.keys(st)) if (st[k]) src[k] = await stationDays(st[k].s.stationId);
       const z = Number((st.temp.s.location || {}).altitude) || 0;
@@ -2142,7 +2148,7 @@ exports.imsData = onCall(
         days.push({ d: k, tmax: dy.tmax, tmin: dy.tmin, tmean: dy.tmean, rh: dy.rh, ws: dy.ws, wsmax: dy.wsmax, rain: dy.rain, rs: dy.rs,
           et0: e ? Math.round(e.v * 10) / 10 : null, et0m: e ? e.m : null });
       }
-      const nm = (x) => x ? { name: String(x.s.name || ""), km: x.km } : null;
+      const nm = (x) => x ? { name: String(x.s.name || ""), km: x.km, id: x.s.stationId, chosen: !!x.chosen } : null;
       out[p.id] = { stations: { temp: nm(st.temp), rain: nm(st.rain), rad: nm(st.rad), wind: nm(st.wind) }, days };
     }
     return { points: out };
@@ -2180,7 +2186,7 @@ exports.wxAlerts = onSchedule(
       const ll = best.latlngs.map((c) => [Number(c.lat !== undefined ? c.lat : c[0]), Number(c.lng !== undefined ? c.lng : c[1])]).filter((c) => isFinite(c[0]) && isFinite(c[1]));
       if (!ll.length) continue;
       const lat = ll.reduce((s, c) => s + c[0], 0) / ll.length, lon = ll.reduce((s, c) => s + c[1], 0) / ll.length;
-      const n = imsNearest(list, lat, lon, "TD");
+      const n = imsPick(list, lat, lon, "TD", f.ims_station);
       if (!n) continue;
       const sid = n.s.stationId;
       if (!latest[sid]) {

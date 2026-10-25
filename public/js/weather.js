@@ -70,7 +70,7 @@ var Weather = (function () {
         if (isFinite(la) && isFinite(lo)) { lat += Number(la); lon += Number(lo); n++; }
       });
       if (!n) return;
-      out.push({ id: f.id, name: f.name, plot: p.name || '', lat: Math.round(lat / n * 10000) / 10000, lon: Math.round(lon / n * 10000) / 10000 });
+      out.push({ id: f.id, name: f.name, plot: p.name || '', lat: Math.round(lat / n * 10000) / 10000, lon: Math.round(lon / n * 10000) / 10000, station: f.ims_station || null });
     });
     return out;
   }
@@ -103,12 +103,12 @@ var Weather = (function () {
   function fetchIms(pts) {
     if (!window.firebase || !firebase.app || !firebase.app().functions) return Promise.reject(new Error('no-functions'));
     var fn = firebase.app().functions('us-central1').httpsCallable('imsWeather', { timeout: 30000 });
-    return fn({ points: pts.map(function (p) { return { id: p.id, lat: p.lat, lon: p.lon }; }) }).then(function (r) { return (r && r.data) || {}; });
+    return fn({ points: pts.map(function (p) { return { id: p.id, lat: p.lat, lon: p.lon, station: p.station }; }) }).then(function (r) { return (r && r.data) || {}; });
   }
 
   function load(force) {
     var pts = points();
-    var sig = pts.map(function (p) { return p.id + ':' + p.lat + ',' + p.lon; }).join('|');
+    var sig = pts.map(function (p) { return p.id + ':' + p.lat + ',' + p.lon + ':' + (p.station || ''); }).join('|');
     var c = !force && readCache(sig);
     if (c) { state.data = c.data; state.ims = c.ims; state.imsErr = c.imsErr || ''; state.at = c.at; state.pts = pts; paint(); return; }
     if (!pts.length) { state.data = []; state.pts = pts; paint(); return; }

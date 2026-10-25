@@ -2868,6 +2868,17 @@
       var f = (farms || []).find(function(x) { return x.id === farmId; });
       return JSON.parse(JSON.stringify((f && f.irr_heads) || []));
     },
+    // The IMS station that stands for the farm (weather, spray records,
+    // alerts); null = the nearest one. Mountains and valley lie side by side
+    // here, so the nearest station is not always the right one.
+    setImsStation: function(farmId, sid) {
+      if (!SprayStore.canEditFarm(farmId)) return { ok: false };
+      var f = (farms || []).find(function(x) { return x.id === farmId; });
+      if (!f) return { ok: false };
+      if (sid == null || sid === '') delete f.ims_station; else f.ims_station = Number(sid) || String(sid);
+      saveData();
+      return { ok: true };
+    },
     setIrrHeads: function(farmId, heads) {
       if (!SprayStore.canEditFarm(farmId)) return { ok: false };
       var f = (farms || []).find(function(x) { return x.id === farmId; });
@@ -3033,7 +3044,7 @@
       var ids = {};
       (accessible || []).forEach(function(p) { if (p.farm_id) ids[p.farm_id] = true; });
       return (farms || []).filter(function(f) { return ids[f.id]; })
-        .map(function(f) { return { id: f.id, name: f.name, color: f.color || '' }; });
+        .map(function(f) { return { id: f.id, name: f.name, color: f.color || '', ims_station: f.ims_station || null }; });
     },
 
     // Batched sibling of updateEvent. patchFn(event) returns the fields to
@@ -5472,8 +5483,8 @@
       var pt = ev && pts.find(function(q) { return q.id === ev.farmId; });
       if (!ev || !pt) return;
       var live = ev.date === today;
-      var call = live ? fn({ mode: 'at', lat: pt.lat, lon: pt.lon, at: new Date(ev.enteredAt || Date.now()).toISOString() })
-                      : fn({ mode: 'days', points: [{ id: 'p', lat: pt.lat, lon: pt.lon }], from: ev.date, to: ev.date });
+      var call = live ? fn({ mode: 'at', lat: pt.lat, lon: pt.lon, station: pt.station, at: new Date(ev.enteredAt || Date.now()).toISOString() })
+                      : fn({ mode: 'days', points: [{ id: 'p', lat: pt.lat, lon: pt.lon, station: pt.station }], from: ev.date, to: ev.date });
       call.then(function(r) {
         var d = r && r.data, w = null;
         if (live && d && !d.none) w = { kind: 'at', at: d.at, station: d.station, km: d.dist_km, temp: d.temp, rh: d.rh, ws: d.ws, wsmax: d.wsmax, rain: d.rain };
