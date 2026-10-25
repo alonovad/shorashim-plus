@@ -1971,6 +1971,8 @@ exports.backupAll = onCall(
 // reads that collection directly (rules deny it); only this function does.
 // ═══════════════════════════════════════════
 const IMS_ELEMENTS = { temp: "TD", rain: "Rain", rad: "Grad", wind: "WS" };
+const IMS_CACHE_V = 2;          // bump when the daily summary changes, so cached months are rebuilt
+const IMS_MAX_KM = { temp: 30, rain: 25, rad: 25, wind: 30 };   // beyond this a station does not stand for the farm
 async function imsGet(path) {
   const r = await fetch(IMS_BASE + path, { headers: { Authorization: "ApiToken " + String(IMS_TOKEN.value() || "").trim() } });
   if (!r.ok) { console.error("ims", path, r.status, (await r.text()).slice(0, 200)); throw new HttpsError("unavailable", "IMS " + r.status); }
@@ -2051,7 +2053,9 @@ function imsAggregate(rows) {
     if (a.ws.length >= 72) o.ws = r1(mean(a.ws) * 3.6);
     if (a.wsmax != null) o.wsmax = r1(a.wsmax * 3.6);
     if (a.rainN >= 72) o.rain = r1(a.rain);
-    if (a.g.length >= 120) o.rs = Math.round(mean(a.g) * 0.0864 * 100) / 100;   // W/m² mean → MJ/m²/day
+    // night readings are often missing or flagged; count them as 0 and sum
+    // the 10-minute energy (W/m² × 600 s) when daylight is covered
+    if (a.g.length >= 60) o.rs = Math.round(a.g.reduce((s2, v) => s2 + v, 0) * 600 / 1e6 * 100) / 100;
     out[d] = o;
   });
   return out;
@@ -2063,14 +2067,14 @@ async function imsMonth(sid, ym) {
   const snap = await ref.get();
   if (snap.exists) {
     const c = snap.data();
-    if (c.closed || (ym === curYm && Date.now() - (c.at || 0) < 3 * 3600 * 1000)) return c.days || {};
+    if ((c.v || 1) >= IMS_CACHE_V && (c.closed || (ym === curYm && Date.now() - (c.at || 0) < 3 * 3600 * 1000))) return c.days || {};
   }
   const y = +ym.slice(0, 4), m = +ym.slice(5, 7), last = new Date(Date.UTC(y, m, 0)).getUTCDate();
   const to = ym === curYm ? now.getUTCDate() : last;
   const j = await imsGet("/stations/" + sid + "/data?from=" + ym.replace("-", "/") + "/01&to=" + ym.replace("-", "/") + "/" + String(to).padStart(2, "0"));
   const days = imsAggregate((j && j.data) || []);
   if (ym === curYm) delete days[ymd(now)];          // today is not a whole day yet
-  await ref.set({ days, at: Date.now(), closed: ym < curYm });
+  await ref.set({ days, at: Date.now(), closed: ym < curYm, v: IMS_CACHE_V });
   return days;
 }
 exports.imsData = onCall(
@@ -2112,7 +2116,8 @@ exports.imsData = onCall(
     for (const p of pts) {
       const lat = Number(p.lat), lon = Number(p.lon);
       if (!isFinite(lat) || !isFinite(lon)) continue;
-      const st = {}; for (const k of Object.keys(IMS_ELEMENTS)) st[k] = imsNearest(list, lat, lon, IMS_ELEMENTS[k]);
+      const st = {};
+      for (const k of Object.keys(IMS_ELEMENTS)) { const n = imsNearest(list, lat, lon, IMS_ELEMENTS[k]); st[k] = n && n.km <= IMS_MAX_KM[k] ? n : null; }
       if (!st.temp) continue;
       const src = {}; for (const k of Object.keys(st)) if (st[k]) src[k] = await stationDays(st[k].s.stationId);
       const z = Number((st.temp.s.location || {}).altitude) || 0;
