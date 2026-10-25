@@ -2152,6 +2152,18 @@ exports.imsData = onCall(
     }
     // mode "day": one date, hour by hour, from the farm's station (closed
     // days are kept in imsDay/ so a date is fetched from IMS once)
+    // mode "raw": the station's own 10-minute temperature records for a
+    // range of up to 3 days (TD = 10-min mean, TDmax/TDmin = the extreme
+    // within each 10 minutes) - for checking our daily figures against
+    // other publishers of the same station. Not cached; 3 small requests.
+    if (q.mode === "raw") {
+      const st = list.find((x) => String(x.stationId) === String(q.station));
+      const from = String(q.from || ""), to = String(q.to || "");
+      if (!st || !/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || Date.parse(to) - Date.parse(from) > 3 * 864e5) throw new HttpsError("invalid-argument", "station, from, to (max 3 days)");
+      const toEx = new Date(Date.parse(to + "T00:00:00Z") + 864e5).toISOString().slice(0, 10).replace(/-/g, "/");
+      const rows = await imsFetchRange(st, from.replace(/-/g, "/"), toEx, ["TD", "TDmax", "TDmin"]);
+      return { station: String(st.name || ""), rows: rows.map((r) => { const o = { t: String(r.datetime).slice(0, 16) }; (r.channels || []).forEach((c) => { o[c.name] = c.valid === false ? null : c.value; }); return o; }) };
+    }
     if (q.mode === "day") {
       const lat = Number(q.lat), lon = Number(q.lon), date = String(q.date || "");
       if (!isFinite(lat) || !isFinite(lon) || !/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new HttpsError("invalid-argument", "lat, lon, date");
