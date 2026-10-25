@@ -310,20 +310,28 @@ var WxHist = (function () {
   // distance, altitude when IMS gives it, and what each station measures.
   function pickHtml() {
     if (ui.pick === 'load') return '<div class="wh-sec">⏳ ' + tt('טוען רשימת תחנות…', 'กำลังโหลด…', 'جارٍ التحميل…') + '</div>';
-    var cur = point(ui.fid), chosen = cur && cur.station;
+    var cur = point(ui.fid), chosen = cur && cur.station, chosenRad = cur && cur.radStation;
     var lab = function (ch) { return [ch.indexOf('TD') >= 0 ? tt('טמפ׳', 'อุณหภูมิ', 'حرارة') : '', ch.indexOf('Rain') >= 0 ? tt('גשם', 'ฝน', 'مطر') : '', ch.indexOf('WS') >= 0 ? tt('רוח', 'ลม', 'رياح') : '', ch.indexOf('Grad') >= 0 ? tt('קרינה', 'รังสี', 'إشعاع') : ''].filter(Boolean).join(' · '); };
     return '<div class="wh-sec"><h3>🛰 ' + tt('התחנה שמייצגת את המשק', 'สถานีของฟาร์ม', 'محطة المزرعة') + '</h3>' +
       '<div class="wh-lg" style="margin-bottom:6px;">' + tt('ברירת המחדל היא התחנה הקרובה ביותר. במשק בעמק ליד תחנה בהר כדאי לבחור תחנה בעמק גם אם היא רחוקה יותר. הבחירה חלה על כל נתוני השירות המטאורולוגי של המשק: מזג אוויר, רישומי ריסוס והתראות.', 'ค่าเริ่มต้นคือสถานีที่ใกล้ที่สุด', 'الافتراضي هو الأقرب') + '</div>' +
       '<select class="form-input" id="whStation" style="width:100% !important;"><option value="">' + tt('אוטומטי - הקרובה ביותר', 'อัตโนมัติ', 'تلقائي - الأقرب') + '</option>' +
-      (ui.pick || []).filter(function (x) { return x.channels.indexOf('TD') >= 0 || x.channels.indexOf('Rain') >= 0; }).map(function (x) {
+      (ui.pick || []).filter(function (x) { return x.km <= 70 && (x.channels.indexOf('TD') >= 0 || x.channels.indexOf('Rain') >= 0); }).map(function (x) {
         return '<option value="' + esc(x.id) + '"' + (String(chosen) === String(x.id) ? ' selected' : '') + '>' + esc(x.name) + ' · ' + x.km + ' ' + tt('ק״מ', 'กม.', 'كم') + (x.alt != null ? ' · ' + x.alt + ' ' + tt('מ׳', 'ม.', 'م') : '') + ' · ' + esc(lab(x.channels)) + '</option>';
+      }).join('') + '</select>' +
+      // radiation feeds only the evaporation; few stations measure it, so a
+      // valley farm can take it from a lowland station further away
+      '<h3 style="margin-top:12px;">☀️ ' + tt('תחנת קרינה (לחישוב ההתאדות)', 'สถานีรังสี (สำหรับการระเหย)', 'محطة الإشعاع (للتبخر)') + '</h3>' +
+      '<div class="wh-lg" style="margin-bottom:6px;">' + tt('רק תחנות מעטות מודדות קרינת שמש. בלי תחנה בטווח 25 ק״מ הקרינה מוערכת מהפרש הטמפרטורות (סטייה של כ־6% בבדיקה מול תחנת צבי). קרינה נמדדת מתחנת שפלה (חוות עדן, בית דגן) התאימה בכ־4%. ביום מעונן מקומית בתחנה הרחוקה הערך יכול לסטות.', 'มีไม่กี่สถานีที่วัดรังสี', 'قلة من المحطات تقيس الإشعاع') + '</div>' +
+      '<select class="form-input" id="whRadStation" style="width:100% !important;"><option value="">' + tt('אוטומטי - קרובה עד 25 ק״מ, אחרת הערכה', 'อัตโนมัติ', 'تلقائي') + '</option>' +
+      (ui.pick || []).filter(function (x) { return x.channels.indexOf('Grad') >= 0; }).map(function (x) {
+        return '<option value="' + esc(x.id) + '"' + (String(chosenRad) === String(x.id) ? ' selected' : '') + '>' + esc(x.name) + ' · ' + x.km + ' ' + tt('ק״מ', 'กม.', 'كم') + (x.alt != null ? ' · ' + x.alt + ' ' + tt('מ׳', 'ม.', 'م') : '') + '</option>';
       }).join('') + '</select></div>';
   }
   function loadStations() {
     var pt = point(ui.fid); if (!pt) return;
     ui.pick = 'load'; paint();
     var fn = firebase.app().functions('us-central1').httpsCallable('imsData', { timeout: 60000 });
-    fn({ mode: 'stations', lat: pt.lat, lon: pt.lon, km: 70 }).then(function (r) { ui.pick = (r && r.data && r.data.stations) || []; paint(); },
+    fn({ mode: 'stations', lat: pt.lat, lon: pt.lon, km: 120 }).then(function (r) { ui.pick = (r && r.data && r.data.stations) || []; paint(); },
       function (e) { ui.pick = null; toast('❌ ' + ((e && (e.code || e.message)) || '')); paint(); });
   }
   // ── the measurements, for any dates ──
@@ -414,8 +422,8 @@ var WxHist = (function () {
       if ((new Date(to) - new Date(f)) / 864e5 > 370) f = addDays(to, -370);
       ui.tbl = { from: f, to: to }; ui.day = null; return paint();
     }
-    if (t.id === 'whStation') {
-      var r = S().setImsStation ? S().setImsStation(ui.fid, t.value) : { ok: false };
+    if (t.id === 'whStation' || t.id === 'whRadStation') {
+      var r = S().setImsStation ? S().setImsStation(ui.fid, t.value, t.id === 'whRadStation' ? 'rad' : '') : { ok: false };
       if (!r.ok) { toast('⛔ ' + tt('אין הרשאה לשנות את המשק', 'ไม่มีสิทธิ์', 'لا صلاحية')); return; }
       toast('✅ ' + tt('התחנה נשמרה למשק', 'บันทึกแล้ว', 'تم الحفظ'));
       if (window.Weather && Weather.refresh) try { Weather.refresh(); } catch (er) {}
