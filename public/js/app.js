@@ -1065,6 +1065,9 @@
     'בתי צמיחה': { th: 'โรงเรือน', ar: 'دفيئات' },
     'מספר גפנים': { th: 'จำนวนต้นองุ่น', ar: 'عدد الكروم' },
     'מספר צמחים': { th: 'จำนวนต้นพืช', ar: 'عدد النباتات' },
+    'מספר צמחים / שתילים': { th: 'จำนวนต้น / ต้นกล้า', ar: 'عدد النباتات / الشتلات' },
+    'צמחים': { th: 'ต้น', ar: 'نباتات' },
+    'גפנים': { th: 'ต้นองุ่น', ar: 'كروم' },
     'גפנים צעירות': { th: 'องุ่นต้นอ่อน', ar: 'كروم صغيرة' },
     'גפנים חסרות': { th: 'องุ่นที่ขาด', ar: 'كروم ناقصة' },
     'תאריך זריעה': { th: 'วันที่หว่าน', ar: 'تاريخ البذر' },
@@ -4100,11 +4103,11 @@
   // The branch belongs to the crop (set once in ניהול סוגי גידולים); an
   // unassigned crop is inferred from its name, orchard by default.
   var BRANCHES = [
-    { v: 'orchard',    he: 'מטעים',          count: 'מספר עצים',   spacing: true,  ym: true,  young: 'עצים צעירים',  missing: 'עצים חסרים',  plant: '' },
-    { v: 'vineyard',   he: 'כרם',            count: 'מספר גפנים',  spacing: false, ym: true,  young: 'גפנים צעירות', missing: 'גפנים חסרות', plant: '' },
-    { v: 'field',      he: 'גד"ש',           count: '',            spacing: false, ym: false, plant: 'תאריך זריעה' },
-    { v: 'veg',        he: 'ירקות שטח פתוח', count: '',            spacing: false, ym: false, plant: 'תאריך זריעה / שתילה' },
-    { v: 'greenhouse', he: 'בתי צמיחה',      count: 'מספר צמחים',  spacing: false, ym: false, plant: 'תאריך שתילה' }
+    { v: 'orchard',    he: 'מטעים',          count: 'מספר עצים',   unit: 'עצים',  ico: '🌴', spacing: true,  ym: true,  young: 'עצים צעירים',  missing: 'עצים חסרים',  plant: '' },
+    { v: 'vineyard',   he: 'כרם',            count: 'מספר גפנים',  unit: 'גפנים', ico: '🍇', spacing: false, ym: true,  young: 'גפנים צעירות', missing: 'גפנים חסרות', plant: '' },
+    { v: 'field',      he: 'גד"ש',           count: '',            unit: 'צמחים', ico: '🌾', spacing: false, ym: false, plant: 'תאריך זריעה' },
+    { v: 'veg',        he: 'ירקות שטח פתוח', count: 'מספר צמחים / שתילים', unit: 'צמחים', ico: '🌱', spacing: false, ym: false, plant: 'תאריך זריעה / שתילה' },
+    { v: 'greenhouse', he: 'בתי צמיחה',      count: 'מספר צמחים',  unit: 'צמחים', ico: '🌱', spacing: false, ym: false, plant: 'תאריך שתילה' }
   ];
   var cropBranches = {};
   var cropPrograms = {};
@@ -4176,6 +4179,15 @@
     },
     filterActive: function(sel) { return !!(sel && (sel.branch || sel.crop)); },
     def: function(v) { var d = branchDef(v); return { v: d.v, label: t(d.he), count: d.count ? t(d.count) : '', spacing: d.spacing, ym: d.ym, plant: d.plant ? t(d.plant) : '' }; },
+    // Plural noun for a plot's plant count - trees, vines, plants - and the
+    // combined word for a set of plots ("עצים / צמחים" when mixed).
+    unitOf: function(p) { return t(branchDef(branchOfPlot(p)).unit || 'עצים'); },
+    unitFor: function(list) {
+      var seen = [];
+      (list || []).forEach(function(p) { var u = branchDef(branchOfPlot(p)).unit || 'עצים'; if (seen.indexOf(u) < 0) seen.push(u); });
+      return (seen.length ? seen : ['עצים']).map(function(u) { return t(u); }).join(' / ');
+    },
+    icoOf: function(p) { return branchDef(branchOfPlot(p)).ico || '🌱'; },
     isExplicit: function(crop) { return !!(cropBranches && cropBranches[String(crop || '').trim()]); },
     setForCrop: function(crop, v) {
       var c = String(crop || '').trim();
@@ -9059,7 +9071,7 @@
             // for orchards only) or, for annual crops, the sowing/planting date.
             (bDef.count
               ? '<div style="background: ' + (plot.tree_count ? '#e8f5e9' : 'var(--g6)') + '; padding: 10px; border-radius: 10px; text-align: center;">' +
-                  '<div style="font-size: 0.65rem; color: var(--text-muted);">🌴 ' + t(bDef.count) + '</div>' +
+                  '<div style="font-size: 0.65rem; color: var(--text-muted);">' + PlotBranch.icoOf(plot) + ' ' + t(bDef.count) + '</div>' +
                   '<div style="font-size: 1rem; font-weight: 700; color: var(--g1);">' + (plot.tree_count || '—') + '</div>' +
                   (bDef.spacing && plot.row_spacing && plot.tree_spacing ? '<div style="font-size: 0.6rem; color: var(--text-muted);">' + plot.row_spacing + '×' + plot.tree_spacing + '</div>' : '') +
                 '</div>'

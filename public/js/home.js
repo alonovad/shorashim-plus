@@ -186,7 +186,7 @@ var Home = (function () {
     return '<div class="hm-hero" id="hmHero" data-farm="' + f.id + '">' + hubHtml(f) +
       '<div class="hm-hero-t"><b>' + esc(f.name) + '</b>' +
         '<small>' + f.plots.length + ' ' + tt('חלקות', 'แปลง', 'قطع') + ' · ' + fmt(f.area) + ' ' + tt('דונם', 'ไร่', 'دونم') +
-        (f.trees ? ' · ' + fmt(f.trees, 0) + ' ' + tt('עצים', 'ต้น', 'شجرة') : '') + '</small></div>' +
+        (f.trees ? ' · ' + fmt(f.trees, 0) + ' ' + unitFor(f.plots) : '') + '</small></div>' +
       '<div class="hm-wx" id="hmWx"><span class="hm-wx-load">' + tt('טוען מזג אוויר…', 'กำลังโหลด…', 'جارٍ تحميل الطقس…') + '</span></div>' +
     '</div>';
   }
@@ -209,7 +209,7 @@ var Home = (function () {
       [tt('חלקות במשק', 'แปลงในฟาร์ม', 'قطع في المزرعة'), f ? fmt(f.plots.length, 0) : '—', 'l'],
       [tt('דונם', 'ไร่', 'دونم'), f ? fmt(f.area) : '—', ''],
       fl ? [tt('כלים לטיפול', 'ยานพาหนะต้องดูแล', 'مركبات تحتاج متابعة'), fmt(fl.length, 0), fl.some(function (a) { return a.cls === 'bad'; }) ? 'r' : fl.length ? 'o' : '']
-         : [tt('עצים', 'ต้น', 'أشجار'), f && f.trees ? fmt(f.trees, 0) : '—', '']
+         : [f ? unitFor(f.plots) : tt('עצים', 'ต้น', 'أشجار'), f && f.trees ? fmt(f.trees, 0) : '—', '']
     ];
     return '<div class="hm-kpis">' + tiles.map(function (t) {
       return '<div class="hm-kpi ' + t[2] + '"><small>' + t[0] + '</small><b>' + t[1] + '</b></div>';
@@ -233,6 +233,12 @@ var Home = (function () {
     '</div>';
   }
 
+  // trees / vines / plants, by the plots' branch (PlotBranch in app.js)
+  function unitFor(ps) {
+    if (!(window.PlotBranch && PlotBranch.unitFor)) return tt('עצים', 'ต้น', 'شجرة');
+    var counted = (ps || []).filter(function (p) { return Number(p.tree_count) > 0; });   // only plots that have a count
+    return PlotBranch.unitFor(counted.length ? counted : ps);
+  }
   function plotsPanel(f) {
     if (!f || !f.plots.length) return '';
     // First 8 shown; the rest one tap away (it used to stop at 8 silently,
@@ -246,7 +252,7 @@ var Home = (function () {
     return '<div class="hm-pn"><h4>' + tt('חלקות', 'แปลง', 'القطع') + ' · ' + esc(f.name) +
       (f.plots.length > 8 ? ' <small>(' + f.plots.length + ')</small>' : '') + '</h4>' +
       '<table class="hm-tb"><tr><th>' + tt('חלקה', 'แปลง', 'قطعة') + '</th><th>' + tt('גידול', 'พืช', 'محصول') + '</th><th>' + tt('דונם', 'ไร่', 'دونم') + '</th><th>' +
-      tt('עצים', 'ต้น', 'أشجار') + '</th><th>' + tt('שלב', 'ระยะ', 'مرحلة') + '</th></tr>' + rows + '</table>' +
+      unitFor(f.plots) + '</th><th>' + tt('שלב', 'ระยะ', 'مرحلة') + '</th></tr>' + rows + '</table>' +
       (f.plots.length > 8 ? '<button type="button" class="hm-all" data-no-sticky data-no-back onclick="var pn=this.parentNode;pn.classList.toggle(\'open\');this.textContent=pn.classList.contains(\'open\')?this.dataset.less:this.dataset.more" data-more="' +
         esc(tt('הצג את כל', 'แสดงทั้งหมด', 'عرض كل') + ' ' + f.plots.length + ' ' + tt('החלקות', 'แปลง', 'القطع')) + '" data-less="' + esc(tt('הצג פחות', 'แสดงน้อยลง', 'عرض أقل')) + '">' +
         esc(tt('הצג את כל', 'แสดงทั้งหมด', 'عرض كل') + ' ' + f.plots.length + ' ' + tt('החלקות', 'แปลง', 'القطع')) + '</button>' : '') + '</div>';

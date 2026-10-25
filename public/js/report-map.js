@@ -718,7 +718,7 @@ var ReportMap = (function () {
       '</div><div class="ps-kpis">' +
         '<span class="ps-kpi">' + nPlots + ' ' + tt('חלקות', 'แปลง', 'قطع') + '</span>' +
         '<span class="ps-kpi">' + fmtNum(totArea, 2) + ' ' + tt('דונם', 'ไร่', 'دونم') + '</span>' +
-        (totTrees ? '<span class="ps-kpi">' + fmtNum(totTrees) + ' ' + tt('עצים', 'ต้น', 'شجرة') + '</span>' : '') +
+        (totTrees ? '<span class="ps-kpi">' + fmtNum(totTrees) + ' ' + (window.PlotBranch && PlotBranch.unitFor ? PlotBranch.unitFor(chosen.filter(function (o) { return !o.container && Number(o.p.tree_count); }).map(function (o) { return o.p; })) : tt('עצים', 'ต้น', 'شجرة')) + '</span>' : '') +
       '</div></div>';
 
     // opts.extra: { head, cells: { plotId: html } } - a column the caller
@@ -978,7 +978,7 @@ var ReportMap = (function () {
     var p = o.p, bd = bdefOf(p), nm = String(nameOf(p));
     var l2 = fmtNum(p.area, 2) + ' ' + tt('דונם', 'ไร่', 'دونم');
     var l3 = '';
-    if (bd.count && p.tree_count) l3 = fmtNum(p.tree_count) + ' ' + tt('עצים', 'ต้น', 'شجرة');
+    if (bd.count && p.tree_count) l3 = fmtNum(p.tree_count) + ' ' + (window.PlotBranch && PlotBranch.unitOf ? PlotBranch.unitOf(p) : tt('עצים', 'ต้น', 'شجرة'));
     else if (p.crop_type) l3 = String(p.crop_type);
     var l4 = (p.crop_type && bd.count && p.tree_count) ? [p.crop_type, p.variety].filter(Boolean).join(' · ') : (p.variety || '');
 

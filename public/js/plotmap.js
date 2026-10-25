@@ -87,6 +87,7 @@ var PlotMap = (function () {
   }
   // Plural noun for the plant count of the plot's branch; '' = not counted.
   function countWord(p) {
+    if (window.PlotBranch && PlotBranch.unitOf) return PlotBranch.unitOf(p);
     var v = branchOf(p).v;
     if (v === 'vineyard') return tt('גפנים', 'ต้นองุ่น', 'كرمة');
     if (v === 'greenhouse') return tt('צמחים', 'ต้น', 'نبتة');
