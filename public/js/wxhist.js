@@ -58,7 +58,7 @@ var WxHist = (function () {
   }
 
   function open(fid) {
-    ui.fid = fid; ui.cur = ui.prev = null; ui.err = ''; ui.pick = null;
+    ui.fid = fid; ui.cur = ui.prev = null; ui.err = ''; ui.pick = null; ui.tbl = null; ui.tblData = null; ui.day = null; ui.dayData = null;
     try { var st = JSON.parse(localStorage.getItem('shorashim-wxhist-' + fid) || '{}'); ui.base = Number(st.base) || 18; ui.from = st.from || ''; } catch (e) { ui.base = 18; ui.from = ''; }
     if (!ui.from) ui.from = new Date().getFullYear() + '-01-01';
     ensureCss();
@@ -208,8 +208,10 @@ var WxHist = (function () {
       '<div><span>' + tt('הטמפ׳ הגבוהה בעונה', 'สูงสุด', 'الأعلى') + '</span><b>' + (tmax ? tmax.tmax + '°' : '-') + '</b><small>' + (tmax ? fmtDY(tmax.d) : '') + '</small></div>' +
       '<div><span>' + tt('התאדות 7 ימים אחרונים', 'การระเหย 7 วัน', 'التبخر 7 أيام') + '</span><b>' + r1(et7) + ' ' + tt('מ״מ', 'มม.', 'مم') + '</b><small>' + tt('ממוצע', 'เฉลี่ย', 'المتوسط') + ' ' + r1(et7 / Math.max(1, last7.length)) + ' ' + tt('ליום', 'ต่อวัน', 'يوميًا') + '</small></div>' +
     '</div>';
-    var rain = '<div class="wh-sec"><h3>🌧 ' + tt('גשם לפי חודשים', 'ฝนรายเดือน', 'المطر شهريًا') + '</h3>' + barsSvg(monthly(c), monthly(p)) +
-      '<div class="wh-lg"><i style="background:#2f7fbf"></i>' + tt('העונה', 'ฤดูนี้', 'هذا الموسم') + ' &nbsp; <i style="background:#c8d3c4"></i>' + tt('אשתקד, עד אותו תאריך', 'ปีก่อน', 'العام الماضي') + '</div></div>';
+    var mC = monthly(c), mP = monthly(p), anyRain = mC.concat(mP).some(function (v) { return v > 0; });
+    var rain = '<div class="wh-sec"><h3>🌧 ' + tt('גשם לפי חודשים', 'ฝนรายเดือน', 'المطر شهريًا') + '</h3>' +
+      (anyRain ? barsSvg(mC, mP) + '<div class="wh-lg"><i style="background:#2f7fbf"></i>' + tt('העונה', 'ฤดูนี้', 'هذا الموسم') + ' &nbsp; <i style="background:#c8d3c4"></i>' + tt('אשתקד, עד אותו תאריך', 'ปีก่อน', 'العام الماضي') + '</div>'
+        : '<div class="wh-lg">' + tt('לא ירד גשם מ־1 בספטמבר, גם לא אשתקד באותה תקופה.', 'ยังไม่มีฝน', 'لم تمطر بعد') + '</div>') + '</div>';
     // degree days
     var all = pAll.concat(cAll), from = ui.from, base = ui.base;
     var g1 = gdd(all, from, base);
@@ -227,7 +229,7 @@ var WxHist = (function () {
     return '<div class="wh-src">' + stationsLine(ui.cur) + (miss ? ' · ' + miss + ' ' + tt('ימים בלי נתוני טמפרטורה', 'วันไม่มีข้อมูล', 'أيام بلا بيانات') : '') +
         (S().canEditFarm && S().canEditFarm(ui.fid) ? ' <button class="wh-btn" style="padding:3px 9px;font-size:.72rem;" data-wh="pick">🛰 ' + tt('בחירת תחנה', 'เลือกสถานี', 'اختيار المحطة') + '</button>' : '') + '</div>' +
       (ui.pick ? pickHtml() : '') +
-      k + rain + dd + irrigation(cAll) + events(c);
+      k + dataTable(cAll) + rain + dd + irrigation(cAll) + events(c);
   }
 
   function irrigation(c) {
@@ -322,16 +324,94 @@ var WxHist = (function () {
     fn({ mode: 'stations', lat: pt.lat, lon: pt.lon, km: 70 }).then(function (r) { ui.pick = (r && r.data && r.data.stations) || []; paint(); },
       function (e) { ui.pick = null; toast('❌ ' + ((e && (e.code || e.message)) || '')); paint(); });
   }
+  // ── the measurements, for any dates ──
+  // Daily figures for a chosen range (from what is loaded, or fetched); a
+  // day opens hour by hour (mode "day"). Both can be saved as CSV.
+  function tblRange() {
+    if (!ui.tbl) { var to = ui.s.to; ui.tbl = { from: addDays(to, -13), to: to }; }
+    return ui.tbl;
+  }
+  function tblDays(cAll) {
+    var t = tblRange();
+    var have = cAll.length && cAll[0].d <= t.from && cAll[cAll.length - 1].d >= t.to;
+    if (have) return cAll.filter(function (d) { return d.d >= t.from && d.d <= t.to; });
+    if (ui.tblData && ui.tblData.key === t.from + t.to) return ui.tblData.days;
+    if (ui.tblLoading !== t.from + t.to) {
+      ui.tblLoading = t.from + t.to;
+      var pt = point(ui.fid), key = t.from + t.to;
+      fetchDays(pt, t.from, t.to).then(function (x) { ui.tblData = { key: key, days: (x && x.days) || [] }; ui.tblLoading = null; paint(); },
+        function (e) { ui.tblLoading = null; ui.tblData = { key: key, days: [], err: (e && (e.code || e.message)) || '' }; paint(); });
+    }
+    return null;
+  }
+  function DCOLS() { return [['d', tt('תאריך', 'วันที่', 'التاريخ')], ['tmax', tt('מקס׳ °', 'สูงสุด °', 'العظمى °')], ['tmin', tt('מינ׳ °', 'ต่ำสุด °', 'الصغرى °')], ['tmean', tt('ממוצע °', 'เฉลี่ย °', 'المتوسط °')],
+    ['rh', tt('לחות %', 'ความชื้น %', 'رطوبة %')], ['ws', tt('רוח ממוצעת קמ״ש', 'ลมเฉลี่ย', 'متوسط الرياح')], ['wsmax', tt('משב מקס׳ קמ״ש', 'ลมกระโชกสูงสุด', 'أقصى هبة')], ['rain', tt('גשם מ״מ', 'ฝน มม.', 'مطر مم')],
+    ['rs', tt('קרינה MJ/m²', 'รังสี MJ/m²', 'إشعاع MJ/m²')], ['et0', tt('התאדות מ״מ', 'การระเหย มม.', 'تبخر مم')]]; }
+  function HCOLS() { return [['h', tt('שעה', 'เวลา', 'الساعة')], ['temp', tt('טמפ׳ °', 'อุณหภูมิ °', 'الحرارة °')], ['tmax', tt('מקס׳', 'สูงสุด', 'العظمى')], ['tmin', tt('מינ׳', 'ต่ำสุด', 'الصغرى')],
+    ['rh', tt('לחות %', 'ความชื้น %', 'رطوبة %')], ['ws', tt('רוח קמ״ש', 'ลม', 'رياح')], ['wsmax', tt('משב קמ״ש', 'ลมกระโชก', 'هبة')], ['wd', tt('כיוון °', 'ทิศ °', 'الاتجاه °')],
+    ['rain', tt('גשם מ״מ', 'ฝน มม.', 'مطر مم')], ['rad', tt('קרינה W/m²', 'รังสี W/m²', 'إشعاع W/m²')]]; }
+  function dataTable(cAll) {
+    var t = tblRange(), days = tblDays(cAll);
+    var head = '<div class="wh-sec"><h3>📋 ' + tt('כל נתוני המדידה לפי תאריכים', 'ข้อมูลตามวันที่', 'كل القياسات حسب التاريخ') + '</h3>' +
+      '<div class="wh-row">' + tt('מ־', 'จาก', 'من') + ' <input class="form-input" type="date" id="whTF" value="' + t.from + '" max="' + ui.s.to + '"> ' +
+        tt('עד', 'ถึง', 'إلى') + ' <input class="form-input" type="date" id="whTT" value="' + t.to + '" max="' + ui.s.to + '">' +
+        (days && days.length ? ' <button class="wh-btn" data-wh="csv">⬇ CSV</button>' : '') + '</div>';
+    if (!days) return head + '<div class="wh-lg">⏳ ' + tt('טוען את התאריכים האלה מהשירות המטאורולוגי…', 'กำลังโหลด…', 'جارٍ التحميل…') + '</div></div>';
+    if (!days.length) return head + '<div class="wh-lg">' + (ui.tblData && ui.tblData.err ? '⚠️ ' + esc(ui.tblData.err) : tt('אין נתונים לתאריכים האלה', 'ไม่มีข้อมูล', 'لا بيانات')) + '</div></div>';
+    var v = function (x) { return x == null ? '-' : x; };
+    var rows = days.slice().reverse().map(function (d) {
+      var open = ui.day === d.d;
+      return '<tr data-wh-day="' + d.d + '" style="cursor:pointer;' + (open ? 'background:var(--tonal,#f2f6ef);' : '') + '">' + DCOLS().map(function (c) { return '<td>' + (c[0] === 'd' ? (open ? '▾ ' : '▸ ') + fmtDY(d.d) : v(d[c[0]])) + '</td>'; }).join('') + '</tr>' +
+        (open ? '<tr><td colspan="' + DCOLS().length + '" style="background:#fafcf9;">' + dayHtml() + '</td></tr>' : '');
+    }).join('');
+    return head + '<div style="overflow-x:auto;max-height:420px;overflow-y:auto;"><table class="wh-t"><thead><tr>' + DCOLS().map(function (c) { return '<th>' + esc(c[1]) + '</th>'; }).join('') + '</tr></thead><tbody>' + rows + '</tbody></table></div>' +
+      '<div class="wh-lg" style="margin-top:4px;">' + tt('לחיצה על יום פותחת אותו שעה אחרי שעה. שעות לפי שעון חורף, כפי שהשירות המטאורולוגי שומר אותן.', 'คลิกวันเพื่อดูรายชั่วโมง', 'انقر يومًا لعرضه بالساعات') + '</div></div>';
+  }
+  function dayHtml() {
+    var x = ui.dayData;
+    if (!x || x.d !== ui.day) return '⏳ ' + tt('טוען שעות…', 'กำลังโหลด…', 'جارٍ التحميل…');
+    if (x.err) return '⚠️ ' + esc(x.err);
+    if (!x.hours || !x.hours.length) return tt('אין נתונים שעתיים ליום הזה', 'ไม่มีข้อมูล', 'لا بيانات');
+    var v = function (y) { return y == null ? '-' : y; };
+    return '<div class="wh-lg" style="margin-bottom:4px;">' + tt('תחנת', 'สถานี', 'محطة') + ' ' + esc(x.station) + ' · ' + fmtDY(x.d) + ' <button class="wh-btn" style="padding:2px 8px;font-size:.7rem;" data-wh="csvday">⬇ CSV</button></div>' +
+      '<table class="wh-t"><thead><tr>' + HCOLS().map(function (c) { return '<th>' + esc(c[1]) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+      x.hours.map(function (h) { return '<tr>' + HCOLS().map(function (c) { return '<td>' + (c[0] === 'h' ? h.h + ':00' : v(h[c[0]])) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table>';
+  }
+  function openDay(d) {
+    if (ui.day === d) { ui.day = null; return paint(); }
+    ui.day = d; ui.dayData = null; paint();
+    var pt = point(ui.fid), fn = firebase.app().functions('us-central1').httpsCallable('imsData', { timeout: 120000 });
+    fn({ mode: 'day', lat: pt.lat, lon: pt.lon, station: pt.station, date: d }).then(function (r) {
+      var x = (r && r.data) || {}; ui.dayData = { d: d, station: x.station || '', hours: x.hours || [] }; if (ui.day === d) paint();
+    }, function (e) { ui.dayData = { d: d, err: (e && (e.code || e.message)) || '' }; if (ui.day === d) paint(); });
+  }
+  function csv(cols, rows, name) {
+    var q = function (x) { x = x == null ? '' : String(x); return /[",\n]/.test(x) ? '"' + x.replace(/"/g, '""') + '"' : x; };
+    var txt = '\ufeff' + cols.map(function (c) { return q(c[1]); }).join(',') + '\n' + rows.map(function (r) { return cols.map(function (c) { return q(r[c[0]]); }).join(','); }).join('\n');
+    var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([txt], { type: 'text/csv;charset=utf-8' })); a.download = name + '.csv';
+    document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+  }
   function onClick(e) {
+    var dr = e.target.closest('[data-wh-day]');
+    if (dr && !e.target.closest('button')) return openDay(dr.getAttribute('data-wh-day'));
     if (e.target.id === 'whRoot') return close();
     var b = e.target.closest('[data-wh]'); if (!b) return;
     var k = b.getAttribute('data-wh');
     if (k === 'close') return close();
     if (k === 'pick') { if (ui.pick) { ui.pick = null; return paint(); } return loadStations(); }
     if (k === 'print') return printReport();
+    if (k === 'csv') { var cAll = (ui.cur && ui.cur.days) || [], ds = tblDays(cAll) || []; return csv(DCOLS(), ds, 'ims-' + farmName(ui.fid) + '-' + tblRange().from + '_' + tblRange().to); }
+    if (k === 'csvday' && ui.dayData && ui.dayData.hours) return csv(HCOLS(), ui.dayData.hours, 'ims-' + farmName(ui.fid) + '-' + ui.day);
   }
   function onChange(e) {
     var t = e.target;
+    if (t.id === 'whTF' || t.id === 'whTT') {
+      var r = tblRange(), f = t.id === 'whTF' ? t.value : r.from, to = t.id === 'whTT' ? t.value : r.to;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(f) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) return;
+      if (f > to) { var x = f; f = to; to = x; }
+      if ((new Date(to) - new Date(f)) / 864e5 > 370) f = addDays(to, -370);
+      ui.tbl = { from: f, to: to }; ui.day = null; return paint();
+    }
     if (t.id === 'whStation') {
       var r = S().setImsStation ? S().setImsStation(ui.fid, t.value) : { ok: false };
       if (!r.ok) { toast('⛔ ' + tt('אין הרשאה לשנות את המשק', 'ไม่มีสิทธิ์', 'لا صلاحية')); return; }

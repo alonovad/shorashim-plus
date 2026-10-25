@@ -2085,8 +2085,9 @@ function imsAggregate(rows) {
 // one all-channel month from a station takes IMS ~40 s; six single-channel
 // requests in parallel come back in a fraction of that.
 const IMS_NEED = ["TD", "RH", "WS", "WSmax", "Rain", "Grad"];
-async function imsFetchRange(st, from, to) {
-  const sid = st.stationId, mons = (st.monitors || []).filter((m) => m && m.active !== false && IMS_NEED.includes(m.name) && m.channelId != null);
+async function imsFetchRange(st, from, to, need) {
+  const want = need || IMS_NEED;
+  const sid = st.stationId, mons = (st.monitors || []).filter((m) => m && m.active !== false && want.includes(m.name) && m.channelId != null);
   if (!mons.length) { const j = await imsGet("/stations/" + sid + "/data?from=" + from + "&to=" + to); return (j && j.data) || []; }
   const parts = await Promise.all(mons.map((m) => imsGet("/stations/" + sid + "/data/" + m.channelId + "?from=" + from + "&to=" + to).catch((e) => { console.error("ims ch", sid, m.name, e.message); return null; })));
   const by = {};
@@ -2137,6 +2138,37 @@ exports.imsData = onCall(
         alt: st.location.altitude != null ? st.location.altitude : (st.altitude != null ? st.altitude : null),
         channels: (st.monitors || []).filter((m) => m && m.active !== false).map((m) => m.name) }))
         .filter((x) => x.km <= (Number(q.km) || 60)).sort((a, b) => a.km - b.km) };
+    }
+    // mode "day": one date, hour by hour, from the farm's station (closed
+    // days are kept in imsDay/ so a date is fetched from IMS once)
+    if (q.mode === "day") {
+      const lat = Number(q.lat), lon = Number(q.lon), date = String(q.date || "");
+      if (!isFinite(lat) || !isFinite(lon) || !/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new HttpsError("invalid-argument", "lat, lon, date");
+      const n = imsPick(list, lat, lon, "TD", q.station);
+      if (!n) return { none: true };
+      const db = getFirestore(), ref = db.collection("imsDay").doc(n.s.stationId + "_" + date), today = ymd(new Date());
+      const snap = await ref.get();
+      if (snap.exists && snap.data().v === IMS_CACHE_V) return { station: String(n.s.name || ""), km: n.km, hours: snap.data().hours };
+      const rows = await imsFetchRange(n.s, date.replace(/-/g, "/"), date.replace(/-/g, "/"), ["TD", "RH", "WS", "WSmax", "WD", "Rain", "Grad"]);
+      const hb = {};
+      for (const row of rows) {
+        const tm = imsTime(row.datetime); if (!tm) continue;
+        const h = String(row.datetime).slice(11, 13);            // winter-time hour, as IMS keeps it
+        const b = hb[h] || (hb[h] = { h, t: [], rh: [], ws: [], wsmax: null, wd: [], rain: 0, g: [] });
+        (row.channels || []).forEach((c) => {
+          if (!c || c.valid === false || !isFinite(c.value)) return;
+          const v = Number(c.value);
+          if (c.name === "TD") b.t.push(v); else if (c.name === "RH") b.rh.push(v); else if (c.name === "WS") b.ws.push(v);
+          else if (c.name === "WSmax") b.wsmax = Math.max(b.wsmax == null ? -1 : b.wsmax, v); else if (c.name === "WD") b.wd.push(v);
+          else if (c.name === "Rain") b.rain += v; else if (c.name === "Grad") b.g.push(Math.max(0, v));
+        });
+      }
+      const av = (x) => x.length ? x.reduce((a, v) => a + v, 0) / x.length : null, r1 = (x) => x == null ? null : Math.round(x * 10) / 10;
+      const hours = Object.keys(hb).sort().map((h) => { const b = hb[h]; return { h: b.h, temp: r1(av(b.t)), tmax: b.t.length ? Math.max(...b.t) : null, tmin: b.t.length ? Math.min(...b.t) : null,
+        rh: b.rh.length ? Math.round(av(b.rh)) : null, ws: b.ws.length ? r1(av(b.ws) * 3.6) : null, wsmax: b.wsmax != null ? r1(b.wsmax * 3.6) : null,
+        wd: b.wd.length ? Math.round(b.wd[b.wd.length - 1]) : null, rain: r1(b.rain), rad: b.g.length ? Math.round(av(b.g)) : null }; });
+      if (date < today) await ref.set({ hours, v: IMS_CACHE_V, at: Date.now() });
+      return { station: String(n.s.name || ""), km: n.km, hours };
     }
     if (q.mode === "at") {
       const lat = Number(q.lat), lon = Number(q.lon), at = new Date(q.at || Date.now());
