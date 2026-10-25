@@ -1004,11 +1004,25 @@
     }).catch(function(err) {
       console.warn('SW registration failed:', err);
     });
+    // After an automatic update, say so once (with the version number), so
+    // a silent reload is not a mystery.
+    try {
+      if (sessionStorage.getItem('swUpdated')) {
+        sessionStorage.removeItem('swUpdated');
+        setTimeout(function () {
+          (window.caches ? caches.keys() : Promise.resolve([])).then(function (ks) {
+            var v = (ks.filter(function (k) { return /^shorashim-v\d+/.test(k); })[0] || '').replace('shorashim-', '');
+            var msg = (typeof t === 'function' ? t('האפליקציה עודכנה לגרסה חדשה') : 'האפליקציה עודכנה לגרסה חדשה') + (v ? ' (' + v + ')' : '');
+            if (typeof showToast === 'function') showToast('🔄 ' + msg);
+          });
+        }, 1500);
+      }
+    } catch (e) {}
     navigator.serviceWorker.addEventListener('controllerchange', function() {
       if (!hadCtl) { hadCtl = true; return; }        // first install, same version
       var mc = document.getElementById('modalContainer');
       function busy() { return !!(mc && mc.children.length); }
-      function go() { if (swReloading) return; swReloading = true; location.reload(); }
+      function go() { if (swReloading) return; swReloading = true; try { sessionStorage.setItem('swUpdated', '1'); } catch (e) {} location.reload(); }
       if (!busy()) return go();
       var tx = function(he, en) { return (typeof t === 'function') ? t(he) : he; };
       var bar = document.createElement('div');
