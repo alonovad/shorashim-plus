@@ -2871,11 +2871,15 @@
     // The IMS station that stands for the farm (weather, spray records,
     // alerts); null = the nearest one. Mountains and valley lie side by side
     // here, so the nearest station is not always the right one.
-    setImsStation: function(farmId, sid) {
+    // kind 'rad': the station whose measured radiation feeds evaporation
+    // (a valley farm may take temperature from the next station and
+    // radiation from a lowland station further away)
+    setImsStation: function(farmId, sid, kind) {
       if (!SprayStore.canEditFarm(farmId)) return { ok: false };
       var f = (farms || []).find(function(x) { return x.id === farmId; });
       if (!f) return { ok: false };
-      if (sid == null || sid === '') delete f.ims_station; else f.ims_station = Number(sid) || String(sid);
+      var key = kind === 'rad' ? 'ims_rad_station' : 'ims_station';
+      if (sid == null || sid === '') delete f[key]; else f[key] = Number(sid) || String(sid);
       saveData();
       return { ok: true };
     },
@@ -3044,7 +3048,7 @@
       var ids = {};
       (accessible || []).forEach(function(p) { if (p.farm_id) ids[p.farm_id] = true; });
       return (farms || []).filter(function(f) { return ids[f.id]; })
-        .map(function(f) { return { id: f.id, name: f.name, color: f.color || '', ims_station: f.ims_station || null }; });
+        .map(function(f) { return { id: f.id, name: f.name, color: f.color || '', ims_station: f.ims_station || null, ims_rad_station: f.ims_rad_station || null }; });
     },
 
     // Batched sibling of updateEvent. patchFn(event) returns the fields to

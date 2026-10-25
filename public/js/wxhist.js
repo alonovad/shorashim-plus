@@ -54,7 +54,7 @@ var WxHist = (function () {
   }
   function fetchDays(pt, from, to) {
     var fn = firebase.app().functions('us-central1').httpsCallable('imsData', { timeout: 300000 });
-    return fn({ mode: 'days', points: [{ id: 'p', lat: pt.lat, lon: pt.lon, station: pt.station }], from: from, to: to }).then(function (r) { return (r && r.data && r.data.points && r.data.points.p) || null; });
+    return fn({ mode: 'days', points: [{ id: 'p', lat: pt.lat, lon: pt.lon, station: pt.station, radStation: pt.radStation }], from: from, to: to }).then(function (r) { return (r && r.data && r.data.points && r.data.points.p) || null; });
   }
 
   function open(fid) {

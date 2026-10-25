@@ -70,7 +70,7 @@ var Weather = (function () {
         if (isFinite(la) && isFinite(lo)) { lat += Number(la); lon += Number(lo); n++; }
       });
       if (!n) return;
-      out.push({ id: f.id, name: f.name, plot: p.name || '', lat: Math.round(lat / n * 10000) / 10000, lon: Math.round(lon / n * 10000) / 10000, station: f.ims_station || null });
+      out.push({ id: f.id, name: f.name, plot: p.name || '', lat: Math.round(lat / n * 10000) / 10000, lon: Math.round(lon / n * 10000) / 10000, station: f.ims_station || null, radStation: f.ims_rad_station || null });
     });
     return out;
   }
@@ -108,7 +108,7 @@ var Weather = (function () {
 
   function load(force) {
     var pts = points();
-    var sig = pts.map(function (p) { return p.id + ':' + p.lat + ',' + p.lon + ':' + (p.station || ''); }).join('|');
+    var sig = pts.map(function (p) { return p.id + ':' + p.lat + ',' + p.lon + ':' + (p.station || '') + ':' + (p.radStation || ''); }).join('|');
     var c = !force && readCache(sig);
     if (c) { state.data = c.data; state.ims = c.ims; state.imsErr = c.imsErr || ''; state.at = c.at; state.pts = pts; paint(); return; }
     if (!pts.length) { state.data = []; state.pts = pts; paint(); return; }

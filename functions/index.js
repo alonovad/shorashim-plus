@@ -1968,7 +1968,7 @@ exports.backupAll = onCall(
 // reads that collection directly (rules deny it); only this function does.
 // ═══════════════════════════════════════════
 const IMS_ELEMENTS = { temp: "TD", rain: "Rain", rad: "Grad", wind: "WS" };
-const IMS_CACHE_V = 2;          // bump when the daily summary changes, so cached months are rebuilt
+const IMS_CACHE_V = 3;          // bump when the daily summary changes, so cached months are rebuilt
 const IMS_MAX_KM = { temp: 30, rain: 25, rad: 25, wind: 30 };   // beyond this a station does not stand for the farm
 // IMS stamps every observation in Israel WINTER time (UTC+2) whatever offset
 // the text carries (API documentation); read it that way, return true UTC.
@@ -2124,8 +2124,12 @@ async function imsMonth(sid, ym, st) {
   const fromDay = haveDays.length ? Math.max(...haveDays) + 1 : 1;
   let days = Object.assign({}, have);
   if (fromDay <= to) {
-    const rows = await imsFetchRange(st || { stationId: sid }, ym.replace("-", "/") + "/" + String(fromDay).padStart(2, "0"), ym.replace("-", "/") + "/" + String(to).padStart(2, "0"));
-    Object.assign(days, imsAggregate(rows));
+    // IMS's "to" date is exclusive (it stops at 00:00 of that day), so ask
+    // to the day after and keep only this month's days
+    const toEx = new Date(Date.UTC(y, m - 1, to + 1)).toISOString().slice(0, 10).replace(/-/g, "/");
+    const rows = await imsFetchRange(st || { stationId: sid }, ym.replace("-", "/") + "/" + String(fromDay).padStart(2, "0"), toEx);
+    const agg = imsAggregate(rows);
+    Object.keys(agg).forEach((d) => { if (d.slice(0, 7) === ym) days[d] = agg[d]; });
   }
   if (ym === curYm) delete days[ymd(now)];          // today is not a whole day yet
   await ref.set({ days, at: Date.now(), closed: ym < curYm, v: IMS_CACHE_V });
@@ -2156,7 +2160,8 @@ exports.imsData = onCall(
       const db = getFirestore(), ref = db.collection("imsDay").doc(n.s.stationId + "_" + date), today = ymd(new Date());
       const snap = await ref.get();
       if (snap.exists && snap.data().v === IMS_CACHE_V) return { station: String(n.s.name || ""), km: n.km, hours: snap.data().hours };
-      const rows = await imsFetchRange(n.s, date.replace(/-/g, "/"), date.replace(/-/g, "/"), ["TD", "RH", "WS", "WSmax", "WD", "Rain", "Grad"]);
+      const next = new Date(Date.parse(date + "T00:00:00Z") + 864e5).toISOString().slice(0, 10).replace(/-/g, "/");
+      const rows = (await imsFetchRange(n.s, date.replace(/-/g, "/"), next, ["TD", "RH", "WS", "WSmax", "WD", "Rain", "Grad"])).filter((r) => String(r.datetime).slice(0, 10) === date);
       const hb = {};
       for (const row of rows) {
         const tm = imsTime(row.datetime); if (!tm) continue;
@@ -2216,7 +2221,10 @@ exports.imsData = onCall(
       const lat = Number(p.lat), lon = Number(p.lon);
       if (!isFinite(lat) || !isFinite(lon)) continue;
       const st = {};
-      for (const k of Object.keys(IMS_ELEMENTS)) { const n = imsPick(list, lat, lon, IMS_ELEMENTS[k], p.station); st[k] = n && (n.chosen || n.km <= IMS_MAX_KM[k]) ? n : null; }
+      for (const k of Object.keys(IMS_ELEMENTS)) {
+        const n = imsPick(list, lat, lon, IMS_ELEMENTS[k], k === "rad" && p.radStation ? p.radStation : p.station);
+        st[k] = n && (n.chosen || n.km <= IMS_MAX_KM[k]) ? n : null;
+      }
       if (!st.temp) continue;
       const src = {}, keys = Object.keys(st).filter((k) => st[k]);
       const got = await Promise.all(keys.map((k) => stationDays(st[k].s)));
