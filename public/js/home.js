@@ -235,14 +235,19 @@ var Home = (function () {
 
   function plotsPanel(f) {
     if (!f || !f.plots.length) return '';
-    var rows = f.plots.slice(0, 8).map(function (p) {
+    // First 8 shown; the rest one tap away (it used to stop at 8 silently,
+    // under a header that counted them all).
+    var rows = f.plots.map(function (p, i) {
       var st = p.stage ? '<span class="hm-chip">' + esc(p.stage) + '</span>' : '';
-      return '<tr><td><b>' + esc(p.name) + '</b></td><td>' + esc(p.crop_type || '') + '</td><td>' + fmt(p.area) + '</td><td>' + (p.tree_count ? fmt(p.tree_count, 0) : '—') + '</td><td>' + st + '</td></tr>';
+      return '<tr' + (i >= 8 ? ' class="hm-more"' : '') + '><td><b>' + esc(p.name) + '</b></td><td>' + esc(p.crop_type || '') + '</td><td>' + fmt(p.area) + '</td><td>' + (p.tree_count ? fmt(p.tree_count, 0) : '—') + '</td><td>' + st + '</td></tr>';
     }).join('');
     return '<div class="hm-pn"><h4>' + tt('חלקות', 'แปลง', 'القطع') + ' · ' + esc(f.name) +
       (f.plots.length > 8 ? ' <small>(' + f.plots.length + ')</small>' : '') + '</h4>' +
       '<table class="hm-tb"><tr><th>' + tt('חלקה', 'แปลง', 'قطعة') + '</th><th>' + tt('גידול', 'พืช', 'محصول') + '</th><th>' + tt('דונם', 'ไร่', 'دونم') + '</th><th>' +
-      tt('עצים', 'ต้น', 'أشجار') + '</th><th>' + tt('שלב', 'ระยะ', 'مرحلة') + '</th></tr>' + rows + '</table></div>';
+      tt('עצים', 'ต้น', 'أشجار') + '</th><th>' + tt('שלב', 'ระยะ', 'مرحلة') + '</th></tr>' + rows + '</table>' +
+      (f.plots.length > 8 ? '<button type="button" class="hm-all" data-no-sticky data-no-back onclick="var pn=this.parentNode;pn.classList.toggle(\'open\');this.textContent=pn.classList.contains(\'open\')?this.dataset.less:this.dataset.more" data-more="' +
+        esc(tt('הצג את כל', 'แสดงทั้งหมด', 'عرض كل') + ' ' + f.plots.length + ' ' + tt('החלקות', 'แปลง', 'القطع')) + '" data-less="' + esc(tt('הצג פחות', 'แสดงน้อยลง', 'عرض أقل')) + '">' +
+        esc(tt('הצג את כל', 'แสดงทั้งหมด', 'عرض كل') + ' ' + f.plots.length + ' ' + tt('החלקות', 'แปลง', 'القطع')) + '</button>' : '') + '</div>';
   }
 
   function alertsPanel(f, w) {
@@ -486,6 +491,8 @@ var Home = (function () {
       '.hm-fc.on .hm-chips span{background:rgba(255,255,255,.14);color:#fff;}.hm-fc.on .hm-fc-go{background:var(--lime);color:var(--lime-ink);}' +
       '.hm-side{display:grid;gap:12px;align-content:start;}' +
       '.hm-pn{background:var(--card);border:1px solid var(--line);border-radius:22px;padding:12px 16px;}.hm-pn h4{margin:0 0 6px;font-size:.95rem;}.hm-pn h4 small{color:var(--text-muted);font-weight:400;}' +
+      '.hm-pn .hm-more{display:none}.hm-pn.open .hm-more{display:table-row}' +
+      '.hm-all{display:block;width:100%;margin-top:8px;border:1px solid var(--line);background:var(--card);color:var(--primary,#1d5a2c);border-radius:12px;padding:7px;font:inherit;font-weight:600;font-size:.8rem;cursor:pointer;}' +
       '.hm-tb{width:100%;border-collapse:collapse;font-size:.8rem;}.hm-tb td,.hm-tb th{padding:7px 4px;border-bottom:1px solid var(--line);text-align:right;}.hm-tb tr:last-child td{border-bottom:0;}.hm-tb th{color:var(--text-muted);font-weight:400;font-size:.72rem;}' +
       '.hm-chip{font-size:.7rem;padding:2px 8px;border-radius:8px;background:var(--primary-soft);color:var(--primary);font-weight:500;white-space:nowrap;}.hm-chip.o{background:#fff4e2;color:#b06a12;}.hm-chip.r{background:#fde9e7;color:#b3261e;}' +
       '.hm-empty{font-size:.8rem;color:var(--text-muted);padding:4px 0;}' +
