@@ -1353,7 +1353,7 @@ exports.imsWeather = onCall(
           const row = (j && j.data && j.data[0]) || {};
           const ch = {};
           (row.channels || []).forEach((c) => { if (c && c.valid !== false) ch[c.name] = c.value; });
-          latest = { at: Date.now(), dt: row.datetime || "", ch };
+          latest = { at: Date.now(), dt: row.datetime ? imsTime(row.datetime).toISOString() : "", ch };
         } catch (e) { latest = { at: Date.now(), dt: "", ch: {} }; }
         _imsLatest[sid] = latest;
       }
@@ -1973,6 +1973,9 @@ exports.backupAll = onCall(
 const IMS_ELEMENTS = { temp: "TD", rain: "Rain", rad: "Grad", wind: "WS" };
 const IMS_CACHE_V = 2;          // bump when the daily summary changes, so cached months are rebuilt
 const IMS_MAX_KM = { temp: 30, rain: 25, rad: 25, wind: 30 };   // beyond this a station does not stand for the farm
+// IMS stamps every observation in Israel WINTER time (UTC+2) whatever offset
+// the text carries (API documentation); read it that way, return true UTC.
+function imsTime(dt) { const m = String(dt || "").match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?)/); return m ? new Date(m[1] + "+02:00") : null; }
 async function imsGet(path) {
   const r = await fetch(IMS_BASE + path, { headers: { Authorization: "ApiToken " + String(IMS_TOKEN.value() || "").trim() } });
   if (!r.ok) { console.error("ims", path, r.status, (await r.text()).slice(0, 200)); throw new HttpsError("unavailable", "IMS " + r.status); }
@@ -2091,11 +2094,11 @@ exports.imsData = onCall(
       const d0 = new Date(at.getTime() - 864e5).toISOString().slice(0, 10).replace(/-/g, "/"), d1 = new Date(at.getTime() + 864e5).toISOString().slice(0, 10).replace(/-/g, "/");
       const j = await imsGet("/stations/" + n.s.stationId + "/data?from=" + d0 + "&to=" + d1);
       let best = null, bd = Infinity;
-      for (const row of (j && j.data) || []) { const dt = Math.abs(new Date(row.datetime) - at); if (dt < bd) { bd = dt; best = row; } }
+      for (const row of (j && j.data) || []) { const tm = imsTime(row.datetime); if (!tm) continue; const dt = Math.abs(tm - at); if (dt < bd) { bd = dt; best = row; } }
       if (!best || bd > 90 * 60 * 1000) return { none: true, station: String(n.s.name || ""), dist_km: n.km };
       const ch = {}; (best.channels || []).forEach((c) => { if (c && c.valid !== false) ch[c.name] = c.value; });
       const k = (v) => v == null ? null : Math.round(v * 3.6 * 10) / 10;
-      return { station: String(n.s.name || ""), id: n.s.stationId, dist_km: n.km, at: best.datetime,
+      return { station: String(n.s.name || ""), id: n.s.stationId, dist_km: n.km, at: imsTime(best.datetime).toISOString(),
         temp: ch.TD != null ? ch.TD : null, rh: ch.RH != null ? ch.RH : null, ws: k(ch.WS), wsmax: k(ch.WSmax), wd: ch.WD != null ? ch.WD : null, rain: ch.Rain != null ? ch.Rain : null };
     }
     // mode "days"
@@ -2176,7 +2179,7 @@ exports.wxAlerts = onSchedule(
           const j = await imsGet("/stations/" + sid + "/data/latest");
           const row = (j && j.data && j.data[0]) || {}, ch = {};
           (row.channels || []).forEach((c) => { if (c && c.valid !== false) ch[c.name] = c.value; });
-          latest[sid] = { dt: row.datetime || "", ch };
+          latest[sid] = { dt: row.datetime ? imsTime(row.datetime).toISOString() : "", ch };
         } catch (e) { latest[sid] = { dt: "", ch: {} }; }
       }
       const ch = latest[sid].ch, items = [];

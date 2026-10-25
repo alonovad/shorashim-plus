@@ -235,7 +235,7 @@ var Weather = (function () {
     if (state.ims && state.ims[fid]) {
       var s = state.ims[fid];
       return '<div class="wx-st">📡 ' + tt('תחנה', 'สถานี', 'محطة') + ' ' + esc(s.name) + ' (' + r1(s.dist_km) + ' ' + tt('ק״מ', 'กม.', 'كم') + ')' +
-        (s.at ? ' · ' + esc(String(s.at).slice(11, 16)) : '') + ': ' +
+        (s.at ? ' · ' + esc(new Date(s.at).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })) : '') + ': ' +
         [s.temp != null ? r1(s.temp) + '°' : '', s.rh != null ? r0(s.rh) + '%' : '', s.ws != null ? r0(s.ws) + ' ' + tt('קמ״ש', 'กม./ชม.', 'كم/س') : '', s.rain ? r1(s.rain) + ' ' + tt('מ״מ', 'มม.', 'مم') : '']
           .filter(Boolean).join(' · ') +
         '<small class="wx-src">' + tt('מקור: השירות המטאורולוגי (IMS). השירות המטאורולוגי אינו אחראי למידע ואינו צד לפרסומו.',
