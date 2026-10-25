@@ -1484,6 +1484,7 @@
     'יומן ריסוסים': { th: 'บันทึกการพ่นยา', ar: 'سجل الرش' },
     'גרסה חדשה של האפליקציה הותקנה. שמור וסגור את החלון והאפליקציה תתרענן מעצמה': { th: 'ติดตั้งเวอร์ชันใหม่แล้ว บันทึกและปิดหน้าต่าง แอปจะรีเฟรชเอง', ar: 'تم تثبيت إصدار جديد. احفظ وأغلق النافذة وسيُحدَّث التطبيق تلقائياً' },
     'רענן עכשיו': { th: 'รีเฟรชตอนนี้', ar: 'تحديث الآن' },
+    'חלקה ראשית במשק': { th: 'แปลงหลักของฟาร์ม', ar: 'القطعة الرئيسية في المزرعة' },
     'החלקה הראשית לא נשמרה': { th: 'บันทึกแปลงหลักไม่สำเร็จ', ar: 'لم تُحفظ القطعة الرئيسية' },
     'האפליקציה עודכנה לגרסה חדשה': { th: 'แอปอัปเดตเป็นเวอร์ชันใหม่แล้ว', ar: 'تم تحديث التطبيق إلى إصدار جديد' },
     'טוען תוכניות טיפול — נסה שוב בעוד רגע': { th: 'กำลังโหลดแผน — ลองอีกครั้ง', ar: 'جارٍ تحميل الخطط — حاول بعد لحظة' },
@@ -2540,31 +2541,56 @@
   // no geometry, or a cold load where drawing hasn't run, must not throw.
   // Primary plot from anywhere (home plot table): same write as the plot
   // card's button; also refreshes window.currentUser, which other modules read.
-  // The users document is one shared blob, so the change is applied to a
-  // fresh server copy (DB.read) and written with a real result - writing a
-  // stale local copy could lose it, or someone else's edit. On failure the
-  // user is told instead of a silent "saved".
-  window.setPrimaryPlot = function(plotId) {
+  // Self-service edits to the signed-in profile (primary plots…): applied
+  // to a fresh server copy of the shared users document (DB.read) and
+  // written with a real result - a stale local copy could lose the change
+  // or someone else's. The mutation runs on the local profile first so the
+  // screen updates at once; a failure is reported, never a silent "saved".
+  function _writeSelf(mutate, okMsg) {
     if (!currentUser || !currentUser.username) return false;
-    var me = currentUser.username, val = plotId || null;
-    currentUser.primary_plot_id = val;                       // instant UI
-    var p = val ? plots.find(function(x) { return x.id === val; }) : null;
-    var done = function(data) {
+    var me = currentUser.username;
+    mutate(currentUser);
+    var rd = DB.read ? DB.read('shorashim-users').then(function(r) { return r && r.ok && r.exists && r.data ? r.data : JSON.parse(localStorage.getItem('shorashim-users') || '{}'); })
+                     : Promise.resolve(JSON.parse(localStorage.getItem('shorashim-users') || '{}'));
+    rd.then(function(data) {
       if (!data || !data[me]) throw new Error('profile not found');
-      data[me].primary_plot_id = val;
+      mutate(data[me]);
       return DB.saveAsync('shorashim-users', data).then(function() {
         users = data;
         Object.keys(data[me]).forEach(function(k) { currentUser[k] = data[me][k]; });
-        showToast(p ? '⭐ ' + locName(p) : '📍 ' + t('חלקה ראשית בוטלה'));
+        if (okMsg) showToast(okMsg);
       });
-    };
-    var rd = DB.read ? DB.read('shorashim-users').then(function(r) { return r && r.ok && r.exists && r.data ? r.data : JSON.parse(localStorage.getItem('shorashim-users') || '{}'); })
-                     : Promise.resolve(JSON.parse(localStorage.getItem('shorashim-users') || '{}'));
-    rd.then(done).catch(function(e) {
-      console.error('[primary plot]', e);
+    }).catch(function(e) {
+      console.error('[profile write]', e);
       showToast('❌ ' + t('החלקה הראשית לא נשמרה') + ': ' + ((e && (e.code || e.message)) || ''));
     });
     return true;
+  }
+  // Primary plot - one per FARM (primary_by_farm {farmId: plotId}; 0 = none
+  // for that farm). primary_plot_id stays the plot the map opens on: the one
+  // starred last. A profile from before keeps its single primary_plot_id,
+  // which still counts for its own farm until that farm gets its own star.
+  window.isPrimaryPlot = function(p) {
+    if (!p || !currentUser) return false;
+    var pf = currentUser.primary_by_farm || {}, k = String(p.farm_id);
+    if (pf[k] !== undefined && pf[k] !== null) return Number(pf[k]) === p.id;
+    return currentUser.primary_plot_id === p.id;
+  };
+  window.setFarmPrimary = function(plotId, on) {
+    var p = plots.find(function(x) { return x.id === plotId; });
+    if (!p) return false;
+    var k = String(p.farm_id);
+    return _writeSelf(function(u) {
+      var pf = Object.assign({}, u.primary_by_farm || {});
+      if (on) { pf[k] = p.id; u.primary_plot_id = p.id; }
+      else { pf[k] = 0; if (u.primary_plot_id === p.id) u.primary_plot_id = null; }
+      u.primary_by_farm = pf;
+    }, on ? '⭐ ' + locName(p) + ' · ' + t('חלקה ראשית במשק') : '📍 ' + t('חלקה ראשית בוטלה'));
+  };
+  // The plot the map opens on (profile screen).
+  window.setPrimaryPlot = function(plotId) {
+    var val = plotId || null, p = val ? plots.find(function(x) { return x.id === val; }) : null;
+    return _writeSelf(function(u) { u.primary_plot_id = val; }, p ? '⭐ ' + locName(p) : '📍 ' + t('חלקה ראשית בוטלה'));
   };
   window.openPlotCard = function(plotId) { showPlotDetails(plotId); };
   window.goToPlotOnMap = function(plotId) {
@@ -4581,7 +4607,7 @@
     var html = '';
     for (var i = 0; i < accessiblePlots.length; i++) {
       var p = accessiblePlots[i];
-      var isPrimary = currentUser && currentUser.primary_plot_id === p.id;
+      var isPrimary = window.isPrimaryPlot(p);
       html += '<div class="plot-card" data-plot-id="' + p.id + '">' +
         '<div class="plot-color" style="background:' + p.color + '"></div>' +
         '<div class="plot-info">' +
@@ -8165,7 +8191,7 @@
           if (multiBr) plotsHtml += '<div class="fd-br-head">' + t(branchDef(p.head).he) + '</div>';
           return;
         }
-        var isPrimary = currentUser && currentUser.primary_plot_id === p.id;
+        var isPrimary = window.isPrimaryPlot(p);
         plotsHtml += '<div class="farm-detail-plot" data-fd-plot-id="' + p.id + '" style="padding: 10px; background: var(--g6); border-radius: 8px; margin-bottom: 6px; cursor: pointer; display: flex; align-items: center; gap: 10px; border-right: 3px solid ' + p.color + ';">' +
           '<div style="flex: 1;">' +
             '<div style="font-weight: 600; font-size: 0.9rem;">' + (isPrimary ? '⭐ ' : '') + p.name + '</div>' +
@@ -9028,7 +9054,7 @@
       });
     }
     
-    var isPrimary = currentUser && currentUser.primary_plot_id === plot.id;
+    var isPrimary = window.isPrimaryPlot(plot);
 
     // Counts live in the panel headers so a collapsed section still tells you
     // whether it holds anything worth opening.
@@ -9558,7 +9584,7 @@
     
     // Primary
     document.getElementById('plotDetailPrimary').addEventListener('click', function() {
-      if (window.setPrimaryPlot(isPrimary ? null : plot.id)) {
+      if (window.setFarmPrimary(plot.id, !isPrimary)) {
         container.innerHTML = '';
         showPlotDetails(plotId);
       }

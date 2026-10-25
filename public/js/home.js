@@ -245,7 +245,7 @@ var Home = (function () {
     // under a header that counted them all).
     var rows = f.plots.map(function (p, i) {
       var st = p.stage ? '<span class="hm-chip">' + esc(p.stage) + '</span>' : '';
-      var prim = window.currentUser && window.currentUser.primary_plot_id === p.id;
+      var prim = window.isPrimaryPlot ? isPrimaryPlot(p) : (window.currentUser && window.currentUser.primary_plot_id === p.id);
       return '<tr class="hm-pr' + (i >= 8 ? ' hm-more' : '') + '" onclick="Home._plot(' + p.id + ')"><td><button type="button" class="hm-star' + (prim ? ' on' : '') + '" data-no-sticky data-no-back title="' +
         esc(prim ? tt('חלקה ראשית - לחץ לביטול', 'แปลงหลัก', 'القطعة الرئيسية') : tt('קבע כחלקה ראשית', 'ตั้งเป็นแปลงหลัก', 'تعيين كقطعة رئيسية')) + '" onclick="event.stopPropagation();Home._primary(' + p.id + ')">' + (prim ? '★' : '☆') + '</button><b>' + esc(p.name) + '</b></td><td>' + esc(p.crop_type || '') + '</td><td>' + fmt(p.area) + '</td><td>' + (p.tree_count ? fmt(p.tree_count, 0) : '—') + '</td><td>' + st + '</td></tr>';
     }).join('');
@@ -528,13 +528,15 @@ var Home = (function () {
   }
 
   function _plot(id) { if (window.openPlotCard) openPlotCard(id); }
+  // One primary plot per farm: starring a plot replaces that farm's star only.
   function _primary(id) {
-    if (!window.setPrimaryPlot) return;
-    var cur = window.currentUser && window.currentUser.primary_plot_id, next = cur === id ? null : id;
-    if (!setPrimaryPlot(next)) return;
-    // redraw only the stars: the list stays open where it is
+    if (!window.setFarmPrimary || !window.isPrimaryPlot) return;
+    var all = typeof plots !== 'undefined' ? plots : [];
+    var pl = all.find(function (x) { return x.id === id; });
+    if (!pl || !setFarmPrimary(id, !isPrimaryPlot(pl))) return;
     document.querySelectorAll('.hm-star').forEach(function (b) {
-      var m = String(b.getAttribute('onclick')).match(/_primary\((\d+)\)/), on = !!m && Number(m[1]) === next;
+      var m = String(b.getAttribute('onclick')).match(/_primary\((\d+)\)/), q = m ? all.find(function (x) { return x.id === Number(m[1]); }) : null;
+      var on = !!q && isPrimaryPlot(q);
       b.classList.toggle('on', on); b.textContent = on ? '★' : '☆';
     });
   }
