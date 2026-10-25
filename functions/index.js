@@ -2069,7 +2069,22 @@ function imsAggregate(rows) {
   return out;
 }
 // one station-month of daily summaries, from the cache or from IMS
-async function imsMonth(sid, ym) {
+// Only the channels the summaries use, each its own request, all at once:
+// one all-channel month from a station takes IMS ~40 s; six single-channel
+// requests in parallel come back in a fraction of that.
+const IMS_NEED = ["TD", "RH", "WS", "WSmax", "Rain", "Grad"];
+async function imsFetchRange(st, from, to) {
+  const sid = st.stationId, mons = (st.monitors || []).filter((m) => m && m.active !== false && IMS_NEED.includes(m.name) && m.channelId != null);
+  if (!mons.length) { const j = await imsGet("/stations/" + sid + "/data?from=" + from + "&to=" + to); return (j && j.data) || []; }
+  const parts = await Promise.all(mons.map((m) => imsGet("/stations/" + sid + "/data/" + m.channelId + "?from=" + from + "&to=" + to).catch((e) => { console.error("ims ch", sid, m.name, e.message); return null; })));
+  const by = {};
+  parts.forEach((j) => ((j && j.data) || []).forEach((row) => {
+    const r = by[row.datetime] || (by[row.datetime] = { datetime: row.datetime, channels: [] });
+    (row.channels || []).forEach((c) => r.channels.push(c));
+  }));
+  return Object.keys(by).sort().map((k) => by[k]);
+}
+async function imsMonth(sid, ym, st) {
   const db = getFirestore(), ref = db.collection("imsDaily").doc(sid + "_" + ym);
   const now = new Date(), curYm = now.toISOString().slice(0, 7);
   const snap = await ref.get();
@@ -2079,14 +2094,14 @@ async function imsMonth(sid, ym) {
   }
   const y = +ym.slice(0, 4), m = +ym.slice(5, 7), last = new Date(Date.UTC(y, m, 0)).getUTCDate();
   const to = ym === curYm ? now.getUTCDate() : last;
-  const j = await imsGet("/stations/" + sid + "/data?from=" + ym.replace("-", "/") + "/01&to=" + ym.replace("-", "/") + "/" + String(to).padStart(2, "0"));
-  const days = imsAggregate((j && j.data) || []);
+  const rows = await imsFetchRange(st || { stationId: sid }, ym.replace("-", "/") + "/01", ym.replace("-", "/") + "/" + String(to).padStart(2, "0"));
+  const days = imsAggregate(rows);
   if (ym === curYm) delete days[ymd(now)];          // today is not a whole day yet
   await ref.set({ days, at: Date.now(), closed: ym < curYm, v: IMS_CACHE_V });
   return days;
 }
 exports.imsData = onCall(
-  { region: "us-central1", secrets: [IMS_TOKEN], memory: "512MiB", timeoutSeconds: 120, maxInstances: 3 },
+  { region: "us-central1", secrets: [IMS_TOKEN], memory: "1GiB", timeoutSeconds: 300, maxInstances: 5 },
   async (request) => {
     if (!request.auth) throw new HttpsError("unauthenticated", "Sign in required");
     const q = request.data || {}, list = await imsStationList();
@@ -2123,11 +2138,15 @@ exports.imsData = onCall(
     const months = [];
     for (let d = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), 1)); d <= to; d.setUTCMonth(d.getUTCMonth() + 1)) months.push(d.toISOString().slice(0, 7));
     const cache = {};
-    const stationDays = async (sid) => {
-      if (!cache[sid]) {
-        cache[sid] = {};
-        for (const ym of months) { try { Object.assign(cache[sid], await imsMonth(sid, ym)); } catch (e) { console.error("imsMonth", sid, ym, e.message); } }
-      }
+    // a station's months, four at a time
+    const stationDays = (stn) => {
+      const sid = stn.stationId;
+      if (!cache[sid]) cache[sid] = (async () => {
+        const acc = {}, queue = months.slice();
+        const worker = async () => { while (queue.length) { const ym = queue.shift(); try { Object.assign(acc, await imsMonth(sid, ym, stn)); } catch (e) { console.error("imsMonth", sid, ym, e.message); } } };
+        await Promise.all([worker(), worker(), worker(), worker()]);
+        return acc;
+      })();
       return cache[sid];
     };
     const out = {};
@@ -2137,7 +2156,9 @@ exports.imsData = onCall(
       const st = {};
       for (const k of Object.keys(IMS_ELEMENTS)) { const n = imsPick(list, lat, lon, IMS_ELEMENTS[k], p.station); st[k] = n && (n.chosen || n.km <= IMS_MAX_KM[k]) ? n : null; }
       if (!st.temp) continue;
-      const src = {}; for (const k of Object.keys(st)) if (st[k]) src[k] = await stationDays(st[k].s.stationId);
+      const src = {}, keys = Object.keys(st).filter((k) => st[k]);
+      const got = await Promise.all(keys.map((k) => stationDays(st[k].s)));
+      keys.forEach((k, i) => { src[k] = got[i]; });
       const z = Number((st.temp.s.location || {}).altitude) || 0;
       const days = [];
       for (let d = new Date(from); d <= to; d.setUTCDate(d.getUTCDate() + 1)) {

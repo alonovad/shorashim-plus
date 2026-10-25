@@ -53,7 +53,7 @@ var WxHist = (function () {
     return { from: start, to: yest, pFrom: (Number(start.slice(0, 4)) - 1) + start.slice(4), pTo: (yr - 1) + yest.slice(4) };
   }
   function fetchDays(pt, from, to) {
-    var fn = firebase.app().functions('us-central1').httpsCallable('imsData', { timeout: 120000 });
+    var fn = firebase.app().functions('us-central1').httpsCallable('imsData', { timeout: 300000 });
     return fn({ mode: 'days', points: [{ id: 'p', lat: pt.lat, lon: pt.lon, station: pt.station }], from: from, to: to }).then(function (r) { return (r && r.data && r.data.points && r.data.points.p) || null; });
   }
 
@@ -67,22 +67,38 @@ var WxHist = (function () {
     if (!pt) { ui.err = tt('למשק אין מיקום (אין חלקה מסומנת במפה)', 'ฟาร์มไม่มีตำแหน่ง', 'لا موقع للمزرعة'); return paint(); }
     if (!window.firebase || !firebase.app) { ui.err = 'offline'; return paint(); }
     var s = season();
-    // from the earlier of the season start and the degree-day start date
-    // (at most 390 days back), and the same dates a year earlier
-    var lo = ui.from < s.from ? ui.from : s.from, min = addDays(s.to, -390);
-    if (lo < min) lo = min;
-    ui.loadedFrom = lo;
-    var plo = (Number(lo.slice(0, 4)) - 1) + lo.slice(4);
-    Promise.all([fetchDays(pt, lo, s.to), fetchDays(pt, plo, s.pTo), window.PlotRec && PlotRec.ready ? PlotRec.ready() : null]).then(function (r) {
+    ui.s = s; ui.more = false;
+    var fail = function (e) {
       if (ui.fid !== fid) return;
-      ui.cur = r[0]; ui.prev = r[1]; ui.s = s;
-      if (!ui.cur) ui.err = tt('אין נתונים מתחנות השירות המטאורולוגי לאזור הזה', 'ไม่มีข้อมูล', 'لا بيانات');
-      paint();
-    }, function (e) {
       var c = String((e && (e.code || e.message)) || '');
-      ui.err = /not-found/.test(c) ? tt('פונקציית נתוני השירות המטאורולוגי עוד לא נפרסה (firebase deploy --only functions:imsData)', 'ยังไม่ได้ติดตั้ง', 'الدالة غير منشورة') : c;
+      ui.err = /not-found/.test(c) ? tt('פונקציית נתוני השירות המטאורולוגי עוד לא נפרסה (firebase deploy --only functions:imsData)', 'ยังไม่ได้ติดตั้ง', 'الدالة غير منشورة')
+        : /deadline|unavailable/.test(c) ? tt('השירות המטאורולוגי איטי כרגע. הנתונים שכבר נטענו נשמרו - נסה שוב בעוד דקה.', 'IMS ช้า ลองอีกครั้ง', 'الخدمة بطيئة، حاول لاحقًا') : c;
       paint();
-    });
+    };
+    // 1) this season and the same dates last season - a few months, shown
+    //    as soon as they arrive
+    Promise.all([fetchDays(pt, s.from, s.to), fetchDays(pt, s.pFrom, s.pTo), window.PlotRec && PlotRec.ready ? PlotRec.ready() : null]).then(function (r) {
+      if (ui.fid !== fid) return;
+      ui.cur = r[0]; ui.prev = r[1]; ui.loadedFrom = s.from;
+      if (!ui.cur) { ui.err = tt('אין נתונים מתחנות השירות המטאורולוגי לאזור הזה', 'ไม่มีข้อมูล', 'لا بيانات'); return paint(); }
+      paint();
+      loadEarlier(fid, pt);
+    }, fail);
+  }
+  // 2) degree days from a date before the season (1 January by default):
+  //    the extra months are fetched afterwards and merged in
+  function loadEarlier(fid, pt) {
+    var s = ui.s, lo = ui.from, min = addDays(s.to, -390);
+    if (lo < min) lo = min;
+    if (lo >= ui.loadedFrom) return;
+    var end = addDays(ui.loadedFrom, -1), plo = (Number(lo.slice(0, 4)) - 1) + lo.slice(4), pend = (Number(end.slice(0, 4)) - 1) + end.slice(4);
+    ui.more = true; paint();
+    Promise.all([fetchDays(pt, lo, end), fetchDays(pt, plo, pend)]).then(function (r) {
+      if (ui.fid !== fid) return;
+      if (r[0]) ui.cur.days = (r[0].days || []).concat(ui.cur.days || []);
+      if (r[1] && ui.prev) ui.prev.days = (r[1].days || []).concat(ui.prev.days || []);
+      ui.loadedFrom = lo; ui.more = false; paint();
+    }, function () { if (ui.fid !== fid) return; ui.more = 'fail'; paint(); });
   }
   function close() { var m = document.getElementById('modalContainer'); if (m) m.innerHTML = ''; }
 
@@ -204,6 +220,8 @@ var WxHist = (function () {
         tt('מתאריך', 'ตั้งแต่', 'من تاريخ') + ' <input class="form-input" type="date" id="whFrom" value="' + esc(from) + '"></div>' +
       '<div style="font-size:1.05rem;margin:2px 0 4px;"><b>' + Math.round(g1.length ? g1[g1.length - 1][1] : 0) + '</b> ' + tt('מעלות־יום', 'องศา-วัน', 'درجة-يوم') +
         ' <span class="wh-lg">(' + tt('אשתקד באותו מועד', 'ปีก่อน', 'العام الماضي') + ': ' + Math.round(g0.length ? g0[g0.length - 1][1] : 0) + ')</span></div>' +
+      (ui.more === true ? '<div class="wh-lg">⏳ ' + tt('טוען את החודשים שלפני העונה…', 'กำลังโหลด…', 'جارٍ التحميل…') + '</div>'
+        : ui.more === 'fail' ? '<div class="wh-lg">⚠️ ' + tt('החודשים שלפני העונה לא נטענו (השירות המטאורולוגי איטי) - פתח שוב בעוד דקה', 'โหลดไม่ได้', 'تعذر التحميل') + '</div>' : '') +
       lineSvg(g1, g0) + '<div class="wh-lg"><i style="background:#d9822b"></i>' + tt('השנה', 'ปีนี้', 'هذا العام') + ' &nbsp; <i style="background:#c8d3c4"></i>' + tt('אשתקד', 'ปีก่อน', 'العام الماضي') +
       ' · ' + tt('מעלות־יום = סכום (ממוצע יומי פחות טמפ׳ הבסיס) בימים שמעליה', 'ผลรวมของ (เฉลี่ย − ฐาน)', 'مجموع (المتوسط − الأساس)') + '</div></div>';
     return '<div class="wh-src">' + stationsLine(ui.cur) + (miss ? ' · ' + miss + ' ' + tt('ימים בלי נתוני טמפרטורה', 'วันไม่มีข้อมูล', 'أيام بلا بيانات') : '') +
@@ -326,7 +344,7 @@ var WxHist = (function () {
     if (t.id === 'whFrom') {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(t.value)) return;
       ui.from = t.value; saveSettings();
-      if (ui.loadedFrom && ui.from < ui.loadedFrom) return open(ui.fid);   // earlier than what was loaded: fetch again
+      if (ui.loadedFrom && ui.from < ui.loadedFrom) { var pt0 = point(ui.fid); if (pt0) return loadEarlier(ui.fid, pt0); }
       paint(); return;
     }
     var g = t.getAttribute && t.getAttribute('data-given');
