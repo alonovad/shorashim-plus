@@ -1484,6 +1484,7 @@
     'יומן ריסוסים': { th: 'บันทึกการพ่นยา', ar: 'سجل الرش' },
     'גרסה חדשה של האפליקציה הותקנה. שמור וסגור את החלון והאפליקציה תתרענן מעצמה': { th: 'ติดตั้งเวอร์ชันใหม่แล้ว บันทึกและปิดหน้าต่าง แอปจะรีเฟรชเอง', ar: 'تم تثبيت إصدار جديد. احفظ وأغلق النافذة وسيُحدَّث التطبيق تلقائياً' },
     'רענן עכשיו': { th: 'รีเฟรชตอนนี้', ar: 'تحديث الآن' },
+    'החלקה הראשית לא נשמרה': { th: 'บันทึกแปลงหลักไม่สำเร็จ', ar: 'لم تُحفظ القطعة الرئيسية' },
     'האפליקציה עודכנה לגרסה חדשה': { th: 'แอปอัปเดตเป็นเวอร์ชันใหม่แล้ว', ar: 'تم تحديث التطبيق إلى إصدار جديد' },
     'טוען תוכניות טיפול — נסה שוב בעוד רגע': { th: 'กำลังโหลดแผน — ลองอีกครั้ง', ar: 'جارٍ تحميل الخطط — حاول بعد لحظة' },
     'יומן ריסוסים - שורשים פלוס': { th: 'บันทึกการพ่นยา - ชอราชิม พลัส', ar: 'سجل الرش - شوراشيم بلس' },
@@ -2539,16 +2540,30 @@
   // no geometry, or a cold load where drawing hasn't run, must not throw.
   // Primary plot from anywhere (home plot table): same write as the plot
   // card's button; also refreshes window.currentUser, which other modules read.
+  // The users document is one shared blob, so the change is applied to a
+  // fresh server copy (DB.read) and written with a real result - writing a
+  // stale local copy could lose it, or someone else's edit. On failure the
+  // user is told instead of a silent "saved".
   window.setPrimaryPlot = function(plotId) {
-    var usersData = JSON.parse(localStorage.getItem('shorashim-users') || '{}');
-    if (!currentUser || !usersData[currentUser.username]) return false;
-    usersData[currentUser.username].primary_plot_id = plotId || null;
-    DB.save('shorashim-users', usersData);
-    users = usersData;
-    currentUser = usersData[currentUser.username];
-    window.currentUser = currentUser;
-    var p = plotId ? plots.find(function(x) { return x.id === plotId; }) : null;
-    showToast(p ? '⭐ ' + locName(p) : '📍 ' + t('חלקה ראשית בוטלה'));
+    if (!currentUser || !currentUser.username) return false;
+    var me = currentUser.username, val = plotId || null;
+    currentUser.primary_plot_id = val;                       // instant UI
+    var p = val ? plots.find(function(x) { return x.id === val; }) : null;
+    var done = function(data) {
+      if (!data || !data[me]) throw new Error('profile not found');
+      data[me].primary_plot_id = val;
+      return DB.saveAsync('shorashim-users', data).then(function() {
+        users = data;
+        Object.keys(data[me]).forEach(function(k) { currentUser[k] = data[me][k]; });
+        showToast(p ? '⭐ ' + locName(p) : '📍 ' + t('חלקה ראשית בוטלה'));
+      });
+    };
+    var rd = DB.read ? DB.read('shorashim-users').then(function(r) { return r && r.ok && r.exists && r.data ? r.data : JSON.parse(localStorage.getItem('shorashim-users') || '{}'); })
+                     : Promise.resolve(JSON.parse(localStorage.getItem('shorashim-users') || '{}'));
+    rd.then(done).catch(function(e) {
+      console.error('[primary plot]', e);
+      showToast('❌ ' + t('החלקה הראשית לא נשמרה') + ': ' + ((e && (e.code || e.message)) || ''));
+    });
     return true;
   };
   window.openPlotCard = function(plotId) { showPlotDetails(plotId); };
@@ -6789,15 +6804,7 @@
         var plotId = parseInt(this.getAttribute('data-primary-id'));
         if (plotId === 0) plotId = null;
         
-        var usersData = JSON.parse(localStorage.getItem('shorashim-users') || '{}');
-        if (usersData[currentUser.username]) {
-          usersData[currentUser.username].primary_plot_id = plotId;
-          DB.save('shorashim-users', usersData);
-          users = usersData;
-          currentUser = usersData[currentUser.username];
-          showToast('✅ ' + t('חלקה ראשית עודכנה'));
-          renderProfileTab();
-        }
+        if (window.setPrimaryPlot(plotId)) renderProfileTab();
       });
     });
     
@@ -9551,14 +9558,7 @@
     
     // Primary
     document.getElementById('plotDetailPrimary').addEventListener('click', function() {
-      var newPrimary = isPrimary ? null : plot.id;
-      var usersData = JSON.parse(localStorage.getItem('shorashim-users') || '{}');
-      if (usersData[currentUser.username]) {
-        usersData[currentUser.username].primary_plot_id = newPrimary;
-        DB.save('shorashim-users', usersData);
-        users = usersData;
-        currentUser = usersData[currentUser.username];
-        showToast(newPrimary ? '⭐ ' + plot.name : '📍 ' + t('חלקה ראשית בוטלה'));
+      if (window.setPrimaryPlot(isPrimary ? null : plot.id)) {
         container.innerHTML = '';
         showPlotDetails(plotId);
       }
@@ -11745,7 +11745,12 @@
     });
 
     DB.listen('shorashim-users', function(data) {
-      if (data) users = data;
+      if (!data) return;
+      users = data;
+      // keep the signed-in profile current (primary plot, name…) - it was
+      // only read once at login, so a later change never reached it
+      var mine = currentUser && currentUser.username && data[currentUser.username];
+      if (mine) Object.keys(mine).forEach(function(k) { currentUser[k] = mine[k]; });
     });
 
     DB.listen('shorashim-valve-plot-map', function(data) {

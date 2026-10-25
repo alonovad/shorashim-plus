@@ -79,6 +79,9 @@ var AgriPlan = (function () {
   // which label prints - the dose maths lives on the material, not here.
   var METHODS = [
     { v: 'spray',  carrier: 'L',  def: 'pct' },
+    // Spraying counted per DUNAM - every branch except orchards (vegetables,
+    // field crops, vineyards, greenhouses) works in litres per dunam.
+    { v: 'spray_d', carrier: 'L', def: 'pct', unit: 'dunam' },
     { v: 'drench', carrier: 'L',  def: 'cc'  },
     { v: 'inject', carrier: 'cc', def: 'cc'  },
     // Any other job on the trees (pruning, cleaning, a hand application…):
@@ -91,11 +94,14 @@ var AgriPlan = (function () {
     // is counted per DUNAM like soil disinfection - no per-tree volume.
     { v: 'drench_irr', carrier: 'L', def: 'lu', unit: 'dunam' }
   ];
-  function isDunam(method) { return method === 'soil' || method === 'drench_irr'; }
+  function isDunam(method) { return method === 'soil' || method === 'drench_irr' || method === 'spray_d'; }
+  // Plots outside the orchard branch are treated per dunam.
+  function perDunamPlot(pl) { return !!(pl && window.PlotBranch && PlotBranch.forPlot && PlotBranch.forPlot(pl) !== 'orchard'); }
   function qtyWord(method) { return isDunam(method) ? tt('דונם', 'ไร่', 'دونم') : tt('עצים', 'ต้น', 'شجرة'); }
   function plotQty(pl, method) { return isDunam(method) ? Math.round((Number(pl && pl.area) || 0) * 100) / 100 : (Number(pl && pl.tree_count) || 0); }
   function methodLabel(v) {
     if (v === 'spray')  return tt('ריסוס', 'พ่นยา', 'رش');
+    if (v === 'spray_d') return tt('ריסוס לדונם', 'พ่นต่อไร่', 'رش لكل دونم');
     if (v === 'drench') return tt('הגמעה ידנית עץ-עץ', 'รดโคนต้น', 'سقي فردي');
     if (v === 'inject') return tt('הזרקת גזע', 'ฉีดลำต้น', 'حقن الجذع');
     if (v === 'general') return tt('טיפול כללי', 'งานทั่วไป', 'معالجة عامة');
@@ -118,6 +124,7 @@ var AgriPlan = (function () {
 
   function carrierLabel(v) {
     if (v === 'spray')  return tt('נפח ריסוס לעץ (ליטר)', 'ปริมาตร/ต้น (ลิตร)', 'حجم الرش/شجرة (لتر)');
+    if (v === 'spray_d') return tt('נפח ריסוס לדונם (ליטר)', 'ปริมาตร/ไร่ (ลิตร)', 'حجم الرش/دونم (لتر)');
     if (v === 'drench') return tt('נפח הגמעה לעץ (ליטר)', 'ปริมาตรรด/ต้น (ลิตร)', 'حجم السقي/شجرة (لتر)');
     if (v === 'soil') return tt('מים לדונם (ליטר)', 'น้ำ/ไร่ (ลิตร)', 'ماء/دونم (لتر)');
     if (v === 'drench_irr') return tt('מים לדונם בהזרקה (ליטר, לא חובה)', 'น้ำ/ไร่ (ลิตร)', 'ماء/دونم (لتر)');
@@ -1816,6 +1823,11 @@ var AgriPlan = (function () {
       // Seed tree count and farm from the plot - retyping a number that the
       // map already knows is how a plan drifts away from the orchard.
       var pl = plotById(r.plotId);
+      if (pl && r.method === 'spray' && perDunamPlot(pl)) {
+        // vegetables / field crops / vines: sprayed per dunam
+        r.method = 'spray_d'; r.trees = plotQty(pl, r.method); r.carrier = 0;
+        toast('ℹ️ ' + tt('חלקה שאינה מטע - הריסוס יחושב לפי ליטר לדונם', 'คำนวณต่อไร่', 'يُحسب لكل دونم'));
+      }
       if (pl) {
         if (!r.trees) r.trees = plotQty(pl, r.method);
         if (r.farmId === null) r.farmId = pl.farm_id || null;
@@ -1908,11 +1920,16 @@ var AgriPlan = (function () {
     return { method: method, round: round, key: opKey(method, round), src: src ? src.sample : null };
   }
   function newOpRow(op, farmId, plotId, trees, cohort) {
+    // A spray on a non-orchard plot (vegetables, field crops, vines) is
+    // planned per dunam: its own operation, quantity = the plot's area.
+    var method = op.method, pl = plotId ? plotById(plotId) : null;
+    if (method === 'spray' && perDunamPlot(pl)) { method = 'spray_d'; trees = plotQty(pl, method); }
+    var sameUnit = op.src && isDunam(op.src.method) === isDunam(method);
     return normRow({
-      method: op.method, round: op.round,
+      method: method, round: op.round,
       timing: op.src ? op.src.timing : '',
       deadline: op.src ? op.src.deadline : '',
-      carrier: op.src ? op.src.carrier : 0,
+      carrier: sameUnit ? op.src.carrier : 0,
       farmId: farmId, plotId: plotId, trees: trees, cohort: cohort || '',
       materials: cloneMats(op.src)
     });
@@ -2505,8 +2522,8 @@ var AgriPlan = (function () {
       return '<div class="ap-bv-f"><input type="checkbox" class="apBvFarm" data-f="' + fid + '"' + (groups[fid].every(function (x) { return _bv.sel[x.r.id]; }) ? ' checked' : '') + '> ' + farmIco(Number(fid)) + ' ' + esc(farmName(Number(fid))) + '</div>' +
         groups[fid].map(function (x) {
           return '<label class="ap-bv-r"><input type="checkbox" class="apBvRow" data-f="' + fid + '" data-id="' + x.r.id + '"' + (_bv.sel[x.r.id] ? ' checked' : '') + '> ' +
-            esc(x.name || tt('ללא חלקה', 'ไม่มีแปลง', 'بلا قطعة')) + ' <small>' + esc(opLabel(x.r.method, x.r.round)) + ' · ' + (x.r.trees || 0).toLocaleString() + ' ' + tt('עצים', 'ต้น', 'شجرة') +
-            ' · <b>' + n1(x.r.carrier) + '</b> ' + (x.r.method === 'inject' ? tt('סמ"ק', 'ซีซี', 'سم³') : tt('ל׳', 'ล.', 'ل')) + '/' + tt('עץ', 'ต้น', 'شجرة') + '</small></label>';
+            esc(x.name || tt('ללא חלקה', 'ไม่มีแปลง', 'بلا قطعة')) + ' <small>' + esc(opLabel(x.r.method, x.r.round)) + ' · ' + (x.r.trees || 0).toLocaleString() + ' ' + qtyWord(x.r.method) +
+            ' · <b>' + n1(x.r.carrier) + '</b> ' + (x.r.method === 'inject' ? tt('סמ"ק', 'ซีซี', 'سم³') : tt('ל׳', 'ล.', 'ل')) + '/' + (isDunam(x.r.method) ? tt('דונם', 'ไร่', 'دونم') : tt('עץ', 'ต้น', 'شجرة')) + '</small></label>';
         }).join('');
     }).join('') || '<div class="ap-empty">' + tt('אין שורות תואמות', 'ไม่มีแถว', 'لا صفوف') + '</div>';
     var count = function () { var n = Object.keys(_bv.sel).filter(function (k) { return _bv.sel[k]; }).length; document.getElementById('apBvN').textContent = n + ' ' + tt('שורות מסומנות', 'แถวที่เลือก', 'صفوف محددة'); };
