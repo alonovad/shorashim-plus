@@ -2470,7 +2470,7 @@ exports.imsData = onCall(
 // ═══════════════════════════════════════════
 // (onSchedule is required at the top of the file)
 exports.wxAlerts = onSchedule(
-  { region: "us-central1", schedule: "every 60 minutes", timeZone: "Asia/Jerusalem", secrets: [IMS_TOKEN], memory: "256MiB", timeoutSeconds: 120 },
+  { region: "us-central1", schedule: "every 20 minutes", timeZone: "Asia/Jerusalem", secrets: [IMS_TOKEN], memory: "256MiB", timeoutSeconds: 180 },
   async () => {
     const db = getFirestore();
     const pd = await db.collection("appData").doc("plotMapperSprayData").get();
@@ -2479,7 +2479,7 @@ exports.wxAlerts = onSchedule(
     const prevSnap = await db.collection("appData").doc("shorashim-wx-alerts").get();
     const prev = (prevSnap.exists && prevSnap.data().value && prevSnap.data().value.farms) || {};
     const list = await imsStationList();
-    const latest = {};
+    const latest = {}, rainHour = {};
     const out = {};
     for (const f of farms) {
       // the farm's largest plot stands for its location
@@ -2508,7 +2508,32 @@ exports.wxAlerts = onSchedule(
       if (ch.TD != null && ch.TD >= 40) items.push({ k: "heat", val: Math.round(ch.TD) });
       if (ch.TD != null && ch.TD <= 2) items.push({ k: "frost", val: Math.round(ch.TD * 10) / 10 });
       if ((ws != null && ws >= 30) || (gust != null && gust >= 45)) items.push({ k: "wind", val: Math.round(ws || 0), gust: gust != null ? Math.round(gust) : null });
-      if (ch.Rain != null && ch.Rain > 0) items.push({ k: "rain", val: Math.round(ch.Rain * 10) / 10 });
+      // Rain: the last hour summed at the nearest RAIN gauge (it can differ
+      // from the temperature station), not one 10-minute reading - a heavy
+      // shower between two runs used to slip through unseen
+      const nr = imsPick(list, lat, lon, "Rain", f.ims_station);
+      let rainSt = null;
+      if (nr && (nr.chosen || nr.km <= IMS_MAX_KM.rain)) {
+        const rid = nr.s.stationId;
+        if (!rainHour[rid]) {
+          try {
+            const il = new Date(Date.now() + 2 * 3600 * 1000);
+            const d0 = il.toISOString().slice(0, 10), dPrev = new Date(il.getTime() - 864e5).toISOString().slice(0, 10), d1 = new Date(il.getTime() + 864e5).toISOString().slice(0, 10);
+            const rows = await imsFetchRange(nr.s, dPrev.replace(/-/g, "/"), d1.replace(/-/g, "/"), ["Rain"]);
+            let h1 = 0, day = 0;
+            for (const r of rows) {
+              const t = imsTime(r.datetime); if (!t) continue;
+              const c = (r.channels || []).find((x) => x && x.name === "Rain" && x.valid !== false);
+              const v = c ? Number(c.value) || 0 : 0;
+              if (Date.now() - t.getTime() <= 3600 * 1000) h1 += v;
+              if (String(r.datetime).slice(0, 10) === d0) day += v;
+            }
+            rainHour[rid] = { h1: Math.round(h1 * 10) / 10, day: Math.round(day * 10) / 10 };
+          } catch (e) { rainHour[rid] = { h1: 0, day: 0 }; }
+        }
+        rainSt = { name: String(nr.s.name || ""), km: nr.km, ...rainHour[rid] };
+        if (rainHour[rid].h1 >= 0.2) items.push({ k: "rain", val: rainHour[rid].h1, day: rainHour[rid].day, station: rainSt.name, km: nr.km });
+      }
       if (!items.length) continue;
       const was = ((prev[f.id] || {}).items) || [];
       items.forEach((it) => { const o = was.find((x) => x.k === it.k); it.since = o && o.since ? o.since : Date.now(); });

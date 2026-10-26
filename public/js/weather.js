@@ -213,7 +213,7 @@ var Weather = (function () {
 
   function root() { return document.getElementById('weatherRoot'); }
 
-  // ── measured alerts from IMS stations (functions: wxAlerts, every 30 min) ──
+  // ── measured alerts from IMS stations (functions: wxAlerts, every 20 min) ──
   // appData/shorashim-wx-alerts { at, farms: { farmId: { station, km, at, items:[{k,val,gust,since}] } } }
   var wxAl = null;
   (function listenAlerts() {
@@ -227,9 +227,9 @@ var Weather = (function () {
       var txt = it.k === 'heat' ? '🔥 ' + tt('חום כבד', 'ร้อนจัด', 'حر شديد') + ' ' + it.val + '°'
         : it.k === 'frost' ? '❄️ ' + tt('קרה', 'น้ำค้างแข็ง', 'صقيع') + ' ' + it.val + '°'
         : it.k === 'wind' ? '💨 ' + tt('רוח חזקה', 'ลมแรง', 'رياح قوية') + ' ' + it.val + (it.gust ? ' (' + tt('משבים', 'กระโชก', 'هبات') + ' ' + it.gust + ')' : '') + ' ' + tt('קמ״ש', 'กม./ชม.', 'كم/س')
-        : '🌧 ' + tt('יורד גשם', 'ฝนตก', 'تمطر');
+        : '🌧 ' + tt('גשם', 'ฝน', 'مطر') + ' ' + it.val + ' ' + tt('מ״מ בשעה האחרונה', 'มม. ในชั่วโมงที่ผ่านมา', 'مم في الساعة الأخيرة') + (it.day ? ' (' + tt('היום', 'วันนี้', 'اليوم') + ' ' + it.day + ')' : '');
       var since = it.since ? new Date(it.since).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }) : '';
-      return { cls: it.k === 'rain' ? 'warn' : 'bad', text: txt + ' · ' + tt('תחנת', 'สถานี', 'محطة') + ' ' + f.station, when: since ? tt('מאז', 'ตั้งแต่', 'منذ') + ' ' + since : '' };
+      return { cls: it.k === 'rain' ? 'warn' : 'bad', text: txt + ' · ' + tt('תחנת', 'สถานี', 'محطة') + ' ' + (it.station || f.station), when: since ? tt('מאז', 'ตั้งแต่', 'منذ') + ' ' + since : '' };
     });
   }
 
