@@ -105,6 +105,9 @@
     btns.forEach(function (el) {
       var t = label(el), a = el.getAttribute('data-a') || '';
       if (!t && !a) return;
+      // actions that only look like back/cancel (e.g. "↩️ בטל את הפעולה" =
+      // undo a change) mark themselves out of the bar
+      if (el.hasAttribute('data-no-sticky')) return;
       if (!closeBtn && (a === 'close' || (t.length <= 12 && RX_CLOSE.test(t)) || /^(x|close|סגור)$/i.test(el.getAttribute('aria-label') || ''))) { closeBtn = el; return; }
       if (!backBtn && (a === 'back' || a === 'zmback' || (t.length <= 30 && RX_BACK.test(t)))) { backBtn = el; return; }
       if (!cancelBtn && RX_CANCEL.test(t)) { cancelBtn = el; return; }

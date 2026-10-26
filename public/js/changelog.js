@@ -192,7 +192,7 @@ var ChangeLog = (function () {
     }).join('');
     if (ch.length > 4) h += '<button class="cl-more" data-cl-open="' + esc(e.id) + '">' + (open ? tt('הצג פחות', 'แสดงน้อยลง', 'عرض أقل') : tt('עוד', 'เพิ่ม', 'المزيد') + ' ' + (ch.length - 4) + ' ' + tt('שינויים', 'การเปลี่ยนแปลง', 'تغييرات')) + '</button>';
     if (e.partial) h += '<div class="cl-note">' + tt('פעולה גדולה: נרשמו ' + ch.length + ' מתוך ' + e.n + ' שינויים', 'บันทึกบางส่วน', 'تم تسجيل جزء') + '</div>';
-    if (adm && !e.undoOf && ch.length > 1 && !allUndone) h += '<button class="cl-all" data-cl-undo="' + esc(e.id) + '">↩️ ' + tt('בטל את כל הפעולה', 'ยกเลิกทั้งหมด', 'إلغاء العملية كلها') + '</button>';
+    if (adm && !e.undoOf && ch.length > 1 && !allUndone) h += '<button class="cl-all" data-no-sticky data-cl-undo="' + esc(e.id) + '">↩️ ' + tt('בטל את כל הפעולה', 'ยกเลิกทั้งหมด', 'إلغاء العملية كلها') + '</button>';
     return h + '</div>';
   }
   function paint() {
