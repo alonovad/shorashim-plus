@@ -23,6 +23,12 @@ service cloud.firestore {
     function isOperatorOrAbove() {
       return isSignedIn() && getRole() in ['admin', 'operator'];
     }
+    // load guard: a user the server has limited (usage/{uid}_demoted) can
+    // write nothing from the moment it happens - not only when the role in
+    // their token runs out (up to an hour). One lookup per write.
+    function canWrite() {
+      return isSignedIn() && !exists(/databases/$(database)/documents/usage/$(request.auth.uid + '_demoted'));
+    }
     function isWorkerOrAbove() {
       return isSignedIn() && getRole() in ['admin', 'operator', 'worker'];
     }
@@ -61,10 +67,10 @@ service cloud.firestore {
       // does. Proper fix: split self-service fields (primary_plot_id,
       // email) into per-user docs so workers write only their own record,
       // then revert this to operator-only for identity/role.
-      allow write: if isSignedIn() && docId == 'shorashim-users';
+      allow write: if canWrite() && (isSignedIn() && docId == 'shorashim-users');
 
       // Other admin-only docs (settings, config, talgil)
-      allow write: if isAdmin() && docId in [
+      allow write: if canWrite() && (isAdmin() && docId in [
         'shorashim-talgil-config',
         'shorashim-talgil-cache',
         'shorashim-apps-script-url',
@@ -77,7 +83,7 @@ service cloud.firestore {
         'shorashim-payslip-form',
         // map-region.js — which part of the world the map is locked to
         'shorashim-map-region'
-      ];
+      ]);
 
       // Plots and farms (plotMapperSprayData) — Oct 2026 ownership rule:
       // only admin creates or deletes plots and farms. An operator still
@@ -85,13 +91,13 @@ service cloud.firestore {
       // stored in it), but only while the number of plots and farms stays
       // exactly as it was. That also stops a device holding a stale copy
       // from wiping a plot admin has just added.
-      allow write: if isAdmin() && docId == 'plotMapperSprayData';
-      allow update: if isOperatorOrAbove() && docId == 'plotMapperSprayData' &&
+      allow write: if canWrite() && (isAdmin() && docId == 'plotMapperSprayData');
+      allow update: if canWrite() && (isOperatorOrAbove() && docId == 'plotMapperSprayData' &&
                        request.resource.data.value.get('plots', []).size() == resource.data.value.get('plots', []).size() &&
-                       request.resource.data.value.get('farms', []).size() == resource.data.value.get('farms', []).size();
+                       request.resource.data.value.get('farms', []).size() == resource.data.value.get('farms', []).size());
 
       // Operator+: operational data
-      allow write: if isOperatorOrAbove() && docId in [
+      allow write: if canWrite() && (isOperatorOrAbove() && docId in [
         'shorashim-tasks',
         'shorashim-field-reports',
         'shorashim-pest-lists',
@@ -116,100 +122,100 @@ service cloud.firestore {
         // agriplan.js — saved templates for a plan's prep notes (shared
         // across seasons); each template's author edits it (ownership.js).
         'shorashim-agri-prep-templates'
-      ];
+      ]);
 
       // Operator+: one tracking journal per construction project
       // (shorashim-build-ledger-1788460496331, ...). Money in and out of a
       // job, so it is deliberately not readable-writable by workers.
-      allow write: if isOperatorOrAbove() &&
-                      docId.matches('shorashim-build-ledger-[0-9]+');
+      allow write: if canWrite() && (isOperatorOrAbove() &&
+                      docId.matches('shorashim-build-ledger-[0-9]+'));
 
       // Operator+: one tracking journal per maintenance project
       // (shorashim-maint-journal-1788460496331, ...), opened once the job is
       // approved (maintjournal.js). Its own document per project for the
       // same 1 MB reason as the build ledger it replaces.
-      allow write: if isOperatorOrAbove() &&
-                      docId.matches('shorashim-maint-journal-[0-9]+');
+      allow write: if canWrite() && (isOperatorOrAbove() &&
+                      docId.matches('shorashim-maint-journal-[0-9]+'));
 
       // Operator+: one document register per construction project
       // (shorashim-build-docs-1788460496331, ...): the engineer's drawings
       // uploaded to Storage and what the model read out of each. Same
       // per-project split as the ledger, for the same 1 MB reason.
-      allow write: if isOperatorOrAbove() &&
-                      docId.matches('shorashim-build-docs-[0-9]+');
+      allow write: if canWrite() && (isOperatorOrAbove() &&
+                      docId.matches('shorashim-build-docs-[0-9]+'));
 
       // Operator+: one pest-monitoring document per growing year
       // (shorashim-pest-monitor-2026, -2027, ...). Prefix match rather than a
       // literal list so a new season needs no rules deploy.
-      allow write: if isOperatorOrAbove() &&
-                      docId.matches('shorashim-pest-monitor-[0-9]{4}');
+      allow write: if canWrite() && (isOperatorOrAbove() &&
+                      docId.matches('shorashim-pest-monitor-[0-9]{4}'));
 
       // Operator+: one treatment-plan document per growing year
       // (shorashim-agri-plan-2026, -2027, ...). Same prefix trick as
       // pest monitoring above — a new season needs no rules deploy.
-      allow write: if isOperatorOrAbove() &&
-                      docId.matches('shorashim-agri-plan-[0-9]{4}');
+      allow write: if canWrite() && (isOperatorOrAbove() &&
+                      docId.matches('shorashim-agri-plan-[0-9]{4}'));
 
       // Operator+: sorting / harvest results, one document per season
       // (shorashim-harvest-2026, ...). harvest.js — packing-house statements
       // per orchard. Same prefix trick: a new season needs no rules deploy.
-      allow write: if isOperatorOrAbove() &&
-                      docId.matches('shorashim-harvest-[0-9]{4}');
+      allow write: if canWrite() && (isOperatorOrAbove() &&
+                      docId.matches('shorashim-harvest-[0-9]{4}'));
 
       // Operator+: shared product & price database, one document per year
       // (shorashim-prices-2026, ...). prices.js — fed by every farm's
       // document intake; read restricted to operator+ above.
-      allow write: if isOperatorOrAbove() &&
-                      docId.matches('shorashim-prices-[0-9]{4}');
+      allow write: if canWrite() && (isOperatorOrAbove() &&
+                      docId.matches('shorashim-prices-[0-9]{4}'));
 
       // Admin only: operation costing — budget per line, required output,
       // hourly rate per worker group (opcost.js).
-      allow write: if isAdmin() && docId == 'shorashim-prices-ops';
+      allow write: if canWrite() && (isAdmin() && docId == 'shorashim-prices-ops');
 
       // Admin only: treatment-plan approvals, one document per growing year
       // (shorashim-agri-approvals-2026, ...). Kept apart from the plan
       // document above so an operator — who writes the plans — cannot write
       // an approval. Each approval signs one farm's rows; agriplan.js shows a
       // farm's part of a plan on its card only while that signature matches.
-      allow write: if isAdmin() &&
-                      docId.matches('shorashim-agri-approvals-[0-9]{4}');
+      allow write: if canWrite() && (isAdmin() &&
+                      docId.matches('shorashim-agri-approvals-[0-9]{4}'));
 
       // Operator+: cash-flow sheet per year (cashflow.js) — financial, so
       // also read-restricted to operator+ above.
-      allow write: if isOperatorOrAbove() &&
-                      docId.matches('shorashim-cashflow-[0-9]{4}');
+      allow write: if canWrite() && (isOperatorOrAbove() &&
+                      docId.matches('shorashim-cashflow-[0-9]{4}'));
 
       // Operator+: fruit shipments, packhouse intake, crates and the
       // cash-flow stage of sorting results (shipments.js) — commercial, so
       // also read-restricted to operator+ above.
-      allow write: if isOperatorOrAbove() &&
-                      docId.matches('shorashim-shipments-[0-9]{4}');
+      allow write: if canWrite() && (isOperatorOrAbove() &&
+                      docId.matches('shorashim-shipments-[0-9]{4}'));
 
       // Worker+: plot recommendations and their follow-up (plotrec.js) —
       // tasks are marked done in the field; coefficients and imported
       // sources are edited by operator+ in the UI.
-      allow write: if isWorkerOrAbove() && docId == 'shorashim-plotrec';
+      allow write: if canWrite() && (isWorkerOrAbove() && docId == 'shorashim-plotrec');
 
       // Worker+: red palm weevil traps and their counts, one doc per year
       // (traps.js). Whoever checks the traps in the field enters the counts.
-      allow write: if isWorkerOrAbove() &&
-                      docId.matches('shorashim-traps-[0-9]{4}');
+      allow write: if canWrite() && (isWorkerOrAbove() &&
+                      docId.matches('shorashim-traps-[0-9]{4}'));
 
       // Operator+: Sentinel-2 vegetation index per plot, one doc per farm
       // (satellite.js), and the per-farm pixel images (…-img-<farmId>). Written
       // after the operator pulls fresh data through sentinelNdvi /
       // sentinelImage; every signed-in role reads them.
-      allow write: if isOperatorOrAbove() &&
+      allow write: if canWrite() && (isOperatorOrAbove() &&
                       (docId.matches('shorashim-sentinel-[0-9]+') ||
-                       docId.matches('shorashim-sentinel-img-[0-9]+'));
+                       docId.matches('shorashim-sentinel-img-[0-9]+')));
 
       // Worker+: worklogs
-      allow write: if isWorkerOrAbove() && docId.matches('shorashim-worklog.*');
+      allow write: if canWrite() && (isWorkerOrAbove() && docId.matches('shorashim-worklog.*'));
 
       // Worker+: shared maintenance calendar. Any role granted maintenance
       // access (or admin) edits events; the UI enforces the access-map gate.
       // Worker+ tier avoids silent write failures for access-granted workers.
-      allow write: if isWorkerOrAbove() && docId == 'shorashim-maintenance-schedule';
+      allow write: if canWrite() && (isWorkerOrAbove() && docId == 'shorashim-maintenance-schedule');
     }
 
     // ── timeclock collection ──
@@ -217,18 +223,18 @@ service cloud.firestore {
       allow read: if isSignedIn();
 
       // Workers create their own records
-      allow create: if isWorkerOrAbove();
+      allow create: if canWrite() && (isWorkerOrAbove());
 
       // Workers update their own records (Phase 1+ enforces username
       // matches the prefix of the auth email). Admin bypasses isOwn
       // because their username field may be manually set (e.g. 'admin')
       // and not match their email prefix.
-      allow update: if isAdmin() ||
+      allow update: if canWrite() && (isAdmin() ||
                        (isWorkerOrAbove() &&
-                        isOwn(resource.data.username));
+                        isOwn(resource.data.username)));
 
       // Operator+ can edit/delete any record (force-approve, fix mistakes)
-      allow update, delete: if isOperatorOrAbove();
+      allow update, delete: if canWrite() && (isOperatorOrAbove());
     }
 
     // ── audit-log collection (Phase 1) ──
@@ -238,9 +244,9 @@ service cloud.firestore {
     // Admin bypasses isOwn — see comment on timeclock rule.
     match /audit-log/{entryId} {
       allow read:   if isAdmin();
-      allow create: if isOperatorOrAbove() ||
+      allow create: if canWrite() && (isOperatorOrAbove() ||
                        (isWorkerOrAbove() && isOwn(request.resource.data.actor)) ||
-                       isAdmin();
+                       isAdmin());
       allow update, delete: if false;
     }
 
@@ -262,21 +268,21 @@ service cloud.firestore {
       // write (while timeclock, lacking the check, kept working). The app
       // always sets username to the logged-in user. Viewer stays blocked
       // (not worker+), and the UI hides leave from viewers anyway.
-      allow create: if isWorkerOrAbove();
+      allow create: if canWrite() && (isWorkerOrAbove());
 
       // Operator+ approves/rejects
-      allow update: if isOperatorOrAbove();
+      allow update: if canWrite() && (isOperatorOrAbove());
 
       // Worker cancels their own still-pending request — only the
       // status field may change (no sneaking other edits in).
       // Admin can cancel any.
-      allow update: if isAdmin() ||
+      allow update: if canWrite() && (isAdmin() ||
                     (isWorkerOrAbove() &&
                      isOwn(resource.data.username) &&
                      resource.data.status == 'pending' &&
                      request.resource.data.status == 'cancelled' &&
                      request.resource.data.diff(resource.data)
-                       .affectedKeys().hasOnly(['status']));
+                       .affectedKeys().hasOnly(['status'])));
 
       allow delete: if false;
     }
@@ -284,7 +290,7 @@ service cloud.firestore {
     // ── holidays collection (Phase 4) ──
     match /holidays/{year} {
       allow read: if isSignedIn();
-      allow write: if isAdmin();
+      allow write: if canWrite() && (isAdmin());
     }
 
     // ── presence collection (who currently has the app open) ──
@@ -293,7 +299,7 @@ service cloud.firestore {
     // (incl. viewer) may appear as connected. Read by the dashboard.
     match /presence/{uname} {
       allow read: if isSignedIn();
-      allow write: if isAdmin() || (isSignedIn() && isOwn(uname));
+      allow write: if canWrite() && (isAdmin() || (isSignedIn() && isOwn(uname)));
     }
 
     // ── attendance-events (אירוע per worker/day for the monthly report) ──
@@ -301,7 +307,7 @@ service cloud.firestore {
     // operator/admin may write. Doc id = username__YYYY-MM-DD.
     match /attendance-events/{docId} {
       allow read: if isSignedIn();
-      allow write: if isOperatorOrAbove();
+      allow write: if canWrite() && (isOperatorOrAbove());
     }
 
     // ── comments (comments.js, Oct 2026) ──
@@ -310,16 +316,16 @@ service cloud.firestore {
     // the author or admin deletes.
     match /comments/{cid} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn() &&
+      allow create: if canWrite() && (isSignedIn() &&
                        request.resource.data.uid == request.auth.uid &&
                        request.resource.data.key is string && request.resource.data.key.size() <= 100 &&
                        request.resource.data.text is string && request.resource.data.text.size() > 0 &&
-                       request.resource.data.text.size() <= 2000;
-      allow update: if isSignedIn() && resource.data.uid == request.auth.uid &&
+                       request.resource.data.text.size() <= 2000);
+      allow update: if canWrite() && (isSignedIn() && resource.data.uid == request.auth.uid &&
                        request.resource.data.uid == resource.data.uid &&
                        request.resource.data.key == resource.data.key &&
-                       request.resource.data.text is string && request.resource.data.text.size() <= 2000;
-      allow delete: if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
+                       request.resource.data.text is string && request.resource.data.text.size() <= 2000);
+      allow delete: if canWrite() && (isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid));
     }
 
     // Deny everything else
