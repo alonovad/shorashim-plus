@@ -1541,6 +1541,9 @@
     'צופה': { th: 'ผู้ชม', ar: 'مشاهد' },
     'כל המטעים': { th: 'ทุกสวน', ar: 'جميع البساتين' },
     'כל המשקים': { th: 'ทุกฟาร์ม', ar: 'جميع المزارع' },
+    'ללא משקים': { th: 'ไม่มีฟาร์ม', ar: 'بلا مزارع' },
+    'כתובת אימייל לא תקינה': { th: 'อีเมลไม่ถูกต้อง', ar: 'بريد إلكتروني غير صالح' },
+    'שינוי האימייל משנה את החשבון שאיתו המשתמש מתחבר': { th: 'การเปลี่ยนอีเมลจะเปลี่ยนบัญชีที่ใช้เข้าสู่ระบบ', ar: 'تغيير البريد يغير الحساب الذي يسجل به المستخدم' },
     'למחוק את המשתמש': { th: 'ลบผู้ใช้', ar: 'حذف المستخدم' },
     'גישה למטעים': { th: 'เข้าถึงสวน', ar: 'الوصول إلى البساتين' },
     'גישה למשקים': { th: 'เข้าถึงฟาร์ม', ar: 'الوصول إلى المزارع' },
@@ -6558,8 +6561,10 @@
       
       // Build farm badges with colors
       var farmBadges = '';
-      if (user.role === 'admin' || user.farm_permissions.length === 0) {
-        farmBadges = '<span style="display: inline-block; padding: 4px 8px; background: var(--g6); border-radius: 6px; font-size: 12px; color: var(--text-muted);">' + t('כל המשקים') + '</span>';
+      // admin sees every farm; anyone else with no farm ticked sees none
+      // (getUserFarms) - the badge used to say "all farms" for both
+      if (user.role === 'admin' || !(user.farm_permissions || []).length) {
+        farmBadges = '<span style="display: inline-block; padding: 4px 8px; background: var(--g6); border-radius: 6px; font-size: 12px; color: var(--text-muted);">' + (user.role === 'admin' ? t('כל המשקים') : t('ללא משקים')) + '</span>';
       } else {
         user.farm_permissions.forEach(function(fid) {
           var f = farms.find(function(farm) { return farm.id === fid; });
@@ -6704,7 +6709,10 @@
           '</div>' +
           '<div class="form-group">' +
             '<label class="form-label">' + t('אימייל') + '</label>' +
-            '<input type="email" class="form-input" id="userEmail" value="' + (isEdit ? (user.email || '') : '') + '" placeholder="email@example.com" style="direction:ltr;text-align:left;" ' + (isEdit ? 'readonly style="background:#f0f0f0;direction:ltr;text-align:left;"' : '') + '>' +
+            // editable on edit too: a user created without an email (or with
+            // a wrong one) could otherwise never be given a login
+            '<input type="email" class="form-input" id="userEmail" value="' + (isEdit ? (user.email || '') : '') + '" placeholder="email@example.com" style="direction:ltr;text-align:left;">' +
+            (isEdit && user.email ? '<div style="font-size:0.7rem;color:#888;margin-top:4px;">' + t('שינוי האימייל משנה את החשבון שאיתו המשתמש מתחבר') + '</div>' : '') +
           '</div>' +
           '<div class="form-group">' +
             '<label class="form-label">' + t('טלפון (לשחזור סיסמה ב-SMS)') + '</label>' +
@@ -6759,6 +6767,12 @@
 
       if (isEdit) {
         if (users[user.username]) {
+          if (email !== String(users[user.username].email || '').toLowerCase()) {
+            if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { showToast('❌ ' + t('כתובת אימייל לא תקינה')); return; }
+            var taken = getUserByEmail(email);
+            if (taken && taken.username !== user.username) { showToast('❌ ' + t('אימייל כבר קיים')); return; }
+            users[user.username].email = email;
+          }
           users[user.username].name = name;
           users[user.username].role = role;
           users[user.username].lang = lang;
