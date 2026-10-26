@@ -106,9 +106,11 @@ var Weather = (function () {
     return fn({ points: pts.map(function (p) { return { id: p.id, lat: p.lat, lon: p.lon, station: p.station }; }) }).then(function (r) { return (r && r.data) || {}; });
   }
 
+  function sigOf(pts) { return pts.map(function (p) { return p.id + ':' + p.lat + ',' + p.lon + ':' + (p.station || '') + ':' + (p.radStation || ''); }).join('|'); }
   function load(force) {
     var pts = points();
-    var sig = pts.map(function (p) { return p.id + ':' + p.lat + ',' + p.lon + ':' + (p.station || '') + ':' + (p.radStation || ''); }).join('|');
+    var sig = sigOf(pts);
+    state.sig = sig;
     var c = !force && readCache(sig);
     if (c) { state.data = c.data; state.ims = c.ims; state.imsErr = c.imsErr || ''; state.at = c.at; state.pts = pts; paint(); return; }
     if (!pts.length) { state.data = []; state.pts = pts; paint(); return; }
@@ -336,8 +338,10 @@ var Weather = (function () {
     });
   }
 
+  // the set of farms can change under the same session (view-as-user, a
+  // farm added, access changed) - then the data on hand is for other farms
   function render() {
-    if (!state.data || Date.now() - state.at > TTL) load(false);
+    if (!state.data || Date.now() - state.at > TTL || state.sig !== sigOf(points())) load(false);
     else paint();
   }
 
