@@ -50,7 +50,7 @@ service cloud.firestore {
       // (shorashim-prices-ops) are commercial data: operator+ only, so a
       // worker cannot read what suppliers charge or what a crew costs.
       allow read: if isSignedIn() &&
-                     ((!docId.matches('shorashim-prices-.*') && !docId.matches('shorashim-cashflow-.*') && !docId.matches('shorashim-shipments-.*')) || isOperatorOrAbove());
+                     ((!docId.matches('shorashim-prices-.*') && !docId.matches('shorashim-cashflow-.*') && !docId.matches('shorashim-shipments-.*') && docId != 'shorashim-load-guard') || isOperatorOrAbove());
 
       // TEMPORARY (broad grant): any signed-in user may write
       // shorashim-users. The app writes the WHOLE users blob for ordinary

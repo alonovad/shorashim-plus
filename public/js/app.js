@@ -1561,6 +1561,9 @@
     'כל המטעים': { th: 'ทุกสวน', ar: 'جميع البساتين' },
     'כל המשקים': { th: 'ทุกฟาร์ม', ar: 'جميع المزارع' },
     'ללא משקים': { th: 'ไม่มีฟาร์ม', ar: 'بلا مزارع' },
+    'החשבון הועבר לצפייה בלבד בגלל עומס חריג על השרת. פנה למנהל המערכת.': { th: 'บัญชีถูกจำกัดให้ดูอย่างเดียวเนื่องจากโหลดสูงผิดปกติ ติดต่อผู้ดูแล', ar: 'تم تقييد الحساب للعرض فقط بسبب حمل غير عادي. راجع المسؤول.' },
+    'ההרשאות שלך עודכנו': { th: 'สิทธิ์ของคุณได้รับการอัปเดต', ar: 'تم تحديث صلاحياتك' },
+    'הועבר אוטומטית בגלל עומס': { th: 'ย้ายอัตโนมัติเนื่องจากโหลด', ar: 'نُقل تلقائيًا بسبب الحمل' },
     'כתובת אימייל לא תקינה': { th: 'อีเมลไม่ถูกต้อง', ar: 'بريد إلكتروني غير صالح' },
     'שינוי האימייל משנה את החשבון שאיתו המשתמש מתחבר': { th: 'การเปลี่ยนอีเมลจะเปลี่ยนบัญชีที่ใช้เข้าสู่ระบบ', ar: 'تغيير البريد يغير الحساب الذي يسجل به المستخدم' },
     'למחוק את המשתמש': { th: 'ลบผู้ใช้', ar: 'حذف المستخدم' },
@@ -6578,6 +6581,7 @@
     var html = '';
     userList.forEach(function(user) {
       var roleText = user.role === 'admin' ? t('מנהל') : user.role === 'operator' ? t('מפעיל') : user.role === 'worker' ? t('עובד') : t('צופה');
+      if (user.auto_demoted && user.role === 'viewer') roleText += ' · ⚠️ ' + t('הועבר אוטומטית בגלל עומס') + ' (' + new Date(user.auto_demoted.at).toLocaleString('he-IL') + ')';
       
       // Build farm badges with colors
       var farmBadges = '';
@@ -6794,6 +6798,7 @@
             users[user.username].email = email;
           }
           users[user.username].name = name;
+          if (role !== users[user.username].role || role !== 'viewer') delete users[user.username].auto_demoted;
           users[user.username].role = role;
           users[user.username].lang = lang;
           users[user.username].farm_permissions = selectedFarms;
@@ -11945,7 +11950,19 @@
       // keep the signed-in profile current (primary plot, name…) - it was
       // only read once at login, so a later change never reached it
       var mine = currentUser && currentUser.username && data[currentUser.username];
+      var roleWas = currentUser && currentUser.role;
       if (mine) Object.keys(mine).forEach(function(k) { currentUser[k] = mine[k]; });
+      // my own role changed (admin, or the load guard on the server): take
+      // the new token at once and start again under the new role
+      var authEmail = (window.firebase && firebase.auth().currentUser && String(firebase.auth().currentUser.email || '').toLowerCase()) || '';
+      if (mine && roleWas && mine.role !== roleWas && authEmail && String(mine.email || '').toLowerCase() === authEmail) {
+        showToast(mine.auto_demoted && mine.role === 'viewer'
+          ? '⚠️ ' + t('החשבון הועבר לצפייה בלבד בגלל עומס חריג על השרת. פנה למנהל המערכת.')
+          : 'ℹ️ ' + t('ההרשאות שלך עודכנו'));
+        firebase.auth().currentUser.getIdToken(true).catch(function() {}).then(function() {
+          setTimeout(function() { if (window.ExitGuard) ExitGuard.allowLeave(); location.reload(); }, 2500);
+        });
+      }
     });
 
     DB.listen('shorashim-valve-plot-map', function(data) {

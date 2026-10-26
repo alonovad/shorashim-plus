@@ -1,11 +1,117 @@
-const { onRequest, onCall, HttpsError } = require("firebase-functions/v2/https");
+const { onRequest, onCall: onCallRaw, HttpsError } = require("firebase-functions/v2/https");
 const { initializeApp } = require("firebase-admin/app");
 const { getAuth } = require("firebase-admin/auth");
-const { getFirestore } = require("firebase-admin/firestore");
+const { getFirestore, FieldValue } = require("firebase-admin/firestore");
 const { getStorage } = require("firebase-admin/storage");
 const { defineSecret } = require("firebase-functions/params");
 
 initializeApp();
+
+// ═══════════════════════════════════════════
+// LOAD GUARD — a non-admin user who loads the servers far beyond normal use
+// is switched to "viewer" automatically (role claim + profile), tokens
+// revoked, and admin is told (appData/shorashim-load-guard + change log).
+// Counted per user: callable function calls (AI readings separately) and
+// writes to the shared data (counted by the change-log triggers).
+// Admin is never demoted - that would lock the owner out.
+// Restoring: admin sets the role again in Users (that rewrites the claim).
+// ═══════════════════════════════════════════
+const LG_LIMITS = {
+  // [per 10 minutes, per hour, per day]
+  call: [150, 500, 3000],
+  ai: [25, 60, 200],
+  write: [600, 2500, 15000],
+};
+function lgBuckets(now) {
+  const d = new Date(now + 2 * 3600 * 1000).toISOString();   // Israel-ish clock for ids only
+  return { m: d.slice(0, 15).replace(/[-T:]/g, ""), h: d.slice(0, 13).replace(/[-T:]/g, ""), d: d.slice(0, 10).replace(/-/g, "") };
+}
+const lgUserCache = new Map();
+async function lgUser(uid) {
+  const c = lgUserCache.get(uid);
+  if (c && Date.now() - c.t < 5 * 60 * 1000) return c;
+  let u = null;
+  try { u = await getAuth().getUser(uid); } catch (e) { u = null; }
+  const cl = (u && u.customClaims) || {};
+  const v = { t: Date.now(), email: String((u && (u.email || u.phoneNumber)) || "").toLowerCase(), role: cl.role || "", demoted: !!cl.demoted };
+  lgUserCache.set(uid, v);
+  return v;
+}
+async function lgDemote(uid, info, kind, counts) {
+  const db = getFirestore(), auth = getAuth();
+  const lock = db.collection("usage").doc(uid + "_demoted");
+  // once per user until admin restores (the lock is cleared by setUserRole*)
+  const got = await db.runTransaction(async (tx) => { const s = await tx.get(lock); if (s.exists) return false; tx.set(lock, { at: Date.now(), kind, counts }); return true; });
+  if (!got) return;
+  const prev = info.role || "worker";
+  await auth.setCustomUserClaims(uid, { role: "viewer", demoted: true });
+  await auth.revokeRefreshTokens(uid).catch(() => {});
+  lgUserCache.delete(uid);
+  const reason = kind + " " + JSON.stringify(counts);
+  // profile: role → viewer, remembering what it was
+  let uname = "";
+  try {
+    const ref = db.collection("appData").doc("shorashim-users");
+    await db.runTransaction(async (tx) => {
+      const s = await tx.get(ref); const users = (s.exists && s.data().value) || {};
+      const key = Object.keys(users).find((k) => users[k] && String(users[k].email || "").toLowerCase() === info.email);
+      if (!key) return;
+      uname = key;
+      users[key].role = "viewer";
+      users[key].auto_demoted = { at: Date.now(), prev_role: prev, kind, counts };
+      tx.set(ref, { value: users, updatedAt: FieldValue.serverTimestamp() });
+    });
+  } catch (e) { console.error("load-guard profile", e.message); }
+  const ev = { at: Date.now(), uid, email: info.email, username: uname, prev_role: prev, kind, counts };
+  try {
+    const aref = db.collection("appData").doc("shorashim-load-guard");
+    await db.runTransaction(async (tx) => {
+      const s = await tx.get(aref); const v = (s.exists && s.data().value) || {}; const list = Array.isArray(v.events) ? v.events : [];
+      list.unshift(ev); tx.set(aref, { value: { events: list.slice(0, 50) }, updatedAt: FieldValue.serverTimestamp() });
+    });
+    await db.collection("changeLog").add({ at: Date.now(), col: "appData", doc: "shorashim-users", uid: "", email: "load-guard", n: 1, partial: false, guard: true,
+      changes: [{ op: "set", path: "[]", label: "value › " + (uname || info.email) + " › role", fromJ: JSON.stringify(prev), toJ: JSON.stringify("viewer"), big: true, note: reason }] });
+  } catch (e) { console.error("load-guard alert", e.message); }
+  console.warn("LOAD GUARD demoted", info.email, reason);
+}
+// admin set a role again: the load-guard lock goes, counting starts fresh
+async function lgRestored(uid) {
+  lgUserCache.delete(uid);
+  try { await getFirestore().collection("usage").doc(uid + "_demoted").delete(); } catch (e) { /* none */ }
+}
+// count one unit of `kind` for uid; demote past a limit. Never throws for
+// counting problems - the guard must not break the app.
+async function lgCount(uid, kind, info) {
+  if (!uid || !info || info.role === "admin" || info.demoted) return;
+  try {
+    const db = getFirestore(), b = lgBuckets(Date.now()), inc = FieldValue.increment(1);
+    const refs = [db.collection("usage").doc(uid + "_m" + b.m), db.collection("usage").doc(uid + "_h" + b.h), db.collection("usage").doc(uid + "_d" + b.d)];
+    const exp = Date.now() + 3 * 864e5;   // for a TTL policy on `exp`, if one is set
+    await Promise.all(refs.map((r) => r.set({ [kind]: inc, uid, exp }, { merge: true })));
+    const snaps = await Promise.all(refs.map((r) => r.get()));
+    const lim = LG_LIMITS[kind], counts = snaps.map((s) => (s.exists && s.data()[kind]) || 0);
+    const over = counts.findIndex((c, i) => c > lim[i]);
+    if (over >= 0) await lgDemote(uid, info, kind, { m10: counts[0], h1: counts[1], d1: counts[2] });
+  } catch (e) { console.error("load-guard count", e.message); }
+}
+// every callable goes through the guard: a demoted user is refused, others
+// are counted (functions that call Claude count as "ai" too)
+function onCall(opts, handler) {
+  const ai = Array.isArray(opts && opts.secrets) && opts.secrets.some((x) => x && x.name === "ANTHROPIC_API_KEY");
+  return onCallRaw(opts, async (request) => {
+    if (request.auth && request.auth.uid) {
+      const tok = request.auth.token || {};
+      if (tok.role !== "admin") {
+        if (tok.demoted) throw new HttpsError("resource-exhausted", "load-guard: account limited to viewing - ask the admin");
+        const info = await lgUser(request.auth.uid);
+        if (info.demoted) throw new HttpsError("resource-exhausted", "load-guard: account limited to viewing - ask the admin");
+        await lgCount(request.auth.uid, "call", info);
+        if (ai) await lgCount(request.auth.uid, "ai", info);
+      }
+    }
+    return handler(request);
+  });
+}
 
 // Set once with: firebase functions:secrets:set ANTHROPIC_API_KEY
 const ANTHROPIC_API_KEY = defineSecret("ANTHROPIC_API_KEY");
@@ -48,6 +154,8 @@ exports.setUserRole = onCall(
     }
 
     await auth.setCustomUserClaims(uid, { role });
+
+    await lgRestored(uid);
     return { success: true, uid, role };
   }
 );
@@ -149,6 +257,7 @@ exports.setUserRoleByEmail = onCall(
       return { success: true, pending: false, unchanged: true, email, role };
     }
     await auth.setCustomUserClaims(user.uid, { role });
+    await lgRestored(user.uid);
     return { success: true, pending: false, email, role, previous: current };
   }
 );
@@ -209,6 +318,7 @@ exports.backfillUserRoles = onCall(
         }
         if (!dryRun) {
           await auth.setCustomUserClaims(user.uid, { role });
+          await lgRestored(user.uid);
         }
         report.stamped++;
         report.details.push({ username: key, email, result: "stamped", from: current, to: role });
@@ -2392,7 +2502,6 @@ exports.wxAlerts = onSchedule(
 // while the field still holds the value that change wrote.
 // ═══════════════════════════════════════════
 const { onDocumentWrittenWithAuthContext } = require("firebase-functions/v2/firestore");
-const { FieldValue } = require("firebase-admin/firestore");
 const CL_MAX_CHANGES = 300, CL_MAX_BYTES = 700000;
 const CL_IGNORE_TOP = new Set(["updatedAt", "serverTs"]);
 const CL_SKIP_DOCS = new Set(["shorashim-wx-alerts"]);
@@ -2465,6 +2574,7 @@ async function clRecord(event, col) {
   // has no type of its own - Firestore reports it as "unknown" with the
   // Firebase Auth uid in authId.
   if (event.authType === "service_account" || event.authType === "system") return;
+  if (event.authId) await lgCount(event.authId, "write", await lgUser(event.authId));
   const docId = event.params.docId;
   if (CL_SKIP_DOCS.has(docId)) return;
   const before = event.data && event.data.before && event.data.before.exists ? event.data.before.data() : null;

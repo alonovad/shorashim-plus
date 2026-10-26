@@ -201,7 +201,15 @@ var ChangeLog = (function () {
     var users = {}, areas = {};
     st.items.forEach(function (e) { if (e.email) users[e.email] = who(e); areas[areaOf(e.col, e.doc)] = 1; });
     var list = filtered();
+    var gev = (st.guard || []).slice(0, 5);
     box.innerHTML =
+      (gev.length ? '<div class="cl-e" style="border-color:#f0c36d;background:#fffaf0;"><div class="cl-h"><b>⚠️ ' + tt('הגנת עומס — משתמשים שהועברו אוטומטית לצופה', 'ป้องกันโหลด — ผู้ใช้ที่ถูกลดสิทธิ์', 'حماية الحمل — مستخدمون نُقلوا للعرض') + '</b></div>' +
+        gev.map(function (g) {
+          return '<div class="cl-c">' + when(g.at) + ' · <b>' + esc(who({ email: g.email })) + '</b> · ' + esc(guardKind(g.kind)) + ' · ' +
+            tt('10 דק׳', '10 นาที', '10 د') + ' ' + g.counts.m10 + ' / ' + tt('שעה', 'ชม.', 'ساعة') + ' ' + g.counts.h1 + ' / ' + tt('יום', 'วัน', 'يوم') + ' ' + g.counts.d1 +
+            ' · ' + tt('היה', 'เดิม', 'كان') + ': ' + esc(g.prev_role) + '</div>';
+        }).join('') +
+        '<div class="cl-note">' + tt('להחזרת ההרשאה: משתמשים ← עריכה ← בחר שוב את התפקיד ושמור.', 'คืนสิทธิ์: ผู้ใช้ ← แก้ไข ← เลือกบทบาท', 'للاستعادة: المستخدمون ← تعديل ← اختر الدور') + '</div></div>' : '') +
       '<div class="cl-f">' +
         '<select class="form-input" id="clUser"><option value="">' + tt('כל המשתמשים', 'ผู้ใช้ทั้งหมด', 'كل المستخدمين') + '</option>' +
           Object.keys(users).map(function (k) { return '<option value="' + esc(k) + '"' + (st.fUser === k ? ' selected' : '') + '>' + esc(users[k]) + '</option>'; }).join('') + '</select>' +
@@ -215,6 +223,30 @@ var ChangeLog = (function () {
       (st.loading ? '<div class="cl-note">⏳ ' + tt('טוען…', 'กำลังโหลด…', 'جارٍ التحميل…') + '</div>'
         : !st.done ? '<button class="cl-more cl-load" id="clMore">' + tt('טען שינויים ישנים יותר', 'โหลดเพิ่ม', 'تحميل الأقدم') + '</button>' : '');
   }
+  function guardKind(k) {
+    return k === 'ai' ? tt('קריאות AI', 'การอ่าน AI', 'قراءات AI') : k === 'write' ? tt('שמירות', 'การบันทึก', 'حفظ') : tt('קריאות לשרת', 'การเรียกเซิร์ฟเวอร์', 'استدعاءات الخادم');
+  }
+  // admin is told as soon as the server limits someone
+  var guardStarted = false;
+  function watchGuard() {
+    if (guardStarted || !isAdmin() || !window.firebase || !firebase.firestore) return;
+    guardStarted = true;
+    firebase.firestore().collection('appData').doc('shorashim-load-guard').onSnapshot(function (s) {
+      var ev = ((s.exists && s.data().value) || {}).events || [];
+      st.guard = ev;
+      var seen = 0; try { seen = Number(localStorage.getItem('shorashim-load-guard-seen')) || 0; } catch (e) {}
+      var fresh = ev.filter(function (g) { return g.at > seen; });
+      if (fresh.length) {
+        loadUsers().then(function () {
+          toast('⚠️ ' + tt('הגנת עומס: ', 'ป้องกันโหลด: ', 'حماية الحمل: ') + fresh.map(function (g) { return who({ email: g.email }); }).join(', ') + ' ' + tt('הועבר/ו לצפייה בלבד. פרטים בלוג השינויים.', 'ถูกลดเป็นดูอย่างเดียว', 'نُقل/وا للعرض فقط'));
+        });
+        try { localStorage.setItem('shorashim-load-guard-seen', String(fresh[0].at)); } catch (e) {}
+      }
+      paint();
+    }, function () { guardStarted = false; });
+  }
+  (function poll() { if (window.currentUser) { if (!isAdmin()) return; watchGuard(); } if (!guardStarted) setTimeout(poll, 4000); })();
+
   function css() {
     if (document.getElementById('clCss')) return;
     var s = document.createElement('style'); s.id = 'clCss';
