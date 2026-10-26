@@ -1,4 +1,4 @@
-var CACHE_NAME = 'shorashim-v201';
+var CACHE_NAME = 'shorashim-v202';
 // CDN libs — these never change, safe to cache-first
 var CDN_URLS = [
   'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js',
@@ -89,6 +89,7 @@ var APP_URLS = [
   '/js/plotmap.js',
   '/js/wxhist.js',
   '/js/changelog.js',
+  '/js/radar.js',
   '/js/report-theme.js',
   '/js/effects.js',
   '/manifest.json',
@@ -147,6 +148,7 @@ self.addEventListener('fetch', function(event) {
   if (url.indexOf('securetoken.google.com') !== -1) return;
   if (url.indexOf('corsproxy.io') !== -1) return;
   if (url.indexOf('data.gov.il') !== -1) return;
+  if (url.indexOf('rainviewer.com') !== -1) return;   // radar frames change every 10 min - never cache
   // CDN libs → cache-first (they never change)
   var isCDN = url.indexOf('cdnjs.cloudflare.com') !== -1 ||
               url.indexOf('gstatic.com/firebasejs') !== -1;
