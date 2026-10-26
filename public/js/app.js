@@ -707,6 +707,16 @@
   function isAdmin() {
     return currentUser && currentUser.role === 'admin';
   }
+  // An operator manages the farms he is assigned to: he may edit the details
+  // of their plots (name, crop, trees, area…) but never delete or create
+  // plots or farms - those stay with admin (Alon's rule: only admin deletes,
+  // nobody deletes admin's data).
+  function canEditPlotDetails(plot) {
+    if (!currentUser || !plot) return false;
+    if (currentUser.role === 'admin') return true;
+    return currentUser.role === 'operator' && (currentUser.farm_permissions || []).indexOf(plot.farm_id) !== -1;
+  }
+  window.canEditPlotDetails = canEditPlotDetails;
   function isManager() {
     return currentUser && (currentUser.role === 'admin' || currentUser.role === 'operator');
   }
@@ -9129,7 +9139,11 @@
   };
   function showPlotDetails(plotId, from) {
     _pdFrom = from || null;
-    var _pdCanEdit = !window.Own || Own.isAdmin();
+    // Plot details: admin, or an operator on a farm he is assigned to.
+    // Deleting stays admin-only (_pdCanDelete), and the server refuses any
+    // non-admin write that adds or removes plots.
+    var _pdCanDelete = !window.Own || Own.isAdmin();
+    var _pdCanEdit = _pdCanDelete || canEditPlotDetails(plots.find(function(p) { return p.id === plotId; }));
     var plot = plots.find(function(p) { return p.id === plotId; });
     if (!plot) return;
     
@@ -9396,7 +9410,7 @@
           
           '<div class="modal-buttons" style="margin-top: 14px;">' +
             '<button class="btn btn-secondary" onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'">' + t('סגור') + '</button>' +
-            (_pdCanEdit ? '<button class="btn" id="pdDeletePlot" style="background:#f44336;color:white;">🗑️ ' + t('מחק חלקה') + '</button>' : '') +
+            (_pdCanDelete ? '<button class="btn" id="pdDeletePlot" style="background:#f44336;color:white;">🗑️ ' + t('מחק חלקה') + '</button>' : '') +
           '</div>' +
         '</div>' +
       '</div>';
@@ -9505,12 +9519,12 @@
     });
     applyBranchUI(document.getElementById('modalContainer'), plot.crop_type, plot.branch || '');
     document.getElementById('pdSaveEdit').addEventListener('click', function() {
-      if (window.Own && !Own.isAdmin()) { Own.denied(); return; }
+      if (!canEditPlotDetails(plot)) { Own.denied(); return; }
       // Same farm-permission gate as delete: an operator scoped to certain
       // farms must not be able to rename or re-measure someone else's plot.
       if (currentUser && currentUser.role !== 'admin') {
         var editFarmIds = (currentUser.farm_permissions || []);
-        if (editFarmIds.length > 0 && editFarmIds.indexOf(plot.farm_id) === -1) {
+        if (editFarmIds.indexOf(plot.farm_id) === -1) {
           showToast('⛔ ' + t('אין לך הרשאה לערוך חלקה זו'));
           return;
         }
