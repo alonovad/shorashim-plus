@@ -18,9 +18,11 @@ initializeApp();
 // ═══════════════════════════════════════════
 const LG_LIMITS = {
   // [per 10 minutes, per hour, per day]
-  call: [150, 500, 3000],
-  ai: [25, 60, 200],
-  write: [600, 2500, 15000],
+  // a busy person: ~1 save every 20-30 s, a few server calls a minute,
+  // a handful of AI readings a day - the limits sit a few times above that
+  call: [40, 150, 800],
+  ai: [8, 20, 60],
+  write: [120, 400, 2500],
 };
 function lgBuckets(now) {
   const d = new Date(now + 2 * 3600 * 1000).toISOString();   // Israel-ish clock for ids only
