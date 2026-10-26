@@ -33,10 +33,12 @@ var Radar = (function () {
     if (document.getElementById('radarCss')) return;
     var s = document.createElement('style'); s.id = 'radarCss';
     s.textContent =
-      '#radarBar{position:absolute;left:50%;transform:translateX(-50%);bottom:86px;z-index:800;display:flex;align-items:center;gap:8px;' +
-        'background:rgba(255,255,255,.95);border-radius:16px;padding:6px 10px;box-shadow:0 6px 22px rgba(0,0,0,.22);font:600 12px Heebo,sans-serif;direction:rtl;max-width:calc(100% - 24px);}' +
+      // top of the map: the bottom belongs to the chip bar, the + button,
+      // the plot sheet and the zoom control
+      '#radarBar{position:absolute;top:10px;left:12px;right:12px;margin:0 auto;max-width:460px;z-index:1000;display:flex;align-items:center;gap:8px;box-sizing:border-box;' +
+        'background:rgba(255,255,255,.96);border-radius:16px;padding:6px 10px;box-shadow:0 6px 22px rgba(0,0,0,.22);font:600 12px Heebo,sans-serif;direction:rtl;}' +
       '#radarBar button{border:none;background:#eef4ea;border-radius:10px;width:32px;height:30px;font-size:15px;cursor:pointer;flex:none;}' +
-      '#radarBar input[type=range]{width:140px;flex:1;min-width:80px;}' +
+      '#radarBar input[type=range]{flex:1;min-width:60px;width:auto;direction:ltr;}' +
       '#radarBar .rd-t{min-width:44px;text-align:center;direction:ltr;}' +
       '#radarBar .rd-src{font-weight:400;color:#7a857c;font-size:10.5px;white-space:nowrap;}' +
       '#radarBar .rd-lg{display:flex;height:8px;width:56px;border-radius:4px;overflow:hidden;flex:none;}' +
