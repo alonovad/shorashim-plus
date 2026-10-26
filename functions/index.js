@@ -2483,7 +2483,8 @@ async function clRecord(event, col) {
     at: Date.now(), col, doc: docId, uid: event.authId || "", email: await clEmail(event.authId), n: raw.length, partial, changes,
   });
 }
-const CL_OPTS = { region: "us-central1", memory: "512MiB", timeoutSeconds: 60, retry: false };
+// the database lives in europe-west1; triggers run next to it
+const CL_OPTS = { region: "europe-west1", memory: "512MiB", timeoutSeconds: 60, retry: false };
 exports.clAppData = onDocumentWrittenWithAuthContext(Object.assign({ document: "appData/{docId}" }, CL_OPTS), (e) => clRecord(e, "appData"));
 exports.clTimeclock = onDocumentWrittenWithAuthContext(Object.assign({ document: "timeclock/{docId}" }, CL_OPTS), (e) => clRecord(e, "timeclock"));
 exports.clLeave = onDocumentWrittenWithAuthContext(Object.assign({ document: "leave-requests/{docId}" }, CL_OPTS), (e) => clRecord(e, "leave-requests"));
