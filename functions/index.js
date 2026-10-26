@@ -2378,3 +2378,198 @@ exports.wxAlerts = onSchedule(
     await db.collection("appData").doc("shorashim-wx-alerts").set({ value: { at: Date.now(), farms: out }, updatedAt: new Date() });
   }
 );
+
+// ═══════════════════════════════════════════
+// CHANGE LOG — every write a signed-in person makes to the shared data,
+// recorded on the server (so it cannot be skipped or forged from a device)
+// as a list of field-level changes, each with its old and new value.
+// changeLog/{id}: { at, col, doc, uid, email, n, partial, changes: [
+//   { op: 'set'|'add'|'del', path: [step], label, fromJ, toJ } ] }
+// A step is a key string, {id} for an element of an id-keyed list, or {i}
+// for a list index. Values are JSON strings (Firestore cannot hold nested
+// arrays such as plot outlines). Admin reads; nobody writes from a device.
+// changeUndo puts one change (or a whole entry) back, admin only, and only
+// while the field still holds the value that change wrote.
+// ═══════════════════════════════════════════
+const { onDocumentWrittenWithAuthContext } = require("firebase-functions/v2/firestore");
+const { FieldValue } = require("firebase-admin/firestore");
+const CL_MAX_CHANGES = 300, CL_MAX_BYTES = 700000;
+const CL_IGNORE_TOP = new Set(["updatedAt", "serverTs"]);
+const CL_SKIP_DOCS = new Set(["shorashim-wx-alerts"]);
+const clEmailCache = new Map();
+function clEq(a, b) {
+  if (a === b) return true;
+  if (a == null || b == null || typeof a !== "object" || typeof b !== "object") return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  if (a instanceof Date || b instanceof Date || typeof a.toMillis === "function" || typeof b.toMillis === "function") return JSON.stringify(a) === JSON.stringify(b);
+  const ka = Object.keys(a), kb = Object.keys(b);
+  if (ka.length !== kb.length) return false;
+  for (const k of ka) if (!Object.prototype.hasOwnProperty.call(b, k) || !clEq(a[k], b[k])) return false;
+  return true;
+}
+const clIsObj = (x) => x != null && typeof x === "object" && !Array.isArray(x) && typeof x.toMillis !== "function";
+const clIdList = (arr) => arr.length > 0 && arr.every((e) => clIsObj(e) && e.id != null && e.id !== "") && new Set(arr.map((e) => String(e.id))).size === arr.length;
+// readable name of a list element / step
+function clName(e) {
+  if (!clIsObj(e)) return "";
+  return String(e.name || e.title || e.label || e.name_he || e.text || e.material || e.username || e.email || "").slice(0, 60);
+}
+function clDiff(a, b, path, labels, out) {
+  if (out.length > CL_MAX_CHANGES) return;
+  if (clEq(a, b)) return;
+  const push = (op, from, to) => out.push({ op, path: path.slice(), label: labels.filter(Boolean).join(" › "), from, to });
+  if (clIsObj(a) && clIsObj(b)) {
+    const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+    for (const k of keys) {
+      if (path.length === 0 && CL_IGNORE_TOP.has(k)) continue;
+      const ina = Object.prototype.hasOwnProperty.call(a, k), inb = Object.prototype.hasOwnProperty.call(b, k);
+      path.push(k); labels.push(k);
+      if (!ina) push("add", undefined, b[k]);
+      else if (!inb) push("del", a[k], undefined);
+      else clDiff(a[k], b[k], path, labels, out);
+      path.pop(); labels.pop();
+    }
+    return;
+  }
+  if (Array.isArray(a) && Array.isArray(b) && (a.length || b.length)) {
+    const ids = (a.length ? clIdList(a) : true) && (b.length ? clIdList(b) : true) && (a.length || b.length);
+    if (ids) {
+      const ma = new Map(a.map((e) => [String(e.id), e])), mb = new Map(b.map((e) => [String(e.id), e]));
+      a.forEach((e, idx) => { if (!mb.has(String(e.id))) { path.push({ id: e.id, at: idx }); labels.push(clName(e) || "#" + e.id); push("del", e, undefined); path.pop(); labels.pop(); } });
+      b.forEach((e, idx) => {
+        path.push({ id: e.id, at: idx }); labels.push(clName(e) || "#" + e.id);
+        if (!ma.has(String(e.id))) push("add", undefined, e); else clDiff(ma.get(String(e.id)), e, path, labels, out);
+        path.pop(); labels.pop();
+      });
+      return;
+    }
+    if (a.length === b.length && a.length <= 60 && a.every((x) => x == null || typeof x === "object") ) {
+      for (let i = 0; i < a.length; i++) { path.push({ i }); labels.push(clName(b[i]) || String(i + 1)); clDiff(a[i], b[i], path, labels, out); path.pop(); labels.pop(); }
+      return;
+    }
+  }
+  push("set", a, b);
+}
+async function clEmail(uid) {
+  if (!uid) return "";
+  if (clEmailCache.has(uid)) return clEmailCache.get(uid);
+  let e = "";
+  try { const u = await getAuth().getUser(uid); e = String(u.email || u.phoneNumber || "").toLowerCase(); } catch (er) { e = ""; }
+  clEmailCache.set(uid, e);
+  return e;
+}
+const clJ = (v) => (v === undefined ? null : JSON.stringify(v));
+async function clRecord(event, col) {
+  // only people: server writes (alerts, caches, undo itself) are not logged here
+  if (event.authType !== "user") return;
+  const docId = event.params.docId;
+  if (CL_SKIP_DOCS.has(docId)) return;
+  const before = event.data && event.data.before && event.data.before.exists ? event.data.before.data() : null;
+  const after = event.data && event.data.after && event.data.after.exists ? event.data.after.data() : null;
+  const raw = [];
+  if (!before && after) raw.push({ op: "add", path: [], label: "", from: undefined, to: after });
+  else if (before && !after) raw.push({ op: "del", path: [], label: "", from: before, to: undefined });
+  else clDiff(before || {}, after || {}, [], [], raw);
+  if (!raw.length) return;
+  let bytes = 0, partial = raw.length > CL_MAX_CHANGES;
+  const changes = raw.slice(0, CL_MAX_CHANGES).map((c) => {
+    const fromJ = clJ(c.from), toJ = clJ(c.to);
+    const sz = (fromJ ? fromJ.length : 0) + (toJ ? toJ.length : 0);
+    const keep = bytes + sz <= CL_MAX_BYTES;
+    if (keep) bytes += sz; else partial = true;
+    return { op: c.op, path: JSON.stringify(c.path), label: c.label, fromJ: keep ? fromJ : null, toJ: keep ? toJ : null, big: !keep };
+  });
+  await getFirestore().collection("changeLog").add({
+    at: Date.now(), col, doc: docId, uid: event.authId || "", email: await clEmail(event.authId), n: raw.length, partial, changes,
+  });
+}
+const CL_OPTS = { region: "us-central1", memory: "512MiB", timeoutSeconds: 60, retry: false };
+exports.clAppData = onDocumentWrittenWithAuthContext(Object.assign({ document: "appData/{docId}" }, CL_OPTS), (e) => clRecord(e, "appData"));
+exports.clTimeclock = onDocumentWrittenWithAuthContext(Object.assign({ document: "timeclock/{docId}" }, CL_OPTS), (e) => clRecord(e, "timeclock"));
+exports.clLeave = onDocumentWrittenWithAuthContext(Object.assign({ document: "leave-requests/{docId}" }, CL_OPTS), (e) => clRecord(e, "leave-requests"));
+exports.clComments = onDocumentWrittenWithAuthContext(Object.assign({ document: "comments/{docId}" }, CL_OPTS), (e) => clRecord(e, "comments"));
+exports.clHolidays = onDocumentWrittenWithAuthContext(Object.assign({ document: "holidays/{docId}" }, CL_OPTS), (e) => clRecord(e, "holidays"));
+exports.clAttendance = onDocumentWrittenWithAuthContext(Object.assign({ document: "attendance-events/{docId}" }, CL_OPTS), (e) => clRecord(e, "attendance-events"));
+
+// walk to a step; returns {parent, key} where parent[key] is the target
+// (key is a property name, or an index into a list)
+function clLocate(root, steps) {
+  let parent = null, key = null, cur = root;
+  for (const s of steps) {
+    if (cur == null || typeof cur !== "object") return null;
+    parent = cur;
+    if (typeof s === "string") key = s;
+    else if (s && s.id != null) { if (!Array.isArray(cur)) return null; key = cur.findIndex((e) => e && String(e.id) === String(s.id)); if (key < 0) key = { missing: true, at: s.at }; }
+    else if (s && s.i != null) key = s.i;
+    else return null;
+    cur = (key && key.missing) ? undefined : cur[key];
+  }
+  return { parent, key, cur };
+}
+// apply the reverse of one change to `root` (the document data); returns
+// '' on success or the reason it cannot be undone
+function clRevert(root, c, force) {
+  const steps = JSON.parse(c.path || "[]");
+  const from = c.fromJ == null ? undefined : JSON.parse(c.fromJ), to = c.toJ == null ? undefined : JSON.parse(c.toJ);
+  if (c.big) return "too-big";
+  const loc = clLocate(root, steps);
+  if (!loc || !loc.parent) return "path";
+  const last = steps[steps.length - 1];
+  const now = loc.cur;
+  if (!force && !clEq(now === undefined ? undefined : now, to)) return "changed";
+  if (last && typeof last === "object" && last.id != null) {
+    // element of an id-keyed list
+    const arr = loc.parent;
+    if (from === undefined) { if (!(loc.key && loc.key.missing)) arr.splice(loc.key, 1); }
+    else if (loc.key && loc.key.missing) arr.splice(Math.min(Number(last.at) || 0, arr.length), 0, from);
+    else arr[loc.key] = from;
+    return "";
+  }
+  if (from === undefined) { if (Array.isArray(loc.parent)) loc.parent.splice(loc.key, 1); else delete loc.parent[loc.key]; }
+  else loc.parent[loc.key] = from;
+  return "";
+}
+exports.changeUndo = onCall({ region: "us-central1", memory: "512MiB", timeoutSeconds: 60 }, async (request) => {
+  if (!request.auth || request.auth.token.role !== "admin") throw new HttpsError("permission-denied", "admin only");
+  const id = String((request.data || {}).id || ""), only = (request.data || {}).idx, force = !!(request.data || {}).force;
+  const db = getFirestore(), lref = db.collection("changeLog").doc(id);
+  const ls = await lref.get();
+  if (!ls.exists) throw new HttpsError("not-found", "entry");
+  const L = ls.data();
+  const pick = L.changes.map((c, i) => ({ c, i })).filter((x) => only == null || x.i === Number(only)).filter((x) => !(L.undone || {})[x.i]);
+  if (!pick.length) return { ok: true, done: [], failed: [] };
+  const ref = db.collection(L.col).doc(L.doc);
+  const res = await db.runTransaction(async (tx) => {
+    const s = await tx.get(ref);
+    // the whole document was created / deleted by this entry
+    if (pick.length === 1 && JSON.parse(pick[0].c.path || "[]").length === 0) {
+      const c = pick[0].c;
+      if (c.op === "add") { if (!s.exists) return { done: [], failed: [{ i: pick[0].i, why: "changed" }] }; tx.delete(ref); return { done: [pick[0].i], failed: [] }; }
+      if (c.op === "del") { if (s.exists && !force) return { done: [], failed: [{ i: pick[0].i, why: "changed" }] }; tx.set(ref, JSON.parse(c.fromJ)); return { done: [pick[0].i], failed: [] }; }
+    }
+    if (!s.exists) return { done: [], failed: pick.map((x) => ({ i: x.i, why: "gone" })) };
+    const data = s.data(), done = [], failed = [];
+    // newest first, so list positions stay valid
+    pick.slice().reverse().forEach((x) => { const why = clRevert(data, x.c, force); if (why) failed.push({ i: x.i, why }); else done.push(x.i); });
+    if (done.length) { if (L.col === "appData") data.updatedAt = FieldValue.serverTimestamp(); tx.set(ref, data); }
+    return { done, failed };
+  });
+  if (res.done.length) {
+    const undone = Object.assign({}, L.undone || {});
+    const email = String(request.auth.token.email || "").toLowerCase();
+    res.done.forEach((i) => { undone[i] = { by: email, at: Date.now() }; });
+    await lref.update({ undone });
+    await db.collection("changeLog").add({ at: Date.now(), col: L.col, doc: L.doc, uid: request.auth.uid, email, n: res.done.length, partial: false, undoOf: id,
+      changes: res.done.map((i) => ({ op: "undo", path: L.changes[i].path, label: L.changes[i].label, fromJ: L.changes[i].toJ, toJ: L.changes[i].fromJ, big: false })) });
+  }
+  return { ok: true, done: res.done, failed: res.failed };
+});
+// keep a year
+exports.changeLogPurge = onSchedule({ region: "us-central1", schedule: "every day 03:40", timeZone: "Asia/Jerusalem", memory: "256MiB" }, async () => {
+  const db = getFirestore(), cut = Date.now() - 365 * 864e5;
+  for (let k = 0; k < 20; k++) {
+    const q = await db.collection("changeLog").where("at", "<", cut).limit(400).get();
+    if (q.empty) break;
+    const b = db.batch(); q.docs.forEach((d) => b.delete(d.ref)); await b.commit();
+  }
+});

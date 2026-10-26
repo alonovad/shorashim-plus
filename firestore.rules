@@ -244,6 +244,13 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // ── changeLog: written only by the server (Cloud Function triggers on
+    // every write), read by admin; undo goes through the changeUndo function
+    match /changeLog/{entryId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
     // ── leave-requests collection (Phase 4) ──
     match /leave-requests/{requestId} {
       allow read: if isSignedIn();

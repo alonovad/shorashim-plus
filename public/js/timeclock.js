@@ -796,6 +796,9 @@ var TimeClock = (function() {
       html += '<button onclick="TimeClock.showWorkplaceAdmin();TimeClock.closeMenu()" style="' + menuBtn + 'background:#fff3e0;">' + tt('📍 מקומות עבודה', '📍 สถานที่ทำงาน', '📍 أماكن العمل') + '</button>';
       html += '<button onclick="TimeClock.showCropAdmin();TimeClock.closeMenu()" style="' + menuBtn + 'background:#e8f5e9;">' + tt('🌱 סוגי גידולים', '🌱 ประเภทพืช', '🌱 أنواع المحاصيل') + '</button>';
     }
+    if (window.currentUser && window.currentUser.role === 'admin' && window.ChangeLog) {
+      html += '<button onclick="ChangeLog.open();TimeClock.closeMenu()" style="' + menuBtn + 'background:#fff8e1;">' + tt('📜 לוג שינויים אחרונים', '📜 บันทึกการเปลี่ยนแปลงล่าสุด', '📜 سجل التغييرات الأخيرة') + '</button>';
+    }
     html += '<button onclick="DisplaySettings.showSettings();TimeClock.closeMenu()" style="' + menuBtn + 'background:#e0f7fa;">' + tt('🎨 הגדרות תצוגה', '🎨 การตั้งค่าการแสดงผล', '🎨 إعدادات العرض') + '</button>';
     html += '<button onclick="if(window.ExitGuard)ExitGuard.allowLeave();location.reload(true)" style="' + menuBtn + 'background:#e3f2fd;">' + tt('🔄 רענן אפליקציה', '🔄 รีเฟรชแอป', '🔄 تحديث التطبيق') + '</button>';
     html += '</div>';
