@@ -2460,8 +2460,11 @@ async function clEmail(uid) {
 }
 const clJ = (v) => (v === undefined ? null : JSON.stringify(v));
 async function clRecord(event, col) {
-  // only people: server writes (alerts, caches, undo itself) are not logged here
-  if (event.authType !== "user") return;
+  // only people: server writes (alerts, caches, undo itself) come as
+  // service_account / system and are not logged here. A signed-in app user
+  // has no type of its own - Firestore reports it as "unknown" with the
+  // Firebase Auth uid in authId.
+  if (event.authType === "service_account" || event.authType === "system") return;
   const docId = event.params.docId;
   if (CL_SKIP_DOCS.has(docId)) return;
   const before = event.data && event.data.before && event.data.before.exists ? event.data.before.data() : null;
