@@ -1061,6 +1061,13 @@
     'תעודה נמחקה': { th: 'ลบเอกสารแล้ว', ar: 'تم حذف الوثيقة' },
     'אין תעודות': { th: 'ไม่มีเอกสาร', ar: 'لا توجد وثائق' },
     'תעודות / חשבוניות': { th: 'เอกสาร / ใบเสร็จ', ar: 'وثائق / فواتير' },
+    'לסרוק את התעודה עכשיו ולחלץ ממנה את השורות (מלאי, מחירים)?': { th: 'สแกนเอกสารตอนนี้?', ar: 'مسح المستند الآن واستخراج السطور؟' },
+    'נסרק': { th: 'สแกนแล้ว', ar: 'تم المسح' },
+    'נסרק ונקלט': { th: 'สแกนและบันทึกแล้ว', ar: 'تم المسح والإدخال' },
+    'שורות': { th: 'รายการ', ar: 'سطور' },
+    'סרוק שוב': { th: 'สแกนอีกครั้ง', ar: 'امسح مجددًا' },
+    'סרוק וחלץ מידע מהתעודה': { th: 'สแกนและดึงข้อมูล', ar: 'امسح واستخرج البيانات' },
+    'התעודה כבר נסרקה. סריקה נוספת תוסיף את השורות שוב למלאי. להמשיך?': { th: 'สแกนแล้ว สแกนซ้ำจะเพิ่มซ้ำ ดำเนินการต่อ?', ar: 'تم مسحه. المسح مجددًا يضيف السطور مرة أخرى. متابعة؟' },
     'תעודת משלוח': { th: 'ใบส่งสินค้า', ar: 'وصل توريد' },
     'מחק': { th: 'ลบ', ar: 'حذف' },
     'ציוד ורכבים': { th: 'อุปกรณ์และยานพาหนะ', ar: 'معدات ومركبات' },
@@ -2792,7 +2799,8 @@
           supplier: String(d.supplier || '').slice(0, 80), doc_date: d.doc_date || '', doc_no: String(d.doc_no || '').slice(0, 40),
           items: Number(d.items) || 0,
           model: String(d.model || '').slice(0, 40), tokens_in: Number(d.tokens_in) || 0, tokens_out: Number(d.tokens_out) || 0,
-          usd: Number(d.usd) || 0
+          usd: Number(d.usd) || 0,
+          receipt_id: d.receipt_id || null
         });
       });
       f.intake_docs = f.intake_docs.slice(0, 60);
@@ -10689,7 +10697,7 @@
         '</div>' +
       '</div>';
 
-    var capturedImageData = null;
+    var capturedImageData = null, capturedFile = null;
 
     // Farms with document intake switched on (admin, per farm) read the
     // document — image or PDF — with the extractor instead of storing a photo.
@@ -10739,6 +10747,7 @@
         }
         return;
       }
+      capturedFile = file;   // the original, sharper than the stored thumbnail, for reading
       compressImage(file, 800, 0.7, function(dataUrl) {
         capturedImageData = dataUrl;
         document.getElementById('receiptPreviewImg').src = dataUrl;
@@ -10766,6 +10775,7 @@
         created_at: new Date().toISOString(),
         operator: currentUser ? currentUser.name : ''
       };
+      if (window.Own) Own.stamp(receipt);
 
       receipts.unshift(receipt);
       // Keep max 50 receipts to avoid localStorage overflow
@@ -10774,8 +10784,28 @@
 
       showToast('✅ ' + t('תעודה נשמרה'));
       container.innerHTML = '';
+      // Same photo, read right away: the reading is linked to this receipt
+      // (receipt.scanned / intake doc receipt_id), so it is one document, not
+      // a second copy to scan later.
+      if (window.FarmIntake && SprayStore.canUseIntake && SprayStore.canUseIntake(farmId) &&
+          confirm(t('לסרוק את התעודה עכשיו ולחלץ ממנה את השורות (מלאי, מחירים)?'))) {
+        FarmIntake.open(farmId, { files: [capturedFile || dataUrlToFile(capturedImageData, 'receipt.jpg')], receiptId: receipt.id });
+      }
     });
   }
+  function dataUrlToFile(dataUrl, name) {
+    var p = String(dataUrl || '').split(','), mime = (p[0].match(/:(.*?);/) || [])[1] || 'image/jpeg';
+    var bin = atob(p[1] || ''), u8 = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    try { return new File([u8], name, { type: mime }); } catch (e) { var b = new Blob([u8], { type: mime }); b.name = name; return b; }
+  }
+  // farm-intake.js calls this once a reading linked to a receipt is saved
+  window.markReceiptScanned = function(receiptId, info) {
+    var r = receipts.find(function(x) { return x.id === receiptId; });
+    if (!r) return;
+    r.scanned = { at: Date.now(), by: (currentUser && (currentUser.name || currentUser.username)) || '', path: (info && info.path) || '', items: (info && info.items) || 0 };
+    DB.save('shorashim-receipts', receipts);
+  };
 
   // Image compression
   function compressImage(file, maxDim, quality, callback) {
@@ -10812,8 +10842,9 @@
     }
     var html = '<div class="receipt-grid">';
     farmReceipts.forEach(function(r) {
-      html += '<div class="receipt-thumb" data-receipt-id="' + r.id + '">' +
+      html += '<div class="receipt-thumb" data-receipt-id="' + r.id + '" style="position:relative;">' +
         '<img src="' + r.image + '" alt="">' +
+        (r.scanned ? '<div style="position:absolute;top:6px;inset-inline-start:6px;background:rgba(255,255,255,.92);border-radius:8px;padding:1px 6px;font-size:.7rem;font-weight:700;color:#1d5a2c;">✅ ' + t('נסרק') + '</div>' : '') +
         '<div class="receipt-date">' + r.date + '</div>' +
       '</div>';
     });
@@ -10833,14 +10864,24 @@
           '<div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 4px;">' +
             '🌳 ' + r.farm_name + ' • ' + r.date + ' • 👤 ' + r.operator +
           '</div>' +
+          (r.scanned ? '<div style="font-size:0.8rem;color:#1d5a2c;margin-top:6px;">✅ ' + t('נסרק ונקלט') + ' · ' + new Date(r.scanned.at).toLocaleDateString('he-IL') + (r.scanned.by ? ' · ' + r.scanned.by : '') + (r.scanned.items ? ' · ' + r.scanned.items + ' ' + t('שורות') : '') + '</div>' : '') +
+          (window.FarmIntake && SprayStore.canUseIntake && SprayStore.canUseIntake(r.farm_id) ? '<button class="btn-submit" id="receiptScanBtn" style="margin:12px 0 0;">🔍 ' + (r.scanned ? t('סרוק שוב') : t('סרוק וחלץ מידע מהתעודה')) + '</button>' : '') +
           '<div class="modal-buttons" style="margin-top: 14px;">' +
-            '<button class="btn btn-primary" id="receiptDeleteBtn">🗑️ ' + t('מחק') + '</button>' +
+            ((!window.Own || Own.canEdit(r, r.operator)) ? '<button class="btn btn-primary" id="receiptDeleteBtn">🗑️ ' + t('מחק') + '</button>' : '') +
             '<button class="btn btn-secondary" onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'">' + t('סגור') + '</button>' +
           '</div>' +
         '</div>' +
       '</div>';
 
-    document.getElementById('receiptDeleteBtn').addEventListener('click', function() {
+    var scanBtn = document.getElementById('receiptScanBtn');
+    if (scanBtn) scanBtn.addEventListener('click', function() {
+      if (r.scanned && !confirm(t('התעודה כבר נסרקה. סריקה נוספת תוסיף את השורות שוב למלאי. להמשיך?'))) return;
+      container.innerHTML = '';
+      FarmIntake.open(r.farm_id, { files: [dataUrlToFile(r.image, 'receipt-' + r.id + '.jpg')], receiptId: r.id });
+    });
+    var delBtn = document.getElementById('receiptDeleteBtn');
+    if (delBtn) delBtn.addEventListener('click', function() {
+      if (window.Own && !Own.canEdit(r, r.operator)) { Own.denied(); return; }
       receipts = receipts.filter(function(x) { return x.id !== receiptId; });
       DB.save('shorashim-receipts', receipts);
       showToast('🗑️ ' + t('תעודה נמחקה'));

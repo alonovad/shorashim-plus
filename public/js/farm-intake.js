@@ -236,14 +236,18 @@ var FarmIntake = (function () {
   // ── Modal flow ──
   var S = null;   // { farmId, files, results:[{name, path, res|err}], items:[...] }
 
-  function open(farmId) {
+  // opts.files: start reading these right away (a photo just saved in the
+  // documents gallery); opts.receiptId links the reading to that receipt so
+  // the gallery marks it scanned instead of it becoming a second document.
+  function open(farmId, opts) {
     if (!store().canUseIntake || !store().canUseIntake(farmId)) {
       toast('⛔ ' + tt('מצב הקליטה לא אושר למשק זה', 'ยังไม่อนุมัติ', 'غير معتمد'));
       return;
     }
-    S = { farmId: farmId, files: [], results: [], items: [], busy: false, hint: '' };
+    opts = opts || {};
+    S = { farmId: farmId, files: (opts.files || []).filter(Boolean).slice(0, 8), results: [], items: [], busy: false, hint: '', receiptId: opts.receiptId || null };
     if (window.PriceBook) PriceBook.ensureLoaded().catch(function () {});
-    drawPick();
+    if (S.files.length) readAll(); else drawPick();
   }
   function modal(inner) {
     var c = document.getElementById('modalContainer');
@@ -441,11 +445,12 @@ var FarmIntake = (function () {
       return { path: r.path, name: r.name, type: r.res.doc_type, supplier: r.res.supplier, doc_date: r.res.doc_date,
         doc_no: r.res.doc_no, items: chosen.filter(function (it) { return it.doc === di; }).length,
         model: r.res.model || '', tokens_in: (r.res.usage && r.res.usage.input) || 0, tokens_out: (r.res.usage && r.res.usage.output) || 0,
-        usd: Math.round(readCost(r.res) * 100000) / 100000 };
+        usd: Math.round(readCost(r.res) * 100000) / 100000, receipt_id: S.receiptId || null };
     });
     if (window.Own) docs.forEach(function (d) { Own.stamp(d); });
     var res = store().applyFarmIntake(S.farmId, { items: toStock, docs: docs });
     if (!res || !res.ok) { toast('⛔ ' + tt('אין הרשאה', 'ไม่มีสิทธิ์', 'لا صلاحية')); return; }
+    if (S.receiptId && window.markReceiptScanned) window.markReceiptScanned(S.receiptId, { path: (docs[0] && docs[0].path) || '', items: chosen.length });
     var c = res.counts;
     var dear = toPrice.filter(function (it) { return priceBadge(it).flag; }).length;
     var recs = toPrice.map(function (it) {
