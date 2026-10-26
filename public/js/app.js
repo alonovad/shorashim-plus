@@ -1061,7 +1061,8 @@
     'תעודה נמחקה': { th: 'ลบเอกสารแล้ว', ar: 'تم حذف الوثيقة' },
     'אין תעודות': { th: 'ไม่มีเอกสาร', ar: 'لا توجد وثائق' },
     'תעודות / חשבוניות': { th: 'เอกสาร / ใบเสร็จ', ar: 'وثائق / فواتير' },
-    'לסרוק את התעודה עכשיו ולחלץ ממנה את השורות (מלאי, מחירים)?': { th: 'สแกนเอกสารตอนนี้?', ar: 'مسح المستند الآن واستخراج السطور؟' },
+    'סרוק וחלץ מידע אוטומטית בשמירה': { th: 'สแกนและดึงข้อมูลอัตโนมัติเมื่อบันทึก', ar: 'امسح واستخرج البيانات تلقائيًا عند الحفظ' },
+    'ספק, שורות, כמויות ומחירים — כל שורה תוצג לאישורך לפני שתתווסף למלאי. אפשר גם PDF.': { th: 'ผู้ขาย รายการ จำนวน ราคา — ตรวจทุกรายการก่อนเพิ่ม รองรับ PDF', ar: 'المورد والسطور والكميات والأسعار — تراجع كل سطر قبل الإضافة. يدعم PDF.' },
     'נסרק': { th: 'สแกนแล้ว', ar: 'تم المسح' },
     'נסרק ונקלט': { th: 'สแกนและบันทึกแล้ว', ar: 'تم المسح والإدخال' },
     'שורות': { th: 'รายการ', ar: 'سطور' },
@@ -10681,9 +10682,11 @@
             '<label class="form-label">' + t('תיאור') + '</label>' +
             '<input type="text" class="form-input" id="receiptDesc" placeholder="">' +
           '</div>' +
-          '<div id="receiptAutoRead" style="display:none;margin-bottom:12px;padding:10px 12px;border-radius:14px;background:var(--primary-soft,#eef7d4);font-size:.82rem;">' +
-            '🤖 ' + t('קריאה אוטומטית של תעודה / חשבונית — תמונה או PDF: ספק, שורות, מחירים, מע"מ, ועדכון מלאי ומאגר המחירים') +
-            '<button class="btn-submit" id="receiptAutoBtn" style="margin:8px 0 0;">🤖 ' + t('קרא את המסמך אוטומטית') + '</button></div>' +
+          // farms with document intake: reading is part of saving - one
+          // tick, asked fresh every time (unticked, not remembered)
+          '<label id="receiptAutoRead" style="display:none;margin-bottom:12px;padding:10px 12px;border-radius:14px;background:var(--primary-soft,#eef7d4);font-size:.85rem;cursor:pointer;align-items:flex-start;gap:8px;">' +
+            '<input type="checkbox" id="receiptAutoScan" style="width:18px;height:18px;margin-top:2px;flex:none;">' +
+            '<span><b>🤖 ' + t('סרוק וחלץ מידע אוטומטית בשמירה') + '</b><br><span style="font-size:.75rem;color:var(--text-muted);">' + t('ספק, שורות, כמויות ומחירים — כל שורה תוצג לאישורך לפני שתתווסף למלאי. אפשר גם PDF.') + '</span></span></label>' +
           '<div id="receiptPreviewArea" style="display: none; margin-bottom: 14px;">' +
             '<img id="receiptPreviewImg" style="width: 100%; border-radius: 10px; box-shadow: var(--shadow);">' +
           '</div>' +
@@ -10706,17 +10709,15 @@
     var farmSel = document.getElementById('receiptFarmSelect');
     var syncAuto = function() {
       var fid = parseInt(farmSel.value);
-      autoBox.style.display = (fid && window.FarmIntake && SprayStore.canUseIntake && SprayStore.canUseIntake(fid)) ? 'block' : 'none';
+      autoBox.style.display = (fid && window.FarmIntake && SprayStore.canUseIntake && SprayStore.canUseIntake(fid)) ? 'flex' : 'none';
     };
     farmSel.addEventListener('change', syncAuto);
     if (userFarms.length === 1) { farmSel.value = String(userFarms[0].id); }
     syncAuto();
-    document.getElementById('receiptAutoBtn').addEventListener('click', function() {
-      var fid = parseInt(farmSel.value);
-      if (!fid) return;
-      document.getElementById('modalContainer').innerHTML = '';
-      FarmIntake.open(fid);
-    });
+    var autoScanOn = function(fid) {
+      var cb = document.getElementById('receiptAutoScan');
+      return !!(fid && cb && cb.checked && window.FarmIntake && SprayStore.canUseIntake && SprayStore.canUseIntake(fid));
+    };
 
     // Camera button
     document.getElementById('receiptCameraBtn').addEventListener('click', function() {
@@ -10740,9 +10741,12 @@
         e.target.value = '';
         var fidP = parseInt(farmSel.value);
         if (fidP && window.FarmIntake && SprayStore.canUseIntake && SprayStore.canUseIntake(fidP)) {
+          // a PDF is not kept as a gallery photo - it goes straight to reading
+          // (the original is stored with the reading, in the farm's documents)
           document.getElementById('modalContainer').innerHTML = '';
-          FarmIntake.open(fidP);
-          showToast('📄 ' + t('קובץ PDF נקרא דרך קליטת המסמכים — בחר אותו שוב כאן'));
+          FarmIntake.open(fidP, { files: [file] });
+        } else if (!fidP) {
+          showToast('❌ ' + t('יש לבחור משק'));
         } else {
           showToast('ℹ️ ' + t('קריאת PDF זמינה במשק שהופעלה בו קליטת מסמכים (באישור מנהל מערכת)'));
         }
@@ -10788,8 +10792,7 @@
       // Same photo, read right away: the reading is linked to this receipt
       // (receipt.scanned / intake doc receipt_id), so it is one document, not
       // a second copy to scan later.
-      if (window.FarmIntake && SprayStore.canUseIntake && SprayStore.canUseIntake(farmId) &&
-          confirm(t('לסרוק את התעודה עכשיו ולחלץ ממנה את השורות (מלאי, מחירים)?'))) {
+      if (autoScanOn(farmId)) {
         FarmIntake.open(farmId, { files: [capturedFile || dataUrlToFile(capturedImageData, 'receipt.jpg')], receiptId: receipt.id });
       }
     });
