@@ -2643,12 +2643,16 @@ function ogAllowed(c, before, after, docId, w) {
   // who made an existing item is not for anyone else to write or claim
   // (an item added whole carries its stamp inside the "add")
   if (lastKey && OG_STAMP.has(lastKey)) return false;
-  // an operator's own farms: plot details and farm settings (not removal)
-  if (top && w.role === "operator") {
+  // plots and farms belong to admin whether or not they carry a stamp:
+  // the only one besides admin who may change them is an operator, and only
+  // inside the farms he is assigned to (adding / removing them the rules
+  // refuse anyway)
+  if (top) {
+    if (w.role !== "operator") return false;
     const fid = top.kind === "plots" ? (top.b && top.b.farm_id) : (top.b && top.b.id);
     const fidAfter = top.kind === "plots" ? (top.a && top.a.farm_id) : (top.a && top.a.id);
     const inMine = (x) => x != null && w.farms.has(String(x));
-    if (top.b && top.a && inMine(fid) && inMine(fidAfter) && !(lastKey && OG_STAMP.has(lastKey))) return true;
+    return !!(top.b && top.a && inMine(fid) && inMine(fidAfter) && !(lastKey && OG_STAMP.has(lastKey)));
   }
   if (!gov) return true;                     // older unstamped data: as before
   if (gov.isNew) return mine(gov.stamp);     // new items must carry their maker's name
