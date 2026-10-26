@@ -203,9 +203,12 @@ var ChangeLog = (function () {
     var list = filtered();
     var gev = (st.guard || []).slice(0, 5);
     box.innerHTML =
-      (gev.length ? '<div class="cl-e" style="border-color:#f0c36d;background:#fffaf0;"><div class="cl-h"><b>⚠️ ' + tt('הגנת עומס — משתמשים שהועברו אוטומטית לצופה', 'ป้องกันโหลด — ผู้ใช้ที่ถูกลดสิทธิ์', 'حماية الحمل — مستخدمون نُقلوا للعرض') + '</b></div>' +
+      (gev.length ? '<div class="cl-e" style="border-color:#f0c36d;background:#fffaf0;"><div class="cl-h"><b>⚠️ ' + tt('הגנות השרת — אירועים אחרונים', 'การป้องกันเซิร์ฟเวอร์ — เหตุการณ์ล่าสุด', 'حمايات الخادم — أحداث أخيرة') + '</b></div>' +
         gev.map(function (g) {
-          return '<div class="cl-c">' + when(g.at) + ' · <b>' + esc(who({ email: g.email })) + '</b> · ' + esc(guardKind(g.kind)) + ' · ' +
+          if (g.kind === 'reverted') return '<div class="cl-c">' + when(g.at) + ' · <b>' + esc(who({ email: g.email })) + '</b> · ↩️ ' +
+            tt('שינוי לא מורשה הוחזר אוטומטית', 'การเปลี่ยนแปลงที่ไม่ได้รับอนุญาตถูกย้อนกลับ', 'أُعيد تغيير غير مصرح به') + ' (' + g.n + ') · ' + esc(areaOf('appData', g.doc || '')) +
+            (g.labels && g.labels.length ? ' · <span class="cl-v">' + esc(g.labels.map(function (l) { return lbl({ label: l }); }).join(' | ')) + '</span>' : '') + '</div>';
+          return '<div class="cl-c">' + when(g.at) + ' · <b>' + esc(who({ email: g.email })) + '</b> · ' + tt('הועבר לצופה', 'ถูกลดเป็นผู้ชม', 'نُقل للعرض') + ' · ' + esc(guardKind(g.kind)) + ' · ' +
             tt('10 דק׳', '10 นาที', '10 د') + ' ' + g.counts.m10 + ' / ' + tt('שעה', 'ชม.', 'ساعة') + ' ' + g.counts.h1 + ' / ' + tt('יום', 'วัน', 'يوم') + ' ' + g.counts.d1 +
             ' · ' + tt('היה', 'เดิม', 'كان') + ': ' + esc(g.prev_role) + '</div>';
         }).join('') +
@@ -224,7 +227,8 @@ var ChangeLog = (function () {
         : !st.done ? '<button class="cl-more cl-load" id="clMore">' + tt('טען שינויים ישנים יותר', 'โหลดเพิ่ม', 'تحميل الأقدم') + '</button>' : '');
   }
   function guardKind(k) {
-    return k === 'ai' ? tt('קריאות AI', 'การอ่าน AI', 'قراءات AI') : k === 'write' ? tt('שמירות', 'การบันทึก', 'حفظ') : tt('קריאות לשרת', 'การเรียกเซิร์ฟเวอร์', 'استدعاءات الخادم');
+    return k === 'ai' ? tt('קריאות AI', 'การอ่าน AI', 'قراءات AI') : k === 'write' ? tt('שמירות', 'การบันทึก', 'حفظ')
+      : k === 'deny' ? tt('ניסיונות שינוי לא מורשים', 'การเปลี่ยนแปลงที่ไม่ได้รับอนุญาต', 'محاولات غير مصرح بها') : tt('קריאות לשרת', 'การเรียกเซิร์ฟเวอร์', 'استدعاءات الخادم');
   }
   // admin is told as soon as the server limits someone
   var guardStarted = false;
@@ -238,7 +242,9 @@ var ChangeLog = (function () {
       var fresh = ev.filter(function (g) { return g.at > seen; });
       if (fresh.length) {
         loadUsers().then(function () {
-          toast('⚠️ ' + tt('הגנת עומס: ', 'ป้องกันโหลด: ', 'حماية الحمل: ') + fresh.map(function (g) { return who({ email: g.email }); }).join(', ') + ' ' + tt('הועבר/ו לצפייה בלבד. פרטים בלוג השינויים.', 'ถูกลดเป็นดูอย่างเดียว', 'نُقل/وا للعرض فقط'));
+          var dem = fresh.filter(function (g) { return g.kind !== 'reverted'; }), rev = fresh.filter(function (g) { return g.kind === 'reverted'; });
+          if (dem.length) toast('⚠️ ' + tt('הגנת עומס: ', 'ป้องกันโหลด: ', 'حماية الحمل: ') + dem.map(function (g) { return who({ email: g.email }); }).join(', ') + ' ' + tt('הועבר/ו לצפייה בלבד. פרטים בלוג השינויים.', 'ถูกลดเป็นดูอย่างเดียว', 'نُقل/وا للعرض فقط'));
+          else if (rev.length) toast('↩️ ' + tt('שינוי לא מורשה הוחזר: ', 'ย้อนกลับการเปลี่ยนแปลง: ', 'أُعيد تغيير: ') + rev.map(function (g) { return who({ email: g.email }); }).join(', ') + ' · ' + tt('פרטים בלוג השינויים', 'ดูบันทึก', 'التفاصيل في السجل'));
         });
         try { localStorage.setItem('shorashim-load-guard-seen', String(fresh[0].at)); } catch (e) {}
       }

@@ -4,6 +4,7 @@ const { getAuth } = require("firebase-admin/auth");
 const { getFirestore, FieldValue } = require("firebase-admin/firestore");
 const { getStorage } = require("firebase-admin/storage");
 const { defineSecret } = require("firebase-functions/params");
+const { onSchedule } = require("firebase-functions/v2/scheduler");
 
 initializeApp();
 
@@ -23,6 +24,9 @@ const LG_LIMITS = {
   call: [40, 150, 800],
   ai: [8, 20, 60],
   write: [120, 400, 2500],
+  // changes the ownership guard had to put back (see ogCheck): a person's
+  // app never makes these, so a few in a row means something bypassed it
+  deny: [5, 15, 40],
 };
 function lgBuckets(now) {
   const d = new Date(now + 2 * 3600 * 1000).toISOString();   // Israel-ish clock for ids only
@@ -1981,20 +1985,14 @@ exports.planPdf = onCall(
 //   storage rules) and handed back as a one-off download link. The three
 //   newest backups are kept, older ones deleted.
 // ═══════════════════════════════════════════
-exports.backupAll = onCall(
-  { region: "us-central1", memory: "1GiB", timeoutSeconds: 540, maxInstances: 1, concurrency: 1 },
-  async (request) => {
-    if (!request.auth) throw new HttpsError("unauthenticated", "Sign in required");
-    const tok = request.auth.token || {};
-    if ((tok.firebase || {}).sign_in_provider === "phone") throw new HttpsError("permission-denied", "Not for recovery sessions");
-    if (tok.role !== "admin") throw new HttpsError("permission-denied", "Admin only");
-
+// one backup run, shared by the admin button and the nightly schedule
+async function runBackup(opt) {
     const archiver = require("archiver");
     const crypto = require("crypto");
     const fs = getFirestore();
     const bucket = getStorage().bucket("shorashim-plus.firebasestorage.app");
     const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-    const path = "backups/shorashim-backup-" + stamp + ".zip";
+    const path = (opt.nightly ? "backups/nightly/shorashim-nightly-" : "backups/shorashim-backup-") + stamp + ".zip";
     const token = crypto.randomUUID();
     const out = bucket.file(path).createWriteStream({
       resumable: false, contentType: "application/zip",
@@ -2024,7 +2022,9 @@ exports.backupAll = onCall(
         for (const s of subs) await dumpCollection(s);
       }
     }
-    for (const c of await fs.listCollections()) await dumpCollection(c);
+    // nightly: caches and counters that rebuild themselves are left out
+    const skip = new Set(opt.nightly ? ["usage", "imsDaily", "imsDay", "mopWeek"] : []);
+    for (const c of await fs.listCollections()) if (!skip.has(c.id)) await dumpCollection(c);
 
     // sign-in accounts (no passwords - Google sign-in)
     const users = [];
@@ -2049,22 +2049,49 @@ exports.backupAll = onCall(
       zip.append(f.createReadStream(), { name: "storage/" + f.name });
     }
 
-    zip.append(JSON.stringify({ app: "shorashim-plus", created: new Date().toISOString(), by: tok.email || request.auth.uid, counts,
+    zip.append(JSON.stringify({ app: "shorashim-plus", created: new Date().toISOString(), by: opt.by, counts,
       note: "Code is in GitHub (alonovad/shorashim-plus). Firestore: firestore/<collection path>.json; Storage: storage/<path>." }, null, 1), { name: "manifest.json" });
     await zip.finalize();
     await done;
 
-    // keep the three newest backups
+    // retention: manual - the three newest; nightly - 30 nights
     try {
-      const [old] = await bucket.getFiles({ prefix: "backups/" });
-      old.sort((a, b) => String(b.name).localeCompare(String(a.name))).slice(3).forEach((f) => f.delete().catch(() => {}));
+      const [old] = await bucket.getFiles({ prefix: opt.nightly ? "backups/nightly/" : "backups/" });
+      old.filter((f) => opt.nightly || !f.name.startsWith("backups/nightly/"))
+        .sort((a, b) => String(b.name).localeCompare(String(a.name))).slice(opt.nightly ? 30 : 3).forEach((f) => f.delete().catch(() => {}));
     } catch (e) { /* retention is best-effort */ }
 
     const [meta] = await bucket.file(path).getMetadata();
     const url = "https://firebasestorage.googleapis.com/v0/b/" + bucket.name + "/o/" + encodeURIComponent(path) + "?alt=media&token=" + token;
     return { url, name: path.split("/").pop(), bytes: Number(meta.size) || 0, counts };
+}
+exports.backupAll = onCall(
+  { region: "us-central1", memory: "1GiB", timeoutSeconds: 540, maxInstances: 1, concurrency: 1 },
+  async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Sign in required");
+    const tok = request.auth.token || {};
+    if ((tok.firebase || {}).sign_in_provider === "phone") throw new HttpsError("permission-denied", "Not for recovery sessions");
+    if (tok.role !== "admin") throw new HttpsError("permission-denied", "Admin only");
+    return runBackup({ nightly: false, by: tok.email || request.auth.uid });
   }
 );
+// every night at 02:30: a full backup kept 30 nights (backups/nightly/), so
+// there is always a recent copy to go back to, without anyone remembering
+exports.backupNightly = onSchedule(
+  { region: "us-central1", schedule: "every day 02:30", timeZone: "Asia/Jerusalem", memory: "1GiB", timeoutSeconds: 540, retryCount: 1 },
+  async () => { const r = await runBackup({ nightly: true, by: "nightly" }); console.log("nightly backup", r.name, r.bytes, JSON.stringify(r.counts)); }
+);
+// admin: the nightly backups with download links
+exports.backupList = onCall({ region: "us-central1" }, async (request) => {
+  if (!request.auth || (request.auth.token || {}).role !== "admin") throw new HttpsError("permission-denied", "Admin only");
+  const bucket = getStorage().bucket("shorashim-plus.firebasestorage.app");
+  const [files] = await bucket.getFiles({ prefix: "backups/" });
+  return { files: files.filter((f) => f.name.endsWith(".zip")).sort((a, b) => String(b.name).localeCompare(String(a.name))).slice(0, 40).map((f) => {
+    const tk = String(((f.metadata || {}).metadata || {}).firebaseStorageDownloadTokens || "").split(",")[0];
+    return { name: f.name.split("/").pop(), nightly: f.name.startsWith("backups/nightly/"), bytes: Number(f.metadata.size) || 0, at: f.metadata.timeCreated,
+      url: tk ? "https://firebasestorage.googleapis.com/v0/b/" + bucket.name + "/o/" + encodeURIComponent(f.name) + "?alt=media&token=" + tk : "" };
+  }) };
+});
 
 // ═══════════════════════════════════════════
 // IMS DATA — history and point-in-time readings from the nearest IMS
@@ -2441,7 +2468,7 @@ exports.imsData = onCall(
 // the home screen and the weather tab show; an alert keeps the time it
 // started while it lasts.
 // ═══════════════════════════════════════════
-const { onSchedule } = require("firebase-functions/v2/scheduler");
+// (onSchedule is required at the top of the file)
 exports.wxAlerts = onSchedule(
   { region: "us-central1", schedule: "every 60 minutes", timeZone: "Asia/Jerusalem", secrets: [IMS_TOKEN], memory: "256MiB", timeoutSeconds: 120 },
   async () => {
@@ -2570,6 +2597,100 @@ async function clEmail(uid) {
   return e;
 }
 const clJ = (v) => (v === undefined ? null : JSON.stringify(v));
+// ═══════════════════════════════════════════
+// OWNERSHIP GUARD — Alon's rule enforced on the server: admin changes
+// anything; anyone else changes or deletes only items they created. Every
+// item made since Oct 2026 carries createdBy; for each field-level change
+// a non-admin makes in appData, the nearest stamped item on its path
+// decides. Changes that break the rule are put back at once (and logged);
+// five such in 10 minutes and the person is switched to viewer.
+// Allowed on someone else's item: marking it done (status / completedAt /
+// done…), lending a vehicle (loan). An operator also edits the plots and
+// farm settings of the farms he is assigned to (never deletes them - the
+// rules already refuse removing plots or farms).
+// Unstamped (older) items are left as they are - the app treats them as
+// admin's, and the change log shows any change to them.
+// ═══════════════════════════════════════════
+const OG_OTHER_OK = new Set(["status", "completedAt", "completed_at", "done", "done_at", "doneAt", "done_by", "doneBy", "completedBy", "completed_by", "loan"]);
+const OG_STAMP = new Set(["createdBy", "created_by", "createdByName", "createdAt"]);
+const ogProfileCache = { t: 0, users: null };
+async function ogProfile(email) {
+  if (!ogProfileCache.users || Date.now() - ogProfileCache.t > 5 * 60 * 1000) {
+    ogProfileCache.users = await loadProfiles(getFirestore()); ogProfileCache.t = Date.now();
+  }
+  return findProfileByEmail(ogProfileCache.users, email) || {};
+}
+const ogCreator = (o) => (o && typeof o === "object" && !Array.isArray(o) ? String(o.createdBy || o.created_by || "").toLowerCase().trim() : "");
+// is change c (from clDiff) allowed for writer w = { email, username, role, farms:Set }?
+function ogAllowed(c, before, after, docId, w) {
+  const steps = c.path, mine = (x) => !!x && (x === w.email || (w.username && x === w.username));
+  let nb = before, na = after, gov = null, lastKey = null, top = null;
+  for (let d = 0; d < steps.length; d++) {
+    const st = steps[d];
+    const pick = (node) => {
+      if (node == null || typeof node !== "object") return undefined;
+      if (typeof st === "string") return node[st];
+      if (st && st.id != null) return Array.isArray(node) ? node.find((e) => e && String(e.id) === String(st.id)) : undefined;
+      if (st && st.i != null) return Array.isArray(node) ? node[st.i] : undefined;
+      return undefined;
+    };
+    nb = pick(nb); na = pick(na);
+    lastKey = typeof st === "string" ? st : null;
+    if (d === 2 && docId === "plotMapperSprayData" && (steps[1] === "plots" || steps[1] === "farms")) top = { kind: steps[1], b: nb, a: na, depth: d };
+    const sb = ogCreator(nb), sa = ogCreator(na);
+    if (sb || sa) gov = { stamp: sb || sa, isNew: nb === undefined, depth: d };
+  }
+  // who made an existing item is not for anyone else to write or claim
+  // (an item added whole carries its stamp inside the "add")
+  if (lastKey && OG_STAMP.has(lastKey)) return false;
+  // an operator's own farms: plot details and farm settings (not removal)
+  if (top && w.role === "operator") {
+    const fid = top.kind === "plots" ? (top.b && top.b.farm_id) : (top.b && top.b.id);
+    const fidAfter = top.kind === "plots" ? (top.a && top.a.farm_id) : (top.a && top.a.id);
+    const inMine = (x) => x != null && w.farms.has(String(x));
+    if (top.b && top.a && inMine(fid) && inMine(fidAfter) && !(lastKey && OG_STAMP.has(lastKey))) return true;
+  }
+  if (!gov) return true;                     // older unstamped data: as before
+  if (gov.isNew) return mine(gov.stamp);     // new items must carry their maker's name
+  if (mine(gov.stamp)) return true;
+  // someone else's item: only "mark done"-type fields directly on it
+  return !!lastKey && OG_OTHER_OK.has(lastKey) && gov.depth === steps.length - 2;
+}
+async function ogCheck(docId, before, after, raw, uid, email) {
+  const info = await lgUser(uid);
+  if (!info || info.role === "admin" || !before || !after) return;
+  const prof = await ogProfile(email);
+  const w = { email, username: String(prof.username || email.split("@")[0] || "").toLowerCase(), role: info.role,
+    farms: new Set((prof.farm_permissions || []).map(String)) };
+  const bad = raw.filter((c) => c.path.length && !ogAllowed(c, before, after, docId, w));
+  if (!bad.length) return;
+  const db = getFirestore(), ref = db.collection("appData").doc(docId);
+  const put = await db.runTransaction(async (tx) => {
+    const s = await tx.get(ref);
+    if (!s.exists) return [];
+    const data = s.data(), done = [];
+    bad.slice().reverse().forEach((c) => {
+      const why = clRevert(data, { op: c.op, path: JSON.stringify(c.path), fromJ: clJ(c.from), toJ: clJ(c.to) }, false);
+      if (!why) done.push(c);
+    });
+    if (done.length) { data.updatedAt = FieldValue.serverTimestamp(); tx.set(ref, data); }
+    return done;
+  });
+  if (!put.length) return;
+  await db.collection("changeLog").add({ at: Date.now(), col: "appData", doc: docId, uid, email, n: put.length, partial: false, guard: "reverted",
+    changes: put.slice(0, CL_MAX_CHANGES).map((c) => ({ op: "undo", path: JSON.stringify(c.path), label: c.label, fromJ: clJ(c.to), toJ: clJ(c.from), big: false })) });
+  try {
+    const aref = db.collection("appData").doc("shorashim-load-guard");
+    await db.runTransaction(async (tx) => {
+      const s = await tx.get(aref); const v = (s.exists && s.data().value) || {}; const list = Array.isArray(v.events) ? v.events : [];
+      list.unshift({ at: Date.now(), uid, email, kind: "reverted", doc: docId, n: put.length, labels: put.slice(0, 5).map((c) => c.label), counts: { m10: 0, h1: 0, d1: 0 }, prev_role: info.role });
+      tx.set(aref, { value: { events: list.slice(0, 50) }, updatedAt: FieldValue.serverTimestamp() });
+    });
+  } catch (e) { console.error("og alert", e.message); }
+  console.warn("OWNERSHIP GUARD reverted", email, docId, put.length, put.slice(0, 5).map((c) => c.label).join(" | "));
+  await lgCount(uid, "deny", info);
+}
+
 async function clRecord(event, col) {
   // only people: server writes (alerts, caches, undo itself) come as
   // service_account / system and are not logged here. A signed-in app user
@@ -2594,9 +2715,13 @@ async function clRecord(event, col) {
     if (keep) bytes += sz; else partial = true;
     return { op: c.op, path: JSON.stringify(c.path), label: c.label, fromJ: keep ? fromJ : null, toJ: keep ? toJ : null, big: !keep };
   });
+  const email = await clEmail(event.authId);
   await getFirestore().collection("changeLog").add({
-    at: Date.now(), col, doc: docId, uid: event.authId || "", email: await clEmail(event.authId), n: raw.length, partial, changes,
+    at: Date.now(), col, doc: docId, uid: event.authId || "", email, n: raw.length, partial, changes,
   });
+  if (col === "appData" && event.authId && docId !== "shorashim-users") {
+    try { await ogCheck(docId, before, after, raw, event.authId, email); } catch (e) { console.error("ownership guard", e.message); }
+  }
 }
 // the database lives in europe-west1; triggers run next to it
 const CL_OPTS = { region: "europe-west1", memory: "512MiB", timeoutSeconds: 60, retry: false };
@@ -2688,4 +2813,73 @@ exports.changeLogPurge = onSchedule({ region: "us-central1", schedule: "every da
     if (q.empty) break;
     const b = db.batch(); q.docs.forEach((d) => b.delete(d.ref)); await b.commit();
   }
+});
+
+// ═══════════════════════════════════════════
+// USERS PATCH — the users document (appData/shorashim-users) is written
+// directly by admin only (firestore.rules). Everyone else's app sends its
+// whole proposed copy here; the server keeps only the changes that person
+// may make and writes them itself:
+//   own record:   name, email (if no one else has it), lang, phone,
+//                 primary_plot_id, primary_by_farm, leaveBalance
+//   operator+:    leaveBalance and schedule of any existing user
+// Never: adding or removing users, roles, farm access, or anything else.
+// Each applied write is put in the change log under the person's name.
+// ═══════════════════════════════════════════
+const UP_SELF = new Set(["name", "email", "lang", "phone", "primary_plot_id", "primary_by_farm", "leaveBalance"]);
+const UP_MANAGER = new Set(["leaveBalance", "schedule"]);
+exports.usersPatch = onCall({ region: "us-central1", memory: "512MiB", timeoutSeconds: 60 }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Sign in required");
+  const tok = request.auth.token || {};
+  if ((tok.firebase || {}).sign_in_provider === "phone") throw new HttpsError("permission-denied", "Not for recovery sessions");
+  const proposed = (request.data || {}).value;
+  if (!proposed || typeof proposed !== "object" || Array.isArray(proposed)) throw new HttpsError("invalid-argument", "value");
+  const role = tok.role || "", me = String(tok.email || "").toLowerCase();
+  const manager = role === "admin" || role === "operator";
+  const db = getFirestore(), ref = db.collection("appData").doc("shorashim-users");
+  const out = await db.runTransaction(async (tx) => {
+    const s = await tx.get(ref);
+    const cur = (s.exists && s.data().value) || {};
+    const next = JSON.parse(JSON.stringify(cur));
+    const applied = [], rejected = [];
+    if (role === "admin") {
+      Object.keys(next).forEach((k) => delete next[k]);
+      Object.assign(next, JSON.parse(JSON.stringify(proposed)));
+    } else {
+      const keys = new Set([...Object.keys(cur), ...Object.keys(proposed)]);
+      for (const k of keys) {
+        const a = cur[k], b = proposed[k];
+        if (!a && b) { rejected.push(k + ":add"); continue; }
+        if (a && !b) { rejected.push(k + ":remove"); continue; }
+        if (!a || !b || typeof b !== "object") continue;
+        const self = me && String(a.email || "").toLowerCase() === me;
+        const fields = new Set([...Object.keys(a), ...Object.keys(b)]);
+        for (const f of fields) {
+          if (clEq(a[f], b[f])) continue;
+          const ok = (self && UP_SELF.has(f)) || (manager && UP_MANAGER.has(f));
+          if (!ok) { rejected.push(k + "." + f); continue; }
+          if (f === "email") {
+            const want = String(b.email || "").toLowerCase().trim();
+            if (want && Object.keys(cur).some((o) => o !== k && String((cur[o] || {}).email || "").toLowerCase() === want)) { rejected.push(k + ".email:taken"); continue; }
+            if (want && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(want)) { rejected.push(k + ".email:invalid"); continue; }
+            next[k].email = want || null; applied.push(k + "." + f); continue;
+          }
+          if (b[f] === undefined) delete next[k][f]; else next[k][f] = JSON.parse(JSON.stringify(b[f]));
+          applied.push(k + "." + f);
+        }
+      }
+    }
+    const changed = !clEq(cur, next);
+    if (changed) tx.set(ref, { value: next, updatedAt: FieldValue.serverTimestamp() });
+    return { cur, next, changed, applied, rejected };
+  });
+  if (out.changed) {
+    // the change log trigger skips server writes - record it here, as this person's
+    const raw = []; clDiff({ value: out.cur }, { value: out.next }, [], [], raw);
+    const changes = raw.slice(0, CL_MAX_CHANGES).map((c) => ({ op: c.op, path: JSON.stringify(c.path), label: c.label, fromJ: clJ(c.from), toJ: clJ(c.to), big: false }));
+    await db.collection("changeLog").add({ at: Date.now(), col: "appData", doc: "shorashim-users", uid: request.auth.uid, email: me, n: raw.length, partial: raw.length > CL_MAX_CHANGES, via: "usersPatch", changes });
+    if (role !== "admin") await lgCount(request.auth.uid, "write", await lgUser(request.auth.uid));
+  }
+  if (out.rejected.length) console.warn("usersPatch rejected", me, out.rejected.slice(0, 20).join(", "));
+  return { ok: true, applied: out.applied.length, rejected: out.rejected };
 });

@@ -1346,7 +1346,9 @@ var TimeClock = (function() {
           '<h4 style="font-weight:700;font-size:0.9rem;margin-bottom:8px;">💾 ' + tt('גיבוי ושחזור', 'สำรองและกู้คืน', 'نسخ احتياطي واستعادة') + '</h4>' +
           '<div style="display:grid;gap:8px;">' +
             (window.currentUser && window.currentUser.role === 'admin' ? '<button id="tcFullBk" onclick="TimeClock._backupFull()" style="padding:12px;border-radius:10px;border:none;background:#1b5e20;color:white;font-family:inherit;font-size:0.9rem;font-weight:700;cursor:pointer;text-align:right;">' +
-              tt('🗄️ גיבוי מלא של כל המערכת - נתונים, קבצים ומשתמשים (ZIP)', '🗄️ สำรองทั้งระบบ (ZIP)', '🗄️ نسخة كاملة للنظام (ZIP)') + '</button>' : '') +
+              tt('🗄️ גיבוי מלא של כל המערכת - נתונים, קבצים ומשתמשים (ZIP)', '🗄️ สำรองทั้งระบบ (ZIP)', '🗄️ نسخة كاملة للنظام (ZIP)') + '</button>' +
+              '<button id="tcNightBk" onclick="TimeClock._backupNightlyList()" style="padding:12px;border-radius:10px;border:1px solid #1b5e20;background:#fff;color:#1b5e20;font-family:inherit;font-size:0.9rem;font-weight:700;cursor:pointer;text-align:right;">' +
+              tt('🌙 גיבויים אוטומטיים (כל לילה, 30 אחרונים)', '🌙 สำรองอัตโนมัติ (ทุกคืน)', '🌙 نسخ تلقائية (كل ليلة)') + '</button><div id="tcNightList"></div>' : '') +
             '<button onclick="TimeClock._backupAll()" style="padding:12px;border-radius:10px;border:none;background:#1565c0;color:white;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;">' + tt('⬇️ הורד גיבוי מלא (JSON)', '⬇️ ดาวน์โหลดสำรองทั้งหมด (JSON)', '⬇️ تنزيل نسخة كاملة (JSON)') + '</button>' +
             '<label style="padding:12px;border-radius:10px;border:2px dashed #999;font-family:inherit;font-size:0.9rem;font-weight:600;cursor:pointer;text-align:right;display:block;color:#666;">' + tt('⬆️ שחזר מגיבוי', '⬆️ กู้คืนจากสำรอง', '⬆️ استعادة من نسخة') + '<input type="file" accept=".json" onchange="TimeClock._restoreBackup(this.files[0])" style="display:none;"></label>' +
           '</div>' +
@@ -1512,6 +1514,26 @@ var TimeClock = (function() {
       var code = String((e && e.code) || '');
       if (typeof showToast === 'function') showToast('❌ ' + (/not-found/.test(code) ? tt('פונקציית הגיבוי עוד לא נפרסה (firebase deploy --only functions:backupAll)', 'ยังไม่ได้ติดตั้ง', 'الدالة غير منشورة') : tt('הגיבוי נכשל', 'ล้มเหลว', 'فشل') + ': ' + ((e && e.message) || code)));
     }).then(function () { if (btn) { btn.disabled = false; btn.textContent = btn.dataset.t || btn.textContent; } });
+  }
+
+  // the server makes a full backup every night (backupNightly) and keeps 30
+  function _backupNightlyList() {
+    var box = document.getElementById('tcNightList');
+    if (!box) return;
+    if (box.innerHTML) { box.innerHTML = ''; return; }
+    box.innerHTML = '<div style="font-size:.8rem;color:#888;padding:6px;">⏳ ' + tt('טוען…', 'กำลังโหลด…', 'جارٍ التحميل…') + '</div>';
+    firebase.app().functions('us-central1').httpsCallable('backupList', { timeout: 60000 })({}).then(function (r) {
+      var f = ((r && r.data) || {}).files || [];
+      if (!f.length) { box.innerHTML = '<div style="font-size:.8rem;color:#888;padding:6px;">' + tt('עדיין אין גיבויים. הגיבוי האוטומטי הראשון ירוץ הלילה ב־02:30.', 'ยังไม่มีสำรอง', 'لا نسخ بعد') + '</div>'; return; }
+      box.innerHTML = '<div style="max-height:220px;overflow-y:auto;border:1px solid #eee;border-radius:10px;">' + f.map(function (x) {
+        var when = x.at ? new Date(x.at).toLocaleString('he-IL') : x.name;
+        return '<a href="' + x.url + '" target="_blank" rel="noopener" download style="display:flex;justify-content:space-between;gap:8px;padding:8px 10px;border-bottom:1px solid #f2f2f2;font-size:.82rem;text-decoration:none;color:inherit;">' +
+          '<span>' + (x.nightly ? '🌙 ' : '🗄️ ') + when + '</span><span style="color:#888;">' + (Math.round(x.bytes / 1048576 * 10) / 10) + ' MB ⬇</span></a>';
+      }).join('') + '</div>';
+    }, function (e) {
+      var code = String((e && e.code) || '');
+      box.innerHTML = '<div style="font-size:.8rem;color:#c62828;padding:6px;">❌ ' + (/not-found/.test(code) ? tt('הפונקציה עוד לא נפרסה', 'ยังไม่ได้ติดตั้ง', 'غير منشورة') : ((e && e.message) || code)) + '</div>';
+    });
   }
 
   function _downloadBackup(backup) {
@@ -1688,6 +1710,7 @@ var TimeClock = (function() {
     _exportCSV: _exportCSV,
     _backupAll: _backupAll,
     _backupFull: _backupFull,
+    _backupNightlyList: _backupNightlyList,
     shareApp: shareApp,
     _restoreBackup: _restoreBackup,
     _addCrop: _addCrop,

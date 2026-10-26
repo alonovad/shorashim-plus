@@ -16,8 +16,33 @@ var DB = (function() {
     }, delayMs || 1000);
   }
 
+  // appData/shorashim-users: only admin writes it directly (firestore.rules).
+  // Anyone else's copy goes to the usersPatch function, which keeps only
+  // the changes that person may make (own profile fields; leave balances
+  // and schedules for operators) and writes them on the server.
+  function _usersViaServer(key) {
+    if (key !== 'shorashim-users') return false;
+    var u = window.currentUser || {};
+    return !(u.role === 'admin' || window.__viewAsAdmin);
+  }
+  function _usersPatch(clean) {
+    if (!window.firebase || !firebase.app().functions) return Promise.reject(new Error('functions'));
+    return firebase.app().functions('us-central1').httpsCallable('usersPatch', { timeout: 60000 })({ value: clean }).then(function(r) {
+      var x = (r && r.data) || {};
+      if (x.rejected && x.rejected.length) console.warn('[users] not allowed, kept as on the server:', x.rejected);
+      return x;
+    });
+  }
+
   function _writeFirestore(key, data) {
     if (!firestore) return;
+    if (_usersViaServer(key)) {
+      _usersPatch(JSON.parse(JSON.stringify(data))).catch(function(err) {
+        console.error('usersPatch FAILED:', err);
+        if (typeof showToast === 'function') showToast('❌ ' + (err && err.message || err));
+      });
+      return;
+    }
     // Firestore rejects undefined values — strip them
     var clean = JSON.parse(JSON.stringify(data));
     var fail = function(err) {
@@ -51,6 +76,7 @@ var DB = (function() {
     try { localStorage.setItem(key, JSON.stringify(clean)); } catch (e) {}
     cache[key] = clean;
     if (!firestore) return Promise.reject(new Error('offline-no-firestore'));
+    if (_usersViaServer(key)) return _usersPatch(clean);
     try {
       return firestore.collection('appData').doc(key)
         .set({ value: clean, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
