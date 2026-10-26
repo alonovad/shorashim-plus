@@ -805,6 +805,7 @@ var TimeClock = (function() {
 
     // ── Bottom actions ──
     html += '<div style="margin-top:14px;padding-top:10px;border-top:1px solid #eee;">';
+    html += '<button onclick="TimeClock.closeMenu();TimeClock.shareApp()" style="' + menuBtn + 'background:#e8f5e9;font-weight:700;">' + tt('🔗 שתף אפליקציה', '🔗 แชร์แอป', '🔗 مشاركة التطبيق') + '</button>';
     html += '<button onclick="TimeClock.logout()" style="' + menuBtn + 'background:#ffebee;color:#c62828;font-weight:700;text-align:center;">' + tt('🚪 התנתק', '🚪 ออกจากระบบ', '🚪 تسجيل خروج') + '</button>';
     html += '<button onclick="TimeClock.closeMenu()" style="' + menuBtn + 'background:#f5f5f5;text-align:center;font-weight:400;">' + tt('סגור', 'ปิด', 'إغلاق') + '</button>';
     html += '</div>';
@@ -1467,6 +1468,34 @@ var TimeClock = (function() {
 
   // Everything on the server - every collection, every uploaded file, the
   // sign-in accounts - zipped by the backupAll function and downloaded.
+  // Share the app's address: the phone's own share sheet where there is one
+  // (WhatsApp, SMS, mail…), otherwise WhatsApp / copy. Only the public
+  // address is sent - access still needs an account the admin opened.
+  function shareApp() {
+    var url = location.origin + '/';
+    var text = tt('שורשים פלוס — פלטפורמה לניהול חקלאי. כניסה עם חשבון Google שנפתח לך במערכת:', 'Shorashim Plus — เข้าสู่ระบบด้วยบัญชี Google ที่เปิดให้คุณ:', 'شوراشيم بلس — الدخول بحساب Google المفتوح لك:');
+    if (navigator.share) {
+      navigator.share({ title: tt('שורשים פלוס', 'Shorashim Plus', 'شوراشيم بلس'), text: text, url: url }).catch(function () {});
+      return;
+    }
+    var mc = document.getElementById('modalContainer');
+    var wa = 'https://wa.me/?text=' + encodeURIComponent(text + ' ' + url);
+    var b = 'display:block;width:100%;padding:12px;border-radius:12px;border:1px solid #d9e2d4;background:#fff;font-family:inherit;font-size:.95rem;font-weight:700;cursor:pointer;margin-bottom:8px;text-align:center;text-decoration:none;color:inherit;';
+    mc.innerHTML = '<div class="modal-overlay" onclick="if(event.target===this)this.parentNode.innerHTML=\'\'"><div class="modal" style="max-width:420px;">' +
+      '<h2>🔗 ' + tt('שתף אפליקציה', 'แชร์แอป', 'مشاركة التطبيق') + '</h2>' +
+      '<input class="form-input" id="tcShareUrl" readonly value="' + url + '" style="direction:ltr;text-align:left;margin-bottom:10px;">' +
+      '<a href="' + wa + '" target="_blank" rel="noopener" style="' + b + 'background:#e7f8ee;">💬 WhatsApp</a>' +
+      '<button id="tcShareCopy" style="' + b + '">📋 ' + tt('העתק קישור', 'คัดลอกลิงก์', 'نسخ الرابط') + '</button>' +
+      '<div style="font-size:.75rem;color:#888;margin-bottom:10px;">' + tt('הקישור לבדו לא נותן גישה: צריך גם שמנהל המערכת יפתח משתמש עם האימייל של המקבל.', 'ลิงก์อย่างเดียวไม่ให้สิทธิ์เข้าถึง', 'الرابط وحده لا يمنح الوصول') + '</div>' +
+      '<div class="modal-buttons"><button class="btn btn-secondary" onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'">' + tt('סגור', 'ปิด', 'إغلاق') + '</button></div></div></div>';
+    document.getElementById('tcShareCopy').addEventListener('click', function () {
+      var inp = document.getElementById('tcShareUrl');
+      var done = function () { if (typeof showToast === 'function') showToast('✅ ' + tt('הקישור הועתק', 'คัดลอกแล้ว', 'تم النسخ')); };
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(url).then(done, function () { inp.select(); document.execCommand('copy'); done(); });
+      else { inp.select(); document.execCommand('copy'); done(); }
+    });
+  }
+
   function _backupFull() {
     var btn = document.getElementById('tcFullBk');
     if (!window.firebase || !firebase.app) return;
@@ -1659,6 +1688,7 @@ var TimeClock = (function() {
     _exportCSV: _exportCSV,
     _backupAll: _backupAll,
     _backupFull: _backupFull,
+    shareApp: shareApp,
     _restoreBackup: _restoreBackup,
     _addCrop: _addCrop,
     _removeCrop: _removeCrop,
