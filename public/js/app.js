@@ -1065,7 +1065,8 @@
     'נסרק': { th: 'สแกนแล้ว', ar: 'تم المسح' },
     'נסרק ונקלט': { th: 'สแกนและบันทึกแล้ว', ar: 'تم المسح والإدخال' },
     'שורות': { th: 'รายการ', ar: 'سطور' },
-    'סרוק שוב': { th: 'สแกนอีกครั้ง', ar: 'امسح مجددًا' },
+    'לא נסרק': { th: 'ยังไม่สแกน', ar: 'لم يُمسح' },
+    'סריקה חוזרת (מנהל)': { th: 'สแกนซ้ำ (ผู้ดูแล)', ar: 'مسح متكرر (المسؤول)' },
     'סרוק וחלץ מידע מהתעודה': { th: 'สแกนและดึงข้อมูล', ar: 'امسح واستخرج البيانات' },
     'התעודה כבר נסרקה. סריקה נוספת תוסיף את השורות שוב למלאי. להמשיך?': { th: 'สแกนแล้ว สแกนซ้ำจะเพิ่มซ้ำ ดำเนินการต่อ?', ar: 'تم مسحه. المسح مجددًا يضيف السطور مرة أخرى. متابعة؟' },
     'תעודת משלוח': { th: 'ใบส่งสินค้า', ar: 'وصل توريد' },
@@ -10840,11 +10841,13 @@
     if (farmReceipts.length === 0) {
       return '<div style="padding: 10px; text-align: center; color: var(--text-muted); font-size: 0.85rem;">' + t('אין תעודות') + '</div>';
     }
+    var canScan = !!(window.FarmIntake && SprayStore.canUseIntake && SprayStore.canUseIntake(farmId));
     var html = '<div class="receipt-grid">';
     farmReceipts.forEach(function(r) {
       html += '<div class="receipt-thumb" data-receipt-id="' + r.id + '" style="position:relative;">' +
         '<img src="' + r.image + '" alt="">' +
-        (r.scanned ? '<div style="position:absolute;top:6px;inset-inline-start:6px;background:rgba(255,255,255,.92);border-radius:8px;padding:1px 6px;font-size:.7rem;font-weight:700;color:#1d5a2c;">✅ ' + t('נסרק') + '</div>' : '') +
+        (r.scanned ? '<div style="position:absolute;top:6px;inset-inline-start:6px;background:rgba(255,255,255,.92);border-radius:8px;padding:1px 6px;font-size:.7rem;font-weight:700;color:#1d5a2c;">✅ ' + t('נסרק') + '</div>'
+          : (canScan ? '<div style="position:absolute;top:6px;inset-inline-start:6px;background:rgba(255,248,225,.95);border-radius:8px;padding:1px 6px;font-size:.7rem;font-weight:700;color:#8a5a00;">🔍 ' + t('לא נסרק') + '</div>' : '')) +
         '<div class="receipt-date">' + r.date + '</div>' +
       '</div>';
     });
@@ -10865,7 +10868,12 @@
             '🌳 ' + r.farm_name + ' • ' + r.date + ' • 👤 ' + r.operator +
           '</div>' +
           (r.scanned ? '<div style="font-size:0.8rem;color:#1d5a2c;margin-top:6px;">✅ ' + t('נסרק ונקלט') + ' · ' + new Date(r.scanned.at).toLocaleDateString('he-IL') + (r.scanned.by ? ' · ' + r.scanned.by : '') + (r.scanned.items ? ' · ' + r.scanned.items + ' ' + t('שורות') : '') + '</div>' : '') +
-          (window.FarmIntake && SprayStore.canUseIntake && SprayStore.canUseIntake(r.farm_id) ? '<button class="btn-submit" id="receiptScanBtn" style="margin:12px 0 0;">🔍 ' + (r.scanned ? t('סרוק שוב') : t('סרוק וחלץ מידע מהתעודה')) + '</button>' : '') +
+          // one reading per document: once scanned the button is gone; only
+          // admin keeps a small re-read link (e.g. lines were rejected by mistake)
+          (window.FarmIntake && SprayStore.canUseIntake && SprayStore.canUseIntake(r.farm_id)
+            ? (!r.scanned ? '<button class="btn-submit" id="receiptScanBtn" style="margin:12px 0 0;">🔍 ' + t('סרוק וחלץ מידע מהתעודה') + '</button>'
+              : (isAdmin() ? '<button type="button" id="receiptScanBtn" style="margin-top:8px;border:none;background:none;color:var(--text-muted);font-family:inherit;font-size:.75rem;text-decoration:underline;cursor:pointer;">' + t('סריקה חוזרת (מנהל)') + '</button>' : ''))
+            : '') +
           '<div class="modal-buttons" style="margin-top: 14px;">' +
             ((!window.Own || Own.canEdit(r, r.operator)) ? '<button class="btn btn-primary" id="receiptDeleteBtn">🗑️ ' + t('מחק') + '</button>' : '') +
             '<button class="btn btn-secondary" onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'">' + t('סגור') + '</button>' +
@@ -10875,7 +10883,7 @@
 
     var scanBtn = document.getElementById('receiptScanBtn');
     if (scanBtn) scanBtn.addEventListener('click', function() {
-      if (r.scanned && !confirm(t('התעודה כבר נסרקה. סריקה נוספת תוסיף את השורות שוב למלאי. להמשיך?'))) return;
+      if (r.scanned && (!isAdmin() || !confirm(t('התעודה כבר נסרקה. סריקה נוספת תוסיף את השורות שוב למלאי. להמשיך?')))) return;
       container.innerHTML = '';
       FarmIntake.open(r.farm_id, { files: [dataUrlToFile(r.image, 'receipt-' + r.id + '.jpg')], receiptId: r.id });
     });
