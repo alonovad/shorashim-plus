@@ -2135,11 +2135,75 @@ async function imsMonth(sid, ym, st) {
   await ref.set({ days, at: Date.now(), closed: ym < curYm, v: IMS_CACHE_V });
   return days;
 }
+// ── Jordan Valley R&D (מו״פ בקעת הירדן) weather pages, akol.co.il/mop ──
+// Their weekly page per station carries daily min/max, pan evaporation and
+// Penman-Monteith evaporation. Only stations that publish evaporation are
+// listed; coordinates are approximate (the site gives none) and only pick
+// the nearest one - a farm can name its station (farm.mop_station).
+const MOP_STATIONS = [
+  { n: 1, name: "תחנת צבי (גלגל)", lat: 31.997, lon: 35.45 },
+  { n: 4, name: "בית הערבה", lat: 31.805, lon: 35.50 },
+  { n: 6, name: "ביצת ארגמן", lat: 32.15, lon: 35.52 },
+  { n: 7, name: "מושב בקעות", lat: 32.25, lon: 35.45 },
+];
+function mopParse(html) {
+  const i = html.indexOf("פרמטרים");
+  if (i < 0) return {};
+  const up = html.toUpperCase(), a = up.lastIndexOf("<TABLE", i), b = up.indexOf("</TABLE", i);
+  const tb = html.slice(a < 0 ? i : a, b < 0 ? undefined : b);
+  const rows = tb.split(/<tr/i).slice(1).map((r) => r.split(/<td/i).slice(1).map((c) => c.replace(/^[^>]*>/, "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim()));
+  const dates = (rows[0] || []).filter((c) => /^\d\d\/\d\d\/\d{4}$/.test(c)).map((c) => c.split("/").reverse().join("-"));
+  const row = (re) => { const r = rows.find((x) => x.some((c) => re.test(c))); return r ? r.slice(-dates.length) : []; };
+  const num = (x) => (x === "" || x == null || !isFinite(Number(x)) ? null : Number(x));
+  const et = row(/פנמן/), pan = row(/גיגית/), mn = row(/^מינימום$/), mx = row(/^מקסימום$/), out = {};
+  dates.forEach((d, k) => { out[d] = { et0: num(et[k]), pan: num(pan[k]), tmin: num(mn[k]), tmax: num(mx[k]) }; });
+  return out;
+}
+async function mopWeek(n, end) {
+  const db = getFirestore(), ref = db.collection("mopWeek").doc(n + "_" + end);
+  const snap = await ref.get();
+  if (snap.exists) {
+    const c = snap.data();
+    if (c.final || Date.now() - (c.at || 0) < 6 * 3600 * 1000) return c.days || {};
+  }
+  const dmy = end.split("-").reverse().join("/");
+  const body = new URLSearchParams({ station: String(n), report: "1", DateBot: dmy, season: "", today: "", seasons: "", FromYear: dmy });
+  const r = await fetch("https://www.akol.co.il/mop/meteo_report.asp", { method: "POST", body, headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "Mozilla/5.0 (shorashim-plus)" }, signal: AbortSignal.timeout(20000) });
+  if (!r.ok) throw new Error("mop " + r.status);
+  const days = mopParse(new TextDecoder("windows-1255").decode(await r.arrayBuffer()));
+  // they fill evaporation a few days late; a week 10+ days old is final
+  const final = Date.parse(end) < Date.now() - 10 * 864e5;
+  await ref.set({ days, at: Date.now(), final });
+  return days;
+}
+async function mopRange(q) {
+  const from = String(q.from || ""), to = String(q.to || "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || to < from) throw new HttpsError("invalid-argument", "from, to");
+  if (Date.parse(to) - Date.parse(from) > 120 * 864e5) throw new HttpsError("invalid-argument", "range over 120 days");
+  const lat = Number(q.lat), lon = Number(q.lon);
+  const list = MOP_STATIONS.map((s) => Object.assign({ km: isFinite(lat) && isFinite(lon) ? Math.round(imsKm(lat, lon, s.lat, s.lon) * 10) / 10 : null }, s));
+  let st = q.mopStation != null && q.mopStation !== "" ? list.find((s) => String(s.n) === String(q.mopStation)) : null;
+  const chosen = !!st;
+  if (!st) st = list.slice().sort((a, b) => (a.km == null ? 1e9 : a.km) - (b.km == null ? 1e9 : b.km))[0];
+  const days = {};
+  let err = "";
+  // one page per week, one at a time - an old ASP site, kept gentle
+  for (let end = to; end >= from || Date.parse(end) - 6 * 864e5 >= Date.parse(from); end = new Date(Date.parse(end) - 7 * 864e5).toISOString().slice(0, 10)) {
+    try { Object.assign(days, await mopWeek(st.n, end)); } catch (e) { err = String(e.message || e); console.error("mop", st.n, end, err); break; }
+    if (Date.parse(end) - 6 * 864e5 <= Date.parse(from)) break;
+  }
+  const out = Object.keys(days).filter((d) => d >= from && d <= to).sort().map((d) => Object.assign({ d }, days[d]));
+  return { station: { n: st.n, name: st.name, km: st.km, chosen }, stations: list, days: out, err };
+}
 exports.imsData = onCall(
   { region: "us-central1", secrets: [IMS_TOKEN], memory: "1GiB", timeoutSeconds: 300, maxInstances: 5 },
   async (request) => {
     if (!request.auth) throw new HttpsError("unauthenticated", "Sign in required");
-    const q = request.data || {}, list = await imsStationList();
+    const q = request.data || {};
+    // mode "mop": the Jordan Valley R&D (מו״פ בקעת הירדן) published daily
+    // evaporation - no IMS request at all
+    if (q.mode === "mop") return mopRange(q);
+    const list = await imsStationList();
     // mode "stations": the stations around a point and what each measures -
     // so the choice of station can be checked, not taken on trust
     if (q.mode === "stations") {

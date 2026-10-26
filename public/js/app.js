@@ -2878,7 +2878,7 @@
       if (!SprayStore.canEditFarm(farmId)) return { ok: false };
       var f = (farms || []).find(function(x) { return x.id === farmId; });
       if (!f) return { ok: false };
-      var key = kind === 'rad' ? 'ims_rad_station' : 'ims_station';
+      var key = kind === 'rad' ? 'ims_rad_station' : kind === 'mop' ? 'mop_station' : 'ims_station';
       if (sid == null || sid === '') delete f[key]; else f[key] = Number(sid) || String(sid);
       saveData();
       return { ok: true };
@@ -3048,7 +3048,7 @@
       var ids = {};
       (accessible || []).forEach(function(p) { if (p.farm_id) ids[p.farm_id] = true; });
       return (farms || []).filter(function(f) { return ids[f.id]; })
-        .map(function(f) { return { id: f.id, name: f.name, color: f.color || '', ims_station: f.ims_station || null, ims_rad_station: f.ims_rad_station || null }; });
+        .map(function(f) { return { id: f.id, name: f.name, color: f.color || '', ims_station: f.ims_station || null, ims_rad_station: f.ims_rad_station || null, mop_station: f.mop_station || null }; });
     },
 
     // Batched sibling of updateEvent. patchFn(event) returns the fields to

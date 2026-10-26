@@ -356,16 +356,50 @@ var WxHist = (function () {
   }
   function DCOLS() { return [['d', tt('תאריך', 'วันที่', 'التاريخ')], ['tmax', tt('מקס׳ °', 'สูงสุด °', 'العظمى °')], ['tmin', tt('מינ׳ °', 'ต่ำสุด °', 'الصغرى °')], ['tmean', tt('ממוצע °', 'เฉลี่ย °', 'المتوسط °')],
     ['rh', tt('לחות %', 'ความชื้น %', 'رطوبة %')], ['ws', tt('רוח ממוצעת קמ״ש', 'ลมเฉลี่ย', 'متوسط الرياح')], ['wsmax', tt('משב מקס׳ קמ״ש', 'ลมกระโชกสูงสุด', 'أقصى هبة')], ['rain', tt('גשם מ״מ', 'ฝน มม.', 'مطر مم')],
-    ['rs', tt('קרינה MJ/m²', 'รังสี MJ/m²', 'إشعاع MJ/m²')], ['et0', tt('התאדות מחושבת מ״מ', 'การระเหย (คำนวณ) มม.', 'تبخر محسوب مم')]]; }
+    ['rs', tt('קרינה MJ/m²', 'รังสี MJ/m²', 'إشعاع MJ/m²')], ['et0', tt('התאדות מחושבת מ״מ', 'การระเหย (คำนวณ) มม.', 'تبخر محسوب مم')]].concat(mopOn() ? [['mop', tt('התאדות מו״פ מ״מ', 'การระเหย มอพ. มม.', 'تبخر مو"ف مم')]] : []); }
+  // ── the Jordan Valley R&D (מו״פ) published evaporation, as an extra
+  // column next to ours: their nearest station (or the farm's chosen one),
+  // fetched per table range through the server (their site has no CORS) ──
+  function mopOn() { try { return localStorage.getItem('shorashim-wxhist-mop') === '1'; } catch (e) { return false; } }
+  function mopFor(t) {
+    var key = ui.fid + '|' + t.from + t.to + '|' + ((point(ui.fid) || {}).mopStation || '');
+    if (ui.mop && ui.mop.key === key) return ui.mop;
+    if (ui.mopLoading !== key) {
+      ui.mopLoading = key;
+      var pt = point(ui.fid) || {}, fn = firebase.app().functions('us-central1').httpsCallable('imsData', { timeout: 120000 });
+      fn({ mode: 'mop', lat: pt.lat, lon: pt.lon, mopStation: pt.mopStation || '', from: t.from, to: t.to }).then(function (r) {
+        var x = (r && r.data) || {}, by = {};
+        (x.days || []).forEach(function (d) { by[d.d] = d; });
+        ui.mop = { key: key, by: by, station: x.station || null, stations: x.stations || [], err: x.err || '' }; ui.mopLoading = null; paint();
+      }, function (e) { ui.mop = { key: key, by: {}, stations: [], err: (e && (e.code || e.message)) || '' }; ui.mopLoading = null; paint(); });
+    }
+    return null;
+  }
+  function mopBar(t) {
+    var on = mopOn(), m = on ? mopFor(t) : null, pt = point(ui.fid) || {};
+    var h = '<div class="wh-row" style="margin-top:4px;"><label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="whMop"' + (on ? ' checked' : '') + '> ' +
+      tt('הצג עמודת התאדות מאתר מו״פ בקעת הירדן', 'แสดงการระเหยจาก มอพ.', 'عرض تبخر مو"ف غور الأردن') + '</label>';
+    if (on && !m) h += ' <span class="wh-lg">⏳ ' + tt('טוען מאתר המו״פ…', 'กำลังโหลด…', 'جارٍ التحميل…') + '</span>';
+    if (on && m) {
+      var canEdit = S().canEditFarm && S().canEditFarm(ui.fid);
+      h += ' <span class="wh-lg">' + tt('תחנה', 'สถานี', 'محطة') + ':</span> ' + (canEdit && m.stations.length ? '<select class="form-input" id="whMopSt" style="width:auto !important;padding:2px 6px;"><option value="">' +
+        tt('אוטומטי - הקרובה', 'อัตโนมัติ', 'تلقائي') + (m.station && !m.station.chosen ? ' (' + esc(m.station.name) + ')' : '') + '</option>' +
+        m.stations.map(function (s) { return '<option value="' + s.n + '"' + (String(pt.mopStation) === String(s.n) ? ' selected' : '') + '>' + esc(s.name) + (s.km != null ? ' · ' + s.km + ' ' + tt('ק״מ', 'กม.', 'كم') : '') + '</option>'; }).join('') + '</select>'
+        : '<b>' + esc(m.station ? m.station.name : '-') + '</b>');
+      if (m.err) h += ' <span class="wh-lg">⚠️ ' + tt('אתר המו״פ לא ענה במלואו', 'เว็บไซต์ไม่ตอบ', 'الموقع لم يستجب') + ' (' + esc(m.err) + ')</span>';
+    }
+    return h + '</div>' + (on && m ? '<div class="wh-lg">' + tt('כפי שפורסם באתר המו״פ (פנמן-מונטיס לפי חישובם). הם מעדכנים באיחור של כמה ימים, ולכן הימים האחרונים יכולים להיות ריקים.', 'ตามที่เผยแพร่', 'كما نُشر') + '</div>' : '');
+  }
   function HCOLS() { return [['h', tt('שעה', 'เวลา', 'الساعة')], ['temp', tt('טמפ׳ °', 'อุณหภูมิ °', 'الحرارة °')], ['tmax', tt('מקס׳', 'สูงสุด', 'العظمى')], ['tmin', tt('מינ׳', 'ต่ำสุด', 'الصغرى')],
     ['rh', tt('לחות %', 'ความชื้น %', 'رطوبة %')], ['ws', tt('רוח קמ״ש', 'ลม', 'رياح')], ['wsmax', tt('משב קמ״ש', 'ลมกระโชก', 'هبة')], ['wd', tt('כיוון °', 'ทิศ °', 'الاتجاه °')],
     ['rain', tt('גשם מ״מ', 'ฝน มม.', 'مطر مم')], ['rad', tt('קרינה W/m²', 'รังสี W/m²', 'إشعاع W/m²')]]; }
   function dataTable(cAll) {
-    var t = tblRange(), days = tblDays(cAll);
+    var t = tblRange(), days = tblDays(cAll), mop = mopOn() ? mopFor(t) : null;
+    if (days && mop) days = days.map(function (d) { var x = mop.by[d.d]; return x && x.et0 != null ? Object.assign({}, d, { mop: x.et0 }) : d; });
     var head = '<div class="wh-sec"><h3>📋 ' + tt('כל נתוני המדידה לפי תאריכים', 'ข้อมูลตามวันที่', 'كل القياسات حسب التاريخ') + '</h3>' +
       '<div class="wh-row">' + tt('מ־', 'จาก', 'من') + ' <input class="form-input" type="date" id="whTF" value="' + t.from + '" max="' + ui.s.to + '"> ' +
         tt('עד', 'ถึง', 'إلى') + ' <input class="form-input" type="date" id="whTT" value="' + t.to + '" max="' + ui.s.to + '">' +
-        (days && days.length ? ' <button class="wh-btn" data-wh="csv">⬇ CSV</button>' : '') + '</div>';
+        (days && days.length ? ' <button class="wh-btn" data-wh="csv">⬇ CSV</button>' : '') + '</div>' + mopBar(t);
     if (!days) return head + '<div class="wh-lg">⏳ ' + tt('טוען את התאריכים האלה מהשירות המטאורולוגי…', 'กำลังโหลด…', 'جارٍ التحميل…') + '</div></div>';
     if (!days.length) return head + '<div class="wh-lg">' + (ui.tblData && ui.tblData.err ? '⚠️ ' + esc(ui.tblData.err) : tt('אין נתונים לתאריכים האלה', 'ไม่มีข้อมูล', 'لا بيانات')) + '</div></div>';
     var v = function (x) { return x == null ? '-' : x; };
@@ -410,7 +444,8 @@ var WxHist = (function () {
     if (k === 'close') return close();
     if (k === 'pick') { if (ui.pick) { ui.pick = null; return paint(); } return loadStations(); }
     if (k === 'print') return printReport();
-    if (k === 'csv') { var cAll = (ui.cur && ui.cur.days) || [], ds = tblDays(cAll) || []; return csv(DCOLS(), ds, 'ims-' + farmName(ui.fid) + '-' + tblRange().from + '_' + tblRange().to); }
+    if (k === 'csv') { var cAll = (ui.cur && ui.cur.days) || [], ds = tblDays(cAll) || [], mc = mopOn() && ui.mop ? ui.mop.by : null;
+      if (mc) ds = ds.map(function (d) { var x = mc[d.d]; return x && x.et0 != null ? Object.assign({}, d, { mop: x.et0 }) : d; }); return csv(DCOLS(), ds, 'ims-' + farmName(ui.fid) + '-' + tblRange().from + '_' + tblRange().to); }
     if (k === 'csvday' && ui.dayData && ui.dayData.hours) return csv(HCOLS(), ui.dayData.hours, 'ims-' + farmName(ui.fid) + '-' + ui.day);
   }
   function onChange(e) {
@@ -421,6 +456,14 @@ var WxHist = (function () {
       if (f > to) { var x = f; f = to; to = x; }
       if ((new Date(to) - new Date(f)) / 864e5 > 370) f = addDays(to, -370);
       ui.tbl = { from: f, to: to }; ui.day = null; return paint();
+    }
+    if (t.id === 'whMop') { try { localStorage.setItem('shorashim-wxhist-mop', t.checked ? '1' : '0'); } catch (er) {} return paint(); }
+    if (t.id === 'whMopSt') {
+      var rm = S().setImsStation ? S().setImsStation(ui.fid, t.value, 'mop') : { ok: false };
+      if (!rm.ok) { toast('⛔ ' + tt('אין הרשאה לשנות את המשק', 'ไม่มีสิทธิ์', 'لا صلاحية')); return; }
+      toast('✅ ' + tt('תחנת המו״פ נשמרה למשק', 'บันทึกแล้ว', 'تم الحفظ'));
+      // the farm record updates through the store; read it again shortly
+      ui.mop = null; setTimeout(paint, 300); return;
     }
     if (t.id === 'whStation' || t.id === 'whRadStation') {
       var r = S().setImsStation ? S().setImsStation(ui.fid, t.value, t.id === 'whRadStation' ? 'rad' : '') : { ok: false };

@@ -70,7 +70,7 @@ var Weather = (function () {
         if (isFinite(la) && isFinite(lo)) { lat += Number(la); lon += Number(lo); n++; }
       });
       if (!n) return;
-      out.push({ id: f.id, name: f.name, plot: p.name || '', lat: Math.round(lat / n * 10000) / 10000, lon: Math.round(lon / n * 10000) / 10000, station: f.ims_station || null, radStation: f.ims_rad_station || null });
+      out.push({ id: f.id, name: f.name, plot: p.name || '', lat: Math.round(lat / n * 10000) / 10000, lon: Math.round(lon / n * 10000) / 10000, station: f.ims_station || null, radStation: f.ims_rad_station || null, mopStation: f.mop_station || null });
     });
     return out;
   }
