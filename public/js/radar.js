@@ -1,14 +1,16 @@
 /* radar.js — rain radar layer on the main map (Oct 2026)
  *
- * Interim source: RainViewer's public weather-maps API (composite of
- * national radars; free tier max native zoom 7 ≈ 1 km a pixel, frames every
- * 10 minutes for the last ~2 hours). Coarse at plot scale, enough to see a
- * rain cell over a farm. To be replaced by the IMS radar product once IMS
- * grants access.
+ * Source 1 (default): the IMS rain radar — the transparent, georeferenced
+ * frames (IMSRadar4GIS, every 5 minutes, ~2 hours back) that the IMS site's
+ * own map shows, listed through imsData mode "radar" on our server (cached
+ * 4 minutes), drawn as image overlays with the IMS bounds. Credited
+ * "באדיבות השירות המטאורולוגי".
+ * Source 2 (fallback when IMS is down or the radar is off): RainViewer's
+ * public composite (coarser, ~1 km).
  *
- * A "🌧️ מכ״ם" button sits next to the street/satellite toggle; on, the latest
- * frame shows with a time strip (play / scrub). The choice is remembered on
- * the device. Nothing is stored on the server.
+ * A "🌧️ מכ״ם" button next to the street/satellite toggle; on, the latest
+ * frame shows with a time strip at the top of the map (play / scrub) and
+ * the IMS mm/h legend. Remembered per device.
  *
  * Public: Radar.toggle()
  */
@@ -17,7 +19,7 @@ var Radar = (function () {
 
   var API = 'https://api.rainviewer.com/public/weather-maps.json';
   var KEY = 'shorashim-radar-on';
-  var st = { on: false, host: '', frames: [], idx: 0, layers: {}, timer: null, refresh: null, playing: false };
+  var st = { on: false, src: '', host: '', bounds: null, legend: [], frames: [], idx: 0, nowIdx: 0, layers: {}, timer: null, refresh: null, playing: false };
 
   function tt(he, th, ar) {
     var lang = (typeof currentLang !== 'undefined') ? currentLang : 'he';
@@ -57,30 +59,63 @@ var Radar = (function () {
     if (st.on) b.classList.add('rd-on');
   }
 
-  function load() {
+  function loadIms() {
+    if (!window.firebase || !firebase.app().functions) return Promise.reject(new Error('functions'));
+    return firebase.app().functions('us-central1').httpsCallable('imsData', { timeout: 30000 })({ mode: 'radar' }).then(function (r) {
+      var x = (r && r.data) || {};
+      if (!x.frames || !x.frames.length || !x.bounds) throw new Error('no ims frames');
+      // a radar that stopped: last frame older than 40 minutes - use the fallback
+      var last = x.frames[x.frames.length - 1].t;
+      var lastMs = Date.parse(String(last).replace(' ', 'T') + '+02:00');
+      if (isFinite(lastMs) && Date.now() - lastMs > 40 * 60 * 1000) throw new Error('ims radar stale');
+      st.src = 'ims'; st.bounds = x.bounds; st.legend = x.legend || [];
+      st.frames = x.frames.map(function (f) { return { key: f.url, url: f.url, label: String(f.t).slice(11, 16) }; });
+      st.nowIdx = st.frames.length - 1;
+    });
+  }
+  function loadRv() {
     return fetch(API, { cache: 'no-store' }).then(function (r) { if (!r.ok) throw new Error('http ' + r.status); return r.json(); }).then(function (j) {
       var past = (j && j.radar && j.radar.past) || [], now = (j && j.radar && j.radar.nowcast) || [];
+      st.src = 'rv'; st.legend = [];
       st.host = j.host || 'https://tilecache.rainviewer.com';
-      st.frames = past.concat(now);
+      st.frames = past.concat(now).map(function (f, i) { return { key: f.path, path: f.path, label: (i >= past.length ? '+' : '') + hhmm(f.time) }; });
       st.nowIdx = past.length - 1;
     });
   }
+  function load() {
+    var was = st.src;
+    return loadIms().catch(function () { return loadRv(); }).then(function () {
+      // switching source: drop the other source's layers
+      if (was && was !== st.src) clearLayers();
+    });
+  }
+  function clearLayers() {
+    var m = M(); Object.keys(st.layers).forEach(function (k) { if (m && m.hasLayer(st.layers[k])) m.removeLayer(st.layers[k]); });
+    st.layers = {};
+  }
   function layerFor(i) {
     var f = st.frames[i]; if (!f) return null;
-    if (!st.layers[f.path]) {
-      st.layers[f.path] = L.tileLayer(st.host + f.path + '/256/{z}/{x}/{y}/2/1_1.png', {
-        opacity: 0, zIndex: 450, maxNativeZoom: 7, maxZoom: 20, tileSize: 256, crossOrigin: true,
-        attribution: 'Radar © <a href="https://www.rainviewer.com" target="_blank" rel="noopener">RainViewer</a>'
-      });
+    if (!st.layers[f.key]) {
+      st.layers[f.key] = st.src === 'ims'
+        ? L.imageOverlay(f.url, st.bounds, { opacity: 0, zIndex: 450, interactive: false,
+            attribution: 'מכ״ם: באדיבות <a href="https://ims.gov.il" target="_blank" rel="noopener">השירות המטאורולוגי</a>' })
+        : L.tileLayer(st.host + f.path + '/256/{z}/{x}/{y}/2/1_1.png', {
+            opacity: 0, zIndex: 450, maxNativeZoom: 7, maxZoom: 20, tileSize: 256, crossOrigin: true,
+            attribution: 'Radar © <a href="https://www.rainviewer.com" target="_blank" rel="noopener">RainViewer</a>' });
     }
-    return st.layers[f.path];
+    return st.layers[f.key];
   }
   function show(i) {
     var m = M(); if (!m || !st.frames.length) return;
     st.idx = Math.max(0, Math.min(st.frames.length - 1, i));
     // keep the current and the next frame on the map, so stepping does not flash
     Object.keys(st.layers).forEach(function (k) { var l = st.layers[k]; if (m.hasLayer(l)) l.setOpacity(0); });
-    var cur = layerFor(st.idx); if (!m.hasLayer(cur)) cur.addTo(m); cur.setOpacity(0.62);
+    var cur = layerFor(st.idx); if (!m.hasLayer(cur)) cur.addTo(m); cur.setOpacity(st.src === 'ims' ? 0.75 : 0.62);
+    // older frames beyond the current and next are taken off the map
+    Object.keys(st.layers).forEach(function (k) {
+      var keep = k === st.frames[st.idx].key || (st.frames[(st.idx + 1) % st.frames.length] || {}).key === k;
+      if (!keep && !st.playing && m.hasLayer(st.layers[k])) m.removeLayer(st.layers[k]);
+    });
     var nx = layerFor((st.idx + 1) % st.frames.length); if (nx && !m.hasLayer(nx)) nx.addTo(m);
     paintBar();
   }
@@ -90,13 +125,17 @@ var Radar = (function () {
     if (!st.on) { if (el) el.remove(); return; }
     if (!el) { el = document.createElement('div'); el.id = 'radarBar'; host.appendChild(el); L.DomEvent.disableClickPropagation(el); L.DomEvent.disableScrollPropagation(el); }
     var f = st.frames[st.idx];
-    var future = st.idx > st.nowIdx;
+    var lg = st.legend && st.legend.length
+      ? st.legend.slice().reverse().map(function (x) { return '<i style="background:' + x.color + '" title="' + x.mm + ' ' + tt('מ״מ/שעה', 'มม./ชม.', 'مم/س') + '"></i>'; }).join('')
+      : '<i style="background:#88ddee"></i><i style="background:#0099cc"></i><i style="background:#ffee00"></i><i style="background:#ff8800"></i><i style="background:#dd0000"></i>';
     el.innerHTML =
       '<button type="button" data-rd="play" title="' + tt('הנפשה', 'เล่น', 'تشغيل') + '">' + (st.playing ? '⏸' : '▶') + '</button>' +
       '<input type="range" min="0" max="' + Math.max(0, st.frames.length - 1) + '" value="' + st.idx + '" data-rd="seek">' +
-      '<span class="rd-t">' + (f ? (future ? '+' : '') + hhmm(f.time) : '--:--') + '</span>' +
-      '<span class="rd-lg" title="' + tt('חלש ← חזק', 'อ่อน → แรง', 'خفيف ← قوي') + '"><i style="background:#88ddee"></i><i style="background:#0099cc"></i><i style="background:#ffee00"></i><i style="background:#ff8800"></i><i style="background:#dd0000"></i></span>' +
-      '<span class="rd-src" title="' + tt('זמני, עד שיתקבל מכ״ם השירות המטאורולוגי', 'ชั่วคราว', 'مؤقت') + '">RainViewer</span>';
+      '<span class="rd-t">' + (f ? f.label : '--:--') + '</span>' +
+      '<span class="rd-lg" title="' + tt('חלש ← חזק (מ״מ לשעה)', 'อ่อน → แรง', 'خفيف ← قوي') + '">' + lg + '</span>' +
+      (st.src === 'ims'
+        ? '<span class="rd-src">' + tt('השירות המטאורולוגי', 'กรมอุตุฯ อิสราเอล', 'الأرصاد الإسرائيلية') + '</span>'
+        : '<span class="rd-src" title="' + tt('מכ״ם השירות המטאורולוגי לא זמין כרגע', 'เรดาร์ IMS ไม่พร้อม', 'رادار IMS غير متاح') + '">RainViewer</span>');
     el.querySelector('[data-rd="play"]').onclick = function () { st.playing ? stop() : play(); };
     el.querySelector('[data-rd="seek"]').oninput = function () { stop(); show(Number(this.value)); };
   }
@@ -115,16 +154,15 @@ var Radar = (function () {
       if (!st.on) return;
       if (!st.frames.length) { toast('⚠️ ' + tt('אין כרגע נתוני מכ״ם', 'ไม่มีข้อมูลเรดาร์', 'لا بيانات رادار')); return; }
       show(st.nowIdx >= 0 ? st.nowIdx : st.frames.length - 1);
-      // new frames every 10 minutes
+      // new frames every 5 minutes
       clearInterval(st.refresh);
-      st.refresh = setInterval(function () { if (!st.playing) load().then(function () { show(st.nowIdx); }); }, 10 * 60 * 1000);
+      st.refresh = setInterval(function () { if (!st.playing) load().then(function () { show(st.nowIdx); }); }, 5 * 60 * 1000);
     }, function () { toast('❌ ' + tt('לא ניתן לטעון את המכ״ם', 'โหลดเรดาร์ไม่ได้', 'تعذر تحميل الرادار')); off(); });
   }
   function off() {
     st.on = false; try { localStorage.setItem(KEY, '0'); } catch (e) {}
     stop(); clearInterval(st.refresh);
-    var m = M(); Object.keys(st.layers).forEach(function (k) { if (m && m.hasLayer(st.layers[k])) m.removeLayer(st.layers[k]); });
-    st.layers = {};
+    clearLayers(); st.src = '';
     var b = document.getElementById('radarBtn'); if (b) b.classList.remove('rd-on');
     paintBar();
   }

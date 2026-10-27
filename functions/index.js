@@ -2334,6 +2334,24 @@ async function mopRange(q) {
   const out = Object.keys(days).filter((d) => d >= from && d <= to).sort().map((d) => Object.assign({ d }, days[d]));
   return { station: { n: st.n, name: st.name, km: st.km, chosen }, stations: list, days: out, err };
 }
+// IMS radar ("IMSRadar4GIS"): bounds as the IMS map uses them (SW, NE)
+const IMS_RADAR_BOUNDS = [[29.4468656950938161, 31.7662931774178858], [34.5318966003582659, 37.8648132475530090]];
+let imsRadarCache = { at: 0, v: null };
+async function imsRadarList() {
+  if (imsRadarCache.v && Date.now() - imsRadarCache.at < 4 * 60 * 1000) return imsRadarCache.v;
+  const r = await fetch("https://ims.gov.il/he/radar_satellite", { headers: { "User-Agent": "Mozilla/5.0 (shorashim-plus)", Accept: "application/json" }, signal: AbortSignal.timeout(15000) });
+  if (!r.ok) throw new HttpsError("unavailable", "ims radar " + r.status);
+  const j = await r.json(), d = (j && j.data) || {};
+  const frames = ((d.types && d.types.IMSRadar) || [])
+    .filter((x) => x && /_0\.png$/.test(String(x.file_name || "")))
+    .map((x) => ({ t: String(x.forecast_time || ""), url: "https://ims.gov.il" + x.file_name }))
+    .sort((a, b) => a.t.localeCompare(b.t));
+  const bar = ((d.radar_composite_colorbar || {}).items) || {};
+  const legend = Object.keys(bar).map((k) => bar[k]).sort((a, b) => Number(a.color_order) - Number(b.color_order)).map((x) => ({ mm: Number(x.mark), color: x.color }));
+  const v = { source: "ims", active: String(d.rain_radar_is_active) === "1", bounds: IMS_RADAR_BOUNDS, frames, legend };
+  imsRadarCache = { at: Date.now(), v };
+  return v;
+}
 exports.imsData = onCall(
   { region: "us-central1", secrets: [IMS_TOKEN], memory: "1GiB", timeoutSeconds: 300, maxInstances: 5 },
   async (request) => {
@@ -2342,6 +2360,11 @@ exports.imsData = onCall(
     // mode "mop": the Jordan Valley R&D (מו״פ בקעת הירדן) published daily
     // evaporation - no IMS request at all
     if (q.mode === "mop") return mopRange(q);
+    // mode "radar": the IMS rain-radar frames (transparent, georeferenced
+    // PNGs every 5 minutes, the last ~2 hours) as the IMS site lists them;
+    // the list is cached 4 minutes so every user's map makes one IMS call
+    // between them, and the images themselves load from ims.gov.il
+    if (q.mode === "radar") return imsRadarList();
     const list = await imsStationList();
     // mode "stations": the stations around a point and what each measures -
     // so the choice of station can be checked, not taken on trust
