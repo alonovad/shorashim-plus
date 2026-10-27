@@ -1561,6 +1561,9 @@
     'כל המטעים': { th: 'ทุกสวน', ar: 'جميع البساتين' },
     'כל המשקים': { th: 'ทุกฟาร์ม', ar: 'جميع المزارع' },
     'ללא משקים': { th: 'ไม่มีฟาร์ม', ar: 'بلا مزارع' },
+    'המפה תיפתח על החלקה הזו': { th: 'แผนที่จะเปิดที่แปลงนี้', ar: 'ستفتح الخريطة على هذه القطعة' },
+    'תצוגת פתיחה': { th: 'มุมมองเริ่มต้น', ar: 'عرض البداية' },
+    'קבע כתצוגת פתיחה': { th: 'ตั้งเป็นมุมมองเริ่มต้น', ar: 'اجعلها عرض البداية' },
     'החשבון הועבר לצפייה בלבד בגלל עומס חריג על השרת. פנה למנהל המערכת.': { th: 'บัญชีถูกจำกัดให้ดูอย่างเดียวเนื่องจากโหลดสูงผิดปกติ ติดต่อผู้ดูแล', ar: 'تم تقييد الحساب للعرض فقط بسبب حمل غير عادي. راجع المسؤول.' },
     'ההרשאות שלך עודכנו': { th: 'สิทธิ์ของคุณได้รับการอัปเดต', ar: 'تم تحديث صلاحياتك' },
     'הועבר אוטומטית בגלל עומס': { th: 'ย้ายอัตโนมัติเนื่องจากโหลด', ar: 'نُقل تلقائيًا بسبب الحمل' },
@@ -9401,8 +9404,12 @@
           
           '<div style="display: flex; gap: 8px; margin-bottom: 14px;">' +
             '<button class="btn-submit" id="plotDetailNav" style="flex: 1; margin: 0; font-size: 0.85rem;">🗺️ ' + t('מעבר לחלקה במפה') + '</button>' +
-            '<button class="btn-submit" id="plotDetailPrimary" style="flex: 1; margin: 0; font-size: 0.85rem; background: ' + (isPrimary ? 'linear-gradient(135deg, var(--accent), #ff8f00)' : 'linear-gradient(135deg, #455a64, #607d8b)') + ';">' +
+            '<button class="btn-submit" id="plotDetailPrimary" title="' + t('חלקה ראשית במשק') + '" style="flex: 1; margin: 0; font-size: 0.85rem; background: ' + (isPrimary ? 'linear-gradient(135deg, var(--accent), #ff8f00)' : 'linear-gradient(135deg, #455a64, #607d8b)') + ';">' +
               (isPrimary ? '⭐' : '📍') +
+            '</button>' +
+            // the plot the whole map opens on - separate from the farm's star
+            '<button class="btn-submit" id="plotDetailOpening" title="' + t('המפה תיפתח על החלקה הזו') + '" style="flex: 1; margin: 0; font-size: 0.8rem; background: ' + (currentUser && currentUser.primary_plot_id === plot.id ? 'linear-gradient(135deg, #1b5e20, #2e7d32)' : 'linear-gradient(135deg, #78909c, #90a4ae)') + ';">' +
+              '🏠 ' + (currentUser && currentUser.primary_plot_id === plot.id ? t('תצוגת פתיחה') : t('קבע כתצוגת פתיחה')) +
             '</button>' +
           '</div>' +
           
@@ -9716,6 +9723,11 @@
       window.goToPlotOnMap(plotId);
     });
     
+    var openBtn = document.getElementById('plotDetailOpening');
+    if (openBtn) openBtn.addEventListener('click', function() {
+      var on = currentUser && currentUser.primary_plot_id === plot.id;
+      if (window.setPrimaryPlot(on ? null : plot.id)) { container.innerHTML = ''; showPlotDetails(plotId); }
+    });
     // Primary
     document.getElementById('plotDetailPrimary').addEventListener('click', function() {
       if (window.setFarmPrimary(plot.id, !isPrimary)) {
