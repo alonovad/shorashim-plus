@@ -2935,3 +2935,29 @@ exports.usersPatch = onCall({ region: "us-central1", memory: "512MiB", timeoutSe
   if (out.rejected.length) console.warn("usersPatch rejected", me, out.rejected.slice(0, 20).join(", "));
   return { ok: true, applied: out.applied.length, rejected: out.rejected };
 });
+
+// ═══════════════════════════════════════════
+// SHIFT WATCH — a shift open 16 hours or more (the open shift sits on the
+// worker's phone; presence/{username}.shiftStart mirrors it) is reported to
+// admin once per shift, through the server-protections list the admin
+// already sees (toast + top of the change log). The worker's app itself
+// asks for the real end time when it next opens.
+// ═══════════════════════════════════════════
+exports.shiftWatch = onSchedule({ region: "us-central1", schedule: "every 60 minutes", timeZone: "Asia/Jerusalem", memory: "256MiB" }, async () => {
+  const db = getFirestore(), now = Date.now();
+  const ps = await db.collection("presence").get();
+  const stale = [];
+  ps.forEach((d) => { const a = d.data() || {}; if (a.shiftStart && now - Number(a.shiftStart) >= 16 * 3600 * 1000) stale.push({ username: d.id, name: a.name || d.id, since: Number(a.shiftStart), workplace: a.workplace || "" }); });
+  if (!stale.length) return;
+  const aref = db.collection("appData").doc("shorashim-load-guard");
+  await db.runTransaction(async (tx) => {
+    const s = await tx.get(aref); const v = (s.exists && s.data().value) || {}; const list = Array.isArray(v.events) ? v.events : [];
+    let added = 0;
+    for (const x of stale) {
+      if (list.some((e) => e.kind === "open_shift" && e.username === x.username && e.since === x.since)) continue;
+      list.unshift({ at: now, kind: "open_shift", username: x.username, name: x.name, email: "", since: x.since, workplace: x.workplace, hours: Math.round((now - x.since) / 36e5), counts: { m10: 0, h1: 0, d1: 0 } });
+      added++;
+    }
+    if (added) tx.set(aref, { value: { events: list.slice(0, 50) }, updatedAt: FieldValue.serverTimestamp() });
+  });
+});

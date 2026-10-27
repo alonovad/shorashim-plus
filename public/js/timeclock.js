@@ -22,6 +22,54 @@ var TimeClock = (function() {
     renderClockBar();
     if (currentShift) startTicker();
     startPresence();
+    setTimeout(staleShiftCheck, 1500);
+  }
+
+  // ── A shift forgotten open ──
+  // The open shift lives on the worker's device until punch-out, so a phone
+  // that was never punched out kept counting for months. Past MAX_OPEN_H the
+  // app stops and asks when the shift actually ended (default: 8.5 h after
+  // it began); the record is saved with that end, flagged closedLate and
+  // held for the manager. "Never happened" drops it. The server also lists
+  // shifts open that long (shiftWatch) so the admin sees them.
+  var MAX_OPEN_H = 16;
+  var _staleShown = false;
+  function staleShiftCheck() {
+    if (!currentShift || _staleShown) return;
+    var openH = (Date.now() - currentShift.punchIn) / 36e5;
+    if (openH < MAX_OPEN_H) return;
+    _staleShown = true;
+    var pad = function (n) { return (n < 10 ? '0' : '') + n; };
+    var loc = function (ms) { var d = new Date(ms); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes()); };
+    var def = Math.min(currentShift.punchIn + 8.5 * 36e5, Date.now());
+    var mc = document.getElementById('modalContainer');
+    if (!mc) { _staleShown = false; return; }
+    var days = Math.floor(openH / 24);
+    mc.innerHTML = '<div class="modal-overlay"><div class="modal" style="max-width:420px;">' +
+      '<h2>⏰ ' + tt('שכחת לסגור משמרת', 'ลืมปิดกะ', 'نسيت إغلاق الوردية') + '</h2>' +
+      '<p style="font-size:.9rem;">' + tt('המשמרת שנפתחה ב־', 'กะที่เปิดเมื่อ ', 'الوردية التي فُتحت في ') + '<b>' + new Date(currentShift.punchIn).toLocaleString('he-IL') + '</b>' +
+        (currentShift.workplace ? ' (' + currentShift.workplace + ')' : '') + ' ' + tt('עדיין פתוחה', 'ยังเปิดอยู่', 'ما زالت مفتوحة') + ' — ' +
+        (days >= 1 ? days + ' ' + tt('ימים', 'วัน', 'أيام') : Math.round(openH) + ' ' + tt('שעות', 'ชั่วโมง', 'ساعات')) + '.</p>' +
+      '<label class="form-label">' + tt('מתי סיימת בפועל?', 'คุณเลิกงานจริงเมื่อไร?', 'متى انتهيت فعلاً؟') + '</label>' +
+      '<input type="datetime-local" class="form-input" id="tcStaleEnd" value="' + loc(def) + '" min="' + loc(currentShift.punchIn) + '" max="' + loc(Date.now()) + '" style="direction:ltr;">' +
+      '<div style="font-size:.75rem;color:#888;margin:6px 0 12px;">' + tt('המשמרת תישמר עם שעת הסיום הזו ותועבר לאישור המנהל.', 'จะบันทึกและส่งให้ผู้จัดการอนุมัติ', 'ستُحفظ وتُرسل لاعتماد المدير.') + '</div>' +
+      '<div class="modal-buttons">' +
+        '<button class="btn btn-primary" id="tcStaleSave">' + tt('סגור משמרת', 'ปิดกะ', 'إغلاق الوردية') + '</button>' +
+        '<button class="btn btn-secondary" id="tcStaleDrop">' + tt('לא עבדתי - מחק', 'ไม่ได้ทำงาน - ลบ', 'لم أعمل - احذف') + '</button>' +
+      '</div></div></div>';
+    document.getElementById('tcStaleSave').onclick = function () {
+      var v = document.getElementById('tcStaleEnd').value, t = v ? new Date(v).getTime() : def;
+      if (!isFinite(t) || t <= currentShift.punchIn) { if (typeof showToast === 'function') showToast('❌ ' + tt('שעת סיום לא תקינה', 'เวลาไม่ถูกต้อง', 'وقت غير صالح')); return; }
+      if (t > Date.now()) t = Date.now();
+      mc.innerHTML = '';
+      punchOut({ endAt: t });
+    };
+    document.getElementById('tcStaleDrop').onclick = function () {
+      if (!confirm(tt('למחוק את המשמרת הפתוחה בלי לשמור שעות?', 'ลบกะที่เปิดอยู่โดยไม่บันทึก?', 'حذف الوردية المفتوحة دون حفظ؟'))) return;
+      if (typeof Audit !== 'undefined' && Audit.log) { try { Audit.log('delete', 'timeclock', 'open-shift', { before: currentShift, reason: 'stale open shift dropped by worker' }); } catch (e) {} }
+      currentShift = null; saveCurrentShift(); stopTicker(); renderClockBar(); _presenceBeat();
+      mc.innerHTML = '';
+    };
   }
 
   // ── Data ──
@@ -375,6 +423,7 @@ var TimeClock = (function() {
     clockInterval = setInterval(function() {
       var el = document.getElementById('clockElapsed');
       if (!el || !currentShift) return;
+      if ((Date.now() - currentShift.punchIn) / 36e5 >= MAX_OPEN_H) staleShiftCheck();
       var active = getActiveBreak();
       if (active) {
         el.textContent = formatDuration(Date.now() - active.start);
@@ -489,14 +538,15 @@ var TimeClock = (function() {
   function _presenceBeat() {
     if (typeof db === 'undefined' || !window.currentUser) return;
     var uname = window.currentUser.username;
-    var wp = '';
-    try { var cs = JSON.parse(localStorage.getItem('shorashim-current-shift') || 'null'); if (cs && cs.workplace) wp = cs.workplace; } catch (e) {}
+    var wp = '', since = null;
+    try { var cs = JSON.parse(localStorage.getItem('shorashim-current-shift') || 'null'); if (cs && cs.workplace) wp = cs.workplace; if (cs && cs.punchIn) since = cs.punchIn; } catch (e) {}
     try {
       db.collection('presence').doc(uname).set({
         username: uname,
         name: window.currentUser.name || uname,
         role: window.currentUser.role || '',
         workplace: wp,
+        shiftStart: since,
         lastSeen: Date.now()
       }, { merge: true }).catch(function() {});
     } catch (e) {}
@@ -515,23 +565,30 @@ var TimeClock = (function() {
   function stopPresence() {
     if (_presenceTimer) { clearInterval(_presenceTimer); _presenceTimer = null; }
     if (typeof db !== 'undefined' && window.currentUser) {
+      // an open shift stays visible to the manager after logout
+      if (currentShift) { _presenceBeat(); return; }
       try { db.collection('presence').doc(window.currentUser.username).delete().catch(function() {}); } catch (e) {}
     }
   }
 
   // ── Punch Out ──
 
-  function punchOut() {
+  // opts.endAt: close at that time instead of now (a shift forgotten open -
+  // see staleShiftCheck); such a record is held for the manager's review
+  function punchOut(opts) {
+    opts = opts || {};
     if (!currentShift) return;
+    var endAt = Number(opts.endAt) || 0;
+    var END = function () { return endAt || Date.now(); };
     // End any active break automatically — the user is leaving.
     if (getActiveBreak()) {
-      getActiveBreak().end = Date.now();
+      getActiveBreak().end = Math.min(END(), Date.now());
     }
-    if (typeof showToast === 'function') {
+    if (typeof showToast === 'function' && !endAt) {
       showToast('📍 ' + tt('מאתר מיקום...','กำลังระบุตำแหน่ง...','جاري تحديد الموقع...'));
     }
     var workplace = currentShift.workplace;
-    getGeoFix(10000).then(function(geoOut) {
+    (endAt ? Promise.resolve(null) : getGeoFix(10000)).then(function(geoOut) {
       var vOut = verifyGeoFix(geoOut, workplace);
 
       // Merge warnings from punch-in and punch-out
@@ -552,7 +609,7 @@ var TimeClock = (function() {
       // Compute break totals
       var breaks = currentShift.breaks || [];
       var breakMin = totalBreakMinutes(breaks);
-      var durationMs = Date.now() - currentShift.punchIn;
+      var durationMs = END() - currentShift.punchIn;
       var durationMin = Math.round(durationMs / 60000);
 
       // Auto-break rule: shifts ≥ 6h with no logged break get 30min deducted
@@ -581,7 +638,7 @@ var TimeClock = (function() {
       if (typeof Schedule !== 'undefined') {
         try {
           var sched = Schedule.getForUser(currentShift.username);
-          otTiers = Schedule.calcOTTiers(currentShift.punchIn, Date.now(), paidMin, sched, dateStr);
+          otTiers = Schedule.calcOTTiers(currentShift.punchIn, END(), paidMin, sched, dateStr);
         } catch (e) {
           console.warn('OT calculation failed, defaulting to regular:', e);
         }
@@ -606,11 +663,11 @@ var TimeClock = (function() {
       // geoWarnings) and shown in the manager's record view; turning it into
       // an approval gate is a separate job that needs the queue UI first.
       var hasWarnings = (otTiers.scheduleWarnings && otTiers.scheduleWarnings.length > 0);
-      var status = hasWarnings ? 'pending' : 'auto_approved';
+      var status = (hasWarnings || endAt) ? 'pending' : 'auto_approved';
 
       var record = {
         punchIn: currentShift.punchIn,
-        punchOut: Date.now(),
+        punchOut: END(),
         workplace: workplace,
         username: currentShift.username,
         userName: currentShift.userName,
@@ -635,6 +692,11 @@ var TimeClock = (function() {
         scheduleWarnings: otTiers.scheduleWarnings || [],
         offDay: !!otTiers.offDay
       };
+      if (endAt) {
+        // closed afterwards by the worker: the end time is theirs, not a punch
+        record.closedLate = { at: Date.now(), openHours: Math.round((Date.now() - currentShift.punchIn) / 36e5), by: (window.currentUser && window.currentUser.username) || '' };
+        record.scheduleWarnings = (record.scheduleWarnings || []).concat(['late_close']);
+      }
 
       saveTimeRecord(record);
       currentShift = null;
@@ -1303,7 +1365,8 @@ var TimeClock = (function() {
               '<div style="background:var(--g6);border-radius:10px;padding:10px;text-align:center;">' +
                 '<div style="font-size:1.3rem;font-weight:800;">' + sprayCount + '</div><div style="font-size:0.7rem;color:#999;">' + tt('ריסוסים', 'การพ่น', 'رشات') + '</div></div>' +
             '</div>' +
-            '<div id="dashConnectedWho" style="margin-top:10px;text-align:center;"></div>';
+            '<div id="dashConnectedWho" style="margin-top:10px;text-align:center;"></div>' +
+            '<div id="dashOpenShifts" style="margin-top:10px;"></div>';
 
           // Presence: who currently has the app open. Reads the presence
           // collection (heartbeat while the app is open) and counts anyone seen
@@ -1314,6 +1377,21 @@ var TimeClock = (function() {
               var now = Date.now(), list = [];
               psnap.forEach(function(d) { var a = d.data(); if (a && a.lastSeen && (now - a.lastSeen) < 240000) list.push(a); });
               var esc = function(x) { return String(x == null ? '' : x).replace(/[&<>]/g, function(c) { return c === '&' ? '&amp;' : c === '<' ? '&lt;' : '&gt;'; }); };
+              // every open shift, whether or not its phone is online now -
+              // the presence doc carries the shift start (shiftStart)
+              var open = [];
+              psnap.forEach(function(d) { var a = d.data(); if (a && a.shiftStart) open.push(a); });
+              var osEl = document.getElementById('dashOpenShifts');
+              if (osEl && open.length) {
+                open.sort(function(a, b) { return a.shiftStart - b.shiftStart; });
+                osEl.innerHTML = '<div style="font-weight:700;font-size:.85rem;margin-bottom:4px;">🕐 ' + tt('משמרות פתוחות', 'กะที่เปิดอยู่', 'ورديات مفتوحة') + '</div>' + open.map(function(a) {
+                  var h = (now - a.shiftStart) / 36e5, bad = h >= 16;
+                  var dur = h >= 48 ? Math.floor(h / 24) + ' ' + tt('ימים', 'วัน', 'أيام') : (Math.floor(h) + ':' + ('0' + Math.floor((h % 1) * 60)).slice(-2));
+                  return '<div style="display:flex;justify-content:space-between;gap:8px;padding:5px 8px;border-radius:8px;margin-bottom:3px;font-size:.8rem;background:' + (bad ? '#ffebee' : '#f1f8e9') + ';color:' + (bad ? '#b71c1c' : '#1b5e20') + ';">' +
+                    '<span>' + (bad ? '⚠️ ' : '🟢 ') + esc(a.name || a.username) + (a.workplace ? ' · ' + esc(a.workplace) : '') + '</span>' +
+                    '<span>' + new Date(a.shiftStart).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) + ' · ' + dur + (bad ? ' · ' + tt('כנראה נשכחה פתוחה', 'อาจลืมปิด', 'ربما نُسيت') : '') + '</span></div>';
+                }).join('');
+              }
               var numEl = document.getElementById('dashConnectedNum');
               if (numEl) numEl.textContent = list.length;
               var whoEl = document.getElementById('dashConnectedWho');

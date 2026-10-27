@@ -205,6 +205,8 @@ var ChangeLog = (function () {
     box.innerHTML =
       (gev.length ? '<div class="cl-e" style="border-color:#f0c36d;background:#fffaf0;"><div class="cl-h"><b>⚠️ ' + tt('הגנות השרת — אירועים אחרונים', 'การป้องกันเซิร์ฟเวอร์ — เหตุการณ์ล่าสุด', 'حمايات الخادم — أحداث أخيرة') + '</b></div>' +
         gev.map(function (g) {
+          if (g.kind === 'open_shift') return '<div class="cl-c">' + when(g.at) + ' · <b>' + esc(g.name || g.username) + '</b> · 🕐 ' +
+            tt('משמרת פתוחה מאז', 'กะเปิดตั้งแต่', 'وردية مفتوحة منذ') + ' ' + when(g.since) + ' (' + g.hours + ' ' + tt('שעות', 'ชม.', 'ساعات') + ')' + (g.workplace ? ' · ' + esc(g.workplace) : '') + '</div>';
           if (g.kind === 'reverted') return '<div class="cl-c">' + when(g.at) + ' · <b>' + esc(who({ email: g.email })) + '</b> · ↩️ ' +
             tt('שינוי לא מורשה הוחזר אוטומטית', 'การเปลี่ยนแปลงที่ไม่ได้รับอนุญาตถูกย้อนกลับ', 'أُعيد تغيير غير مصرح به') + ' (' + g.n + ') · ' + esc(areaOf('appData', g.doc || '')) +
             (g.labels && g.labels.length ? ' · <span class="cl-v">' + esc(g.labels.map(function (l) { return lbl({ label: l }); }).join(' | ')) + '</span>' : '') + '</div>';
@@ -242,7 +244,9 @@ var ChangeLog = (function () {
       var fresh = ev.filter(function (g) { return g.at > seen; });
       if (fresh.length) {
         loadUsers().then(function () {
-          var dem = fresh.filter(function (g) { return g.kind !== 'reverted'; }), rev = fresh.filter(function (g) { return g.kind === 'reverted'; });
+          var dem = fresh.filter(function (g) { return g.kind !== 'reverted' && g.kind !== 'open_shift'; }), rev = fresh.filter(function (g) { return g.kind === 'reverted'; });
+          var osh = fresh.filter(function (g) { return g.kind === 'open_shift'; });
+          if (osh.length) toast('🕐 ' + tt('משמרת פתוחה יותר מ־16 שעות: ', 'กะเปิดนานเกิน 16 ชม.: ', 'وردية مفتوحة أكثر من 16 ساعة: ') + osh.map(function (g) { return g.name || g.username; }).join(', '));
           if (dem.length) toast('⚠️ ' + tt('הגנת עומס: ', 'ป้องกันโหลด: ', 'حماية الحمل: ') + dem.map(function (g) { return who({ email: g.email }); }).join(', ') + ' ' + tt('הועבר/ו לצפייה בלבד. פרטים בלוג השינויים.', 'ถูกลดเป็นดูอย่างเดียว', 'نُقل/وا للعرض فقط'));
           else if (rev.length) toast('↩️ ' + tt('שינוי לא מורשה הוחזר: ', 'ย้อนกลับการเปลี่ยนแปลง: ', 'أُعيد تغيير: ') + rev.map(function (g) { return who({ email: g.email }); }).join(', ') + ' · ' + tt('פרטים בלוג השינויים', 'ดูบันทึก', 'التفاصيل في السجل'));
         });
