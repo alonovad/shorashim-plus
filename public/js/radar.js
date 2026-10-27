@@ -98,7 +98,7 @@ var Radar = (function () {
     if (!st.layers[f.key]) {
       st.layers[f.key] = st.src === 'ims'
         ? L.imageOverlay(f.url, st.bounds, { opacity: 0, zIndex: 450, interactive: false,
-            attribution: 'מכ״ם: באדיבות <a href="https://ims.gov.il" target="_blank" rel="noopener">השירות המטאורולוגי</a>' })
+            attribution: tt('מכ״ם: באדיבות', 'เรดาร์: ได้รับความอนุเคราะห์จาก', 'الرادار: بإذن من') + ' <a href="https://ims.gov.il" target="_blank" rel="noopener">' + tt('השירות המטאורולוגי', 'กรมอุตุนิยมวิทยาอิสราเอล', 'الأرصاد الجوية الإسرائيلية') + '</a>' })
         : L.tileLayer(st.host + f.path + '/256/{z}/{x}/{y}/2/1_1.png', {
             opacity: 0, zIndex: 450, maxNativeZoom: 7, maxZoom: 20, tileSize: 256, crossOrigin: true,
             attribution: 'Radar © <a href="https://www.rainviewer.com" target="_blank" rel="noopener">RainViewer</a>' });
