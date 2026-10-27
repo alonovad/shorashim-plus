@@ -314,7 +314,7 @@ var HarvestResults = (function () {
           '<span class="hv-kpi">' + kg(t.total) + ' ' + tt('ק"ג', 'กก.', 'كغ') + '</span>' +
           (t.total ? '<span class="hv-kpi p">' + tt('יצוא', 'ส่งออก', 'تصدير') + ' ' + pct(exp) + '</span>' : '') +
           (t.priced ? '<span class="hv-kpi">' + money(t.revenue) + '</span>' : '') +
-          (window.Shipments && canEdit() ? '<button type="button" class="hv-kpi" data-hvfin="' + esc(r.id) + '" data-hvf="' + esc(r.farmId) + '" style="border:0;cursor:pointer;">💰 ' + tt('חשבון ותזרים', 'บัญชีและกระแสเงิน', 'الحساب والتدفق') + '</button>' : '') +
+          (window.Shipments && canEdit() ? '<button type="button" class="hv-kpi no-ripple" data-hvfin="' + esc(r.id) + '" data-hvf="' + esc(r.farmId) + '" style="border:0;cursor:pointer;padding:6px 12px;">💰 ' + tt('חשבון ותזרים', 'บัญชีและกระแสเงิน', 'الحساب والتدفق') + '</button>' : '') +
         '</div></div>';
     }).join('');
 
@@ -333,9 +333,16 @@ var HarvestResults = (function () {
     document.getElementById('hvFarm').addEventListener('change', function () { farmFilter = this.value; paint(); });
     var nb = document.getElementById('hvNew');
     if (nb) nb.addEventListener('click', function () { openEditor(null); });
+    // The account button sits inside the card. With a mouse, a press that
+    // starts on the button and is released a pixel off it (the button
+    // shrinks while pressed) is a click on the CARD, which opened the report
+    // editor. Where the press began decides.
+    var downFin = null;
     el.querySelectorAll('[data-hv]').forEach(function (c) {
+      c.addEventListener('pointerdown', function (e) { var b = e.target.closest('[data-hvfin]'); downFin = b ? { b: b, t: Date.now() } : null; });
       c.addEventListener('click', function (e) {
-        var fb = e.target.closest('[data-hvfin]');
+        var fb = e.target.closest('[data-hvfin]') || (downFin && Date.now() - downFin.t < 1500 && c.contains(downFin.b) ? downFin.b : null);
+        downFin = null;
         if (fb) { if (window.Shipments) Shipments.open(Number(fb.getAttribute('data-hvf')), 'fin', fb.getAttribute('data-hvfin')); return; }
         openEditor(this.getAttribute('data-hv'));
       });
