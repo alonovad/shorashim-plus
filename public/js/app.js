@@ -2618,7 +2618,9 @@
     var k = String(p.farm_id);
     return _writeSelf(function(u) {
       var pf = Object.assign({}, u.primary_by_farm || {});
-      if (on) { pf[k] = p.id; u.primary_plot_id = p.id; }
+      // a farm's own primary plot only; the plot the map opens on stays
+      // as chosen in the profile (it used to follow the last star set)
+      if (on) { pf[k] = p.id; if (!u.primary_plot_id) u.primary_plot_id = p.id; }
       else { pf[k] = 0; if (u.primary_plot_id === p.id) u.primary_plot_id = null; }
       u.primary_by_farm = pf;
     }, on ? '⭐ ' + locName(p) + ' · ' + t('חלקה ראשית במשק') : '📍 ' + t('חלקה ראשית בוטלה'));
