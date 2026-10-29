@@ -73,6 +73,20 @@ service firebase.storage {
          request.resource.contentType == 'application/pdf');
     }
 
+    // Site photos of maintenance / construction projects (maintenance.js),
+    // maint-photos/{projectId}/{photoId}.jpg, compressed on the device.
+    // Anyone signed in with a working role (not viewer) adds them - the
+    // project's own access list decides in the app who may; each file
+    // carries its uploader's uid, and only that uploader or admin deletes.
+    match /maint-photos/{projectId}/{file} {
+      allow read: if signedIn();
+      allow create: if signedIn() && role() in ['admin', 'operator', 'worker'] &&
+        request.resource.size < 6 * 1024 * 1024 &&
+        request.resource.contentType.matches('image/.*') &&
+        request.resource.metadata.uid == request.auth.uid;
+      allow delete: if signedIn() && (role() == 'admin' || resource.metadata.uid == request.auth.uid);
+    }
+
     match /{allPaths=**} {
       allow read, write: if false;
     }

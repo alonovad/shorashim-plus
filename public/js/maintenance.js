@@ -968,6 +968,9 @@ var Maintenance = (function() {
               annotatedIllustration(p) + '</div></div>';
           }
 
+          // Photos with explanations, chosen per document
+          bodyH += photosSection(p, pid, permEdit);
+
           // Cost summary
           bodyH += '<div style="background:var(--surface-glass, #f5f7f5);border-radius:12px;padding:14px;margin-bottom:18px;">' + sectTitle('💰', tt('סיכום עלויות','สรุปต้นทุน','ملخص التكاليف')) +
           '<div style="display:grid;gap:4px;font-size:0.88rem;margin-top:8px;">' +
@@ -2009,6 +2012,146 @@ var Maintenance = (function() {
   }
 
   // ══════════════════════════════════════
+  //  PROJECT PHOTOS (Oct 2026)
+  //  Site photos with a short explanation each, kept in Storage under
+  //  maint-photos/{projectId}/ (compressed on the device) and listed on the
+  //  project as p.photos [{id, path, url, caption, docs:{quote,contract,
+  //  internal}, createdBy…}]. Each photo says which documents print it.
+  //  Anyone allowed to add records adds photos; a photo is edited or
+  //  deleted by whoever added it, or admin.
+  // ══════════════════════════════════════
+  var PHOTO_DOCS = function () { return [['quote', tt('הצעת מחיר', 'ใบเสนอราคา', 'عرض سعر')], ['contract', tt('חוזה', 'สัญญา', 'عقد')], ['internal', tt('דוח פנימי', 'รายงานภายใน', 'تقرير داخلي')]]; };
+  function photosSection(p, pid, permEdit) {
+    var ph = p.photos || [];
+    var h = '<div style="margin-bottom:18px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">' +
+      sectTitle('📷', tt('תמונות', 'รูปภาพ', 'صور') + (ph.length ? ' (' + ph.length + ')' : '')) +
+      (permEdit ? '<button onclick="Maintenance._photoAdd(' + pid + ')" style="font-size:0.78rem;padding:5px 12px;border-radius:8px;border:1px solid #1c8c7a;background:transparent;color:#1c8c7a;font-family:inherit;font-weight:700;cursor:pointer;">➕ ' + tt('הוסף תמונות', 'เพิ่มรูป', 'إضافة صور') + '</button>' : '') +
+      '</div>';
+    if (!ph.length) return h + '<div style="text-align:center;color:var(--text-muted, #999);padding:8px;font-size:.85rem;">' + tt('אין תמונות. אפשר לצלם או להעלות, להוסיף הסבר לכל תמונה ולבחור באילו מסמכים היא תופיע.', 'ยังไม่มีรูป', 'لا صور بعد') + '</div></div>';
+    h += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;">';
+    ph.forEach(function (x) {
+      var mine = !window.Own || Own.canEdit(x);
+      var on = PHOTO_DOCS().filter(function (d) { return x.docs && x.docs[d[0]]; }).map(function (d) { return d[1]; });
+      h += '<div style="border:1px solid var(--border, #ddd);border-radius:10px;overflow:hidden;background:#fff;">' +
+        '<img src="' + esc(x.url) + '" alt="" loading="lazy" onclick="Maintenance._photoView(' + pid + ",'" + x.id + '\')" style="display:block;width:100%;height:110px;object-fit:cover;cursor:zoom-in;">' +
+        '<div style="padding:6px 8px;font-size:.76rem;">' +
+          '<div style="min-height:1.2em;white-space:pre-line;">' + (x.caption ? esc(x.caption) : '<span style="color:#aaa;">' + tt('ללא הסבר', 'ไม่มีคำอธิบาย', 'بلا شرح') + '</span>') + '</div>' +
+          '<div style="color:#1c8c7a;margin-top:3px;">' + (on.length ? '📄 ' + esc(on.join(' · ')) : '<span style="color:#aaa;">' + tt('לא מופיעה במסמכים', 'ไม่อยู่ในเอกสาร', 'ليست في المستندات') + '</span>') + '</div>' +
+          (mine ? '<div style="display:flex;gap:6px;margin-top:4px;"><button onclick="Maintenance._photoEdit(' + pid + ",'" + x.id + '\')" style="border:none;background:none;cursor:pointer;font-size:.9rem;" title="' + esc(tt('עריכה', 'แก้ไข', 'تعديل')) + '">✏️</button>' +
+            '<button onclick="Maintenance._photoDel(' + pid + ",'" + x.id + '\')" style="border:none;background:none;cursor:pointer;font-size:.9rem;" title="' + esc(tt('מחיקה', 'ลบ', 'حذف')) + '">🗑️</button></div>' : '') +
+        '</div></div>';
+    });
+    return h + '</div></div>';
+  }
+  function _photoCompress(file) {
+    return new Promise(function (res, rej) {
+      var url = URL.createObjectURL(file), img = new Image();
+      img.onload = function () {
+        var max = 1600, w = img.naturalWidth, hh = img.naturalHeight, k = Math.min(1, max / Math.max(w, hh));
+        var cv = document.createElement('canvas'); cv.width = Math.round(w * k); cv.height = Math.round(hh * k);
+        cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+        URL.revokeObjectURL(url);
+        cv.toBlob(function (b) { b ? res(b) : rej(new Error('encode')); }, 'image/jpeg', 0.82);
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); rej(new Error('decode')); };
+      img.src = url;
+    });
+  }
+  function _photoAdd(pid) {
+    if (typeof firebase === 'undefined' || !firebase.storage) { showToast('❌ ' + tt('אין חיבור לאחסון', 'ไม่มีที่เก็บ', 'لا تخزين')); return; }
+    var inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.multiple = true;
+    inp.onchange = function () {
+      var files = Array.prototype.slice.call(inp.files || [], 0, 20); if (!files.length) return;
+      var added = [], i = 0;
+      showToast('⏳ ' + tt('מעלה', 'กำลังอัปโหลด', 'جارٍ الرفع') + ' ' + files.length + '…');
+      (function next() {
+        if (i >= files.length) {
+          if (!added.length) { showToast('❌ ' + tt('ההעלאה נכשלה', 'อัปโหลดไม่สำเร็จ', 'فشل الرفع')); return; }
+          loadProjects().then(function (ps) {
+            var p = ps.find(function (x) { return x.id === pid; }); if (!p) return;
+            p.photos = (p.photos || []).concat(added); p.updated = Date.now();
+            if (saveProjects(ps)) { showToast('✅ ' + added.length + ' ' + tt('תמונות נוספו', 'รูปถูกเพิ่ม', 'صور أُضيفت')); showDetail(pid); if (added.length === 1) _photoEdit(pid, added[0].id); }
+          });
+          return;
+        }
+        var f = files[i++], id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+        var path = 'maint-photos/' + pid + '/' + id + '.jpg';
+        _photoCompress(f).then(function (blob) {
+          var ref = firebase.storage().ref(path);
+          var uid = (firebase.auth().currentUser || {}).uid || '';
+          return ref.put(blob, { contentType: 'image/jpeg', customMetadata: { uid: uid, project: String(pid) } }).then(function () { return ref.getDownloadURL(); });
+        }).then(function (url) {
+          added.push(_stamp({ id: id, path: path, url: url, caption: '', docs: { quote: true, contract: false, internal: true }, at: Date.now() }));
+        }, function (e) { console.error('[maint photo]', e); }).then(next);
+      })();
+    };
+    inp.click();
+  }
+  function _photoFind(ps, pid, id) { var p = ps.find(function (x) { return x.id === pid; }); return p ? { p: p, x: (p.photos || []).find(function (y) { return y.id === id; }) } : {}; }
+  function _photoEdit(pid, id) {
+    loadProjects().then(function (ps) {
+      var r = _photoFind(ps, pid, id); if (!r.x) return;
+      if (window.Own && !Own.canEdit(r.x)) { Own.denied(); return; }
+      var mc = document.getElementById('modalContainer');
+      mc.innerHTML = '<div class="modal-overlay"><div class="modal" style="max-width:520px;">' +
+        '<h2>📷 ' + tt('תמונה והסבר', 'รูปและคำอธิบาย', 'صورة وشرح') + '</h2>' +
+        '<img src="' + esc(r.x.url) + '" style="width:100%;max-height:320px;object-fit:contain;border-radius:10px;background:#f4f4f4;margin-bottom:10px;">' +
+        '<label style="' + lblS + '">' + tt('הסבר (יופיע מתחת לתמונה במסמכים)', 'คำอธิบาย', 'شرح') + '</label>' +
+        '<textarea id="mphCap" rows="3" style="' + inputS + 'resize:vertical;" placeholder="' + esc(tt('למשל: מצב הגג הקיים, נקודת חיבור החשמל, המקום שבו יוצב המבנה', 'เช่น สภาพหลังคา', 'مثلاً: حالة السقف')) + '">' + esc(r.x.caption || '') + '</textarea>' +
+        '<div style="' + lblS + 'margin-top:10px;">' + tt('להציג במסמכים', 'แสดงในเอกสาร', 'إظهار في المستندات') + '</div>' +
+        '<div style="display:flex;gap:12px;flex-wrap:wrap;font-size:.88rem;">' + PHOTO_DOCS().map(function (d) {
+          return '<label style="display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" id="mphD_' + d[0] + '"' + (r.x.docs && r.x.docs[d[0]] ? ' checked' : '') + '> ' + d[1] + '</label>';
+        }).join('') + '</div>' +
+        '<div class="modal-buttons" style="margin-top:14px;"><button class="btn btn-primary" id="mphSave">' + tt('שמור', 'บันทึก', 'حفظ') + '</button>' +
+        '<button class="btn btn-secondary" onclick="Maintenance.showDetail(' + pid + ')">' + tt('ביטול', 'ยกเลิก', 'إلغاء') + '</button></div></div></div>';
+      document.getElementById('mphSave').onclick = function () {
+        var cap = document.getElementById('mphCap').value.trim(), docs = {};
+        PHOTO_DOCS().forEach(function (d) { docs[d[0]] = !!document.getElementById('mphD_' + d[0]).checked; });
+        loadProjects().then(function (ps2) {
+          var r2 = _photoFind(ps2, pid, id); if (!r2.x) return;
+          r2.x.caption = cap; r2.x.docs = docs; r2.p.updated = Date.now();
+          if (saveProjects(ps2)) { showToast(tt('✅ נשמר', '✅ บันทึกแล้ว', '✅ تم الحفظ')); showDetail(pid); }
+        });
+      };
+    });
+  }
+  function _photoDel(pid, id) {
+    loadProjects().then(function (ps) {
+      var r = _photoFind(ps, pid, id); if (!r.x) return;
+      if (window.Own && !Own.canEdit(r.x)) { Own.denied(); return; }
+      if (!confirm(tt('למחוק את התמונה?', 'ลบรูปนี้?', 'حذف الصورة؟'))) return;
+      r.p.photos = (r.p.photos || []).filter(function (y) { return y.id !== id; }); r.p.updated = Date.now();
+      if (saveProjects(ps)) {
+        // the file goes too (admin or its uploader; storage rules)
+        try { firebase.storage().ref(r.x.path).delete().catch(function () {}); } catch (e) {}
+        _audit('delete', pid, { before: r.x, reason: 'project photo' });
+        showDetail(pid);
+      }
+    });
+  }
+  function _photoView(pid, id) {
+    loadProjects().then(function (ps) {
+      var r = _photoFind(ps, pid, id); if (!r.x) return;
+      var mc = document.getElementById('modalContainer');
+      mc.innerHTML = '<div class="modal-overlay" onclick="if(event.target===this)Maintenance.showDetail(' + pid + ')"><div class="modal" style="max-width:900px;padding:12px;">' +
+        '<img src="' + esc(r.x.url) + '" style="width:100%;max-height:75vh;object-fit:contain;border-radius:10px;background:#111;">' +
+        (r.x.caption ? '<div style="margin-top:8px;white-space:pre-line;">' + esc(r.x.caption) + '</div>' : '') +
+        '<div class="modal-buttons" style="margin-top:10px;"><button class="btn btn-secondary" onclick="Maintenance.showDetail(' + pid + ')">' + tt('סגור', 'ปิด', 'إغلاق') + '</button></div></div></div>';
+    });
+  }
+  // Photos chosen for one document, two to a row, each with its explanation
+  function photosPdf(p, doc) {
+    var ph = (p.photos || []).filter(function (x) { return x.docs && x.docs[doc] && x.url; });
+    if (!ph.length) return '';
+    return '<div class="section">📷 ' + tt('תמונות', 'รูปภาพ', 'صور') + '</div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">' + ph.map(function (x, i) {
+        return '<div style="break-inside:avoid;border:1px solid #ddd;border-radius:8px;overflow:hidden;">' +
+          '<img src="' + esc(x.url) + '" style="display:block;width:100%;height:210px;object-fit:cover;">' +
+          '<div style="padding:6px 8px;font-size:.8rem;line-height:1.5;white-space:pre-line;"><b>' + (i + 1) + '.</b> ' + esc(x.caption || '') + '</div></div>';
+      }).join('') + '</div>';
+  }
+
+  // ══════════════════════════════════════
   //  PDF EXPORTS
   // ══════════════════════════════════════
   var pdfCss = '@page{margin:14mm}*{-webkit-print-color-adjust:exact;print-color-adjust:exact}body{font-family:-apple-system,"Segoe UI",Arial,sans-serif;color:#10303f;direction:rtl;line-height:1.6;margin:0;--accent:#1c6e8c;--accent-strong:#0d3b53;--accent-soft:#eaf3f7;--line:#d8e8ee}.header{position:relative;padding:30px 32px 28px;margin-bottom:22px;overflow:hidden;background:linear-gradient(180deg,#f4fafc,#ffffff 80%);border-bottom:1px solid var(--line)}.header h1{font-size:1.45rem;margin:0 0 4px;color:var(--accent-strong);font-weight:800;letter-spacing:-.01em}.header .meta{font-size:.85rem;color:#5b7886}.header::after{content:"";position:absolute;left:0;right:0;bottom:0;height:10px;background:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27120%27%20height%3D%2712%27%20viewBox%3D%270%200%20120%2012%27%3E%3Cpath%20d%3D%27M0%207%20Q15%201%2030%207%20T60%207%20T90%207%20T120%207%27%20fill%3D%27none%27%20stroke%3D%27%237fb8cf%27%20stroke-width%3D%272%27%2F%3E%3C%2Fsvg%3E") repeat-x bottom;background-size:auto 10px;opacity:.55}.brandmark{position:absolute;top:22px;left:30px;height:56px;width:auto;opacity:.24}.content{padding:0 26px}.section{font-size:.8rem;font-weight:800;letter-spacing:.03em;margin:22px 0 8px;padding:7px 12px;border-radius:8px;color:var(--accent-strong);background:var(--accent-soft);border-right:4px solid var(--accent)}table{width:100%;border-collapse:collapse;font-size:.85rem;margin-bottom:14px}th{padding:9px 10px;text-align:right;font-weight:700;font-size:.76rem;color:var(--accent-strong);background:var(--accent-soft);border-bottom:2px solid var(--line)}td{padding:8px 10px;border-bottom:1px solid var(--line)}tr:nth-child(even) td{background:#f7fbfd}tfoot td{font-weight:800;border-top:2px solid var(--accent);background:#fff}.summary{background:linear-gradient(180deg,var(--accent-soft),#ffffff);border:1px solid var(--line);border-radius:14px;padding:18px;margin:20px 0}.sr{display:flex;justify-content:space-between;padding:5px 0;font-size:.92rem;color:#284b59}.st{font-size:1.25rem;font-weight:800;border-top:2px solid var(--accent);padding-top:9px;margin-top:8px;color:var(--accent-strong)}.footer{text-align:center;padding:18px;margin-top:22px;font-size:.78rem;color:#6c8a97;border-top:1px solid var(--line)}.field{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line);font-size:.9rem}.field-label{color:#5b7886}.field-value{font-weight:600;color:var(--accent-strong)}.watermark{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-28deg);font-size:5rem;opacity:.05;font-weight:900;color:var(--accent-strong);pointer-events:none;z-index:0}';
@@ -2111,6 +2254,7 @@ var Maintenance = (function() {
         '<div class="header"><img src="' + window.OGEN_LOGO + '" alt="OGEN" class="brandmark"><h1>🔧 ' + L.title + '</h1><div class="meta">' + p.name + (p.client ? ' · ' + L.forCust + ': ' + p.client : '') + ' · ' + today + '</div></div><div class="content">' +
         ((p.quoteIntro || p.description) ? '<div style="background:var(--accent-soft);border-inline-start:4px solid var(--accent);border-radius:10px;padding:12px 14px;margin-bottom:16px;font-size:.9rem;line-height:1.65;white-space:pre-line;color:#28444f;">' + esc(p.quoteIntro || p.description) + '</div>' : '') +
         illustrationBlock(p) +
+        photosPdf(p, 'quote') +
         sectionTable(L.materials, '📦', matR, matRate, L.item, L.totMat, tot.materialsTotal) +
         sectionTable(L.labor, '👷', labR, labRate, L.desc, L.totLab, tot.laborTotal) +
         sectionTable(L.grouped, '🧩', mixR, false, L.desc, L.totGrouped, tot.groupsTotal) +
@@ -2251,6 +2395,7 @@ var Maintenance = (function() {
           '<div class="sr"><span>' + L.totRealCost + '</span><span>₪' + fmt(ic.totalCost) + '</span></div>' +
           '<div class="sr"><span>' + L.offerBVat + '</span><span>₪' + fmt(ic.clientBeforeVat) + '</span></div>' +
           '<div class="sr st"><span>' + L.profit + ' (' + ic.margin.toFixed(1) + '%)</span><span>₪' + fmt(ic.profit) + '</span></div></div>' +
+        photosPdf(p, 'internal') +
         '</div><div class="footer"><span style="color:#e65100;font-weight:700;">🔒 ' + L.brand + '</span> · ' + today + '</div></body></html>';
       _downloadPDF(html, 'internal-' + p.name.replace(/\s+/g, '-') + '-' + new Date().toISOString().slice(0,10) + '.pdf');
       showToast(tt('📊 דו"ח פנימי הורד','📊 ดาวน์โหลดรายงานภายในแล้ว','📊 تم تنزيل التقرير الداخلي'));
@@ -2349,6 +2494,7 @@ var Maintenance = (function() {
         '<div class="field"><span class="field-label">' + L.payTerms + '</span><span class="field-value">' + pt.label + '</span></div>' +
         (c.totalValue ? '<div class="field" style="border-bottom:none;font-size:1.1rem;"><span class="field-label" style="font-weight:700;">' + L.contractVal + '</span><span class="field-value" style="color:#1565c0;font-size:1.2rem;">₪' + fmt(c.totalValue) + '</span></div>' : '') +
         (c.notes ? '<div class="section">' + L.notes + '</div><div style="font-size:.88rem;color:var(--text-muted, #555);">' + c.notes + '</div>' : '') +
+        photosPdf(p, 'contract') +
         '</div><div class="footer"><span style="color:#1565c0;font-weight:700;">🌿 ' + L.brand + '</span> · ' + L.title + ' · ' + today + '</div></body></html>';
       _downloadPDF(html, 'contract-' + p.name.replace(/\s+/g, '-') + '-' + new Date().toISOString().slice(0,10) + '.pdf');
       showToast(tt('📋 חוזה הורד','📋 ดาวน์โหลดสัญญาแล้ว','📋 تم تنزيل العقد'));
@@ -2401,6 +2547,7 @@ var Maintenance = (function() {
     showProjectsList: showProjectsList, showDetail: showDetail, showNewProject: showNewProject,
     showDashboard: showDashboard, _filterList: _filterList,
     _saveProject: _saveProject,
+    _photoAdd: _photoAdd, _photoEdit: _photoEdit, _photoDel: _photoDel, _photoView: _photoView,
     _addMat: _addMat, _saveMat: _saveMat, _editMat: _editMat, _delMat: _delMat,
     _addLab: _addLab, _saveLab: _saveLab, _editLab: _editLab, _delLab: _delLab,
     _addShip: _addShip, _saveShip: _saveShip, _delShip: _delShip, _delProj: _delProj,
