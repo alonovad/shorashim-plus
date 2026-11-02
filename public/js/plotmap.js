@@ -169,6 +169,14 @@ var PlotMap = (function () {
     up.pop(); lo.pop();
     return lo.concat(up);
   }
+  function inPoly(pt, poly) {
+    var x = pt[0], y = pt[1], inside = false;
+    for (var i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      var xi = poly[i][0], yi = poly[i][1], xj = poly[j][0], yj = poly[j][1];
+      if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) inside = !inside;
+    }
+    return inside;
+  }
   function farms_() {
     if (!farmLayer) farmLayer = L.layerGroup().addTo(map);
     farmLayer.clearLayers();
@@ -203,8 +211,25 @@ var PlotMap = (function () {
         if (hl.length < 3) continue;
         var cx = 0, cy = 0; hl.forEach(function (q) { cx += q[0]; cy += q[1]; }); cx /= hl.length; cy /= hl.length;
         var lls = hl.map(function (q) { return L.latLng(cy + (q[1] - cy) * 1.06 + (q[1] > cy ? 0.00008 : -0.00008), cx + (q[0] - cx) * 1.06 + (q[0] > cx ? 0.0001 : -0.0001)); });
-        L.polygon(lls, { color: sat() ? '#ffffff' : '#2f6f45', opacity: 0.6, weight: 1.6, dashArray: '6,6', fill: false, interactive: false }).addTo(farmLayer);
-        var top = lls.reduce(function (m, q) { return q.lat > m.lat ? q : m; }, lls[0]);
+        // A farm whose plots sit among another farm's plots: its convex
+        // outline would cut across the neighbour's plots and its name would
+        // land on ground that is not the farm's. Then no outline, and the
+        // name goes on the group's own largest plot.
+        var mine = ps.filter(function (o) { return o.g === gi; });
+        var foreign = vis.some(function (q) {
+          if (String(q.farm_id) === String(fid)) return false;
+          var c = q.layer.getBounds().getCenter();
+          return inPoly([c.lng, c.lat], hl);
+        });
+        var top;
+        if (foreign) {
+          var big = mine.reduce(function (m, o) { return (Number(o.p.area) || 0) > (Number(m.p.area) || 0) ? o : m; }, mine[0]);
+          var bb = big.b; top = L.latLng(bb.getNorth(), bb.getCenter().lng);
+          lls = [bb.getNorthWest(), bb.getNorthEast(), bb.getSouthEast(), bb.getSouthWest()];
+        } else {
+          L.polygon(lls, { color: sat() ? '#ffffff' : '#2f6f45', opacity: 0.6, weight: 1.6, dashArray: '6,6', fill: false, interactive: false }).addTo(farmLayer);
+          top = lls.reduce(function (m, q) { return q.lat > m.lat ? q : m; }, lls[0]);
+        }
         var pa = map.latLngToContainerPoint(L.latLngBounds(lls).getNorthWest()), pb = map.latLngToContainerPoint(L.latLngBounds(lls).getSouthEast());
         if (Math.abs(pb.x - pa.x) < 70) continue;  // too small at this zoom for a name tag
         L.marker(top, { interactive: false, keyboard: false, icon: L.divIcon({ className: 'pm-wrap', iconSize: [0, 0],
