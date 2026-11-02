@@ -354,7 +354,7 @@ var AgriPlan = (function () {
     r = r || {};
     var method = 'spray';
     METHODS.forEach(function (m) { if (m.v === r.method) method = r.method; });
-    return {
+    var out = {
       id: r.id || uid(),
       method: method,
       farmId: (r.farmId === null || r.farmId === undefined) ? null : Number(r.farmId),
@@ -368,8 +368,25 @@ var AgriPlan = (function () {
       start: isoDate(r.start),               // מועד התחלה מומלץ (date)
       container: Number(r.container) || 0,   // manual drench: bucket / container size, litres
       note: String(r.note || ''),
+      // true once someone typed a quantity of their own for this row; until
+      // then the row follows the plot (trees, or dunams for a per-dunam op)
+      treesManual: !!r.treesManual,
       materials: Array.isArray(r.materials) ? r.materials.map(normMaterial) : []
     };
+    return followPlot(out);
+  }
+  // A row that targets a whole plot and was not set by hand takes the plot's
+  // CURRENT tree count / area every time the plan is read - so a plot whose
+  // trees were filled in after the plan was made no longer stays at 0 (or at
+  // the old number) in the plan, the print and the totals. Cohort rows (a
+  // split inside the plot) and hand-set rows keep their own number.
+  function followPlot(row) {
+    if (!row.plotId || row.cohort || row.treesManual) return row;
+    var pl = plotById(row.plotId);
+    if (!pl) return row;
+    var q = plotQty(pl, row.method);
+    if (q > 0) row.trees = q;
+    return row;
   }
 
   function normPlan(p) {
@@ -975,6 +992,8 @@ var AgriPlan = (function () {
     if (!S) return null;              // load() still in flight
     var hit = null;
     (S.plans || []).forEach(function (p) { if (p.id === id) hit = p; });
+    // plots change while the plan is open in memory (trees filled in later)
+    if (hit && hit.rows) hit.rows.forEach(followPlot);
     return hit;
   }
 
@@ -1809,7 +1828,13 @@ var AgriPlan = (function () {
     var p = editable(pid);
     if (!p || !p.rows[i]) return;
     var r = p.rows[i];
-    if (k === 'trees') r.trees = Number(v) || 0;
+    if (k === 'trees') {
+      r.trees = Number(v) || 0;
+      // typed equal to the plot (or cleared): keep following the plot
+      var plq = r.plotId ? plotById(r.plotId) : null, qq = plq ? plotQty(plq, r.method) : 0;
+      r.treesManual = !!(r.trees && r.trees !== qq);
+      if (!r.trees) followPlot(r);
+    }
     else if (k === 'carrier') r.carrier = Number(v) || 0;
     else if (k === 'container') r.container = Number(v) || 0;
     else if (k === 'start') r.start = isoDate(v);
