@@ -3440,6 +3440,13 @@
         });
       };
       var base = Date.now(), made = [];
+      // Optional figures from the source (treemap.js measures them from the
+      // imagery); anything missing or out of range stays empty, as before.
+      var impNum = function (v, lo, hi, whole) {
+        var n = Number(v);
+        if (v == null || v === '' || !isFinite(n) || n < lo || n > hi) return null;
+        return whole ? Math.round(n) : Math.round(n * 10) / 10;
+      };
       (items || []).forEach(function (it, i) {
         if (!it || !it.ring || it.ring.length < 3) return;
         var farmId = parseInt(it.farmId, 10);
@@ -3469,11 +3476,12 @@
           area: area,
           areaMeasured: area,
           farm_id: farmId,
-          tree_count: null,
-          row_spacing: null,
-          tree_spacing: null,
+          tree_count: impNum(it.treeCount, 0, 1000000, true),
+          row_spacing: impNum(it.rowSpacing, 0.5, 30, false),
+          tree_spacing: impNum(it.treeSpacing, 0.5, 30, false),
           crop_type: it.cropType || null,
-          plants_per_dunam: null,
+          plants_per_dunam: impNum(it.plantsPerDunam, 1, 100000, true),
+          missing_trees: impNum(it.missingTrees, 0, 1000000, true) || 0,
           layer: layer,
           labelMarker: labelMarker,
           vertices: ring.length,
@@ -3516,6 +3524,35 @@
           if (b.isValid()) map.fitBounds(b, { padding: [50, 50], maxZoom: 17 });
         } catch (e) {}
       }, 120);
+    },
+    // ── tree figures for an existing plot, for treemap.js ──
+    // fields: any of tree_count, missing_trees, tree_spacing, row_spacing,
+    // plants_per_dunam (null = leave as is). ring: optional new primary
+    // outline; detached parts are kept. Admin only (ownership rule).
+    updatePlotTreeData: function (plotId, fields, ring) {
+      var u = currentUser || {};
+      if (u.role !== 'admin') return { ok: false, err: 'forbidden' };
+      var p = (plots || []).filter(function (x) { return x.id === plotId; })[0];
+      if (!p) return { ok: false, err: 'missing' };
+      var lim = { tree_count: [0, 1000000, 1], missing_trees: [0, 1000000, 1], plants_per_dunam: [1, 100000, 1],
+                  tree_spacing: [0.5, 30, 0], row_spacing: [0.5, 30, 0] };
+      Object.keys(lim).forEach(function (k) {
+        if (!fields || fields[k] == null) return;
+        var n = Number(fields[k]), l = lim[k];
+        if (!isFinite(n) || n < l[0] || n > l[1]) return;
+        p[k] = l[2] ? Math.round(n) : Math.round(n * 10) / 10;
+      });
+      if (ring && ring.length >= 3) {
+        var rings = [ring].concat((p.parts || []).filter(function (r) { return r && r.length >= 3; }));
+        return { ok: !!window.MapAccess.setPlotRings(plotId, rings) };   // rebuilds layers and saves once
+      }
+      _unmountPlotLayers(p);
+      _buildPlotLayers(p);
+      _mountPlotLayers(p);
+      saveData();
+      try { renderPlotList(); } catch (e) {}
+      try { document.dispatchEvent(new CustomEvent('shorashim:plots-rendered')); } catch (e) {}
+      return { ok: true };
     },
     setExternalDraw: function (on) {
       if (on) {
