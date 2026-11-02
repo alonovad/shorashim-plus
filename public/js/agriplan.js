@@ -1379,7 +1379,50 @@ var AgriPlan = (function () {
       (errors.length > 30 ? '<li>…</li>' : '') + '</ul></div>';
   }
   function farmIssues(p, fid) {
-    return (_issues && _issues.pid === p.id && _issues.fid === fid && _issues.errors.length) ? issuesBox(_issues.errors) : '';
+    return ((_issues && _issues.pid === p.id && _issues.fid === fid && _issues.errors.length) ? issuesBox(_issues.errors) : '') + coverageGaps(p, fid);
+  }
+  // A plot that one operation of this farm covers and another does not -
+  // usually a plot added to the plan for one operation only (a drench for
+  // plots added later, the spray left out). The farm's total trees then
+  // differ between operations without anything saying why. Each gap is
+  // listed with its plots and trees, and can be filled in one click (rows
+  // copied from that operation: carrier, materials, timing).
+  function gapsOf(p, fid) {
+    var ops = {}, all = {};
+    (p.rows || []).forEach(function (r) {
+      if (r.farmId !== fid || !r.plotId) return;
+      var k = opKey(r.method, r.round);
+      (ops[k] = ops[k] || { method: r.method, round: r.round, sample: r, plots: {} }).plots[r.plotId] = 1;
+      all[r.plotId] = 1;
+    });
+    var keys = Object.keys(ops);
+    if (keys.length < 2) return [];
+    return keys.map(function (k) {
+      var o = ops[k], miss = Object.keys(all).filter(function (pid) { return !o.plots[pid]; }).map(Number);
+      return miss.length ? { key: k, op: o, miss: miss } : null;
+    }).filter(Boolean);
+  }
+  function coverageGaps(p, fid) {
+    var gaps = gapsOf(p, fid);
+    if (!gaps.length) return '';
+    var ro = !canEdit(p);
+    return gaps.map(function (g) {
+      var names = [], trees = 0;
+      g.miss.forEach(function (id) { var pl = plotById(id); if (pl) { names.push(pl.name); trees += plotQty(pl, g.op.method); } });
+      return '<div style="background:#fff8e1;border:1px solid #f0c36d;border-radius:10px;padding:7px 10px;margin:6px 0;font-size:.82rem;line-height:1.6;">⚠️ <b>' + esc(opLabel(g.op.method, g.op.round)) + '</b>: ' +
+        tt('חסרות', 'ขาด', 'ينقص') + ' ' + g.miss.length + ' ' + tt('חלקות שנמצאות בפעולות אחרות של המשק', 'แปลงที่อยู่ในงานอื่น', 'قطع موجودة في عمليات أخرى') +
+        ' (' + trees.toLocaleString() + ' ' + qtyWord(g.op.method) + '): ' + esc(names.join(', ')) +
+        (ro ? '' : ' <button class="ap-btn ghost ap-mini" data-no-sticky data-no-back onclick="AgriPlan._gapFill(' + p.id + ',' + fid + ',\'' + esc(g.key) + '\')">➕ ' + tt('הוסף אותן', 'เพิ่ม', 'أضفها') + '</button>') + '</div>';
+    }).join('');
+  }
+  function _gapFill(pid, fid, key) {
+    var p = editable(pid); if (!p) return;
+    var g = gapsOf(p, fid).find(function (x) { return x.key === key; }); if (!g) return;
+    var op = { method: g.op.method, round: g.op.round, key: key, src: g.op.sample };
+    g.miss.forEach(function (id) { var pl = plotById(id); if (pl) p.rows.push(newOpRow(op, fid, id, plotQty(pl, g.op.method), '')); });
+    save();
+    toast('✅ ' + g.miss.length + ' ' + tt('חלקות נוספו ל', 'แปลงเพิ่มใน', 'قطع أُضيفت إلى ') + opLabel(g.op.method, g.op.round));
+    showPlan(pid);
   }
   // ── In the farm's spray log or not ──
   function logToggle(p, fid, ro) {
@@ -4675,6 +4718,7 @@ var AgriPlan = (function () {
     openPlan: openPlan,
     farmCard: farmCard,
     _logToggle: _logToggle,
+    _gapFill: _gapFill,
     prepareLog: prepareLog,
     logPending: logPending,
     logSection: logSection,
