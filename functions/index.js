@@ -1258,11 +1258,11 @@ const INVENTORY_TOOL = {
           type: "object",
           properties: {
             kind: { type: "string", enum: ["pesticide", "fertilizer", "equipment", "other"],
-              description: "pesticide = crop-protection product (insecticide, fungicide, herbicide, acaricide, oil, adjuvant); fertilizer = fertilizer or nutrient; equipment = a machine, sprayer, vehicle or tool (not a consumable); other = any other consumable." },
+              description: "pesticide = crop-protection product (insecticide, fungicide, herbicide, acaricide, oil, adjuvant); fertilizer = fertilizer or nutrient; equipment = a machine, sprayer, vehicle or a tool kept and tracked as one piece (pump, generator, chainsaw, ladder); other = any other goods, including building, fencing and irrigation materials (poles, posts, fence rolls, mesh, wire, pipes, fittings, bolts, sheets) — these are materials with a quantity, never equipment." },
             name: { type: "string", description: "Product or item name as written (Hebrew as written; keep trade names)." },
             product: { type: "string", description: "The generic product name without pack size, quantity or supplier code (e.g. 'טוטם', 'אשלגן כלורי', 'צינור טפטוף 16 מ\"מ'), so the same product groups across suppliers and pack sizes." },
             catalogue_match: { type: "string", description: "If kind is pesticide and the product is one of the catalogue names given, that exact catalogue name; else empty." },
-            qty: { type: "number", description: "Total quantity delivered/owned in `unit` (multiply packs × pack size when both are shown). 1 for a single piece of equipment." },
+            qty: { type: "number", description: "Total quantity delivered/owned in `unit` (multiply packs × pack size when both are shown). A line of 30 poles is ONE item with qty 30, never 30 items." },
             unit: { type: "string", description: "ליטר, ק\"ג, יחידה, שק, etc." },
             base_unit: { type: "string", enum: ["ליטר", "ק\"ג", "יחידה", "מטר", "טון", ""], description: "The unit a price is compared in: litres for liquids, kg for solids, unit for pieces, metre for pipe/wire." },
             unit_price: { type: "number", description: "Price in ₪ per ONE base_unit, BEFORE VAT (convert packs: a 5 L can at 450 ₪ → 90 per litre; remove VAT if the document's prices include it). 0 if no price on the document." },
@@ -1284,7 +1284,7 @@ const INVENTORY_TOOL = {
 };
 const INVENTORY_SYSTEM = [
   "You read Israeli farm documents — supplier invoices, delivery notes (תעודת משלוח), receipts, stock lists — and photos of products or equipment, and report what they add to a farm's stock and equipment.",
-  "Report each line once. Skip lines that are services, transport, discounts, deposits or VAT. Quantities are what was supplied; prices go in unit_price (per base unit, before VAT) and line_total.",
+  "Report each document line once, as one item carrying the line's quantity — never one item per piece. Building and fencing materials (poles, posts, fences, mesh, wire, pipes) are kind other, not equipment. Skip lines that are services, transport, discounts, deposits or VAT. Quantities are what was supplied; prices go in unit_price (per base unit, before VAT) and line_total.",
   "Hebrew documents are right-to-left; read numbers carefully (a comma may be a thousands separator).",
   "For a photo of a single product or machine, report that one item (qty 1 for equipment; for a product container, qty = its labelled volume or weight).",
   "Prices: the net price actually paid per base unit after any per-line discount, before VAT. A delivery note usually has no prices — leave them 0.",

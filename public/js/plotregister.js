@@ -671,12 +671,29 @@ var PlotRegister = (function () {
     if (reg) go(); else load().then(go);
   }
   // Varieties already known to the register, for the variety field's list.
-  function varieties() {
+  // With a crop, only rows of that crop; a row with no crop counts when its
+  // variety is a known cultivar of that crop (builtinFor(crop), from app.js)
+  // or is not a known cultivar of any crop.
+  function varieties(crop, builtinFor) {
     if (!reg) {
       try { var c = JSON.parse(localStorage.getItem(REG_KEY) || 'null'); if (c && c.rows) reg = c; } catch (e) {}
     }
+    crop = String(crop || '').trim();
+    var mine = {}, any = {};
+    if (crop && typeof builtinFor === 'function') {
+      builtinFor(crop).forEach(function (v) { mine[v] = 1; });
+      builtinFor('').forEach(function (v) { any[v] = 1; });
+    }
     var seen = {};
-    ((reg && reg.rows) || []).forEach(function (r) { if (r.variety) seen[String(r.variety).trim()] = 1; });
+    ((reg && reg.rows) || []).forEach(function (r) {
+      if (!r.variety) return;
+      var v = String(r.variety).trim(), rc = String(r.crop || '').trim();
+      if (crop) {
+        if (rc && rc !== crop) return;
+        if (!rc && any[v] && !mine[v]) return;
+      }
+      seen[v] = 1;
+    });
     return Object.keys(seen);
   }
 

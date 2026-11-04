@@ -326,6 +326,11 @@ var FarmIntake = (function () {
         x.on = x.stock || x.price;
         if (x.kind === 'pesticide') x.pesticide_id = matchPesticide(x);
         if (x.kind === 'equipment' && !x.equipment_type) x.equipment_type = 'tool';
+        // Equipment is stored one record per piece. A "tool" line with a
+        // quantity is almost always material (30 iron poles, 50 m of fence):
+        // keep it as one stock line with its quantity. Sprayers and vehicles
+        // stay equipment; the review row says how many records they make.
+        if (x.kind === 'equipment' && x.equipment_type === 'tool' && (Number(x.qty) || 0) > 1) { x.kind = 'other'; x._fromEquip = 1; }
         S.items.push(x);
       });
     });
@@ -362,7 +367,9 @@ var FarmIntake = (function () {
               return '<option value="' + o[0] + '"' + (it.sprayer_kind === o[0] ? ' selected' : '') + '>' + esc(tt(o[1], o[2], o[3])) + '</option>';
             }).join('') + '</select>' +
             '<input class="form-input fi-cap" data-i="' + i + '" type="number" min="0" value="' + (it.capacity_l || '') + '" placeholder="' + esc(tt('נפח (ל׳)', 'ลิตร', 'لتر')) + '">' : '') +
-          '</div>';
+          '</div>' +
+          ((Math.round(Number(it.qty) || 0) > 1) ? '<div class="fi-note">⚠️ ' + tt('ייווצרו', 'จะสร้าง', 'سيُنشأ') + ' ' + Math.min(50, Math.round(Number(it.qty))) + ' ' +
+            tt('כלים נפרדים, אחד לכל יחידה. אם זה חומר ולא כלי, שנה את הסוג ל"אחר".', 'รายการแยก หนึ่งต่อหน่วย ถ้าเป็นวัสดุให้เปลี่ยนเป็น "อื่นๆ"', 'معدات منفصلة، واحدة لكل وحدة. إن كانت مادة وليست أداة، غيّر النوع إلى "أخرى".') + '</div>' : '');
       }
       var cmp = priceBadge(it);
       return '<div class="fi-row' + (it.on ? '' : ' off') + (it.confidence === 'low' ? ' low' : '') + (cmp.flag ? ' dear' : '') + '">' +
@@ -422,6 +429,7 @@ var FarmIntake = (function () {
           e.target.closest('.fi-row').classList.toggle('off', !it.on);
           return;
         }
+        if (t.contains('fi-qty') && it.kind === 'equipment') { drawReview(); return; }
         if (t.contains('fi-base')) { it.base_unit = e.target.value; refreshBadge(e.target.closest('.fi-row'), it); return; }
         if (t.contains('fi-cat')) { it.pesticide_id = Number(e.target.value) || 0; return; }
         if (t.contains('fi-spk')) { it.sprayer_kind = e.target.value; return; }

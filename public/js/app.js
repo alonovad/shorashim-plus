@@ -2066,6 +2066,8 @@
     'פעולה': { th: 'งาน', ar: 'عملية' },
     // plot variety, notes, plot register (plotregister.js)
     'זן': { th: 'สายพันธุ์', ar: 'الصنف' },
+    'הסר את כולם': { th: 'ลบทั้งหมด', ar: 'أزل الكل' },
+    'פריטים שחוזרים על עצמם (ההסרה תיכנס לתוקף בשמירה)': { th: 'รายการซ้ำ (การลบจะมีผลเมื่อบันทึก)', ar: 'عناصر مكررة (يسري الحذف عند الحفظ)' },
     'משוך מהמאגר': { th: 'ดึงจากคลัง', ar: 'اسحب من المخزن' },
     'הערות לחלקה': { th: 'หมายเหตุแปลง', ar: 'ملاحظات القطعة' },
     'עצים חסרים': { th: 'ต้นที่ขาด', ar: 'أشجار ناقصة' },
@@ -4222,6 +4224,9 @@
     var root = e.target.closest('.modal') || document;
     var bs = root.querySelector('.plot-branch-sel');
     if (bs) { var cur = bs.value; bs.innerHTML = branchSelectOptions(cur, e.target.value); }
+    // Variety suggestions follow the crop too.
+    var vl = root.querySelector('#plotVarietyList, #pdVarietyList');
+    if (vl) vl.innerHTML = varietyOptionsHtml(e.target.value);
     applyBranchUI(root, e.target.value);
   });
   document.addEventListener('change', function(e) {
@@ -4362,18 +4367,43 @@
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
   }
-  // Varieties already on plots, in the plot register, and the common date
-  // cultivars, as a <datalist> so the field suggests without restricting.
-  function plotVarietyDatalist(id) {
+  // Varieties for the variety field's suggestions, following the plot's
+  // crop: varieties on other plots of the same crop, register rows of that
+  // crop, and the common cultivars of the crop. Crop names are
+  // admin-defined, so the built-in lists match on the name's root. With no
+  // crop chosen every known variety is offered. The field still accepts
+  // any text.
+  var CROP_VARIETIES = [
+    { re: /תמר/, list: ["מג'הול", 'ברהי', 'דקל נור', 'חיאני', 'זהדי', 'אמרי', 'חלאווי', 'דרי'] },
+    { re: /מנגו/, list: ['מאיה', 'קית', 'טומי אטקינס', 'שלי', 'עומר', 'נעמי', 'קנט', 'אוסטין', 'אלפונסו'] },
+    { re: /אבוקדו/, list: ['האס', 'אטינגר', 'פינקרטון', 'ריד', 'פוארטה', 'נבל', 'לם האס'] },
+    { re: /זית/, list: ['ברנע', 'סורי', 'קורונייקי', 'פיקואל', 'ארבקינה', 'נבאלי', 'מנזנילו'] },
+    { re: /ליצ'?י/, list: ['מאוריציוס', 'פלוריד', 'שהזדה'] }
+  ];
+  function builtinVarieties(crop) {
+    var out = [];
+    CROP_VARIETIES.forEach(function (c) { if (!crop || c.re.test(String(crop))) out = out.concat(c.list); });
+    return out;
+  }
+  function plotVarieties(crop) {
+    crop = String(crop || '').trim();
     var seen = {};
-    (plots || []).forEach(function (p) { if (p.variety) seen[String(p.variety).trim()] = 1; });
+    (plots || []).forEach(function (p) {
+      if (!p.variety) return;
+      if (crop && String(p.crop_type || '').trim() !== crop) return;
+      seen[String(p.variety).trim()] = 1;
+    });
     if (window.PlotRegister && typeof PlotRegister.varieties === 'function') {
-      PlotRegister.varieties().forEach(function (v) { seen[v] = 1; });
+      PlotRegister.varieties(crop, builtinVarieties).forEach(function (v) { seen[v] = 1; });
     }
-    ["מג'הול", 'ברהי', 'דקל נור', 'חיאני', 'זהדי', 'אמרי', 'חלאווי', 'דרי'].forEach(function (v) { seen[v] = 1; });
-    return '<datalist id="' + id + '">' + Object.keys(seen).map(function (v) {
-      return '<option value="' + escAttrPlot(v) + '"></option>';
-    }).join('') + '</datalist>';
+    builtinVarieties(crop).forEach(function (v) { seen[v] = 1; });
+    return Object.keys(seen);
+  }
+  function varietyOptionsHtml(crop) {
+    return plotVarieties(crop).map(function (v) { return '<option value="' + escAttrPlot(v) + '"></option>'; }).join('');
+  }
+  function plotVarietyDatalist(id, crop) {
+    return '<datalist id="' + id + '">' + varietyOptionsHtml(crop) + '</datalist>';
   }
 
   // ── Naming modal ──
@@ -8588,12 +8618,22 @@
     }
 
     var listHtml = equipment.map(function(item, idx) { return rowHtml(item, idx); }).join('');
+    // The same name many times over is usually one document line read as
+    // one record per piece (30 poles → 30 "tools"): offer to drop them all.
+    var dupCount = {};
+    equipment.forEach(function(item) { var nm = String(item.name || '').trim(); if (nm) dupCount[nm] = (dupCount[nm] || 0) + 1; });
+    var dupHtml = Object.keys(dupCount).filter(function(nm) { return dupCount[nm] >= 3; }).map(function(nm) {
+      return '<div class="equip-dup" style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px; padding: 6px 10px; background: #fff3e0; border-radius: 10px; font-size: 0.82rem;">' +
+        '<span style="flex: 1;">' + escAttrPlot(nm) + ' ×' + dupCount[nm] + '</span>' +
+        '<button type="button" class="btn-admin equip-dup-rm" data-name="' + escAttrPlot(nm) + '" style="padding: 4px 10px; font-size: 0.78rem;">🗑 ' + t('הסר את כולם') + '</button></div>';
+    }).join('');
 
     container.innerHTML =
       '<div class="modal-overlay" onclick="if(event.target===this) document.getElementById(\'modalContainer\').innerHTML=\'\'">' +
         '<div class="modal" style="max-width: 520px;">' +
           '<h2>🚜 ' + t('ציוד ורכבים') + ' — ' + locName(farm) + '</h2>' +
           '<p>' + t('למרססים: נפח המכל משמש לחישוב מספר המילויים בדוח תוכנית הטיפול') + '</p>' +
+          (dupHtml ? '<div style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 6px;">' + t('פריטים שחוזרים על עצמם (ההסרה תיכנס לתוקף בשמירה)') + '</div>' + dupHtml : '') +
           '<div id="equipList">' + listHtml + '</div>' +
           '<button class="btn-admin" id="equipAdd" style="width: 100%; margin-top: 8px;">➕ ' + t('הוסף') + '</button>' +
           '<div class="modal-buttons" style="margin-top: 14px;">' +
@@ -8619,6 +8659,15 @@
     });
     list.addEventListener('click', function(e) {
       if (e.target.classList.contains('equip-remove')) e.target.closest('.equip-row').remove();
+    });
+    container.querySelectorAll('.equip-dup-rm').forEach(function(b) {
+      b.addEventListener('click', function() {
+        var nm = b.getAttribute('data-name');
+        list.querySelectorAll('.equip-row').forEach(function(row) {
+          if (row.querySelector('.equip-name').value.trim() === nm) row.remove();
+        });
+        b.closest('.equip-dup').remove();
+      });
     });
 
     document.getElementById('equipSave').addEventListener('click', function() {
@@ -9375,7 +9424,7 @@
             '<div class="form-group" style="margin-bottom: 10px;">' +
               '<label class="form-label" style="font-size: 0.78rem;">🌴 ' + t('זן') + '</label>' +
               '<input type="text" class="form-input" id="pdEditVariety" list="pdVarietyList" autocomplete="off" value="' + escAttrPlot(plot.variety || '') + '" style="font-size: 0.9rem;">' +
-              plotVarietyDatalist('pdVarietyList') +
+              plotVarietyDatalist('pdVarietyList', plot.crop_type) +
             '</div>' +
             '<div class="form-group" style="margin-bottom: 10px;">' +
               '<label class="form-label" style="font-size: 0.78rem;">📝 ' + t('הערות לחלקה') + '</label>' +
