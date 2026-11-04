@@ -2749,6 +2749,11 @@ async function clRecord(event, col) {
   // has no type of its own - Firestore reports it as "unknown" with the
   // Firebase Auth uid in authId.
   if (event.authType === "service_account" || event.authType === "system") return;
+  // Server writes can also arrive typed "unknown" with the service account
+  // as authId (seen 4 Nov 2026: changeUndo's write was then judged by the
+  // ownership guard as a non-admin's, reverted, and the revert reverted in
+  // turn - an endless server loop). A service account is never a person.
+  if (/gserviceaccount\.com$|^service-|@system$/i.test(String(event.authId || ""))) return;
   if (event.authId) await lgCount(event.authId, "write", await lgUser(event.authId));
   const docId = event.params.docId;
   if (CL_SKIP_DOCS.has(docId)) return;
