@@ -287,6 +287,8 @@ var AgriPlan = (function () {
     if (!hit && catalogueSolid(nm)) hit = 'kg';
     return hit || 'L';
   }
+  // 'L', 'kg' or 'g' for a product name (plans first, then the catalogue)
+  function unitOf(name) { return U(name, null); }
   function unitWord(u) { return u === 'kg' ? tt('ק״ג', 'กก.', 'كغ') : u === 'g' ? tt('גרם', 'กรัม', 'غرام') : tt('ליטר', 'ลิตร', 'لتر'); }
   function unitShort(u) { return u === 'kg' ? 'kg' : u === 'g' ? 'g' : 'L'; }
   // q is litres for liquids, kg for solids.
@@ -4672,6 +4674,7 @@ var AgriPlan = (function () {
   return {
     open: open,
     close: close,
+    unitOf: unitOf,
     renderList: renderList,
     setYear: setYear,
     newPlan: newPlan,

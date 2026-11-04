@@ -1337,6 +1337,7 @@
     'עובד×שעה': { th: 'คน×ชม.', ar: 'عامل×ساعة' },
     'כמות (תפוקה)': { th: 'ปริมาณ (ผลผลิต)', ar: 'الكمية (الإنتاج)' },
     'יחידה': { th: 'หน่วย', ar: 'الوحدة' },
+    'ק"ג': { th: 'กก.', ar: 'كغ' },
     'תפוקה': { th: 'ผลผลิต', ar: 'الإنتاج' },
     'ארגזים': { th: 'ลัง', ar: 'صناديق' },
     'ק״ג': { th: 'กก.', ar: 'كغ' },
@@ -2781,8 +2782,9 @@
         if (it.kind === 'pesticide' && it.pesticide_id) {
           if (!f.pesticide_inventory) f.pesticide_inventory = [];
           var inv = f.pesticide_inventory.find(function(x) { return x.pesticide_id === it.pesticide_id; });
-          if (inv) inv.quantity = Math.round(((Number(inv.quantity) || 0) + qty) * 100) / 100;
-          else f.pesticide_inventory.push({ pesticide_id: it.pesticide_id, quantity: qty });
+          var docU = /ק["״']?ג|\bkg\b/i.test(String(it.unit || '') + ' ' + String(it.base_unit || '')) ? 'kg' : (/ליטר|ל׳|ל'|סמ"ק|\bL\b/i.test(String(it.unit || '') + ' ' + String(it.base_unit || '')) ? 'L' : '');
+          if (inv) { inv.quantity = Math.round(((Number(inv.quantity) || 0) + qty) * 100) / 100; if (docU && !inv.stock_unit) inv.stock_unit = docU; }
+          else f.pesticide_inventory.push(docU ? { pesticide_id: it.pesticide_id, quantity: qty, stock_unit: docU } : { pesticide_id: it.pesticide_id, quantity: qty });
           n.pest++;
         } else if (it.kind === 'equipment') {
           if (!f.equipment) f.equipment = [];
@@ -8418,7 +8420,7 @@
         pestHtml += '<div style="padding: 6px 0; border-bottom: 1px solid var(--g6);">' +
           '<div style="display: flex; justify-content: space-between; margin-bottom: 3px;">' +
             '<span style="font-weight: 600; font-size: 0.82rem;">' + name + '</span>' +
-            '<span style="font-size: 0.78rem; color: var(--text-muted);">' + item.quantity + ' ' + (item.unit || t('ליטר')) + '</span>' +
+            '<span style="font-size: 0.78rem; color: var(--text-muted);">' + item.quantity + ' ' + pestUnitWord(pestStockUnit(item, pest)) + '</span>' +
           '</div>' +
           '<div style="height: 5px; background: var(--g6); border-radius: 3px; overflow: hidden;">' +
             '<div style="height: 100%; width: ' + pct + '%; background: ' + barColor + '; border-radius: 3px;"></div>' +
@@ -8975,6 +8977,24 @@
     });
   }
   
+  // ── Stock unit of a crop-protection product: litres or kg ──
+  // An explicit choice on the stock line wins (stock_unit). Otherwise the
+  // product's unit in the spray plans, then its formulation in the
+  // catalogue (WP/WG/GR, אבקה, a concentration in ק"ג → kg). The old
+  // `unit` field was always written as "ליטר" and is not a choice.
+  function pestStockUnit(item, pest) {
+    if (item && (item.stock_unit === 'L' || item.stock_unit === 'kg')) return item.stock_unit;
+    var nm = pest ? pest.productName : '';
+    if (nm && window.AgriPlan && typeof AgriPlan.unitOf === 'function') {
+      var u = AgriPlan.unitOf(nm);
+      if (u === 'kg' || u === 'g') return 'kg';
+      if (u === 'L') return 'L';
+    }
+    var txt = pest ? (String(pest.concentration || '') + ' ' + String(pest.formulation || '') + ' ' + String(pest.productName || '')) : '';
+    return /ק["״']?ג|\bWP\b|\bWG\b|\bGR\b|\bDP\b|\bSG\b|אבקה|גרגר/i.test(txt) ? 'kg' : 'L';
+  }
+  function pestUnitWord(u) { return u === 'kg' ? t('ק"ג') : t('ליטר'); }
+
   // ── Pesticide Inventory Editor (Admin) ──
   function showInventoryEditor(farm) {
     var inventory = farm.pesticide_inventory || [];
@@ -8993,6 +9013,15 @@
             '<label style="font-size: 0.75rem; color: var(--text-muted);">' + t('כמות מקסימלית') + '</label>' +
             '<input type="number" class="form-input inv-max" data-pest-id="' + p.id + '" value="' + (existing ? existing.max_quantity : 0) + '" min="0" step="0.1" style="padding: 8px; font-size: 0.85rem;">' +
           '</div>' +
+          (function() {
+            var u = pestStockUnit(existing, p);
+            return '<div style="flex: 0 0 84px;">' +
+              '<label style="font-size: 0.75rem; color: var(--text-muted);">' + t('יחידה') + '</label>' +
+              '<select class="form-input inv-unit" data-pest-id="' + p.id + '" style="padding: 8px; font-size: 0.85rem;">' +
+                '<option value="L"' + (u === 'L' ? ' selected' : '') + '>' + t('ליטר') + '</option>' +
+                '<option value="kg"' + (u === 'kg' ? ' selected' : '') + '>' + t('ק"ג') + '</option>' +
+              '</select></div>';
+          })() +
         '</div>' +
       '</div>';
     });
@@ -9021,12 +9050,15 @@
         var qty = parseFloat(input.value) || 0;
         var maxInput = container.querySelector('.inv-max[data-pest-id="' + pestId + '"]');
         var maxQty = maxInput ? (parseFloat(maxInput.value) || 0) : 0;
+        var unitSel = container.querySelector('.inv-unit[data-pest-id="' + pestId + '"]');
+        var su = (unitSel && unitSel.value === 'kg') ? 'kg' : 'L';
         if (qty > 0 || maxQty > 0) {
           newInventory.push({
             pesticide_id: pestId,
             quantity: qty,
             max_quantity: maxQty,
-            unit: t('ליטר')
+            stock_unit: su,
+            unit: su === 'kg' ? 'ק"ג' : 'ליטר'
           });
         }
       });
