@@ -20,6 +20,8 @@
 var CropProgram = (function () {
   'use strict';
 
+  // trees standing in the plot: card count minus missing
+  function live(p) { return window.treesLive ? window.treesLive(p) : Math.max(0, (Number(p && p.tree_count) || 0) - (Number(p && p.missing_trees) || 0)); }
   function tt(he, th, ar) {
     var lang = (typeof currentLang !== 'undefined') ? currentLang : 'he';
     if (lang === 'th') return th || he;
@@ -72,7 +74,7 @@ var CropProgram = (function () {
     return st ? Number(st.coef) : 1;
   }
   function amount(item, plot, coef) {
-    var base = item.basis === 'tree' ? (Number(plot.tree_count) || 0) : (Number(plot.area) || 0);
+    var base = item.basis === 'tree' ? live(plot) : (Number(plot.area) || 0);
     return (Number(item.rate) || 0) * coef * base;
   }
 
@@ -95,7 +97,7 @@ var CropProgram = (function () {
       (ev.applications || []).forEach(function (a) {
         if (String(a.productName || '').trim() !== nm) return;
         var vol = Number(ev.volumePerTree) || 0, conc = (Number(a.concentration) || 0) / 100, u = ev.volumeUnit || 'l_tree';
-        var trees = Number(plot.tree_count) || 0, area = Number(plot.area) || 0;
+        var trees = live(plot), area = Number(plot.area) || 0;
         var L = u === 'cc_tree' ? trees * vol / 1000 * conc : u === 'l_dunam' ? area * vol * conc : trees * vol * conc;
         sum += L;
       });
@@ -207,7 +209,7 @@ var CropProgram = (function () {
     var tot = prog.items.map(function () { return 0; }), totD = prog.items.map(function () { return 0; }), totA = 0, totT = 0;
     var rows = plots.map(function (p) {
       var c = coefOf(prog, p);
-      totA += p.area || 0; totT += p.tree_count || 0;
+      totA += p.area || 0; totT += live(p);
       var st = stageOf(prog, p.stage);
       var stageCell = canAttr
         ? '<select class="form-input cp-stage" data-p="' + p.id + '"><option value="">—</option>' + prog.stages.map(function (s) {
@@ -227,7 +229,7 @@ var CropProgram = (function () {
             (logd > 0 ? '<small title="' + esc(tt('מתוך יומן הריסוסים', 'จากบันทึก', 'من سجل الرش')) + '">+' + r2(logd) + ' 📋</small>' : '') + '</div>' + bar(pct(done, a))) +
         '</td>';
       }).join('');
-      return '<tr><td><b>' + esc(p.name) + '</b></td><td class="num">' + r2(p.area) + '</td><td class="num">' + (p.tree_count || '') + '</td><td>' + esc(p.variety) + '</td>' +
+      return '<tr><td><b>' + esc(p.name) + '</b></td><td class="num">' + r2(p.area) + '</td><td class="num">' + (live(p) || '') + (Number(p.missing_trees) > 0 ? ' <small style="color:#c62828">(−' + p.missing_trees + ')</small>' : '') + '</td><td>' + esc(p.variety) + '</td>' +
         '<td>' + stageCell + '</td><td class="num">' + coefCell + '</td><td>' + noteCell + '</td><td>' + dateCell + '</td>' + amts + '</tr>';
     }).join('');
     var head = '<tr><th>' + tt('חלקה', 'แปลง', 'القطعة') + '</th><th>' + tt('דונם', 'ไร่', 'دونم') + '</th><th>' + tt('עצים', 'ต้น', 'أشجار') + '</th><th>' + tt('זן', 'พันธุ์', 'الصنف') + '</th>' +

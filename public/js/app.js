@@ -7,6 +7,15 @@
   // Falls back to a blob download if popups are blocked.
   window.Util = window.Util || {};
 
+  // Trees actually standing in a plot: the card's tree count is the planted
+  // positions, missing_trees are the gaps among them (Alon, Nov 2026: Shadmot
+  // Mehola, Tzipor 1 - 435 listed, 48 missing, so plans work on 387).
+  // Treatment plans, fertilization and per-tree recommendations use this.
+  window.treesLive = function (p) {
+    var n = Number(p && p.tree_count) || 0, m = Number(p && p.missing_trees) || 0;
+    return Math.max(0, n - Math.max(0, m));
+  };
+
   // ── The print-safety sheet ─────────────────────────────────────────
   // Injected into EVERY window exportReport opens. It corrects two faults
   // that belong to the print context itself, not to any one report, so
@@ -2072,6 +2081,7 @@
     'משוך מהמאגר': { th: 'ดึงจากคลัง', ar: 'اسحب من المخزن' },
     'הערות לחלקה': { th: 'หมายเหตุแปลง', ar: 'ملاحظات القطعة' },
     'עצים חסרים': { th: 'ต้นที่ขาด', ar: 'أشجار ناقصة' },
+    'קיימים': { th: 'ที่มีอยู่', ar: 'موجودة' },
     'חזרה': { th: 'กลับ', ar: 'رجوع' },
     'המלצות גידול ומעקב': { th: 'คำแนะนำการปลูกและติดตาม', ar: 'توصيات الزراعة والمتابعة' },
     'מצב הצמחייה מהלוויין': { th: 'สภาพพืชจากดาวเทียม', ar: 'حالة الغطاء النباتي من القمر الصناعي' },
@@ -2892,6 +2902,7 @@
         return {
           id: p.id, name: locName(p), area: Number(p.area) || 0, crop_type: p.crop_type || '', variety: p.variety || '',
           tree_count: Number(p.tree_count) || 0, male_trees: Number(p.male_trees) || 0, young_trees: Number(p.young_trees) || 0,
+          missing_trees: Number(p.missing_trees) || 0,
           row_spacing: Number(p.row_spacing) || 0, tree_spacing: Number(p.tree_spacing) || 0, planting_date: p.planting_date || '',
           irr: p.irr ? JSON.parse(JSON.stringify(p.irr)) : null, stage: p.stage || '', coef: (p.coef != null ? p.coef : null),
           status_note: p.status_note || '', status_date: p.status_date || '', branch: branchOfPlot(p),
@@ -9361,6 +9372,7 @@
               ? '<div style="background: ' + (plot.tree_count ? '#e8f5e9' : 'var(--g6)') + '; padding: 10px; border-radius: 10px; text-align: center;">' +
                   '<div style="font-size: 0.65rem; color: var(--text-muted);">' + PlotBranch.icoOf(plot) + ' ' + t(bDef.count) + '</div>' +
                   '<div style="font-size: 1rem; font-weight: 700; color: var(--g1);">' + (plot.tree_count || '—') + '</div>' +
+                  (plot.tree_count && Number(plot.missing_trees) > 0 ? '<div style="font-size: 0.62rem; color: #c62828; font-weight: 600;">' + t('קיימים') + ' ' + window.treesLive(plot) + '</div>' : '') +
                   (bDef.spacing && plot.row_spacing && plot.tree_spacing ? '<div style="font-size: 0.6rem; color: var(--text-muted);">' + plot.row_spacing + '×' + plot.tree_spacing + '</div>' : '') +
                 '</div>'
               : '<div style="background: var(--g6); padding: 10px; border-radius: 10px; text-align: center;">' +

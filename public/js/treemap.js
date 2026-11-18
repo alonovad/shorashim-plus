@@ -607,9 +607,13 @@ var TreeMap = (function () {
     return { trees: trees.length, added: trees.filter(function (t) { return t[2] < 0; }).length, rejected: rej, auto: auto, gaps: gaps, areaDn: area };
   }
   function fieldsOf(pl) {
+    // the card's tree count is the planted positions; missing_trees are the
+    // gaps among them, so plans (card count minus missing) get the trees
+    // actually standing - the count from the photo
     var s = stats(pl), f = { tree_count: s.trees };
     if (pl.grid) {
       f.missing_trees = s.gaps;
+      f.tree_count = s.trees + (s.gaps || 0);
       f.tree_spacing = Math.round(pl.grid.tree * 10) / 10;
       f.row_spacing = Math.round(pl.grid.row * 10) / 10;
       f.plants_per_dunam = Math.round(1000 / (pl.grid.tree * pl.grid.row));
@@ -1022,7 +1026,7 @@ var TreeMap = (function () {
         '<button class="tm-btn" data-act="offrow"' + (pl.rows.length ? '' : ' disabled') + '>🚫 ' + tt('דחה מחוץ לשורות', 'ปฏิเสธนอกแถว', 'ارفض خارج الصفوف') + '</button>' +
         '<button class="tm-btn" data-act="restore">' + tt('בטל תיקונים בחלקה', 'ยกเลิกการแก้ไขในแปลง', 'ألغِ التعديلات في القطعة') + '</button></div>';
       h += '<div class="tm-form">' +
-        '<label>' + tt('מספר עצים', 'จำนวนต้น', 'عدد الأشجار') + '<input type="number" id="tmFTrees" min="0" value="' + f.tree_count + '"></label>' +
+        '<label>' + (f.missing_trees != null ? tt('מספר עצים (כולל חסרים)', 'จำนวนต้น (รวมที่ขาด)', 'عدد الأشجار (مع الناقصة)') : tt('מספר עצים', 'จำนวนต้น', 'عدد الأشجار')) + '<input type="number" id="tmFTrees" min="0" value="' + f.tree_count + '"></label>' +
         '<label>' + tt('עצים חסרים', 'ต้นที่ขาด', 'أشجار ناقصة') + '<input type="number" id="tmFMissing" min="0" value="' + (f.missing_trees != null ? f.missing_trees : '') + '"></label>' +
         '<label>' + tt('מרווח בין עצים', 'ระยะระหว่างต้น', 'المسافة بين الأشجار') + ' (' + mm + ')<input type="number" step="0.1" id="tmFTreeSp" value="' + (f.tree_spacing != null ? f.tree_spacing : '') + '"></label>' +
         '<label>' + tt('מרווח בין שורות', 'ระยะระหว่างแถว', 'المسافة بين الصفوف') + ' (' + mm + ')<input type="number" step="0.1" id="tmFRowSp" value="' + (f.row_spacing != null ? f.row_spacing : '') + '"></label>' +

@@ -28,6 +28,8 @@ var PlotRec = (function () {
   var KEY = 'shorashim-plotrec';
   var D = null, ui = { pid: null, tab: 'rec', item: '', showDone: false, form: null, imp: null };
 
+  // trees standing in the plot: card count minus missing
+  function live(p) { return window.treesLive ? window.treesLive(p) : Math.max(0, (Number(p && p.tree_count) || 0) - (Number(p && p.missing_trees) || 0)); }
   function tt(he, th, ar) {
     var lang = (typeof currentLang !== 'undefined') ? currentLang : 'he';
     if (lang === 'th') return th || he;
@@ -129,7 +131,7 @@ var PlotRec = (function () {
   // ── irrigation ──
   function irrCalc(plot, et0) {
     var m = new Date().getMonth(), kc = kcFor(plot.crop_type), e = kc.m[m];
-    var area = Number(plot.area) || 0, trees = Number(plot.tree_count) || 0, tpd = area > 0 && trees > 0 ? trees / area : 0;
+    var area = Number(plot.area) || 0, trees = live(plot), tpd = area > 0 && trees > 0 ? trees / area : 0;
     if (!e || !isFinite(Number(e.v)) || et0 == null) return { kc: kc, e: e || null };
     var v = Number(e.v), m3d, lt;
     if (e.u === 'ltmm') { lt = v * et0; m3d = tpd ? lt * tpd / 1000 : null; }
@@ -174,7 +176,7 @@ var PlotRec = (function () {
       (ev.applications || []).forEach(function (a) {
         if (String(a.productName || '').trim() !== nm) return;
         var vol = Number(ev.volumePerTree) || 0, conc = (Number(a.concentration) || 0) / 100, u = ev.volumeUnit || 'l_tree';
-        var trees = Number(plot.tree_count) || 0, area = Number(plot.area) || 0;
+        var trees = live(plot), area = Number(plot.area) || 0;
         var L = u === 'cc_tree' ? trees * vol / 1000 * conc : u === 'l_dunam' ? area * vol * conc : trees * vol * conc;
         out[Number(String(ev.date).slice(5, 7)) - 1] += item.unit === 'גרם' ? L * 1000 : L;   // DATA KEY
       });
@@ -278,7 +280,7 @@ var PlotRec = (function () {
       '<div class="pr-hero">' +
         '<div class="pr-top"><button class="pr-ib" data-a="close" aria-label="x">✕</button>' +
           '<div class="pr-tt"><div class="pr-name">' + esc(p.name) + '</div><div class="pr-sub">' + esc(p.crop_type || '') + (p.variety ? ' ' + esc(p.variety) : '') + ' · ' + esc(ctx.farm.name) + ' · ' +
-            ltr(r1(p.area)) + ' ' + tt('ד׳', 'ไร่', 'دونم') + (p.tree_count ? ' · ' + num(p.tree_count) + ' ' + tt('עצים', 'ต้น', 'شجرة') : '') + '</div></div>' +
+            ltr(r1(p.area)) + ' ' + tt('ד׳', 'ไร่', 'دونم') + (p.tree_count ? ' · ' + num(live(p)) + ' ' + tt('עצים', 'ต้น', 'شجرة') + (Number(p.missing_trees) > 0 ? ' (' + num(p.missing_trees) + ' ' + tt('חסרים', 'ขาด', 'ناقصة') + ')' : '') : '') + '</div></div>' +
           (stage ? '<span class="pr-pill">' + esc(stage) + '</span>' : '') + '</div>' +
         '<div class="pr-kpis">' +
           '<div><small>' + tt('השקיה מומלצת', 'น้ำที่แนะนำ', 'الري الموصى') + '</small><b>' + (ic.m3d != null ? ltr(r1(ic.m3d)) : '—') + '</b><small>' + tt('מ״ק/ד׳ ליום', 'ลบ.ม./ไร่/วัน', 'م³/دونم/يوم') + '</small></div>' +
