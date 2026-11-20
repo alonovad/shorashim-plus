@@ -183,11 +183,32 @@
     parts.push('<polyline points="' + eL.x + ',' + eL.y + ' ' + apex.x + ',' + apex.y + ' ' +
       eR.x + ',' + eR.y + '" fill="none" stroke="var(--primary,#2d6a4f)" stroke-width="4" ' +
       'stroke-linejoin="round"/>');
-    // columns
-    parts.push('<line x1="' + eL.x + '" y1="' + eL.y + '" x2="' + eL.x + '" y2="' + y0 +
-      '" stroke="var(--primary,#2d6a4f)" stroke-width="5"/>');
-    parts.push('<line x1="' + eR.x + '" y1="' + eR.y + '" x2="' + eR.x + '" y2="' + y0 +
-      '" stroke="var(--primary,#2d6a4f)" stroke-width="5"/>');
+    // A lattice truss: its bottom chord, parallel to the roof line.
+    var under = (d.rafterType === 'truss') ? d.trussDepth : 0.25;
+    if (d.rafterType === 'truss') {
+      var dpx = d.trussDepth * s;
+      parts.push('<polyline points="' + eL.x + ',' + (eL.y + dpx) + ' ' + apex.x + ',' + (apex.y + dpx) + ' ' +
+        eR.x + ',' + (eR.y + dpx) + '" fill="none" stroke="var(--primary,#2d6a4f)" stroke-width="2" ' +
+        'stroke-linejoin="round" opacity=".8"/>');
+    }
+    // columns — to the roof, or to their actual height when they stop short
+    // of it (existing poles under a girder). Existing ones are drawn grey.
+    var colStroke = d.colExisting ? 'var(--text-muted,#888)' : 'var(--primary,#2d6a4f)';
+    var cTopL = d.colH > 0 ? Y(d.colH) : eL.y, cTopR = d.colH > 0 ? Y(d.colH) : eR.y;
+    parts.push('<line x1="' + eL.x + '" y1="' + cTopL + '" x2="' + eL.x + '" y2="' + y0 +
+      '" stroke="' + colStroke + '" stroke-width="5"/>');
+    parts.push('<line x1="' + eR.x + '" y1="' + cTopR + '" x2="' + eR.x + '" y2="' + y0 +
+      '" stroke="' + colStroke + '" stroke-width="5"/>');
+    // Longitudinal girder along each column line, seen end-on: its top at
+    // the underside of the rafter, its depth below.
+    var gDd = BP.girderDepth(d);
+    if (gDd > 0) {
+      [[eL.x, d.eaves], [eR.x, g.mono ? g.ridgeH : d.eaves]].forEach(function (q) {
+        var gt = Y(q[1] - under), gh = gDd * s;
+        parts.push('<rect x="' + (q[0] - 7) + '" y="' + gt + '" width="14" height="' + gh +
+          '" fill="#9a7a58" opacity=".35" stroke="#9a7a58" stroke-width="1.5"/>');
+      });
+    }
     // A third column line, when specified, stands under the ridge on a
     // gable and at the slope's midpoint on a mono. It was drawn in plan and
     // billed in the takeoff but never appeared in the section.

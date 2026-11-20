@@ -275,6 +275,17 @@ window.BuildPlanInternals = BuildPlanInternals;
     { g: 'פרופיל מלבני',  n: 'RHS 120x60x4', kg: 10.5, u: "מ'" },
     { g: 'פרופיל מרובע',  n: 'SHS 80x80x4',  kg: 9.22, u: "מ'" },
     { g: 'פרופיל מרובע',  n: 'SHS 100x100x4', kg: 11.7, u: "מ'" },
+    // Light square/rectangular hollow sections for lattice trusses and
+    // girders, 3 mm wall (nominal mass, priced by the owner).
+    { g: 'פרופיל מרובע',  n: 'SHS 40x40x3',  kg: 3.49, u: "מ'" },
+    { g: 'פרופיל מרובע',  n: 'SHS 50x50x3',  kg: 4.43, u: "מ'" },
+    { g: 'פרופיל מרובע',  n: 'SHS 60x60x3',  kg: 5.37, u: "מ'" },
+    { g: 'פרופיל מרובע',  n: 'SHS 70x70x3',  kg: 6.31, u: "מ'" },
+    { g: 'פרופיל מרובע',  n: 'SHS 80x80x3',  kg: 7.25, u: "מ'" },
+    { g: 'פרופיל מרובע',  n: 'SHS 100x100x3', kg: 9.14, u: "מ'" },
+    { g: 'פרופיל מלבני',  n: 'RHS 120x60x3', kg: 8.20, u: "מ'" },
+    { g: 'פרופיל זווית',  n: 'L 50x5',       kg: 3.77, u: "מ'" },
+    { g: 'אביזרים',       n: 'מוט פלדה Ø16', kg: 1.58, u: "מ'" },
     { g: 'מרישים',        n: 'Z 150x2.0', kg: 4.60, u: "מ'" },
     { g: 'מרישים',        n: 'Z 200x2.0', kg: 5.80, u: "מ'" },
     { g: 'מרישים',        n: 'C 150x2.0', kg: 4.40, u: "מ'" },
@@ -351,6 +362,13 @@ window.BuildPlanInternals = BuildPlanInternals;
   var MODEL_KEYS = ['span', 'length', 'eaves', 'bay', 'pitch', 'roofType', 'wallMode', 'roofClad', 'walls',
                     'colProfile', 'rafterProfile', 'purlinProfile', 'purlinSp'];
   BP.MODEL_KEYS = MODEL_KEYS;
+  // Depth of the longitudinal girder that carries the frames standing
+  // between columns, or 0 when every frame has its own columns.
+  BP.girderDepth = function girderDepth(d) {
+    if (!d) return 0;
+    if (d.girderD > 0) return d.girderD;
+    return (d.colEvery > 1) ? 1.0 : 0;
+  };
   BP.normMyModels = function normMyModels(list) {
     return (Array.isArray(list) ? list : []).filter(function (m) { return m && m.id && m.dims; }).map(function (m) {
       var dm = {};
@@ -558,6 +576,26 @@ window.BuildPlanInternals = BuildPlanInternals;
       // intermediate line under the ridge / mid-slope, as on a wide
       // mono-pitch shed). Footings, plates, bolts and column steel follow.
       colLines: (Number(d.colLines) === 3) ? 3 : 2,
+      // Columns on every Nth frame only (1 = every frame, the portal). The
+      // frames between stand on a longitudinal lattice girder that runs
+      // along each column line — the way trusses are added to an existing
+      // row of poles without adding poles.
+      colEvery: ([2, 3].indexOf(Number(d.colEvery)) >= 0) ? Number(d.colEvery) : 1,
+      // Actual column height when the columns stop short of the roof (an
+      // existing row of poles under a girder). 0 = columns run to the roof.
+      colH: Number(d.colH) || 0,
+      // The columns already stand: drawn, but not billed — no column steel,
+      // base plates, anchors or pad footings in the takeoff.
+      colExisting: d.colExisting === true,
+      // Depth of that longitudinal girder; 0 = 1.0 m when colEvery > 1.
+      girderD: Number(d.girderD) || 0,
+      // A truss billed as what it is made of: bottom chord and web sections.
+      // Empty = the old single-line takeoff (top chord only), so no existing
+      // truss project reprices on this deploy.
+      trussBotProfile: String(d.trussBotProfile || ''),
+      trussWebProfile: String(d.trussWebProfile || ''),
+      // Chords of the longitudinal girder; '' = same as the rafter / top chord.
+      girderProfile: String(d.girderProfile || ''),
       // Wind bracing member: cut from the girt section (site practice for
       // small sheds) or tensioned steel cable with turnbuckles (what an
       // engineer's drawing usually specifies).

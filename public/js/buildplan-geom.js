@@ -37,7 +37,16 @@
     var bays = Math.max(1, Math.round(d.length / d.bay));
     var actualBay = d.length / bays;
     var frames = bays + 1;
-    var cols = frames * (d.colLines === 3 ? 3 : 2);
+    // Frames that stand on their own columns. With colEvery > 1 only every
+    // Nth frame has columns (always both end frames); the rest bear on the
+    // longitudinal girder. colEvery 1 is every frame — unchanged.
+    var ce = d.colEvery > 1 ? d.colEvery : 1;
+    var colFrameIdx = [];
+    for (var fi = 0; fi < frames; fi++) {
+      if (fi % ce === 0 || fi === frames - 1) colFrameIdx.push(fi);
+    }
+    var colFrames = colFrameIdx.length;
+    var cols = colFrames * (d.colLines === 3 ? 3 : 2);
     var purlinRuns = Math.ceil(rafterLen / d.purlinSp) + 1;   // per slope
     var girtRows = Math.max(0, Math.ceil(d.eaves / d.girtSp) - 1);
     var roofArea = slopes * rafterLen * d.length;
@@ -60,11 +69,14 @@
                           : [d.eaves, d.eaves + rise])
       : (d.colLines === 3 ? [d.eaves, d.eaves + rise, d.eaves]
                           : [d.eaves, d.eaves]);
-    var colLen = frames * colH.reduce(function (s, h) { return s + h; }, 0);
+    // Columns that stop short of the roof (existing poles under a girder).
+    if (d.colH > 0) colH = colH.map(function () { return d.colH; });
+    var colLen = colFrames * colH.reduce(function (s, h) { return s + h; }, 0);
     return {
       half: half, run: run, slopes: slopes, mono: mono,
       rise: rise, rafterLen: rafterLen, bays: bays, actualBay: actualBay,
       frames: frames, cols: cols, colH: colH, colLen: colLen,
+      colFrames: colFrames, colFrameIdx: colFrameIdx,
       purlinRuns: purlinRuns, girtRows: girtRows,
       roofArea: roofArea, wallArea: wallArea, gable: gable,
       ridgeH: d.eaves + rise, footprint: d.span * d.length,
@@ -79,7 +91,7 @@
   // and the UI says so. A real footing needs an engineer and a soil report.
   BP.footing = function footing(d) {
     var g = BP.geom(d);
-    var trib = g.actualBay * (d.span / 2);          // per column, m²
+    var trib = g.actualBay * (d.colEvery > 1 ? d.colEvery : 1) * (d.span / 2);  // per column, m²
     var axial = trib * d.roofLoad;                  // kN
     var selfW = d.footW * d.footW * d.footD * 25;   // pad self-weight, kN
     var reqA = (axial + selfW) / d.soilBearing;     // m²
@@ -98,7 +110,7 @@
     var d = p.dims;
     var a = BP.slabArea(p);
     var slab = a * d.slabTh;
-    var f = (p.type === 'slab' || !d.footings) ? { volAll: 0, n: 0 } : BP.footing(d);
+    var f = (p.type === 'slab' || !d.footings || d.colExisting) ? { volAll: 0, n: 0 } : BP.footing(d);
     return { area: a, slab: slab, footings: f.volAll, pads: f.n, total: slab + f.volAll };
   };
 
@@ -260,11 +272,45 @@
     // Columns are billed per line at that line's own height. On a mono the
     // far line is a full `rise` taller, which the old single-height line
     // never charged for.
-    push(d.colProfile,    g.colLen * w, "מ'",
-      g.cols + ' ' + BP.tt('עמודים', 'เสา', 'أعمدة') + ' \u00b7 ' +
-      g.colH.map(function (h) { return BP.n1(h); }).join(' / ') + ' ' + BP.dsp("מ'"));
-    push(d.rafterProfile, g.frames * g.slopes * g.rafterLen * w, "מ'",
-      g.frames * g.slopes + ' ' + BP.tt('קורות', 'คาน', 'روافد') + ' \u00d7 ' + BP.n1(g.rafterLen) + ' ' + BP.dsp("מ'"));
+    // Existing columns are drawn but not bought.
+    if (!d.colExisting) {
+      push(d.colProfile,    g.colLen * w, "מ'",
+        g.cols + ' ' + BP.tt('עמודים', 'เสา', 'أعمدة') + ' \u00b7 ' +
+        g.colH.map(function (h) { return BP.n1(h); }).join(' / ') + ' ' + BP.dsp("מ'"));
+    }
+    var nRaf = g.frames * g.slopes;
+    if (d.rafterType === 'truss' && d.trussBotProfile) {
+      // A lattice truss billed as its parts: top chord, bottom chord, and
+      // the verticals and diagonals between them (Pratt, ~1.17 m panels).
+      var tDep = d.trussDepth;
+      var tPan = Math.max(4, Math.round(g.rafterLen / 1.17));
+      var tPL = g.rafterLen / tPan;
+      var webLen = (tPan + 1) * tDep + tPan * Math.sqrt(tPL * tPL + tDep * tDep);
+      push(d.rafterProfile, nRaf * g.rafterLen * w, "מ'",
+        nRaf + ' ' + BP.tt('סבכות — חגורה עליונה', 'โครงถัก — คอร์ดบน', 'جملونات — الوتر العلوي') + ' \u00d7 ' + BP.n1(g.rafterLen) + ' ' + BP.dsp("מ'"));
+      push(d.trussBotProfile, nRaf * g.rafterLen * w, "מ'",
+        nRaf + ' ' + BP.tt('סבכות — חגורה תחתונה', 'โครงถัก — คอร์ดล่าง', 'جملونات — الوتر السفلي'));
+      push(d.trussWebProfile || d.trussBotProfile, nRaf * webLen * w, "מ'",
+        BP.tt('ניצבים ואלכסונים', 'ตั้งและทแยง', 'قوائم وأقطار') + ' \u00b7 ' + tPan + ' ' +
+        BP.tt('שדות לסבכה', 'ช่องต่อโครงถัก', 'حقول لكل جملون'));
+    } else {
+      push(d.rafterProfile, nRaf * g.rafterLen * w, "מ'",
+        nRaf + ' ' + BP.tt('קורות', 'คาน', 'روافد') + ' \u00d7 ' + BP.n1(g.rafterLen) + ' ' + BP.dsp("מ'"));
+    }
+    // Longitudinal girders carrying the frames that have no columns: one
+    // per column line, top and bottom chords plus a Pratt web on ~1 m panels.
+    var gD = BP.girderDepth(d);
+    if (gD > 0) {
+      var nLines = (d.colLines === 3 ? 3 : 2);
+      var gPan = Math.max(2, Math.round(d.length / 1.0));
+      var gPL = d.length / gPan;
+      var gWeb = (gPan + 1) * gD + gPan * Math.sqrt(gPL * gPL + gD * gD);
+      push(d.girderProfile || d.rafterProfile, nLines * 2 * d.length * w, "מ'",
+        nLines + ' ' + BP.tt('קורות אורך מסבכיות — חגורות', 'คานตามยาว — คอร์ด', 'عوارض طولية — أوتار') +
+        ' \u00b7 ' + BP.tt('עומק', 'ลึก', 'عمق') + ' ' + BP.n1(gD) + ' ' + BP.dsp("מ'"));
+      push(d.trussWebProfile || d.girderProfile || d.rafterProfile, nLines * gWeb * w, "מ'",
+        BP.tt('קורות אורך — ניצבים ואלכסונים', 'คานตามยาว — ตั้งและทแยง', 'عوارض طولية — قوائم وأقطار'));
+    }
     push(d.purlinProfile, g.purlinRuns * g.slopes * d.length * w, "מ'",
       (g.purlinRuns * g.slopes) + ' ' + BP.tt('שורות מרישים', 'แถวแป', 'صفوف') + ' \u00d7 ' + BP.n1(d.length) + ' ' + BP.dsp("מ'"));
     if (d.wallMode !== 'open' && d.wallClad !== 'none') {
@@ -296,9 +342,11 @@
       var hRun = Math.min(d.span * 0.10, 1.2);
       var hRise = Math.min(d.eaves * 0.26, 1.0);
       var haunchLen = Math.sqrt(hRun * hRun + hRise * hRise);
-      push(d.haunchProfile || d.rafterProfile, g.frames * 2 * haunchLen * w, "מ'",
+      // Only where a frame stands on columns: a frame on the girder has no
+      // knee to brace.
+      push(d.haunchProfile || d.rafterProfile, g.colFrames * 2 * haunchLen * w, "מ'",
         BP.tt('חיזוקי פינה', 'ฮันช์', 'تقويات الأركان') + ' \u00b7 ' +
-        (g.frames * 2) + ' \u00d7 ' + BP.n1(haunchLen) + ' ' + BP.dsp("מ'"));
+        (g.colFrames * 2) + ' \u00d7 ' + BP.n1(haunchLen) + ' ' + BP.dsp("מ'"));
     }
     if (d.bracing && d.braceType === 'cable') {
       // Tensioned cables: an X in the roof plane of each end bay (per roof
@@ -326,8 +374,10 @@
         bays + ' ' + BP.tt('משבצות מיוצבות', 'ช่วงค้ำยัน', 'حقول مثبتة'));
     }
 
-    push('פלטת בסיס', g.cols, "יח'", '');
-    push('בורג עיגון', g.cols * 4, "יח'", BP.tt('4 לעמוד', '4 ต่อเสา', '4 لكل عمود'));
+    if (!d.colExisting) {
+      push('פלטת בסיס', g.cols, "יח'", '');
+      push('בורג עיגון', g.cols * 4, "יח'", BP.tt('4 לעמוד', '4 ต่อเสา', '4 لكل عمود'));
+    }
     if (d.gutter && d.roofClad !== 'none') {
       push('מרזב', 2 * d.length, "מ'", '');
       push('צינור ניקוז', Math.max(2, Math.ceil(d.length / 12) * 2), "יח'", '');
@@ -335,7 +385,7 @@
     // Foundation under the frame, always poured with a shed.
     var fa = BP.slabArea(p);
     if (wantSlab) push('בטון ב-30', fa * d.slabTh * w, 'מ"ק', BP.tt('רצפה', 'พื้น', 'أرضية'));
-    if (d.footings) {
+    if (d.footings && !d.colExisting) {
       var ft = BP.footing(d);
       push('בטון ב-30', ft.volAll * w, 'מ"ק',
         ft.n + ' ' + BP.tt('בסיסי עמוד', 'ฐานเสา', 'قواعد أعمدة') + ' ' +

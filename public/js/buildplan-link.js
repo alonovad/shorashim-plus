@@ -184,10 +184,11 @@
   }
   var BOOL = { walls: 1, gutter: 1, footings: 1, fence: 1,
                haunch: 1, taper: 1, bracing: 1, door: 1,
-               mapGround: 1, callouts: 1, shadows: 1, dims: 1 };
+               mapGround: 1, callouts: 1, shadows: 1, dims: 1, colExisting: 1 };
   var TEXT = { roofType: 1, wallMode: 1, roofClad: 1, wallClad: 1, rafterType: 1, scaleRef: 1,
                colProfile: 1, rafterProfile: 1, purlinProfile: 1, girtProfile: 1,
                braceType: 1, haunchProfile: 1,
+               trussBotProfile: 1, trussWebProfile: 1, girderProfile: 1,
                roofClad: 1, wallClad: 1 };
   // Numbers only nudge the model, so the viewer is updated in place and the
   // sheet is left alone — a full repaint on every slider tick would rebuild
@@ -311,7 +312,7 @@
     var p = BP.projById(id);
     if (!p) return;
     p.dims[k] = BOOL[k] ? !!v : TEXT[k] ? String(v) : (Number(v) || 0);
-    var TOPO = { skylights: 1, leanTo: 1, mezz: 1, colLines: 1 };
+    var TOPO = { skylights: 1, leanTo: 1, mezz: 1, colLines: 1, colEvery: 1 };
     if (BOOL[k] || TEXT[k] || TOPO[k]) { BP.saveP(); BP.open(id); return; }
     if (BP._v3d) BP._v3d.update(BP.model3d(p));
     // Numbers still have to reach the readouts, but only once the user

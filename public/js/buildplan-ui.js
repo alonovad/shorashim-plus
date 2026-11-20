@@ -799,6 +799,21 @@
       cladOptions(cur) + '</select>';
   }
 
+  // Every steel section sold by the metre, with an "empty" choice whose
+  // meaning the caller states (e.g. "same as the rafter").
+  function steelSel(id, key, cur, emptyLabel) {
+    var o = '<option value=""' + (!cur ? ' selected' : '') + '>' + BP.esc(emptyLabel) + '</option>', seen = !cur;
+    (BP.C.profiles || []).filter(function (x) {
+      return x.unit === "מ'" && x.kgPerM > 0 && x.group !== 'חיפוי' && x.group !== 'בטון';
+    }).forEach(function (x) {
+      if (x.name === cur) seen = true;
+      o += '<option value="' + BP.esc(x.name) + '"' + (x.name === cur ? ' selected' : '') + '>' +
+        BP.esc(BP.dsp(x.name)) + ' \u00b7 ' + x.kgPerM + ' kg/m</option>';
+    });
+    if (!seen) o += '<option value="' + BP.esc(cur) + '" selected>' + BP.esc(BP.dsp(cur)) + ' \u26a0\ufe0f</option>';
+    return '<select class="bp-in" onchange="BuildPlan._dim(' + id + ',\'' + key + '\',this.value)">' + o + '</select>';
+  }
+
   function profSel(id, key, group, cur) {
     var o = '';
     (BP.C.profiles || []).filter(function (x) { return x.group === group; }).forEach(function (x) {
@@ -914,6 +929,8 @@
       rafterType: d.rafterType, trussDepth: d.trussDepth,
       haunch: d.haunch, taper: d.taper, bracing: d.bracing,
       colLines: d.colLines, braceType: d.braceType,
+      colEvery: d.colEvery, colH: d.colH, colExisting: d.colExisting,
+      girderD: BP.girderDepth(d),
       free: (p.free || []).map(function (f) { return JSON.parse(JSON.stringify(f)); }),
       skylights: d.skylights, door: d.door, doorW: d.doorW, doorH: d.doorH,
       leanTo: d.leanTo, mezz: d.mezz, mezzH: d.mezzH,
@@ -1419,7 +1436,8 @@
       ridge:   BP.tt('רכס גג', 'สันหลังคา', 'قمة السقف'),
       skylight:BP.tt('לוח סקיילייט', 'สกายไลท์', 'لوح إضاءة'),
       door:    BP.tt('דלת/שער', 'ประตู', 'باب'),
-      mezz:    BP.tt('גלריה', 'ชั้นลอย', 'ميزانين')
+      mezz:    BP.tt('גלריה', 'ชั้นลอย', 'ميزانين'),
+      girder:  BP.tt('קורת אורך מסבכית', 'คานตามยาวโครงถัก', 'عارضة طولية شبكية')
     };
     if (/^free:/.test(String(g))) {
       var fid = String(g).slice(5), hit = null;
@@ -1592,6 +1610,18 @@
               BP.tt('מסגרת פורטל', 'โครงประตู', 'إطار بوابي') + '</option>' +
             '<option value="3"' + (d.colLines === 3 ? ' selected' : '') + '>3 \u2014 ' +
               BP.tt('עמודים גם באמצע', 'มีเสากลาง', 'أعمدة وسطية') + '</option></select></div>' +
+        '<div><div class="bp-lbl">' + BP.tt('עמודים בכל', 'เสาทุก', 'أعمدة كل') + '</div>' +
+          '<select class="bp-in" onchange="BuildPlan._dim(' + id + ',\'colEvery\',this.value)">' +
+            [1, 2, 3].map(function (n) {
+              return '<option value="' + n + '"' + (d.colEvery === n ? ' selected' : '') + '>' +
+                (n === 1 ? BP.tt('כל מסגרת', 'ทุกเฟรม', 'كل إطار')
+                         : n + ' ' + BP.tt('מסגרות (קורת אורך)', 'เฟรม (คานตามยาว)', 'إطارات (عارضة طولية)')) +
+                '</option>';
+            }).join('') + '</select></div>' +
+        ctl(id, 'colH', BP.tt('גובה עמוד בפועל (0 = עד הגג)', 'ความสูงเสาจริง', 'ارتفاع العمود الفعلي'), d.colH, 0, 12, 0.1) +
+        (d.colEvery > 1 || d.girderD > 0
+          ? ctl(id, 'girderD', BP.tt('עומק קורת אורך (מ\')', 'ความลึกคานตามยาว', 'عمق العارضة الطولية'), BP.girderDepth(d), 0.3, 2, 0.05)
+          : '') +
         // Built from the catalogue, because the model stores the PRODUCT.
         // These used to offer a three-value enum while the model held a
         // product name, so nothing ever matched: the box showed the first
@@ -1612,6 +1642,9 @@
           cladSelect(id, 'wallClad', d.wallClad) + '</div>' +
       '</div>' +
       '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;font-size:.8rem;">' +
+        '<label><input type="checkbox"' + (d.colExisting ? ' checked' : '') +
+          ' onchange="BuildPlan._dim(' + id + ',\'colExisting\',this.checked)"> ' +
+          BP.tt('עמודים קיימים (לא בכתב הכמויות)', 'เสาเดิม (ไม่คิดในบัญชี)', 'أعمدة قائمة (خارج الكميات)') + '</label>' +
         '<label><input type="checkbox"' + (d.fence ? ' checked' : '') +
           ' onchange="BuildPlan._dim(' + id + ',\'fence\',this.checked)"> ' +
           BP.tt('גידור היקפי', 'รั้วรอบ', 'سياج محيطي') + '</label>' +
@@ -1635,7 +1668,15 @@
               '<option value="truss"' + (d.rafterType === 'truss' ? ' selected' : '') + '>' +
                 BP.tt('סבכה / רפפה', 'โครงถัก', 'جملون شبكي') + '</option></select></div>' +
           (d.rafterType === 'truss'
-            ? ctl(id, 'trussDepth', BP.tt('גובה סבכה (מ\')', 'ความลึก', 'عمق الجملون'), d.trussDepth, 0.3, 2, 0.05)
+            ? ctl(id, 'trussDepth', BP.tt('גובה סבכה (מ\')', 'ความลึก', 'عمق الجملون'), d.trussDepth, 0.3, 2, 0.05) +
+              '<div><div class="bp-lbl">' + BP.tt('חגורה תחתונה', 'คอร์ดล่าง', 'الوتر السفلي') + '</div>' +
+                steelSel(id, 'trussBotProfile', d.trussBotProfile, BP.tt('לא מפורט (כמו קודם)', 'ไม่แยก', 'غير مفصل')) + '</div>' +
+              '<div><div class="bp-lbl">' + BP.tt('ניצבים ואלכסונים', 'ตั้งและทแยง', 'قوائم وأقطار') + '</div>' +
+                steelSel(id, 'trussWebProfile', d.trussWebProfile, BP.tt('כמו החגורה התחתונה', 'เหมือนคอร์ดล่าง', 'مثل الوتر السفلي')) + '</div>'
+            : '') +
+          (BP.girderDepth(d) > 0
+            ? '<div><div class="bp-lbl">' + BP.tt('חגורות קורת האורך', 'คอร์ดคานตามยาว', 'أوتار العارضة الطولية') + '</div>' +
+                steelSel(id, 'girderProfile', d.girderProfile, BP.tt('כמו קורת הגג', 'เหมือนคาน', 'مثل الرافدة')) + '</div>'
             : '') +
           ctl(id, 'skylights', BP.tt('רצועות סקיילייט', 'สกายไลท์', 'شرائط إضاءة'), d.skylights, 0, 6, 1) +
           ctl(id, 'leanTo', BP.tt('סככת צד (מ\')', 'เพิงข้าง', 'جناح جانبي'), d.leanTo, 0, 10, 0.5) +

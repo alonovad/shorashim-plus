@@ -38,7 +38,7 @@ var Shed3D = (function () {
     purlin: '#c9a227', girt: '#9fb8c8', strut: '#b0b0b0', brace: '#8e8e8e',
     roof: '#8fa3b8', wall: '#c2c9d2', gutter: '#7f8c8d', ridge: '#6d7b7f',
     slab: '#b9b6ae', footing: '#7d6b58', fence: '#6c757d',
-    door: '#5d6d7e', skylight: '#dff3ff', mezz: '#a9855f',
+    door: '#5d6d7e', skylight: '#dff3ff', mezz: '#a9855f', girder: '#9a7a58',
     ground: '#b9ae92', sel: '#ffd166'
   };
 
@@ -201,12 +201,12 @@ var Shed3D = (function () {
 
   // Vertical members split along their height for the same reason the
   // horizontal ones split along their length.
-  function colSeg(x, cy, cw, top) {
+  function colSeg(x, cy, cw, top, col) {
     var n = Math.max(1, Math.min(6, Math.round(top / Math.max(2.2, SEG))));
     var out = [];
     for (var i = 0; i < n; i++) {
       out = out.concat(box(x-cw, cy-cw, top*i/n, x+cw, cy+cw, top*(i+1)/n,
-        PALETTE.column, 'column'));
+        col || PALETTE.column, 'column'));
     }
     return out;
   }
@@ -312,9 +312,15 @@ var Shed3D = (function () {
     // a gable and mid-slope on a mono-pitch, which is where a wide shed's
     // engineer puts it.
     var lines = (m.colLines === 3) ? [y0, 0, y1] : [y0, y1];
+    // Columns on every Nth frame only (always both ends); the other frames
+    // bear on a longitudinal lattice girder along each column line.
+    var colEvery = m.colEvery > 1 ? m.colEvery : 1;
+    function hasCols(i) { return i % colEvery === 0 || i === frames - 1; }
+    var colCol = m.colExisting ? '#8a8a85' : PALETTE.column;
     if (m.footings) {
       var fw = m.footW / 2;
       for (var i2 = 0; i2 < frames; i2++) {
+        if (!hasCols(i2)) continue;
         var fx = x0 + i2*bay;
         lines.forEach(function (fy) {
           F = F.concat(box(fx-fw, fy-fw, -m.slabTh-m.footD, fx+fw, fy+fw, -m.slabTh,
@@ -328,8 +334,8 @@ var Shed3D = (function () {
     for (var f2 = 0; f2 < frames; f2++) {
       var x = x0 + f2*bay;
 
-      lines.forEach(function (cy) {
-        var top = zAt(cy);
+      if (hasCols(f2)) lines.forEach(function (cy) {
+        var top = (m.colH > 0) ? m.colH : zAt(cy);
         var inner = cy !== y0 && cy !== y1;
         if (m.taper && !inner) {
           // Wider at the knee, where the moment peaks — what the fabricated
@@ -342,7 +348,7 @@ var Shed3D = (function () {
           F.push({ pts: [A[0],B[0],B[3],A[3]], color: PALETTE.column, group: 'column' });
           F.push({ pts: [A[1],B[1],B[2],A[2]], color: PALETTE.column, group: 'column' });
         } else {
-          F = F.concat(colSeg(x, cy, cw, top));
+          F = F.concat(colSeg(x, cy, cw, top, colCol));
         }
         if (haunch > 0 && !inner) {
           var dir = cy < 0 ? 1 : -1;
@@ -378,6 +384,31 @@ var Shed3D = (function () {
           }
         } else {
           F = F.concat(strutSeg(a, b, 0.16, PALETTE.rafter, 'rafter'));
+        }
+      });
+    }
+
+    // ── longitudinal girders ──
+    // Along each column line, under the truss bearings: carries the frames
+    // that have no columns of their own. Top chord at the underside of the
+    // rafter (bottom chord of a truss), Pratt web on ~1 m panels.
+    if (m.girderD > 0) {
+      var gDep = m.girderD;
+      var under = (m.rafterType === 'truss') ? m.trussDepth : 0.25;
+      var gPan = Math.max(2, Math.min(m.lod ? 10 : 24, Math.round(len / 1.0)));
+      lines.forEach(function (gy) {
+        var gt = zAt(gy) - under, gb = gt - gDep;
+        F = F.concat(strutSeg([x0, gy, gt], [x1, gy, gt], 0.06, PALETTE.girder, 'girder'));
+        F = F.concat(strutSeg([x0, gy, gb], [x1, gy, gb], 0.06, PALETTE.girder, 'girder'));
+        for (var gp = 0; gp <= gPan; gp++) {
+          var gx = x0 + len * gp / gPan;
+          F = F.concat(strut([gx, gy, gb], [gx, gy, gt], 0.035, PALETTE.girder, 'girder'));
+          if (gp < gPan) {
+            var gx2 = x0 + len * (gp + 1) / gPan;
+            F = F.concat(gp < gPan / 2
+              ? strut([gx, gy, gt], [gx2, gy, gb], 0.035, PALETTE.girder, 'girder')
+              : strut([gx, gy, gb], [gx2, gy, gt], 0.035, PALETTE.girder, 'girder'));
+          }
         }
       });
     }
