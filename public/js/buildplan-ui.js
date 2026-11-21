@@ -43,9 +43,14 @@
     var pane = document.querySelector('.bp-pane');
     var backTop = back ? back.scrollTop : 0;
     var paneTop = pane ? pane.scrollTop : 0;
-    var openAcc = [];
-    document.querySelectorAll('.bp-acc').forEach(function (d, i) {
-      if (d.open) openAcc.push(i);
+    // Accordions are remembered by their title, not their position: a
+    // section that appears or disappears (truss, girder, door…) shifted the
+    // indices and opened the wrong panels after every structural change.
+    var openAcc = [], seenAcc = [];
+    function accKey(d) { var sm = d.querySelector('summary'); return sm ? sm.textContent.trim() : ''; }
+    document.querySelectorAll('.bp-acc').forEach(function (d) {
+      seenAcc.push(accKey(d));
+      if (d.open) openAcc.push(accKey(d));
     });
     var act = document.activeElement;
     var actId = (act && act.id) ? act.id : null;
@@ -55,12 +60,17 @@
 
     var nBack = document.querySelector('.bp-back');
     var nPane = document.querySelector('.bp-pane');
+    // Accordions first, scroll second: restoring the scroll into a sheet
+    // whose panels are still collapsed clamps it short — the jump.
+    if (seenAcc.length) {
+      var accs = document.querySelectorAll('.bp-acc');
+      accs.forEach(function (d) {
+        var k2 = accKey(d);
+        if (seenAcc.indexOf(k2) >= 0) d.open = openAcc.indexOf(k2) >= 0;   // new panels keep their default
+      });
+    }
     if (nBack && backTop) nBack.scrollTop = backTop;
     if (nPane && paneTop) nPane.scrollTop = paneTop;
-    if (openAcc.length) {
-      var accs = document.querySelectorAll('.bp-acc');
-      accs.forEach(function (d, i) { d.open = openAcc.indexOf(i) >= 0; });
-    }
     if (actId) {
       var back2 = document.getElementById(actId);
       if (back2 && back2.focus) {
@@ -799,19 +809,81 @@
       cladOptions(cur) + '</select>';
   }
 
-  // Every steel section sold by the metre, with an "empty" choice whose
-  // meaning the caller states (e.g. "same as the rafter").
-  function steelSel(id, key, cur, emptyLabel) {
-    var o = '<option value=""' + (!cur ? ' selected' : '') + '>' + BP.esc(emptyLabel) + '</option>', seen = !cur;
-    (BP.C.profiles || []).filter(function (x) {
-      return x.unit === "מ'" && x.kgPerM > 0 && x.group !== 'חיפוי' && x.group !== 'בטון';
-    }).forEach(function (x) {
-      if (x.name === cur) seen = true;
-      o += '<option value="' + BP.esc(x.name) + '"' + (x.name === cur ? ' selected' : '') + '>' +
-        BP.esc(BP.dsp(x.name)) + ' \u00b7 ' + x.kgPerM + ' kg/m</option>';
+  // One select per member role, grouped by section family, option text
+  // = the designation only (kg/m and utilisation sit beside it, so a long
+  // option never truncates the name away).
+  var FAMILY = { I: 0, RHS: 1, CHS: 2, C: 3, Z: 4, L: 5 };
+  function secSel(id, key, cur, fits, emptyLabel) {
+    var groups = {}, order = [], seen = !cur && emptyLabel != null;
+    (BP.C.profiles || []).forEach(function (x) {
+      if (!(x.unit === "מ'" && x.kgPerM > 0) || !fits(x)) return;
+      if (!groups[x.group]) { groups[x.group] = []; order.push(x.group); }
+      groups[x.group].push(x);
     });
-    if (!seen) o += '<option value="' + BP.esc(cur) + '" selected>' + BP.esc(BP.dsp(cur)) + ' \u26a0\ufe0f</option>';
-    return '<select class="bp-in" onchange="BuildPlan._dim(' + id + ',\'' + key + '\',this.value)">' + o + '</select>';
+    order.sort(function (a, b) {
+      var ga = BP.secGeom(groups[a][0].name) || {}, gb = BP.secGeom(groups[b][0].name) || {};
+      return (FAMILY[ga.shape] || 9) - (FAMILY[gb.shape] || 9);
+    });
+    var o = (emptyLabel != null ? '<option value=""' + (!cur ? ' selected' : '') + '>' + BP.esc(emptyLabel) + '</option>' : '');
+    order.forEach(function (gname) {
+      var list = groups[gname].slice().sort(function (a, b) { return a.kgPerM - b.kgPerM; });
+      o += '<optgroup label="' + BP.esc(BP.dsp(gname)) + '">' + list.map(function (x) {
+        if (x.name === cur) seen = true;
+        return '<option value="' + BP.esc(x.name) + '"' + (x.name === cur ? ' selected' : '') + '>' +
+          BP.esc(BP.dsp(x.name)) + '</option>';
+      }).join('') + '</optgroup>';
+    });
+    if (cur && !seen) o = '<option value="' + BP.esc(cur) + '" selected>' + BP.esc(BP.dsp(cur)) + '</option>' + o;
+    return '<select class="bp-in" style="width:100%;" onchange="BuildPlan._dim(' + id + ',\'' + key + '\',this.value)">' + o + '</select>';
+  }
+  function fitsChord(x) { var g = BP.secGeom(x.name); return !!g && (g.shape === 'RHS' || g.shape === 'CHS' || g.shape === 'I'); }
+  function fitsWeb(x) { var g = BP.secGeom(x.name); return !!g && (g.shape === 'RHS' || g.shape === 'CHS' || g.shape === 'L'); }
+  function secRows(p) {
+    var d = p.dims, id = p.id, truss = d.rafterType === 'truss';
+    function info(name, role) {
+      var pr = BP.profByName(name), kg = pr && pr.kgPerM ? pr.kgPerM + ' kg/m' : '';
+      var u = '';
+      if (role && !(role === 'rafter' && truss)) {
+        var r = BP.checkMember(role, name, d);
+        if (r.known) {
+          var pc = Math.round(r.util * 100);
+          u = '<span style="margin-inline-start:6px;padding:1px 6px;border-radius:8px;font-weight:800;' +
+            'background:' + (r.ok ? '#e3f2e8' : '#fde8e8') + ';color:' + (r.ok ? '#1b5e20' : '#b71c1c') + ';">' + pc + '%</span>';
+        }
+      }
+      return '<span style="white-space:nowrap;font-size:.74rem;color:var(--text-muted,#777);">' + kg + u + '</span>';
+    }
+    function row(label, key, sel, inf) {
+      return '<div style="display:grid;grid-template-columns:minmax(110px,1fr) 2fr auto;gap:8px;align-items:center;' +
+        'padding:6px 0;border-bottom:1px solid var(--border,#eee);">' +
+        '<div class="bp-lbl" style="margin:0;">' + label + '</div>' + sel + inf + '</div>';
+    }
+    var h = '';
+    h += row(BP.tt('עמודים', 'เสา', 'أعمدة') + (d.colExisting ? ' <span style="opacity:.6;">(' + BP.tt('קיימים', 'เดิม', 'قائمة') + ')</span>' : ''),
+      'colProfile', secSel(id, 'colProfile', d.colProfile, function (x) { return BP.fitsRole('column', x); }), info(d.colProfile, 'column'));
+    h += row(truss ? BP.tt('סבכה – חגורה עליונה', 'โครงถัก – คอร์ดบน', 'الجملون – الوتر العلوي') : BP.tt('קורות גג', 'คาน', 'روافد'),
+      'rafterProfile', secSel(id, 'rafterProfile', d.rafterProfile, truss ? fitsChord : function (x) { return BP.fitsRole('rafter', x); }), info(d.rafterProfile, 'rafter'));
+    if (truss) {
+      h += row(BP.tt('סבכה – חגורה תחתונה', 'โครงถัก – คอร์ดล่าง', 'الجملون – الوتر السفلي'), 'trussBotProfile',
+        secSel(id, 'trussBotProfile', d.trussBotProfile, fitsChord, BP.tt('לא מפורט בכמויות', 'ไม่แยก', 'غير مفصل')), info(d.trussBotProfile));
+      h += row(BP.tt('סבכה – ניצבים ואלכסונים', 'โครงถัก – ตั้งและทแยง', 'الجملون – قوائم وأقطار'), 'trussWebProfile',
+        secSel(id, 'trussWebProfile', d.trussWebProfile, fitsWeb, BP.tt('כמו החגורה התחתונה', 'เหมือนคอร์ดล่าง', 'مثل الوتر السفلي')), info(d.trussWebProfile));
+    }
+    if (BP.girderDepth(d) > 0) {
+      h += row(BP.tt('קורת אורך – חגורות', 'คานตามยาว – คอร์ด', 'العارضة الطولية – أوتار'), 'girderProfile',
+        secSel(id, 'girderProfile', d.girderProfile, fitsChord, BP.tt('כמו קורת הגג', 'เหมือนคาน', 'مثل الرافدة')), info(d.girderProfile || d.rafterProfile));
+    }
+    if (d.haunch) {
+      h += row(BP.tt('חיזוק פינה', 'ฮันช์', 'تقوية الركن'), 'haunchProfile',
+        secSel(id, 'haunchProfile', d.haunchProfile, fitsChord, BP.tt('כמו קורת הגג', 'เหมือนคาน', 'مثل الرافدة')), info(d.haunchProfile || d.rafterProfile));
+    }
+    h += row(BP.tt('מרישים', 'แป', 'مرايش'), 'purlinProfile',
+      secSel(id, 'purlinProfile', d.purlinProfile, function (x) { return BP.fitsRole('purlin', x); }), info(d.purlinProfile, 'purlin'));
+    if (d.wallMode !== 'open') {
+      h += row(BP.tt('מסילות קיר', 'แปผนัง', 'مرايش الجدار'), 'girtProfile',
+        secSel(id, 'girtProfile', d.girtProfile, function (x) { return BP.fitsRole('girt', x); }), info(d.girtProfile, 'girt'));
+    }
+    return h;
   }
 
   function profSel(id, key, group, cur) {
@@ -1176,7 +1248,7 @@
     if (!host || typeof Shed3D === 'undefined') return;
     if (_v3dState) _v3dState.marks = marksFor(p);
     BP._v3d = Shed3D.mount(host, BP.model3d(p), {
-      labels: {
+      measureLabels: {
         x: BP.tt('אורך', 'ยาว', 'طول'), y: BP.tt('רוחב', 'กว้าง', 'عرض'), z: BP.tt('גובה', 'สูง', 'ارتفاع'),
         corner: BP.tt('פינה', 'มุม', 'زاوية'), midpoint: BP.tt('אמצע', 'กลาง', 'منتصف'),
         edge: BP.tt('קו', 'เส้น', 'خط'), ground: BP.tt('קרקע', 'พื้น', 'أرض')
@@ -1247,11 +1319,19 @@
         sub: (f.kind === 'member' ? (f.profile ? f.profile + ' \u00b7 ' : '') + BP.n1(f.l) + ' m'
                                   : BP.n1(f.l) + ' \u00d7 ' + BP.n1(f.w) + ' \u00d7 ' + BP.n1(f.h) + ' m') };
     });
-    out.column = { title: memberLabel('column'), sub: d.colProfile + '  ' + qty(d.colProfile) };
+    var sep = ' \u00b7 ';
+    out.column = { title: memberLabel('column'),
+      sub: BP.dsp(d.colProfile) + sep + g.cols + ' ' + BP.tt('יח\'', 'ต้น', 'قطع') +
+        (d.colExisting ? sep + BP.tt('קיימים', 'เดิม', 'قائمة') : '') };
     out.rafter = { title: memberLabel('rafter'),
-      sub: (d.rafterType === 'truss' ? BP.tt('סבכה', 'โครงถัก', 'جملون') + ' ' + BP.n1(d.trussDepth) + 'm  ' : '') +
-        d.rafterProfile + '  ' + qty(d.rafterProfile) };
-    out.purlin = { title: memberLabel('purlin'), sub: d.purlinProfile + '  ' + qty(d.purlinProfile) };
+      sub: (d.rafterType === 'truss'
+        ? g.frames + ' ' + BP.tt('סבכות', 'โครงถัก', 'جملونات') + sep + BP.tt('עומק', 'ลึก', 'عمق') + ' ' + BP.n1(d.trussDepth) + ' m' + sep + BP.dsp(d.rafterProfile)
+        : g.frames * g.slopes + ' ' + BP.tt('קורות', 'คาน', 'روافد') + sep + BP.dsp(d.rafterProfile)) };
+    if (BP.girderDepth(d) > 0) {
+      out.girder = { title: memberLabel('girder'),
+        sub: BP.dsp(d.girderProfile || d.rafterProfile) + sep + BP.tt('עומק', 'ลึก', 'عمق') + ' ' + BP.n1(BP.girderDepth(d)) + ' m' };
+    }
+    out.purlin = { title: memberLabel('purlin'), sub: BP.dsp(d.purlinProfile) + sep + qty(d.purlinProfile) };
     if (d.wallMode !== 'open') {
       out.girt = { title: memberLabel('girt'), sub: d.girtProfile + '  ' + qty(d.girtProfile) };
       out.wall = { title: memberLabel('wall'), sub: BP.dsp(d.wallClad) + '  ' + qty(d.wallClad) };
@@ -1261,20 +1341,21 @@
     }
     if (d.skylights > 0) out.skylight = { title: memberLabel('skylight'), sub: qty('לוח סקיילייט') };
     if (d.gutter) out.gutter = { title: memberLabel('gutter'), sub: qty('מרזב') };
-    if (d.haunch) out.haunch = { title: memberLabel('haunch'), sub: '' };
+    if (d.haunch) out.haunch = { title: memberLabel('haunch'), sub: BP.dsp(d.haunchProfile || d.rafterProfile) };
     if (d.bracing) out.brace = { title: memberLabel('brace'), sub: '' };
     if (d.footings) {
       out.footing = { title: memberLabel('footing'),
-        sub: g.frames*2 + ' \u00d7 ' + BP.n1(d.footW) + '\u00d7' + BP.n1(d.footW) + '\u00d7' + BP.n1(d.footD) + 'm' };
+        sub: g.cols + ' \u00d7 ' + BP.n1(d.footW) + '\u00d7' + BP.n1(d.footW) + '\u00d7' + BP.n1(d.footD) + ' m' +
+          (d.colExisting ? sep + BP.tt('קיימים', 'เดิม', 'قائمة') : '') };
     }
-    out.slab = { title: memberLabel('slab'), sub: BP.n2(BP.concrete(p).total) + ' \u05de"\u05e7' };
+    if (p.hasSlab !== false) out.slab = { title: memberLabel('slab'), sub: BP.n2(BP.concrete(p).total) + ' \u05de"\u05e7' };
     if (d.door) out.door = { title: memberLabel('door'), sub: BP.n1(d.doorW) + '\u00d7' + BP.n1(d.doorH) + 'm' };
     if (d.mezz > 0) out.mezz = { title: memberLabel('mezz'), sub: BP.n1(d.mezz) + 'm' };
     if (d.fence) out.fence = { title: memberLabel('fence'), sub: BP.n1(d.fenceH) + 'm' };
     return out;
   }
 
-  var LAYER_ORDER = ['column','haunch','rafter','purlin','strut','brace','girt',
+  var LAYER_ORDER = ['column','haunch','rafter','girder','purlin','strut','brace','girt',
                      'roof','skylight','ridge','wall','door','gutter',
                      'slab','footing','mezz','fence'];
 
@@ -1430,8 +1511,24 @@
     } else {
       BP.toast('\u2705 ' + BP.esc(name));
     }
-    BP.open(BP._open);
-    setTimeout(function () { BP.pickMember(role); }, 60);
+    BP.refreshSections(p);
+    BP.pickMember(role);
+  };
+
+  // A section changed: everything that shows it is patched in place — the
+  // 3D model, its callouts and legend, the readouts and the profile rows.
+  // No repaint, so the sheet does not jump and the camera does not reset.
+  BP.refreshSections = function refreshSections(p) {
+    if (!p) return;
+    if (BP._v3d) {
+      BP._v3d.update(BP.model3d(p));
+      if (BP._v3d.setLabels) BP._v3d.setLabels(calloutLabels(p));
+    }
+    if (BP.refreshReadouts) BP.refreshReadouts(p);
+    BP.legendPanel(p);
+    var host = document.getElementById('bpSecRows');
+    if (host) host.innerHTML = secRows(p);
+    if (BP._swapRole) BP.swapPanel(BP._swapRole);
   };
 
   BP.closeSwap = function closeSwap() {
@@ -1692,14 +1789,7 @@
                 BP.tt('סבכה / רפפה', 'โครงถัก', 'جملون شبكي') + '</option></select></div>' +
           (d.rafterType === 'truss'
             ? ctl(id, 'trussDepth', BP.tt('גובה סבכה (מ\')', 'ความลึก', 'عمق الجملون'), d.trussDepth, 0.3, 2, 0.05) +
-              '<div><div class="bp-lbl">' + BP.tt('חגורה תחתונה', 'คอร์ดล่าง', 'الوتر السفلي') + '</div>' +
-                steelSel(id, 'trussBotProfile', d.trussBotProfile, BP.tt('לא מפורט (כמו קודם)', 'ไม่แยก', 'غير مفصل')) + '</div>' +
-              '<div><div class="bp-lbl">' + BP.tt('ניצבים ואלכסונים', 'ตั้งและทแยง', 'قوائم وأقطار') + '</div>' +
-                steelSel(id, 'trussWebProfile', d.trussWebProfile, BP.tt('כמו החגורה התחתונה', 'เหมือนคอร์ดล่าง', 'مثل الوتر السفلي')) + '</div>'
-            : '') +
-          (BP.girderDepth(d) > 0
-            ? '<div><div class="bp-lbl">' + BP.tt('חגורות קורת האורך', 'คอร์ดคานตามยาว', 'أوتار العارضة الطولية') + '</div>' +
-                steelSel(id, 'girderProfile', d.girderProfile, BP.tt('כמו קורת הגג', 'เหมือนคาน', 'مثل الرافدة')) + '</div>'
+              ''
             : '') +
           ctl(id, 'skylights', BP.tt('רצועות סקיילייט', 'สกายไลท์', 'شرائط إضاءة'), d.skylights, 0, 6, 1) +
           ctl(id, 'leanTo', BP.tt('סככת צד (מ\')', 'เพิงข้าง', 'جناح جانبي'), d.leanTo, 0, 10, 0.5) +
@@ -1723,17 +1813,7 @@
                 '<option value="cable"' + (d.braceType === 'cable' ? ' selected' : '') + '>' +
                   BP.tt('כבלים + מותחנים', 'สายเคเบิล', 'كابلات') + '</option></select>'
             : '') +
-          (d.haunch
-            ? '<select class="bp-in" style="max-width:190px;" onchange="BuildPlan._dim(' + id + ',\'haunchProfile\',this.value)">' +
-                '<option value=""' + (!d.haunchProfile ? ' selected' : '') + '>' +
-                  BP.tt('חיזוק פינה: כמו הקורה', 'ฮันช์: เหมือนคาน', 'تقوية: كالرافدة') + '</option>' +
-                (BP.C.profiles || []).filter(function (x) {
-                  return x.group === 'עמודים / קורות' || x.group === 'פרופיל מרובע' || x.group === 'פרופיל מלבני';   // CATALOGUE KEY
-                }).map(function (x) {
-                  return '<option value="' + BP.esc(x.name) + '"' + (x.name === d.haunchProfile ? ' selected' : '') + '>' +
-                    BP.esc(BP.dsp(x.name)) + '</option>';
-                }).join('') + '</select>'
-            : '') +
+
           '<label><input type="checkbox"' + (d.gutter ? ' checked' : '') +
             ' onchange="BuildPlan._dim(' + id + ',\'gutter\',this.checked)"> ' +
             BP.tt('מרזבים', 'รางน้ำ', 'مزاريب') + '</label>' +
@@ -1750,16 +1830,11 @@
 
         '<details class="bp-acc"><summary>' +
           BP.tt('פרופילים', 'โปรไฟล์', 'المقاطع') + '</summary><div>' +
-'<div class="bp-grid">' +
-      '<div><div class="bp-lbl">' + BP.tt('עמודים', 'เสา', 'أعمدة') + '</div>' +
-        profSel(id, 'colProfile', 'עמודים / קורות', d.colProfile) + '</div>' +
-      '<div><div class="bp-lbl">' + BP.tt('קורות גג', 'คาน', 'روافد') + '</div>' +
-        profSel(id, 'rafterProfile', 'עמודים / קורות', d.rafterProfile) + '</div>' +
-      '<div><div class="bp-lbl">' + BP.tt('מרישים', 'แป', 'مرايش') + '</div>' +
-        profSel(id, 'purlinProfile', 'מרישים', d.purlinProfile) + '</div>' +
-      '<div><div class="bp-lbl">' + BP.tt('מסילות קיר', 'แปผนัง', 'مرايش الجدار') + '</div>' +
-        profSel(id, 'girtProfile', 'מרישים', d.girtProfile) + '</div>' +
-    '</div></div>' +
+'<div id="bpSecRows">' + secRows(p) + '</div>' +
+      '<div style="font-size:.72rem;color:var(--text-muted,#888);margin-top:6px;">' +
+        BP.tt('ניצול = בדיקה ראשונית לכובד בלבד (ללא רוח). חברי סבכה וקורות אורך – משקל בלבד.',
+              'การใช้งาน = ตรวจเบื้องต้นเฉพาะน้ำหนัก', 'الاستغلال = فحص أولي للأحمال فقط') + '</div>' +
+    '</div>' +
         '</details>' +
 
         '<details class="bp-acc"><summary>' +

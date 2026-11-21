@@ -312,6 +312,12 @@
     var p = BP.projById(id);
     if (!p) return;
     p.dims[k] = BOOL[k] ? !!v : TEXT[k] ? String(v) : (Number(v) || 0);
+    // A section swap changes sizes, not which controls exist: patch the
+    // model and readouts in place instead of repainting the sheet (the
+    // repaint is what made the page jump on every profile change).
+    var SECKEY = { colProfile: 1, rafterProfile: 1, purlinProfile: 1, girtProfile: 1, haunchProfile: 1,
+                   trussBotProfile: 1, trussWebProfile: 1, girderProfile: 1 };
+    if (SECKEY[k] && BP.refreshSections) { BP.saveP(); BP.refreshSections(p); return; }
     var TOPO = { skylights: 1, leanTo: 1, mezz: 1, colLines: 1, colEvery: 1 };
     if (BOOL[k] || TEXT[k] || TOPO[k]) { BP.saveP(); BP.open(id); return; }
     if (BP._v3d) BP._v3d.update(BP.model3d(p));

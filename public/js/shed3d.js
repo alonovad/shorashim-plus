@@ -34,11 +34,14 @@ var Shed3D = (function () {
   'use strict';
 
   var PALETTE = {
-    column: '#6b4f3a', rafter: '#7a5a42', truss: '#8a6a4e', haunch: '#5e4531',
-    purlin: '#c9a227', girt: '#9fb8c8', strut: '#b0b0b0', brace: '#8e8e8e',
+    // Painted structural steel, not timber: one family of greys with enough
+    // tint between roles to tell them apart; purlins stay warm so the roof
+    // plane reads at a glance.
+    column: '#4e5a66', rafter: '#66788a', truss: '#66788a', haunch: '#3f4a55',
+    purlin: '#c9a227', girt: '#9fb8c8', strut: '#9aa3ab', brace: '#3a434c',
     roof: '#8fa3b8', wall: '#c2c9d2', gutter: '#7f8c8d', ridge: '#6d7b7f',
     slab: '#b9b6ae', footing: '#7d6b58', fence: '#6c757d',
-    door: '#5d6d7e', skylight: '#dff3ff', mezz: '#a9855f', girder: '#9a7a58',
+    door: '#5d6d7e', skylight: '#dff3ff', mezz: '#a9855f', girder: '#53708a',
     ground: '#b9ae92', sel: '#ffd166'
   };
 
@@ -374,7 +377,16 @@ var Shed3D = (function () {
         } else {
           F = F.concat(colSeg2(x, cy, colHx, colHy, top, colCol));
         }
-        if (haunch > 0 && !inner) {
+        if (haunch > 0 && !inner && (m.rafterType === 'truss' || m.colH > 0)) {
+          // A knee brace is a member: from the column, up and in to the
+          // underside of the truss (or the girder line), at its own size.
+          var dk = cy < 0 ? 1 : -1, run = Math.min(1.4, span * 0.10);
+          var yk = cy + dk * run;
+          var under2 = (m.rafterType === 'truss') ? m.trussDepth : 0.25;
+          var zk = zAt(yk) - under2;
+          var zc = Math.max(0.5, Math.min(top, zk) - 1.4);
+          F = F.concat(strutSeg([x, cy, zc], [x, yk, zk], Math.max(0.03, Math.min(0.12, (SEC.knee && SEC.knee.b ? SEC.knee.b / 2 : 0.05))), PALETTE.haunch, 'haunch'));
+        } else if (haunch > 0 && !inner) {
           var dir = cy < 0 ? 1 : -1;
           F.push({ pts: [[x-cw,cy,top],[x+cw,cy,top],
                          [x+cw, cy+dir*haunch, top - haunch*Math.tan(pitch) - 0.4],
@@ -792,13 +804,23 @@ var Shed3D = (function () {
       var gx0 = groundExtent ? groundExtent.x0 : e.x0, gx1 = groundExtent ? groundExtent.x1 : e.x1;
       var gy0 = groundExtent ? groundExtent.y0 : e.y0, gy1 = groundExtent ? groundExtent.y1 : e.y1;
       ctx.save();
+      // Earth-tone base under the imagery: a cell the imagery does not
+      // fully cover (or a tile that failed) used to leave a white hole.
+      var g0 = P([e.x0,e.y0,-0.03]), g1 = P([e.x1,e.y0,-0.03]), g2 = P([e.x1,e.y1,-0.03]), g3 = P([e.x0,e.y1,-0.03]);
+      if (g0[2] > 0.6 && g1[2] > 0.6 && g2[2] > 0.6 && g3[2] > 0.6) {
+        ctx.fillStyle = PALETTE.ground;
+        ctx.beginPath(); ctx.moveTo(g0[0],g0[1]); ctx.lineTo(g1[0],g1[1]); ctx.lineTo(g2[0],g2[1]); ctx.lineTo(g3[0],g3[1]);
+        ctx.closePath(); ctx.fill();
+      }
       for (var r = 0; r < N; r++) {
         for (var c = 0; c < N; c++) {
           var mx0 = e.x0 + (e.x1-e.x0)*c/N,     mx1 = e.x0 + (e.x1-e.x0)*(c+1)/N;
           var my0 = e.y0 + (e.y1-e.y0)*r/N,     my1 = e.y0 + (e.y1-e.y0)*(r+1)/N;
           var u0 = (mx0-gx0)/(gx1-gx0), u1 = (mx1-gx0)/(gx1-gx0);
           var v0 = 1-(my0-gy0)/(gy1-gy0), v1 = 1-(my1-gy0)/(gy1-gy0);
-          if (u1 < 0 || u0 > 1 || Math.min(v0,v1) > 1 || Math.max(v0,v1) < 0) continue;
+          // Only cells fully inside the imagery: a source rectangle that
+          // runs off the image draws nothing at all in most browsers.
+          if (u0 < 0 || u1 > 1 || Math.min(v0,v1) < 0 || Math.max(v0,v1) > 1) continue;
           var A = P([mx0,my0,-0.02]), B = P([mx1,my0,-0.02]), C = P([mx0,my1,-0.02]);
           var sx0 = u0*iw, sy0 = Math.min(v0,v1)*ih;
           var sw = (u1-u0)*iw, sh = Math.abs(v1-v0)*ih;
@@ -1379,7 +1401,7 @@ var Shed3D = (function () {
     // The axes as the person sees them, not as the array is indexed.
     // This file draws; it does not speak. Labels arrive from the caller,
     // which has the translation table. English names are a fallback, not UI.
-    var L = opts.labels || {};
+    var L = opts.measureLabels || {};
     var AXIS = { x: { i: 0, t: L.x || 'length' }, y: { i: 1, t: L.y || 'width' }, z: { i: 2, t: L.z || 'height' } };
     function applyLock(a, b) {
       if (axisLock === 'free' || !a) return b;
@@ -1635,6 +1657,8 @@ var Shed3D = (function () {
       setSun: function (az, el) { sunAz = az; sunEl = el; draw(); },
       setGround: function (img, extent) { groundImg = img; groundExtent = extent || null; draw(); },
       setHidden: function (map2) { hidden = map2 || {}; draw(); },
+      // Callout text changes with the sections; refresh without a remount.
+      setLabels: function (l) { opts.labels = l || {}; draw(); },
       toggleLayer: function (g) { hidden[g] = !hidden[g]; draw(); return !!hidden[g]; },
       isHidden: function (g) { return !!hidden[g]; },
       groups: function () {
