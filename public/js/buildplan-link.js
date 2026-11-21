@@ -240,6 +240,9 @@
   function refreshDerived(p) {
     BP.refreshReadouts(p);
     BP.legendPanel(p);
+    // Utilisation badges depend on spans, spacing and wind — keep them live.
+    var sr = document.getElementById('bpSecRows');
+    if (sr && BP.secRowsHtml) sr.innerHTML = BP.secRowsHtml(p);
     if (BP._v3d) {
       var g = BP._v3d.isHidden ? null : null;
       void g;

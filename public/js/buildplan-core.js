@@ -207,22 +207,39 @@ window.BuildPlanInternals = BuildPlanInternals;
       pitch: Number(d.pitch) || 10,
       purlinSp: Number(d.purlinSp) || 1.5, girtSp: Number(d.girtSp) || 1.5,
       roofLoad: Number(d.roofLoad) || 0.55,
+      windQp: Number(d.windQp) || 0.84,
       walls: d.walls, wallMode: d.wallMode || 'full', roofType: d.roofType || 'gable'
     };
     var g = BP.geom(d);
     var M = 0, span = 0, w = 0, util = 0, why = '';
+    // ── wind uplift (roof members) ──
+    // On an open shed the wind lifting the roof, not its weight, usually
+    // decides the purlins: net suction ≈ cp·qp minus the light roof's own
+    // weight (~0.15 kN/m²). cp 1.5 for purlins (edge zones), 0.9 for the
+    // frame. Under uplift the free (bottom) flange is in compression and
+    // unrestrained, so an open section (C, Z, I) loses roughly 40% of its
+    // capacity to lateral buckling; a closed tube does not.
+    var geo = BP.secGeom(name);
+    var open = !geo || geo.shape === 'C' || geo.shape === 'Z' || geo.shape === 'I';
+    var ltb = open ? 0.6 : 1.0;
+    var uW = 0;
+    function upl(cp) { return Math.max(0, cp * d.windQp - 0.15); }
 
     if (role === 'rafter') {
       span = g.rafterLen;
       w = d.roofLoad * g.actualBay;                 // kN/m along the rafter
       M = w * span * span / 10;                     // kNm, portal continuity
       util = (M * 1e6) / (sc.wy * 1e3 * F_ALLOW);
+      var Mw = upl(0.9) * g.actualBay * span * span / 10;
+      uW = (Mw * 1e6) / (sc.wy * 1e3 * F_ALLOW * ltb);
       why = BP.tt('כפיפה', 'การดัด', 'انحناء');
     } else if (role === 'purlin') {
       span = g.actualBay;
       w = d.roofLoad * d.purlinSp;
       M = w * span * span / 8;
       util = (M * 1e6) / (sc.wy * 1e3 * F_ALLOW);
+      var Mp = upl(1.5) * d.purlinSp * span * span / 8;
+      uW = (Mp * 1e6) / (sc.wy * 1e3 * F_ALLOW * ltb);
       why = BP.tt('כפיפה', 'การดัด', 'انحناء');
     } else if (role === 'girt') {
       span = g.actualBay;
@@ -252,7 +269,11 @@ window.BuildPlanInternals = BuildPlanInternals;
     } else return { known: false };
 
     if (!isFinite(util)) return { known: false };
-    return { known: true, util: util, ok: util <= 1,
+    // util stays the larger of the two, so every caller that reads
+    // util / ok (the swap list, the badges) now fails a section on wind too.
+    var uG = util;
+    if (uW > util) { util = uW; why = BP.tt('יניקת רוח', 'แรงยกลม', 'رفع الرياح'); }
+    return { known: true, util: util, ok: util <= 1, uG: uG, uW: uW,
              span: span, M: M, why: why, wy: sc.wy, kg: (BP.profByName(name) || {}).kgPerM || 0 };
   };
 
@@ -677,6 +698,9 @@ window.BuildPlanInternals = BuildPlanInternals;
       footD: Number(d.footD) || 0.8,               // pad depth, m
       soilBearing: Number(d.soilBearing) || 150,   // kPa
       roofLoad: Number(d.roofLoad) || 0.55,        // kN/m², dead + live
+      // Peak wind pressure qp, kN/m² — drives the uplift check on purlins
+      // and roof beams. 0.84 ≈ 26 m/s basic wind at ~7 m (Jordan Valley).
+      windQp: Number(d.windQp) || 0.84,
       fence: !!d.fence,
       fenceH: Number(d.fenceH) || 2,
       fenceOff: Number(d.fenceOff) || 2,

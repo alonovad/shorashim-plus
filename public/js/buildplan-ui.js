@@ -838,6 +838,7 @@
   }
   function fitsChord(x) { var g = BP.secGeom(x.name); return !!g && (g.shape === 'RHS' || g.shape === 'CHS' || g.shape === 'I'); }
   function fitsWeb(x) { var g = BP.secGeom(x.name); return !!g && (g.shape === 'RHS' || g.shape === 'CHS' || g.shape === 'L'); }
+  BP.secRowsHtml = function (p) { return secRows(p); };
   function secRows(p) {
     var d = p.dims, id = p.id, truss = d.rafterType === 'truss';
     function info(name, role) {
@@ -846,9 +847,20 @@
       if (role && !(role === 'rafter' && truss)) {
         var r = BP.checkMember(role, name, d);
         if (r.known) {
-          var pc = Math.round(r.util * 100);
-          u = '<span style="margin-inline-start:6px;padding:1px 6px;border-radius:8px;font-weight:800;' +
-            'background:' + (r.ok ? '#e3f2e8' : '#fde8e8') + ';color:' + (r.ok ? '#1b5e20' : '#b71c1c') + ';">' + pc + '%</span>';
+          var badge = function (lbl, v, title) {
+            var okv = v <= 1;
+            return '<span title="' + BP.esc(title) + '" style="margin-inline-start:6px;padding:1px 6px;border-radius:8px;font-weight:800;' +
+              'background:' + (okv ? '#e3f2e8' : '#fde8e8') + ';color:' + (okv ? '#1b5e20' : '#b71c1c') + ';">' +
+              (okv ? '' : '\u26a0\ufe0f ') + lbl + ' ' + Math.round(v * 100) + '%</span>';
+          };
+          if (r.uW > 0) {
+            // Two checks, two badges: weight and wind uplift. Red on either
+            // means the section does not work.
+            u = badge('\u2b07', r.uG, BP.tt('כובד', 'น้ำหนัก', 'الوزن')) +
+                badge('\u2b06', r.uW, BP.tt('יניקת רוח', 'แรงยกลม', 'رفع الرياح'));
+          } else {
+            u = badge('', r.util, BP.tt('כובד', 'น้ำหนัก', 'الوزن'));
+          }
         }
       }
       return '<span style="white-space:nowrap;font-size:.74rem;color:var(--text-muted,#777);">' + kg + u + '</span>';
@@ -1832,8 +1844,11 @@
           BP.tt('פרופילים', 'โปรไฟล์', 'المقاطع') + '</summary><div>' +
 '<div id="bpSecRows">' + secRows(p) + '</div>' +
       '<div style="font-size:.72rem;color:var(--text-muted,#888);margin-top:6px;">' +
-        BP.tt('ניצול = בדיקה ראשונית לכובד בלבד (ללא רוח). חברי סבכה וקורות אורך – משקל בלבד.',
-              'การใช้งาน = ตรวจเบื้องต้นเฉพาะน้ำหนัก', 'الاستغلال = فحص أولي للأحمال فقط') + '</div>' +
+        BP.tt('⬇ כובד · ⬆ יניקת רוח (חרגת = אדום). בדיקה ראשונית בלבד; חברי סבכה וקורות אורך – משקל בלבד.',
+              '⬇ น้ำหนัก · ⬆ แรงยกลม (เกิน = แดง) ตรวจเบื้องต้นเท่านั้น', '⬇ الوزن · ⬆ رفع الرياح (تجاوز = أحمر). فحص أولي فقط') + '</div>' +
+      '<div class="bp-grid" style="margin-top:6px;">' +
+        ctl(id, 'windQp', BP.tt('לחץ רוח qp (kN/m²)', 'แรงลม qp', 'ضغط الرياح qp'), d.windQp, 0.3, 2, 0.01) +
+      '</div>' +
     '</div>' +
         '</details>' +
 
