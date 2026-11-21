@@ -201,6 +201,14 @@ var Shed3D = (function () {
 
   // Vertical members split along their height for the same reason the
   // horizontal ones split along their length.
+  function colSeg2(x, cy, hx, hy, top, col) {
+    var n = Math.max(1, Math.min(6, Math.round(top / Math.max(2.2, SEG))));
+    var out = [];
+    for (var i = 0; i < n; i++) {
+      out = out.concat(box(x-hx, cy-hy, top*i/n, x+hx, cy+hy, top*(i+1)/n, col || PALETTE.column, 'column'));
+    }
+    return out;
+  }
   function colSeg(x, cy, cw, top, col) {
     var n = Math.max(1, Math.min(6, Math.round(top / Math.max(2.2, SEG))));
     var out = [];
@@ -284,6 +292,20 @@ var Shed3D = (function () {
     var bay = len / bays, frames = bays + 1;
     var x0 = -len/2, x1 = len/2, y0 = -half, y1 = half;
     var cw = 0.15, ridgeZ = eaves + rise;
+    // Member sizes from the actual sections when known (m.sec, metres),
+    // clamped so a typo cannot draw a 2 m column or an invisible purlin.
+    var SEC = m.sec || {};
+    function hsz(sc, dflt, key) {
+      if (!sc || !(sc[key || 'b'] > 0)) return dflt;
+      return Math.max(0.02, Math.min(0.35, sc[key || 'b'] / 2));
+    }
+    var colRound = SEC.col && SEC.col.shape === 'CHS';
+    var colHx = hsz(SEC.col, 0.15, 'b'), colHy = hsz(SEC.col, 0.15, 'h');
+    cw = Math.max(colHx, colHy);
+    var rafR  = hsz(SEC.raf, 0.16, 'h');
+    var topR  = hsz(SEC.raf, 0.075, 'b'), botR = hsz(SEC.bot, 0.075, 'b'), webR = hsz(SEC.web, 0.045, 'b');
+    var girR  = hsz(SEC.gir, 0.06, 'b');
+    var purHW = hsz(SEC.pur, 0.08, 'b'), purH = SEC.pur && SEC.pur.h > 0 ? Math.max(0.05, Math.min(0.4, SEC.pur.h)) : 0.18;
 
     function zAt(y) {
       if (mono) return eaves + (y - y0) * Math.tan(pitch);
@@ -347,8 +369,10 @@ var Shed3D = (function () {
           F.push({ pts: B, color: PALETTE.column, group: 'column' });
           F.push({ pts: [A[0],B[0],B[3],A[3]], color: PALETTE.column, group: 'column' });
           F.push({ pts: [A[1],B[1],B[2],A[2]], color: PALETTE.column, group: 'column' });
+        } else if (colRound) {
+          F = F.concat(strutSeg([x, cy, 0], [x, cy, top], colHx, colCol, 'column'));
         } else {
-          F = F.concat(colSeg(x, cy, cw, top, colCol));
+          F = F.concat(colSeg2(x, cy, colHx, colHy, top, colCol));
         }
         if (haunch > 0 && !inner) {
           var dir = cy < 0 ? 1 : -1;
@@ -371,19 +395,19 @@ var Shed3D = (function () {
           // and price very differently, so the choice has to be visible.
           var dep = m.trussDepth;
           var aL = [a[0], a[1], a[2]-dep], bL = [b[0], b[1], b[2]-dep];
-          F = F.concat(strutSeg(a, b, 0.075, PALETTE.truss, 'rafter'));
-          F = F.concat(strutSeg(aL, bL, 0.075, PALETTE.truss, 'rafter'));
+          F = F.concat(strutSeg(a, b, topR, PALETTE.truss, 'rafter'));
+          F = F.concat(strutSeg(aL, bL, botR, PALETTE.truss, 'rafter'));
           // Panel count is capped: past ~10 panels per slope the extra webs
           // are visually indistinguishable and cost hundreds of faces.
           var segs = Math.max(4, Math.min(m.lod ? 6 : 10,
             Math.round(Math.hypot(b[1]-a[1], b[2]-a[2]) / 1.1)));
           for (var w = 0; w < segs; w++) {
             var t1 = w/segs, t2 = (w+1)/segs;
-            F = F.concat(strut(lerp(a,b,t1), lerp(aL,bL,t2), 0.045, PALETTE.truss, 'rafter'));
-            F = F.concat(strut(lerp(aL,bL,t2), lerp(a,b,t2), 0.045, PALETTE.truss, 'rafter'));
+            F = F.concat(strut(lerp(a,b,t1), lerp(aL,bL,t2), webR, PALETTE.truss, 'rafter'));
+            F = F.concat(strut(lerp(aL,bL,t2), lerp(a,b,t2), webR, PALETTE.truss, 'rafter'));
           }
         } else {
-          F = F.concat(strutSeg(a, b, 0.16, PALETTE.rafter, 'rafter'));
+          F = F.concat(strutSeg(a, b, rafR, PALETTE.rafter, 'rafter'));
         }
       });
     }
@@ -398,16 +422,16 @@ var Shed3D = (function () {
       var gPan = Math.max(2, Math.min(m.lod ? 10 : 24, Math.round(len / 1.0)));
       lines.forEach(function (gy) {
         var gt = zAt(gy) - under, gb = gt - gDep;
-        F = F.concat(strutSeg([x0, gy, gt], [x1, gy, gt], 0.06, PALETTE.girder, 'girder'));
-        F = F.concat(strutSeg([x0, gy, gb], [x1, gy, gb], 0.06, PALETTE.girder, 'girder'));
+        F = F.concat(strutSeg([x0, gy, gt], [x1, gy, gt], girR, PALETTE.girder, 'girder'));
+        F = F.concat(strutSeg([x0, gy, gb], [x1, gy, gb], girR, PALETTE.girder, 'girder'));
         for (var gp = 0; gp <= gPan; gp++) {
           var gx = x0 + len * gp / gPan;
-          F = F.concat(strut([gx, gy, gb], [gx, gy, gt], 0.035, PALETTE.girder, 'girder'));
+          F = F.concat(strut([gx, gy, gb], [gx, gy, gt], webR * 0.8, PALETTE.girder, 'girder'));
           if (gp < gPan) {
             var gx2 = x0 + len * (gp + 1) / gPan;
             F = F.concat(gp < gPan / 2
-              ? strut([gx, gy, gt], [gx2, gy, gb], 0.035, PALETTE.girder, 'girder')
-              : strut([gx, gy, gb], [gx2, gy, gt], 0.035, PALETTE.girder, 'girder'));
+              ? strut([gx, gy, gt], [gx2, gy, gb], webR * 0.8, PALETTE.girder, 'girder')
+              : strut([gx, gy, gb], [gx2, gy, gt], webR * 0.8, PALETTE.girder, 'girder'));
           }
         }
       });
@@ -417,15 +441,19 @@ var Shed3D = (function () {
     var slopeLen = mono ? span/Math.cos(pitch) : half/Math.cos(pitch);
     var runs = Math.max(2, Math.ceil(slopeLen / m.purlinSp) + 1);
     var purlinAt = function (y) {
-      F = F.concat(barSeg(x0, y-0.08, zAt(y), x1, y+0.08, zAt(y)+0.18, PALETTE.purlin, 'purlin'));
+      F = F.concat(barSeg(x0, y-purHW, zAt(y), x1, y+purHW, zAt(y)+purH, PALETTE.purlin, 'purlin'));
     };
     for (var k = 0; k < runs; k++) {
       var tk = k/(runs-1);
       if (mono) purlinAt(y0 + tk*span);
       else { purlinAt(y0 + tk*half); purlinAt(y1 - tk*half); }
     }
-    [y0, y1].forEach(function (ey) {
-      F = F.concat(barSeg(x0, ey-0.09, eaves-0.2, x1, ey+0.09, eaves, PALETTE.strut, 'strut'));
+    // Eave struts at the roof line of their own side — on a mono-pitch the
+    // high side is a full rise above `eaves`, where it used to float under
+    // the roof. Not drawn where a longitudinal girder already runs.
+    if (!(m.girderD > 0)) [y0, y1].forEach(function (ey) {
+      var ez = zAt(ey);
+      F = F.concat(barSeg(x0, ey-0.09, ez-0.2, x1, ey+0.09, ez, PALETTE.strut, 'strut'));
     });
     if (m.bracing) {
       // Cross bracing in the end bays, the usual arrangement for wind. A
@@ -434,9 +462,13 @@ var Shed3D = (function () {
       var br = cable ? 0.012 : 0.035, bc = cable ? '#3a3f44' : PALETTE.brace;
       var endBays = (frames > 2) ? [[x0, x0+bay], [x1-bay, x1]] : [[x0, x1]];
       endBays.forEach(function (bp) {
-        [y0, y1].forEach(function (by) {
-          F = F.concat(strutSeg([bp[0],by,0], [bp[1],by,eaves], br, bc, 'brace'));
-          F = F.concat(strutSeg([bp[1],by,0], [bp[0],by,eaves], br, bc, 'brace'));
+        // Wall bracing only where there is a wall — the takeoff bills none
+        // for an open shed, so drawing it there showed steel nobody priced.
+        // It reaches the top of its own column line.
+        if (m.wallMode !== 'open') [y0, y1].forEach(function (by) {
+          var bt = (m.colH > 0) ? m.colH : zAt(by);
+          F = F.concat(strutSeg([bp[0],by,0], [bp[1],by,bt], br, bc, 'brace'));
+          F = F.concat(strutSeg([bp[1],by,0], [bp[0],by,bt], br, bc, 'brace'));
         });
         if (cable) {
           // ...and in the roof plane, one X per panel between column lines

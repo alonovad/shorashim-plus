@@ -815,12 +815,26 @@
   }
 
   function profSel(id, key, group, cur) {
-    var o = '';
-    (BP.C.profiles || []).filter(function (x) { return x.group === group; }).forEach(function (x) {
-      o += '<option value="' + BP.esc(x.name) + '"' + (x.name === cur ? ' selected' : '') + '>' +
-        BP.esc(BP.dsp(x.name)) + (x.kgPerM ? ' \u00b7 ' + x.kgPerM + ' kg/m' : '') +
-        (x.price ? ' \u00b7 ' + BP.money(x.price) : '') + '</option>';
+    // Every catalogue section that makes sense for the role (BP.fitsRole),
+    // grouped by family — not only the one catalogue group it used to read,
+    // which hid every hollow section from the column and rafter pickers.
+    var role = { colProfile: 'column', rafterProfile: 'rafter', purlinProfile: 'purlin', girtProfile: 'girt' }[key];
+    var groups = {}, order = [], seen = false;
+    (BP.C.profiles || []).forEach(function (x) {
+      var fits = role ? BP.fitsRole(role, x) : x.group === group;
+      if (!fits) return;
+      if (!groups[x.group]) { groups[x.group] = []; order.push(x.group); }
+      groups[x.group].push(x);
     });
+    var o = order.map(function (gname) {
+      return '<optgroup label="' + BP.esc(BP.dsp(gname)) + '">' + groups[gname].map(function (x) {
+        if (x.name === cur) seen = true;
+        return '<option value="' + BP.esc(x.name) + '"' + (x.name === cur ? ' selected' : '') + '>' +
+          BP.esc(BP.dsp(x.name)) + (x.kgPerM ? ' \u00b7 ' + x.kgPerM + ' kg/m' : '') +
+          (x.price ? ' \u00b7 ' + BP.money(x.price) : '') + '</option>';
+      }).join('') + '</optgroup>';
+    }).join('');
+    if (cur && !seen) o = '<option value="' + BP.esc(cur) + '" selected>' + BP.esc(BP.dsp(cur)) + '</option>' + o;
     return '<select class="bp-in" onchange="BuildPlan._dim(' + id + ',\'' + key + '\',this.value)">' +
       o + '</select>';
   }
@@ -931,6 +945,15 @@
       colLines: d.colLines, braceType: d.braceType,
       colEvery: d.colEvery, colH: d.colH, colExisting: d.colExisting,
       girderD: BP.girderDepth(d),
+      // Real member proportions (metres) from the section designations, so
+      // changing a profile visibly changes the model.
+      sec: (function () {
+        function g(n) { var x = BP.secGeom(n); return x ? { shape: x.shape, h: x.h / 1000, b: x.b / 1000 } : null; }
+        return { col: g(d.colProfile), raf: g(d.rafterProfile), pur: g(d.purlinProfile),
+                 bot: g(d.trussBotProfile || d.rafterProfile), web: g(d.trussWebProfile || d.trussBotProfile),
+                 gir: g(d.girderProfile || d.rafterProfile), knee: g(d.haunchProfile || d.rafterProfile) };
+      })(),
+      slab: p.hasSlab !== false,
       free: (p.free || []).map(function (f) { return JSON.parse(JSON.stringify(f)); }),
       skylights: d.skylights, door: d.door, doorW: d.doorW, doorH: d.doorH,
       leanTo: d.leanTo, mezz: d.mezz, mezzH: d.mezzH,

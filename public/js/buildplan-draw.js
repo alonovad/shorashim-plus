@@ -294,7 +294,7 @@
       if (d.haunch) {
         parts.push(leader(eR.x - hRun * 0.42, eR.y + hRise * 0.46,
           X(d.span) + 34, Y(d.eaves * 0.60), 'r',
-          [BP.tt('חיזוק פינה', 'ฮันช์', 'تقوية الركن'), BP.dsp(d.rafterProfile)]));
+          [BP.tt('חיזוק פינה', 'ฮันช์', 'تقوية الركن'), BP.dsp(d.haunchProfile || d.rafterProfile)]));
       }
 
       // Column and girts both go left, rafter and haunch right. Five

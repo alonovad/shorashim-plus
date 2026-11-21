@@ -112,6 +112,76 @@ window.BuildPlanInternals = BuildPlanInternals;
     'C 200x2.5': { wy: 28.9, ar: 9.05, iz: 1.70 }
   };
 
+  // ── section geometry from the name ─────────────────────────────────
+  // A section's shape and size are in its designation: "SHS 80x80x3",
+  // "RHS 120x60x3", "CHS 114.3x4", "C 200x75x2.5", "Ø300×5". Parsing it
+  // gives the 3D its real proportions and the adequacy check its
+  // properties for any size, instead of only the handful in SECT.
+  // Thin-wall formulas, corner radii ignored — fine for a first pass.
+  // Rolled I-sections: depth and flange width, mm.
+  var I_DIM = {
+    'HEA 140': [133, 140], 'HEA 160': [152, 160], 'HEA 180': [171, 180], 'HEA 200': [190, 200],
+    'HEA 220': [210, 220], 'HEA 240': [230, 240],
+    'HEB 160': [160, 160], 'HEB 200': [200, 200],
+    'IPE 160': [160, 82], 'IPE 180': [180, 91], 'IPE 200': [200, 100], 'IPE 220': [220, 110],
+    'IPE 240': [240, 120], 'IPE 270': [270, 135], 'IPE 300': [300, 150],
+    'IPN 120': [120, 58], 'IPN 140': [140, 66], 'IPN 160': [160, 74], 'IPN 180': [180, 82], 'IPN 200': [200, 90]
+  };
+  var _secCache = {};
+  BP.secGeom = function secGeom(name) {
+    name = String(name || '').trim();
+    if (!name) return null;
+    if (_secCache[name] !== undefined) return _secCache[name];
+    var r = null, m, n = name.replace(/[×X*]/g, 'x').replace(/\s+/g, ' ');
+    var num = function (v) { return parseFloat(v); };
+    if (I_DIM[name]) {
+      r = { shape: 'I', h: I_DIM[name][0], b: I_DIM[name][1] };
+    } else if ((m = n.match(/^CHS\s*([\d.]+)\s*x\s*([\d.]+)/i) || n.match(/[Øø]\s*([\d.]+)\s*x\s*([\d.]+)/))) {
+      var D = num(m[1]), t = num(m[2]), di = D - 2 * t;
+      if (D > 0 && t > 0 && di > 0) {
+        var A = Math.PI * (D * D - di * di) / 4, I = Math.PI * (Math.pow(D, 4) - Math.pow(di, 4)) / 64;
+        r = { shape: 'CHS', h: D, b: D, t: t, A: A, wy: I / (D / 2), iz: Math.sqrt(I / A) };
+      }
+    } else if ((m = n.match(/^(SHS|RHS)\s*([\d.]+)\s*[x\/]\s*([\d.]+)\s*[x\/]\s*([\d.]+)/i))) {
+      var h = num(m[2]), b = num(m[3]), t2 = num(m[4]);
+      if (h > 0 && b > 0 && t2 > 0 && t2 * 2 < Math.min(h, b)) {
+        var hi = h - 2 * t2, bi = b - 2 * t2;
+        var A2 = h * b - hi * bi;
+        var Iy = (b * Math.pow(h, 3) - bi * Math.pow(hi, 3)) / 12;
+        var Iz = (h * Math.pow(b, 3) - hi * Math.pow(bi, 3)) / 12;
+        r = { shape: 'RHS', h: h, b: b, t: t2, A: A2, wy: Iy / (h / 2), iz: Math.sqrt(Math.min(Iy, Iz) / A2) };
+      }
+    } else if ((m = n.match(/^(C|Z)\s*([\d.]+)(?:\s*x\s*([\d.]+))?\s*x\s*([\d.]+)\s*$/i))) {
+      // Cold-formed lipped C / Z. "C 200x2.5" (no flange given) assumes the
+      // usual ~0.35 h flange. Lip ~20 mm.
+      var hc = num(m[2]), tc = num(m[4]), bc = m[3] ? num(m[3]) : Math.round(hc * 0.35), c = Math.min(25, bc * 0.3);
+      if (hc > 0 && tc > 0) {
+        var Ac = tc * (hc + 2 * bc + 2 * c);
+        var Iyc = tc * Math.pow(hc, 3) / 12 + 2 * bc * tc * Math.pow(hc / 2, 2) + 2 * c * tc * Math.pow(hc / 2 - c / 2, 2);
+        var xc = (2 * bc * tc * (bc / 2) + 2 * c * tc * bc) / Ac;
+        var Izc = hc * tc * xc * xc + 2 * (tc * Math.pow(bc, 3) / 12 + bc * tc * Math.pow(bc / 2 - xc, 2)) + 2 * c * tc * Math.pow(bc - xc, 2);
+        r = { shape: m[1].toUpperCase(), h: hc, b: bc, t: tc, A: Ac, wy: Iyc / (hc / 2), iz: Math.sqrt(Izc / Ac) };
+      }
+    } else if ((m = n.match(/^L\s*([\d.]+)(?:\s*x\s*([\d.]+))?\s*x\s*([\d.]+)\s*$/i))) {
+      var a = num(m[1]), tl = num(m[3]);
+      if (a > 0 && tl > 0) {
+        var Al = tl * (2 * a - tl);
+        r = { shape: 'L', h: a, b: m[2] ? num(m[2]) : a, t: tl, A: Al, wy: 0.0 , iz: 0.195 * a };
+      }
+    }
+    if (r && r.A) r.kg = r.A * 7.85e-3;           // kg/m from mm²
+    _secCache[name] = r;
+    return r;
+  };
+  // Properties for the check: the nominal table first, then the parsed shape.
+  function secProps(name) {
+    if (SECT[name]) return SECT[name];
+    var g = BP.secGeom(name);
+    if (!g || !g.A || !g.wy) return null;
+    return { wy: g.wy / 1000, ar: g.A / 100, iz: g.iz / 10 };
+  }
+  BP.secProps = secProps;
+
   // Allowable bending stress, S235 with a working-stress safety factor.
   var F_ALLOW = 160;     // MPa
   var WIND    = 0.5;     // kN/m2 on walls, first-pass
@@ -125,7 +195,7 @@ window.BuildPlanInternals = BuildPlanInternals;
   // deflection limit. It exists to stop someone specifying an IPE 160 over
   // a 20 m span, not to replace an engineer.
   BP.checkMember = function checkMember(role, name, d) {
-    var sc = SECT[name];
+    var sc = secProps(name);
     if (!sc || !d) return { known: false };
     // checkMember is reachable with a raw dims object that predates these
     // fields, and one undefined turns every utilisation into NaN — which
@@ -189,10 +259,9 @@ window.BuildPlanInternals = BuildPlanInternals;
   // Which catalogue sections can do this job? Sorted lightest-first, since
   // the cheapest adequate section is almost always the right answer.
   BP.candidates = function candidates(role, d) {
-    var group = (role === 'purlin' || role === 'girt') ? 'מרישים' : 'עמודים / קורות';
     var out = [];
     (BP.C.profiles || []).forEach(function (pr) {
-      if (pr.group !== group) return;
+      if (!BP.fitsRole(role, pr)) return;
       var r = BP.checkMember(role, pr.name, d);
       if (!r.known) return;
       out.push({ name: pr.name, util: r.util, ok: r.ok, kg: pr.kgPerM,
@@ -200,6 +269,18 @@ window.BuildPlanInternals = BuildPlanInternals;
     });
     out.sort(function (a, b) { return a.kg - b.kg; });
     return out;
+  };
+
+  // Which catalogue sections make sense for a role. Columns and rafters:
+  // rolled I-sections and hollow sections (SHS / RHS / CHS). Purlins and
+  // girts: cold-formed C / Z and light hollow sections.
+  BP.fitsRole = function fitsRole(role, pr) {
+    if (!pr || pr.unit !== "מ'" || !(pr.kgPerM > 0)) return false;
+    var g = BP.secGeom(pr.name);
+    if (!g) return false;
+    if (role === 'purlin' || role === 'girt') return g.shape === 'C' || g.shape === 'Z' || (g.shape === 'RHS' && g.h <= 200);
+    if (role === 'column' || role === 'rafter') return g.shape === 'I' || g.shape === 'RHS' || g.shape === 'CHS';
+    return g.shape !== 'L';
   };
 
   BP.ROLE_KEY = { column: 'colProfile', rafter: 'rafterProfile',
@@ -353,6 +434,35 @@ window.BuildPlanInternals = BuildPlanInternals;
     { g: 'אביזרים',       n: 'רשת גדר', kg: 0, u: "מ'" },
     { g: 'אביזרים',       n: 'צינור ניקוז', kg: 0, u: "יח'" }
   ];
+  // The full stocked range of hollow and cold-formed sections. Mass is
+  // computed from the designation, so any size added here is priced and
+  // drawn correctly without a hand-typed kg/m.
+  (function () {
+    var have = {};
+    SEED.forEach(function (x) { have[x.n] = 1; });
+    var add = function (g, list) {
+      list.forEach(function (n) {
+        if (have[n]) return;
+        var sg = BP.secGeom(n);
+        if (!sg || !sg.kg) return;
+        SEED.push({ g: g, n: n, kg: Math.round(sg.kg * 100) / 100, u: "מ'" });
+        have[n] = 1;
+      });
+    };
+    add('צינור עגול', ['CHS 60.3x3.2', 'CHS 76.1x3.2', 'CHS 88.9x3.2', 'CHS 88.9x4', 'CHS 101.6x4',
+      'CHS 114.3x3.6', 'CHS 114.3x4', 'CHS 114.3x5', 'CHS 139.7x4', 'CHS 139.7x5', 'CHS 168.3x5',
+      'CHS 168.3x6.3', 'CHS 219.1x5', 'CHS 219.1x6.3', 'CHS 273x6.3', 'CHS 323.9x6.3']);
+    add('פרופיל מרובע', ['SHS 40x40x2', 'SHS 50x50x2', 'SHS 60x60x4', 'SHS 70x70x4', 'SHS 80x80x5',
+      'SHS 100x100x5', 'SHS 100x100x6', 'SHS 120x120x4', 'SHS 120x120x6', 'SHS 140x140x5', 'SHS 140x140x6',
+      'SHS 150x150x5', 'SHS 150x150x6', 'SHS 200x200x6', 'SHS 200x200x8']);
+    add('פרופיל מלבני', ['RHS 60x40x2', 'RHS 60x40x3', 'RHS 80x40x2', 'RHS 80x40x3', 'RHS 100x50x2',
+      'RHS 100x50x4', 'RHS 120x60x5', 'RHS 120x80x4', 'RHS 140x80x4', 'RHS 140x80x5', 'RHS 150x100x4',
+      'RHS 150x100x5', 'RHS 150x100x6', 'RHS 160x80x4', 'RHS 160x80x5', 'RHS 200x100x4', 'RHS 200x100x5',
+      'RHS 200x100x6', 'RHS 250x150x6']);
+    add('מרישים', ['C 100x50x2', 'C 120x50x2', 'C 150x50x2', 'C 150x65x2', 'C 150x65x2.5', 'C 180x65x2',
+      'C 180x65x2.5', 'C 200x65x2', 'C 200x65x2.5', 'C 200x75x2.5', 'C 200x75x3', 'C 250x75x2.5', 'C 250x75x3']);
+  })();
+
 
   // Starting points, not templates to be printed as-is. Each is a shape the
   // maintenance team actually builds, so a project starts one click from
