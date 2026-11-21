@@ -42,7 +42,7 @@ var Shed3D = (function () {
     roof: '#8fa3b8', wall: '#c2c9d2', gutter: '#7f8c8d', ridge: '#6d7b7f',
     slab: '#b9b6ae', footing: '#7d6b58', fence: '#6c757d',
     door: '#5d6d7e', skylight: '#dff3ff', mezz: '#a9855f', girder: '#53708a',
-    ground: '#b9ae92', sel: '#ffd166'
+    ground: '#cfc8b4', sel: '#ffd166'
   };
 
   // ── vectors ──
@@ -264,6 +264,84 @@ var Shed3D = (function () {
     return f;
   }
 
+  // ── section-true members ───────────────────────────────────────────
+  // A round tube is round, a box is a box, a C is a C. Local frame for a
+  // member a→b: d along it, u horizontal across it, v perpendicular
+  // (vertical-ish for a beam). Offsets and half-sizes are in u/v.
+  function frameOf(a, b) {
+    var d = nrm(sub(b, a));
+    var up = Math.abs(d[2]) > 0.9 ? [1,0,0] : [0,0,1];
+    var u = nrm(cross(d, up)), v = nrm(cross(d, u));
+    if (v[2] < 0) v = [-v[0], -v[1], -v[2]];          // v points up for beams
+    return { d: d, u: u, v: v };
+  }
+  function rectPrism(a, b, F, ou, ov, hu, hv, c, g) {
+    function P(p, su, sv) {
+      var cu = ou + su * hu, cv = ov + sv * hv;
+      return [p[0] + F.u[0]*cu + F.v[0]*cv, p[1] + F.u[1]*cu + F.v[1]*cv, p[2] + F.u[2]*cu + F.v[2]*cv];
+    }
+    var corners = [[1,1],[1,-1],[-1,-1],[-1,1]], A = [], B = [], f = [];
+    corners.forEach(function (k) { A.push(P(a, k[0], k[1])); B.push(P(b, k[0], k[1])); });
+    for (var i = 0; i < 4; i++) {
+      var j = (i + 1) % 4;
+      f.push({ pts: [A[i], A[j], B[j], B[i]], color: c, group: g });
+    }
+    return f;
+  }
+  function tube(a, b, r, c, g, n) {
+    var F = frameOf(a, b), A = [], B = [], f = [];
+    for (var i = 0; i < n; i++) {
+      var t = 2 * Math.PI * i / n, cu = Math.cos(t) * r, cv = Math.sin(t) * r;
+      A.push([a[0]+F.u[0]*cu+F.v[0]*cv, a[1]+F.u[1]*cu+F.v[1]*cv, a[2]+F.u[2]*cu+F.v[2]*cv]);
+      B.push([b[0]+F.u[0]*cu+F.v[0]*cv, b[1]+F.u[1]*cu+F.v[1]*cv, b[2]+F.u[2]*cu+F.v[2]*cv]);
+    }
+    for (var k = 0; k < n; k++) {
+      var k2 = (k + 1) % n;
+      f.push({ pts: [A[k], A[k2], B[k2], B[k]], color: c, group: g });
+    }
+    return f;
+  }
+  // Plates (u-offset, v-offset, u-half, v-half) that make up an open
+  // section, in metres.
+  function platesOf(sec, beamLike) {
+    var h = Math.min(0.7, sec.h), b = Math.min(0.5, sec.b), t = Math.max(0.006, (sec.t || 3) / 1000 * 1.6);
+    if (sec.shape === 'I') {
+      var tf = Math.max(0.008, h * 0.06), tw = Math.max(0.006, h * 0.035);
+      return [[0, h/2 - tf/2, b/2, tf/2], [0, -h/2 + tf/2, b/2, tf/2], [0, 0, tw/2, h/2 - tf]];
+    }
+    if (sec.shape === 'C' || sec.shape === 'Z') {
+      var c = Math.min(0.025, b * 0.3), z = sec.shape === 'Z' ? -1 : 1;
+      return [[-b/2 + t/2, 0, t/2, h/2],                         // web
+              [0, h/2 - t/2, b/2, t/2],                          // top flange
+              [z * 0 , -h/2 + t/2, b/2, t/2],                    // bottom flange
+              [b/2 - t/2, h/2 - c/2, t/2, c/2],                  // top lip
+              [z * (b/2 - t/2), -h/2 + c/2, t/2, c/2]];          // bottom lip
+    }
+    if (sec.shape === 'L') {
+      return [[-b/2 + t/2, 0, t/2, h/2], [0, -h/2 + t/2, b/2, t/2]];
+    }
+    return null;
+  }
+  // One member, drawn as its section, split along its length like the rest.
+  function memSeg(a, b, sec, dfltR, c, g, lod) {
+    var len = Math.hypot(b[0]-a[0], b[1]-a[1], b[2]-a[2]);
+    if (!sec || !(sec.h > 0)) return strutSeg(a, b, dfltR, c, g);
+    var n = Math.max(1, segCount(len)), out = [], F = frameOf(a, b);
+    for (var i = 0; i < n; i++) {
+      var p0 = lerp(a, b, i/n), p1 = lerp(a, b, (i+1)/n);
+      if (sec.shape === 'CHS') {
+        out = out.concat(tube(p0, p1, Math.min(0.35, sec.h/2), c, g, lod ? 8 : 14));
+      } else if (sec.shape === 'RHS' || lod) {
+        out = out.concat(rectPrism(p0, p1, F, 0, 0, Math.min(0.35, sec.b/2), Math.min(0.35, sec.h/2), c, g));
+      } else {
+        var pl = platesOf(sec);
+        if (!pl) { out = out.concat(strutSeg(p0, p1, dfltR, c, g)); continue; }
+        pl.forEach(function (q) { out = out.concat(rectPrism(p0, p1, F, q[0], q[1], q[2], q[3], c, g)); });
+      }
+    }
+    return out;
+  }
+
   // ══════════════════════════════════════════════════════════════════
   //  SCENE
   // ══════════════════════════════════════════════════════════════════
@@ -373,7 +451,7 @@ var Shed3D = (function () {
           F.push({ pts: [A[0],B[0],B[3],A[3]], color: PALETTE.column, group: 'column' });
           F.push({ pts: [A[1],B[1],B[2],A[2]], color: PALETTE.column, group: 'column' });
         } else if (colRound) {
-          F = F.concat(strutSeg([x, cy, 0], [x, cy, top], colHx, colCol, 'column'));
+          F = F.concat(memSeg([x, cy, 0], [x, cy, top], SEC.col, colHx, colCol, 'column', m.lod));
         } else {
           F = F.concat(colSeg2(x, cy, colHx, colHy, top, colCol));
         }
@@ -385,7 +463,7 @@ var Shed3D = (function () {
           var under2 = (m.rafterType === 'truss') ? m.trussDepth : 0.25;
           var zk = zAt(yk) - under2;
           var zc = Math.max(0.5, Math.min(top, zk) - 1.4);
-          F = F.concat(strutSeg([x, cy, zc], [x, yk, zk], Math.max(0.03, Math.min(0.12, (SEC.knee && SEC.knee.b ? SEC.knee.b / 2 : 0.05))), PALETTE.haunch, 'haunch'));
+          F = F.concat(memSeg([x, cy, zc], [x, yk, zk], SEC.knee, 0.05, PALETTE.haunch, 'haunch', true));
         } else if (haunch > 0 && !inner) {
           var dir = cy < 0 ? 1 : -1;
           F.push({ pts: [[x-cw,cy,top],[x+cw,cy,top],
@@ -407,19 +485,19 @@ var Shed3D = (function () {
           // and price very differently, so the choice has to be visible.
           var dep = m.trussDepth;
           var aL = [a[0], a[1], a[2]-dep], bL = [b[0], b[1], b[2]-dep];
-          F = F.concat(strutSeg(a, b, topR, PALETTE.truss, 'rafter'));
-          F = F.concat(strutSeg(aL, bL, botR, PALETTE.truss, 'rafter'));
+          F = F.concat(memSeg(a, b, SEC.raf, topR, PALETTE.truss, 'rafter', m.lod));
+          F = F.concat(memSeg(aL, bL, SEC.bot, botR, PALETTE.truss, 'rafter', m.lod));
           // Panel count is capped: past ~10 panels per slope the extra webs
           // are visually indistinguishable and cost hundreds of faces.
           var segs = Math.max(4, Math.min(m.lod ? 6 : 10,
             Math.round(Math.hypot(b[1]-a[1], b[2]-a[2]) / 1.1)));
           for (var w = 0; w < segs; w++) {
             var t1 = w/segs, t2 = (w+1)/segs;
-            F = F.concat(strut(lerp(a,b,t1), lerp(aL,bL,t2), webR, PALETTE.truss, 'rafter'));
-            F = F.concat(strut(lerp(aL,bL,t2), lerp(a,b,t2), webR, PALETTE.truss, 'rafter'));
+            F = F.concat(memSeg(lerp(a,b,t1), lerp(aL,bL,t2), SEC.web, webR, PALETTE.truss, 'rafter', true));
+            F = F.concat(memSeg(lerp(aL,bL,t2), lerp(a,b,t2), SEC.web, webR, PALETTE.truss, 'rafter', true));
           }
         } else {
-          F = F.concat(strutSeg(a, b, rafR, PALETTE.rafter, 'rafter'));
+          F = F.concat(memSeg(a, b, SEC.raf, rafR, PALETTE.rafter, 'rafter', m.lod));
         }
       });
     }
@@ -434,16 +512,16 @@ var Shed3D = (function () {
       var gPan = Math.max(2, Math.min(m.lod ? 10 : 24, Math.round(len / 1.0)));
       lines.forEach(function (gy) {
         var gt = zAt(gy) - under, gb = gt - gDep;
-        F = F.concat(strutSeg([x0, gy, gt], [x1, gy, gt], girR, PALETTE.girder, 'girder'));
-        F = F.concat(strutSeg([x0, gy, gb], [x1, gy, gb], girR, PALETTE.girder, 'girder'));
+        F = F.concat(memSeg([x0, gy, gt], [x1, gy, gt], SEC.gir, girR, PALETTE.girder, 'girder', m.lod));
+        F = F.concat(memSeg([x0, gy, gb], [x1, gy, gb], SEC.gir, girR, PALETTE.girder, 'girder', m.lod));
         for (var gp = 0; gp <= gPan; gp++) {
           var gx = x0 + len * gp / gPan;
-          F = F.concat(strut([gx, gy, gb], [gx, gy, gt], webR * 0.8, PALETTE.girder, 'girder'));
+          F = F.concat(memSeg([gx, gy, gb], [gx, gy, gt], SEC.web, webR, PALETTE.girder, 'girder', true));
           if (gp < gPan) {
             var gx2 = x0 + len * (gp + 1) / gPan;
             F = F.concat(gp < gPan / 2
-              ? strut([gx, gy, gt], [gx2, gy, gb], webR * 0.8, PALETTE.girder, 'girder')
-              : strut([gx, gy, gb], [gx2, gy, gt], webR * 0.8, PALETTE.girder, 'girder'));
+              ? memSeg([gx, gy, gt], [gx2, gy, gb], SEC.web, webR, PALETTE.girder, 'girder', true)
+              : memSeg([gx, gy, gb], [gx2, gy, gt], SEC.web, webR, PALETTE.girder, 'girder', true));
           }
         }
       });
@@ -452,8 +530,17 @@ var Shed3D = (function () {
     // ── purlins, eave struts, bracing ──
     var slopeLen = mono ? span/Math.cos(pitch) : half/Math.cos(pitch);
     var runs = Math.max(2, Math.ceil(slopeLen / m.purlinSp) + 1);
+    // Purlins sit ON the rafter / top chord (not through its centre line),
+    // drawn as their real section: a C reads as a C.
+    var seat = (m.rafterType === 'truss') ? topR : rafR;
     var purlinAt = function (y) {
-      F = F.concat(barSeg(x0, y-purHW, zAt(y), x1, y+purHW, zAt(y)+purH, PALETTE.purlin, 'purlin'));
+      var zb = zAt(y) + seat;
+      if (SEC.pur && SEC.pur.h > 0) {
+        var ph = Math.min(0.4, SEC.pur.h);
+        F = F.concat(memSeg([x0, y, zb + ph/2], [x1, y, zb + ph/2], SEC.pur, 0.06, PALETTE.purlin, 'purlin', m.lod));
+      } else {
+        F = F.concat(barSeg(x0, y-purHW, zb, x1, y+purHW, zb+purH, PALETTE.purlin, 'purlin'));
+      }
     };
     for (var k = 0; k < runs; k++) {
       var tk = k/(runs-1);

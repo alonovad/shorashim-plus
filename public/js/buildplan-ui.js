@@ -844,7 +844,7 @@
     function info(name, role) {
       var pr = BP.profByName(name), kg = pr && pr.kgPerM ? pr.kgPerM + ' kg/m' : '';
       var u = '';
-      if (role && !(role === 'rafter' && truss)) {
+      if (role) {
         var r = BP.checkMember(role, name, d);
         if (r.known) {
           var badge = function (lbl, v, title) {
@@ -877,9 +877,9 @@
       'rafterProfile', secSel(id, 'rafterProfile', d.rafterProfile, truss ? fitsChord : function (x) { return BP.fitsRole('rafter', x); }), info(d.rafterProfile, 'rafter'));
     if (truss) {
       h += row(BP.tt('סבכה – חגורה תחתונה', 'โครงถัก – คอร์ดล่าง', 'الجملون – الوتر السفلي'), 'trussBotProfile',
-        secSel(id, 'trussBotProfile', d.trussBotProfile, fitsChord, BP.tt('לא מפורט בכמויות', 'ไม่แยก', 'غير مفصل')), info(d.trussBotProfile));
+        secSel(id, 'trussBotProfile', d.trussBotProfile, fitsChord, BP.tt('לא מפורט בכמויות', 'ไม่แยก', 'غير مفصل')), info(d.trussBotProfile || d.rafterProfile, 'trussBot'));
       h += row(BP.tt('סבכה – ניצבים ואלכסונים', 'โครงถัก – ตั้งและทแยง', 'الجملون – قوائم وأقطار'), 'trussWebProfile',
-        secSel(id, 'trussWebProfile', d.trussWebProfile, fitsWeb, BP.tt('כמו החגורה התחתונה', 'เหมือนคอร์ดล่าง', 'مثل الوتر السفلي')), info(d.trussWebProfile));
+        secSel(id, 'trussWebProfile', d.trussWebProfile, fitsWeb, BP.tt('כמו החגורה התחתונה', 'เหมือนคอร์ดล่าง', 'مثل الوتر السفلي')), info(d.trussWebProfile || d.trussBotProfile || d.rafterProfile, 'trussWeb'));
     }
     if (BP.girderDepth(d) > 0) {
       h += row(BP.tt('קורת אורך – חגורות', 'คานตามยาว – คอร์ด', 'العارضة الطولية – أوتار'), 'girderProfile',
@@ -1844,7 +1844,7 @@
           BP.tt('פרופילים', 'โปรไฟล์', 'المقاطع') + '</summary><div>' +
 '<div id="bpSecRows">' + secRows(p) + '</div>' +
       '<div style="font-size:.72rem;color:var(--text-muted,#888);margin-top:6px;">' +
-        BP.tt('⬇ כובד · ⬆ יניקת רוח (חרגת = אדום). בדיקה ראשונית בלבד; חברי סבכה וקורות אורך – משקל בלבד.',
+        BP.tt('⬇ כובד · ⬆ יניקת רוח (חריגה = אדום). חברי הסבכה נבדקים לכוח שבחבר עצמו (N = M / עומק הסבכה). בדיקה ראשונית בלבד; קורות האורך – משקל בלבד.',
               '⬇ น้ำหนัก · ⬆ แรงยกลม (เกิน = แดง) ตรวจเบื้องต้นเท่านั้น', '⬇ الوزن · ⬆ رفع الرياح (تجاوز = أحمر). فحص أولي فقط') + '</div>' +
       '<div class="bp-grid" style="margin-top:6px;">' +
         ctl(id, 'windQp', BP.tt('לחץ רוח qp (kN/m²)', 'แรงลม qp', 'ضغط الرياح qp'), d.windQp, 0.3, 2, 0.01) +

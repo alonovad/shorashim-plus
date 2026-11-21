@@ -208,6 +208,7 @@ window.BuildPlanInternals = BuildPlanInternals;
       purlinSp: Number(d.purlinSp) || 1.5, girtSp: Number(d.girtSp) || 1.5,
       roofLoad: Number(d.roofLoad) || 0.55,
       windQp: Number(d.windQp) || 0.84,
+      rafterType: d.rafterType === 'truss' ? 'truss' : 'solid', trussDepth: Number(d.trussDepth) || 0.8,
       walls: d.walls, wallMode: d.wallMode || 'full', roofType: d.roofType || 'gable'
     };
     var g = BP.geom(d);
@@ -225,7 +226,39 @@ window.BuildPlanInternals = BuildPlanInternals;
     var uW = 0;
     function upl(cp) { return Math.max(0, cp * d.windQp - 0.15); }
 
-    if (role === 'rafter') {
+    // ── lattice truss: each member checked for the force it carries ──
+    // A chord is not a beam spanning the building. The truss carries the
+    // bending as a couple: chord force N = M / depth, M = wL²/8 over the
+    // truss span. Top chord: compression under weight, braced by the
+    // purlins. Bottom chord: tension under weight, compression under wind
+    // uplift, braced by the lateral ties (~L/4). Webs: the end shear.
+    var trussRole = (role === 'rafter' && d.rafterType === 'truss') || role === 'trussBot' || role === 'trussWeb';
+    if (trussRole) {
+      var L = d.span, hT = Math.max(0.3, d.trussDepth);
+      var wG = d.roofLoad * g.actualBay, wU = upl(0.9) * g.actualBay;
+      var NG = wG * L * L / 8 / hT, NU = wU * L * L / 8 / hT;     // kN
+      function capC(Lb) {                                         // compression capacity, kN
+        var lam = (Lb * 100) / sc.iz, chi = 1 / (1 + Math.pow(lam / 90, 2));
+        return sc.ar * 1e-4 * F_ALLOW * 1000 * chi;
+      }
+      var capT = sc.ar * 1e-4 * F_ALLOW * 1000;
+      if (role === 'rafter') {
+        util = NG / capC(Math.max(0.6, d.purlinSp));               // top chord, compression
+        uW = 0;                                                    // in tension under uplift
+        why = BP.tt('חגורה עליונה — לחיצה', 'คอร์ดบน — แรงอัด', 'الوتر العلوي — ضغط');
+      } else if (role === 'trussBot') {
+        util = NG / capT;                                          // tension under weight
+        uW = NU / capC(L / 4);                                     // compression under uplift
+        why = BP.tt('חגורה תחתונה', 'คอร์ดล่าง', 'الوتر السفلي');
+      } else {
+        var pan = Math.max(0.6, d.purlinSp), Lw = Math.sqrt(pan * pan + hT * hT);
+        var VG = wG * L / 2, VU = wU * L / 2, k = Lw / hT;          // diagonal = shear / sin
+        util = VG * k / capC(Lw);
+        uW = VU * k / capC(Lw);
+        why = BP.tt('אלכסון קצה (המאומץ ביותר)', 'ทแยงปลาย (รับแรงมากสุด)', 'القطر الطرفي (الأكثر إجهاداً)');
+      }
+      span = L; M = NG;
+    } else if (role === 'rafter') {
       span = g.rafterLen;
       w = d.roofLoad * g.actualBay;                 // kN/m along the rafter
       M = w * span * span / 10;                     // kNm, portal continuity
@@ -760,7 +793,9 @@ window.BuildPlanInternals = BuildPlanInternals;
       // Off unless explicitly asked for: a second full pass over the scene
       // for something nobody was looking at.
       shadows: d.shadows === true,
-      mapGround: (d.mapGround === undefined) ? !isPhone() : !!d.mapGround,
+      // Satellite ground is opt-in: on a flat canvas renderer it tiles into
+      // a patchwork that reads worse than a plain site.
+      mapGround: d.mapGround === true,
       dims: d.dims === false ? false : true,
       sunAz: Number(d.sunAz) || 130,
       sunEl: Number(d.sunEl) || 48,
