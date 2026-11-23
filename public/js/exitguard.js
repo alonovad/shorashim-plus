@@ -59,6 +59,22 @@
   // Openers a department can return to. `test` recognises the opener's
   // screen in #modalContainer; `reopen` redraws it.
   var OPENERS = {
+    // An open maintenance job (e.g. "פתח מודל" → build project): return to
+    // that job and tab, not to the job list.
+    maintDetail: {
+      test: function (m) {
+        var el = m.querySelector('[data-maint-project-id]');
+        if (!el) return false;
+        OPENERS.maintDetail._pid = Number(el.getAttribute('data-maint-project-id'));
+        OPENERS.maintDetail._tab = el.getAttribute('data-maint-active-tab') || null;
+        return true;
+      },
+      reopen: function () {
+        var o = OPENERS.maintDetail;
+        if (window.Maintenance && Maintenance.showDetail && o._pid) Maintenance.showDetail(o._pid, o._tab || undefined);
+        else if (window.Maintenance && Maintenance.showProjectsList) Maintenance.showProjectsList();
+      }
+    },
     maint: {
       test: function (m) { return !!m.querySelector('[data-maint-view]'); },
       reopen: function () { if (window.Maintenance && Maintenance.showProjectsList) Maintenance.showProjectsList(); }

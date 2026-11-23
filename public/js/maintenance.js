@@ -906,8 +906,17 @@ var Maintenance = (function() {
           });
 
           bodyH += '<div style="margin-bottom:18px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">' + sectTitle('📦', tt('חומרים','วัสดุ','مواد')) +
+            '<span style="display:flex;gap:6px;">' +
+              // The job's build project (model, 3D, BOQ) one tap away — for
+              // anyone who can see the job, not only editors.
+              (p.buildProjectId
+                ? '<button onclick="Maintenance.openBuild(' + pid + ')" ' +
+                    'style="padding:5px 12px;border:1px solid #8d6e63;border-radius:8px;background:transparent;' +
+                    'color:#8d6e63;font-family:inherit;font-weight:700;font-size:0.78rem;cursor:pointer;">' +
+                    '\ud83e\uddca ' + tt('פתח מודל','เปิดโมเดล','فتح النموذج') + '</button>'
+                : '') +
             (canEdit
-              ? '<span style="display:flex;gap:6px;">' +
+              ? '' +
                   // Pull the quantities in from a build plan. Imported rows
                   // are ordinary material lines from here on — edit the
                   // price, add, delete, exactly as with anything typed by
@@ -917,9 +926,8 @@ var Maintenance = (function() {
                     'style="padding:5px 12px;border:none;border-radius:8px;background:#8d6e63;' +
                     'color:#fff;font-family:inherit;font-weight:700;font-size:0.78rem;cursor:pointer;">' +
                     '\ud83c\udfd7 ' + tt('מפרויקט בנייה','จากโครงการ','من مشروع') + '</button>' +
-                  addBtn(tt('הוסף','เพิ่ม','إضافة'), '_addMat', pid) +
-                '</span>'
-              : '') + '</div>' +
+                  addBtn(tt('הוסף','เพิ่ม','إضافة'), '_addMat', pid)
+              : '') + '</span></div>' +
             '<div id="maintImport"></div>' +
             _selBar +
           (!(p.materials || []).length ? '<div style="text-align:center;color:var(--text-muted, #999);padding:12px;">' + tt('אין חומרים','ไม่มีวัสดุ','لا مواد') + '</div>' :
@@ -1374,6 +1382,23 @@ var Maintenance = (function() {
         var el = document.getElementById('maintImport');
         if (el) el.innerHTML = '';
         showDetail(pid);
+      });
+    });
+  }
+
+  // Open the build project behind this job (design, 3D, BOQ). Closing it
+  // returns to this job (exitguard remembers the open job).
+  function openBuild(pid) {
+    if (typeof BuildPlan === 'undefined' || !BuildPlan.openProject) {
+      showToast(tt('\u26a0\ufe0f מודול פרויקטי הבנייה לא נטען', 'โมดูลไม่พร้อม', 'الوحدة غير محمّلة'));
+      return;
+    }
+    loadProjects().then(function (projects) {
+      var job = (projects || []).filter(function (x) { return x.id === pid; })[0];
+      var bid = job && job.buildProjectId;
+      if (!bid) { showToast(tt('\u26a0\ufe0f אין פרויקט בנייה מקושר', 'ไม่มีโครงการที่เชื่อม', 'لا مشروع بناء مرتبط')); return; }
+      (BuildPlan.listForImport ? BuildPlan.listForImport() : Promise.resolve([])).then(function () {
+        BuildPlan.openProject(bid);
       });
     });
   }
@@ -2544,6 +2569,7 @@ var Maintenance = (function() {
 
   return {
     hasPerm: hasPerm, loadAccess: loadAccess, loadProjects: loadProjects, isAdmin: isAdmin,
+    openBuild: openBuild,
     showProjectsList: showProjectsList, showDetail: showDetail, showNewProject: showNewProject,
     showDashboard: showDashboard, _filterList: _filterList,
     _saveProject: _saveProject,
