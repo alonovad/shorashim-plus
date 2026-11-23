@@ -489,11 +489,19 @@ var Shed3D = (function () {
           F = F.concat(memSeg(aL, bL, SEC.bot, botR, PALETTE.truss, 'rafter', m.lod));
           // Panel count is capped: past ~10 panels per slope the extra webs
           // are visually indistinguishable and cost hundreds of faces.
-          var segs = Math.max(4, Math.min(m.lod ? 6 : 10,
-            Math.round(Math.hypot(b[1]-a[1], b[2]-a[2]) / 1.1)));
+          // Panels follow the purlin spacing (a purlin over every node, as
+          // built and as billed), with an end post at BOTH ends — the first
+          // vertical was missing, leaving the truss open at its bearing.
+          // Mono: Pratt, diagonals mirrored about mid-span.
+          var segs = Math.max(4, Math.min(m.lod ? 8 : 16,
+            Math.round(Math.hypot(b[1]-a[1], b[2]-a[2]) / Math.max(0.6, m.purlinSp || 1.1))));
+          F = F.concat(memSeg(aL, a, SEC.web, webR, PALETTE.truss, 'rafter', true));
           for (var w = 0; w < segs; w++) {
             var t1 = w/segs, t2 = (w+1)/segs;
-            F = F.concat(memSeg(lerp(a,b,t1), lerp(aL,bL,t2), SEC.web, webR, PALETTE.truss, 'rafter', true));
+            var down = !mono || (w < segs / 2);
+            F = F.concat(down
+              ? memSeg(lerp(a,b,t1), lerp(aL,bL,t2), SEC.web, webR, PALETTE.truss, 'rafter', true)
+              : memSeg(lerp(aL,bL,t1), lerp(a,b,t2), SEC.web, webR, PALETTE.truss, 'rafter', true));
             F = F.concat(memSeg(lerp(aL,bL,t2), lerp(a,b,t2), SEC.web, webR, PALETTE.truss, 'rafter', true));
           }
         } else {
