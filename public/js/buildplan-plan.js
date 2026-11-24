@@ -836,6 +836,10 @@
     d = (d && typeof d === 'object') ? d : {};
     return {
       docs: Array.isArray(d.docs) ? d.docs.map(function (x) {
+        // Our own plan carries its model: an AI read of it is noise (and a
+        // second, wrong model). Drop it so nothing downstream merges it.
+        var own = !!(x.embedded && typeof x.embedded === 'object' && x.embedded.schema === EMBED_SCHEMA_ID);
+        if (own) { x.report = null; x.usage = null; x.model = 'embedded'; }
         return {
           id: String(x.id || BP.uid()), name: String(x.name || ''), path: String(x.path || ''),
           size: Number(x.size) || 0, type: String(x.type || ''), at: Number(x.at) || 0,
@@ -1180,7 +1184,7 @@
     if (!mayEdit(id)) return;
     var reg = _docs[id]; if (!reg) return;
     var d = reg.docs.filter(function (x) { return x.id === did; })[0]; if (!d) return;
-    if (_busy[did]) return;
+    if (_busy[did] || d.embedded) return;
     if (d.report && !confirm(BP.tt('המסמך כבר נקרא. לקרוא שוב (עלות נוספת)?', 'อ่านอีกครั้ง?', 'قراءة مرة أخرى؟'))) return;
     _busy[did] = 1; _openDoc[id] = did; BP.open(id);
     readWith(id, d, Frame.payloadFor(d, model || BP.planModelGet()), true);
@@ -1214,7 +1218,7 @@
       BP.toast('\u274c ' + d.error);
     }).then(function () {
       _busy[d.id] = 0; docsSave(id);
-      if (d.report && typeof Frame !== 'undefined') Frame.fromDoc(id, d.id, !open);
+      if (d.report && !d.embedded && typeof Frame !== 'undefined') Frame.fromDoc(id, d.id, !open);
       if (!open || !d.report) BP.open(id);
     });
   }
@@ -1242,7 +1246,7 @@
   BP.planReadAll = function planReadAll(id) {
     if (!mayEdit(id)) return;
     var reg = _docs[id]; if (!reg) return;
-    var todo = reg.docs.filter(function (x) { return !x.report && !_busy[x.id]; });
+    var todo = reg.docs.filter(function (x) { return !x.report && !x.embedded && !_busy[x.id]; });
     if (!todo.length) return;
     (function next(i) {
       if (i >= todo.length) return;
@@ -1423,7 +1427,7 @@
         BP.tt('העלה תוכניות / מסמכים', 'อัปโหลดแบบ/เอกสาร', 'رفع مخططات / مستندات') +
         '<input type="file" multiple accept="image/*,application/pdf" style="display:none;" onchange="BuildPlan.planUpload(' + id + ',this)"></label>' +
       BP.planModelSelect() : '') +
-      (mine && reg && reg.docs.some(function (x) { return !x.report; })
+      (mine && reg && reg.docs.some(function (x) { return !x.report && !x.embedded; })
         ? '<button class="bp-btn ghost" onclick="BuildPlan.planReadAll(' + id + ')">\ud83d\udd0e ' + BP.tt('קרא את כל מה שלא נקרא', 'อ่านที่ยังไม่อ่าน', 'اقرأ ما لم يُقرأ') + '</button>' : '') +
       '<span style="font-size:.72rem;' + muted + '">' + BP.tt('PDF או צילום. קריאה = קריאת מודל, רק בלחיצה, נשמרת עם המסמך.', 'PDF/รูป อ่านเมื่อกดเท่านั้น', 'PDF أو صورة. القراءة عند الضغط فقط وتُحفظ') + '</span>' +
     '</div>';
