@@ -1188,6 +1188,7 @@ var Frame = (function () {
     planSvg: planSvg, sectionSvg: sectionSvg, secDims: secDims,
     tab: tab, mount: mount, destroy: destroy, fromDoc: fromDoc,
     payloadFor: payloadFor, payloadFromFile: payloadFromFile, tilesFromBytes: tilesFromBytes,
+    pdfjs: loadPdfJs,
 
     pick: function (id) { selectOnly(id); },
     tool: function (t) {

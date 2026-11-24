@@ -1744,7 +1744,7 @@
               BP.tt('עמודים גם באמצע', 'มีเสากลาง', 'أعمدة وسطية') + '</option></select></div>' +
         '<div><div class="bp-lbl">' + BP.tt('עמודים בכל', 'เสาทุก', 'أعمدة كل') + '</div>' +
           '<select class="bp-in" onchange="BuildPlan._dim(' + id + ',\'colEvery\',this.value)">' +
-            [1, 2, 3].map(function (n) {
+            [1, 2, 3, 4, 5, 6].map(function (n) {
               return '<option value="' + n + '"' + (d.colEvery === n ? ' selected' : '') + '>' +
                 (n === 1 ? BP.tt('כל מסגרת', 'ทุกเฟรม', 'كل إطار')
                          : n + ' ' + BP.tt('מסגרות (קורת אורך)', 'เฟรม (คานตามยาว)', 'إطارات (عارضة طولية)')) +

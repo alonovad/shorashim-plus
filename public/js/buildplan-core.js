@@ -751,7 +751,8 @@ window.BuildPlanInternals = BuildPlanInternals;
       // frames between stand on a longitudinal lattice girder that runs
       // along each column line — the way trusses are added to an existing
       // row of poles without adding poles.
-      colEvery: ([2, 3].indexOf(Number(d.colEvery)) >= 0) ? Number(d.colEvery) : 1,
+      // 2..6: trusses every 2.5 m on poles every 10 m is colEvery 4.
+      colEvery: (function (n) { return (n >= 2 && n <= 6 && n === Math.round(n)) ? n : 1; })(Number(d.colEvery)),
       // Actual column height when the columns stop short of the roof (an
       // existing row of poles under a girder). 0 = columns run to the roof.
       colH: Number(d.colH) || 0,

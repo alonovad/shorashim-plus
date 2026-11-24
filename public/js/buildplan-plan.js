@@ -829,6 +829,7 @@
   // only on a press and the result is kept with the document: re-opening
   // the tab never re-reads anything.
   var DOCS_PREFIX = 'shorashim-build-docs-';
+  var EMBED_SCHEMA_ID = 'shorashim-plan/1';
   var _docs = {}, _docsLoading = {}, _openDoc = {}, _busy = {};
 
   function normDocs(d) {
@@ -842,7 +843,8 @@
           report: (x.report && typeof x.report === 'object') ? x.report : null,
           model: String(x.model || ''), readAt: Number(x.readAt) || 0,
           usage: (x.usage && typeof x.usage === 'object') ? { input: Number(x.usage.input) || 0, output: Number(x.usage.output) || 0 } : null,
-          error: String(x.error || '')
+          error: String(x.error || ''),
+          embedded: (x.embedded && typeof x.embedded === 'object' && x.embedded.schema === EMBED_SCHEMA_ID) ? x.embedded : null
         };
       }) : []
     };
@@ -888,6 +890,197 @@
     });
   }
 
+  // ══════════════════════════════════════════════════════════════════
+  //  OUR OWN PLANS — the model travels inside the PDF
+  // ══════════════════════════════════════════════════════════════════
+  // A plan set we produce ourselves carries the exact model it was drawn
+  // from as a PDF attachment (shorashim-plan.json, schema shorashim-plan/1):
+  // dims, BOQ edits, notes and the takeoff it printed. Reading it is a
+  // parse on this device — no model call, no cost, no misread label — and
+  // the result is not a proposal to accept but a statement to compare:
+  // does the project still say what the drawing says, and does the
+  // maintenance job's quote still say what the project says.
+  var EMBED_NAME = 'shorashim-plan.json', EMBED_SCHEMA = 'shorashim-plan/1';
+  // View settings, not the building: never reported as a difference.
+  var VIEW_KEYS = { callouts: 1, shadows: 1, mapGround: 1, dims: 1, sunAz: 1, sunEl: 1, scaleRef: 1, scaleH: 1 };
+
+  function embeddedFrom(buf) {
+    if (typeof Frame === 'undefined' || !Frame.pdfjs) return Promise.resolve(null);
+    return Frame.pdfjs().then(function (lib) {
+      return lib.getDocument({ data: new Uint8Array(buf) }).promise;
+    }).then(function (doc) {
+      return doc.getAttachments().then(function (att) {
+        var a = att && att[EMBED_NAME];
+        if (!a || !a.content) return null;
+        var j = JSON.parse(new TextDecoder('utf-8').decode(a.content));
+        return (j && j.schema === EMBED_SCHEMA && j.dims && Array.isArray(j.takeoff)) ? j : null;
+      });
+    }).catch(function () { return null; });
+  }
+  function embStamp(d, j) {
+    d.embedded = j; d.model = 'embedded'; d.readAt = Date.now(); d.error = '';
+  }
+
+  // name|unit → summed quantity, rounded the way the takeoff prints it.
+  function qtyMap(lines, qtyKey) {
+    var m = {};
+    (lines || []).forEach(function (l) {
+      var k = String(l.name) + '|' + String(l.unit || '');
+      m[k] = (m[k] || 0) + (Number(l[qtyKey]) || 0);
+    });
+    Object.keys(m).forEach(function (k) { m[k] = Math.round(m[k] * 10) / 10; });
+    return m;
+  }
+  function qtyDiff(a, b) {           // a = reference, b = compared
+    var out = [];
+    Object.keys(a).concat(Object.keys(b)).forEach(function (k, i, all) {
+      if (all.indexOf(k) !== i) return;
+      var x = a[k] || 0, y = b[k] || 0;
+      if (Math.abs(x - y) > 0.05) out.push({ k: k, a: x, b: y });
+    });
+    return out;
+  }
+  function dimsDiff(pd, ed) {
+    var out = [];
+    Object.keys(ed || {}).forEach(function (k) {
+      if (VIEW_KEYS[k]) return;
+      var a = JSON.stringify(ed[k]), b = JSON.stringify(pd ? pd[k] : undefined);
+      if (a !== b) out.push({ k: k, a: ed[k], b: pd ? pd[k] : undefined });
+    });
+    return out;
+  }
+  function embCompare(p, j) {
+    var cur = BP.takeoff(p).map(function (r) { return { name: r.name, unit: r.unit, qty: Number(BP.n1(r.qty)) }; });
+    return {
+      otherProject: !!(j.project && j.project.id && j.project.id !== p.id),
+      dims: dimsDiff(p.dims, j.dims),
+      boqEdits: JSON.stringify(j.boq || {}) !== JSON.stringify(p.boq || {}),
+      takeoff: qtyDiff(qtyMap(j.takeoff, 'qty'), qtyMap(cur, 'qty')),
+      cur: cur
+    };
+  }
+  function diffList(items, la, lb) {
+    if (!items.length) return '';
+    return '<table style="width:100%;font-size:.74rem;border-collapse:collapse;margin-top:4px;">' +
+      '<tr style="color:var(--text-muted,#888);"><td></td><td>' + la + '</td><td>' + lb + '</td></tr>' +
+      items.slice(0, 30).map(function (x) {
+        return '<tr style="border-top:1px solid rgba(127,127,127,.15);"><td dir="auto">' + BP.esc(String(x.k).replace(/\|$/, '')) + '</td>' +
+          '<td dir="ltr">' + BP.esc(typeof x.a === 'object' ? JSON.stringify(x.a) : String(x.a)) + '</td>' +
+          '<td dir="ltr">' + BP.esc(x.b === undefined ? '—' : (typeof x.b === 'object' ? JSON.stringify(x.b) : String(x.b))) + '</td></tr>';
+      }).join('') + '</table>';
+  }
+  function badge(ok, txtOk, txtNo) {
+    return ok ? '<span style="color:var(--ok,#41c47f);font-weight:700;">\u2705 ' + txtOk + '</span>'
+              : '<span style="color:var(--warn,#e0a030);font-weight:700;">\u26a0\ufe0f ' + txtNo + '</span>';
+  }
+  function embPanel(p, d) {
+    var j = d.embedded, c = embCompare(p, j), mine = canEdit(p.id);
+    var projOk = !c.dims.length && !c.boqEdits && !c.takeoff.length;
+    var h = '<div style="font-size:.8rem;padding:8px 10px;border-radius:10px;background:rgba(77,163,255,.08);margin:4px 0 8px;">' +
+      '<b>\ud83d\udce6 ' + BP.tt('תוכנית שלנו · הנתונים נקראו מהקובץ עצמו', 'แบบของเรา · ข้อมูลจากไฟล์', 'مخططنا · البيانات من الملف') + '</b>' +
+      '<div style="font-size:.72rem;color:var(--text-muted,#888);margin-top:2px;">' +
+        BP.esc((j.project && j.project.name) || '') + ' \u00b7 ' + BP.tt('גרסה', 'รุ่น', 'نسخة') + ' <span dir="ltr">' + BP.esc(String(j.hash || '').slice(0, 6).toUpperCase()) + '</span>' +
+        (j.generatedAt ? ' \u00b7 ' + new Date(j.generatedAt).toLocaleString('he-IL') : '') +
+        (j.totals ? ' \u00b7 <span dir="ltr">' + BP.n1((j.totals.steelKg || 0) / 1000) + ' t</span>' : '') + '</div>';
+    if (c.otherProject) {
+      h += '<div style="margin-top:6px;">' + badge(false, '', BP.tt('התוכנית נוצרה מפרויקט אחר', 'แบบมาจากโครงการอื่น', 'المخطط من مشروع آخر') + ' (#' + BP.esc(String(j.project.id)) + ')') + '</div>';
+    }
+    h += '<div style="margin-top:8px;">' + BP.tt('תוכנית ↔ פרויקט', 'แบบ ↔ โครงการ', 'مخطط ↔ مشروع') + ': ' +
+      badge(projOk, BP.tt('תואם', 'ตรงกัน', 'متطابق'), BP.tt('יש הבדלים', 'มีความต่าง', 'هناك فروق')) + '</div>';
+    if (c.dims.length) h += diffList(c.dims, BP.tt('בתוכנית', 'ในแบบ', 'في المخطط'), BP.tt('בפרויקט', 'ในโครงการ', 'في المشروع'));
+    if (c.boqEdits) h += '<div style="font-size:.74rem;margin-top:4px;">' + BP.tt('עריכות כתב הכמויות (תוספות/החרגות) שונות מהתוכנית', 'การแก้ไข BOQ ต่างจากแบบ', 'تعديلات جدول الكميات مختلفة') + '</div>';
+    if (c.takeoff.length) h += diffList(c.takeoff, BP.tt('בתוכנית', 'ในแบบ', 'في المخطط'), BP.tt('בפרויקט', 'ในโครงการ', 'في المشروع'));
+    if (!projOk && mine && !c.otherProject) {
+      h += '<button class="bp-btn" style="margin-top:6px;" onclick="BuildPlan.planEmbApply(' + p.id + ',\'' + d.id + '\')">\u2b07 ' +
+        BP.tt('עדכן את הפרויקט לפי התוכנית', 'อัปเดตโครงการตามแบบ', 'حدّث المشروع حسب المخطط') + '</button>';
+    }
+    h += '<div id="bpEmbMaint_' + d.id + '" style="margin-top:8px;">\u23f3</div></div>';
+    setTimeout(function () { embMaint(p, d, c); }, 0);
+    return h;
+  }
+  // The quote side: every maintenance job linked to this project, its
+  // imported lines (buildRef build:<id>) against the takeoff as it stands.
+  function embMaint(p, d, c) {
+    var host = document.getElementById('bpEmbMaint_' + d.id);
+    if (!host) return;
+    if (typeof Maintenance === 'undefined' || !Maintenance.loadProjects) { host.innerHTML = ''; return; }
+    Maintenance.loadProjects().then(function (list) {
+      var el = document.getElementById('bpEmbMaint_' + d.id); if (!el) return;
+      var tag = 'build:' + p.id, ref = qtyMap(c.cur, 'qty');
+      var jobs = (list || []).filter(function (m) { return m.buildProjectId === p.id || m.id === p.maintId; });
+      if (!jobs.length) {
+        el.innerHTML = BP.tt('כתב כמויות בתחזוקה', 'BOQ ซ่อมบำรุง', 'كميات الصيانة') + ': <span style="color:var(--text-muted,#888);">' +
+          BP.tt('אין פרויקט תחזוקה מקושר', 'ไม่มีโครงการเชื่อม', 'لا مشروع صيانة مرتبط') + '</span>';
+        return;
+      }
+      el.innerHTML = jobs.map(function (m) {
+        var got = qtyMap((m.materials || []).filter(function (x) { return x.buildRef === tag; })
+          .map(function (x) { return { name: x.name, unit: x.unit, quantity: x.quantity }; }), 'quantity');
+        var diff = qtyDiff(ref, got);
+        var hand = (m.materials || []).filter(function (x) { return !x.buildRef; });
+        return '<div style="margin-top:4px;">' + BP.tt('פרויקט ↔ תחזוקה', 'โครงการ ↔ ซ่อมบำรุง', 'مشروع ↔ صيانة') + ' (' + BP.esc(m.name) + '): ' +
+          badge(!diff.length, BP.tt('תואם', 'ตรงกัน', 'متطابق'), BP.tt('לא מעודכן', 'ไม่อัปเดต', 'غير محدّث')) +
+          diffList(diff, BP.tt('בפרויקט', 'ในโครงการ', 'في المشروع'), BP.tt('בתחזוקה', 'ในซ่อมบำรุง', 'في الصيانة')) +
+          (hand.length ? '<div style="font-size:.72rem;color:var(--text-muted,#888);margin-top:3px;">' +
+            BP.tt('שורות שהוקלדו ידנית בתחזוקה (לא נבדקות מול התוכנית)', 'รายการที่พิมพ์เอง', 'بنود يدوية') + ': ' +
+            hand.map(function (x) { return BP.esc(x.name) + ' \u00d7' + BP.esc(String(x.quantity)); }).join(' \u00b7 ') + '</div>' : '') +
+          (diff.length && canEdit(p.id)
+            ? '<button class="bp-btn ghost" style="margin-top:6px;" onclick="BuildPlan.planEmbToMaint(' + p.id + ',' + m.id + ',\'' + d.id + '\')">\u2b06 ' +
+              BP.tt('עדכן את כתב הכמויות בתחזוקה', 'อัปเดต BOQ ซ่อมบำรุง', 'حدّث كميات الصيانة') + '</button>' : '') +
+          '</div>';
+      }).join('');
+    }).catch(function () {
+      var el = document.getElementById('bpEmbMaint_' + d.id); if (el) el.innerHTML = '';
+    });
+  }
+  function embDoc(id, did) {
+    var reg = _docs[id]; if (!reg) return null;
+    return reg.docs.filter(function (x) { return x.id === did; })[0] || null;
+  }
+  BP.planEmbApply = function planEmbApply(id, did) {
+    if (!mayEdit(id)) return;
+    var p = BP.projById(id), d = embDoc(id, did);
+    if (!p || !d || !d.embedded) return;
+    if (!confirm(BP.tt('לעדכן את מידות הפרויקט ואת עריכות כתב הכמויות לפי התוכנית?', 'อัปเดตโครงการตามแบบ?', 'تحديث المشروع حسب المخطط؟'))) return;
+    var j = d.embedded, keep = {};
+    Object.keys(VIEW_KEYS).forEach(function (k) { if (p.dims && k in p.dims) keep[k] = p.dims[k]; });
+    p.dims = JSON.parse(JSON.stringify(j.dims));
+    Object.keys(keep).forEach(function (k) { p.dims[k] = keep[k]; });
+    if (j.boq) p.boq = JSON.parse(JSON.stringify(j.boq));
+    if (typeof j.notes === 'string' && j.notes) p.notes = j.notes;
+    BP.saveP();
+    BP.toast('\u2705 ' + BP.tt('הפרויקט עודכן לפי התוכנית', 'อัปเดตแล้ว', 'تم التحديث'));
+    BP.open(id);
+  };
+  BP.planEmbToMaint = function planEmbToMaint(id, mid, did) {
+    if (!mayEdit(id)) return;
+    if (typeof Maintenance === 'undefined' || !BuildPlan.exportForQuote) return;
+    BuildPlan.exportForQuote(id).then(function (r) {
+      if (!r) return false;
+      return Maintenance.importTakeoff(mid, r.id, r.name, r.lines, r.illustration);
+    }).then(function (ok) {
+      BP.toast(ok ? '\u2705 ' + BP.tt('כתב הכמויות בתחזוקה עודכן', 'อัปเดตแล้ว', 'تم التحديث') : '\u26a0\ufe0f');
+      BP.open(id);
+    });
+  };
+  // A document uploaded before this reader existed, or by another device:
+  // fetch it once and look for the attachment.
+  BP.planEmbCheck = function planEmbCheck(id, did) {
+    if (!mayEdit(id)) return;
+    var d = embDoc(id, did); if (!d || _busy[did]) return;
+    _busy[did] = 1; BP.open(id);
+    firebase.storage().ref(d.path).getDownloadURL()
+      .then(function (u) { return fetch(u); })
+      .then(function (r) { if (!r.ok) throw new Error('fetch ' + r.status); return r.arrayBuffer(); })
+      .then(embeddedFrom)
+      .then(function (j) {
+        if (j) { embStamp(d, j); docsSave(id); _openDoc[id] = did; }
+        else BP.toast('\u2139\ufe0f ' + BP.tt('אין בקובץ נתוני תוכנית מוטמעים', 'ไม่มีข้อมูลฝัง', 'لا بيانات مضمنة'));
+      })
+      .catch(function (e) { BP.toast('\u274c ' + (e && e.message ? e.message : 'fetch')); })
+      .then(function () { _busy[did] = 0; BP.open(id); });
+  };
+
   BP.planUpload = function planUpload(id, input) {
     if (!mayEdit(id)) return;
     var p = BP.projById(id);
@@ -900,13 +1093,18 @@
       var done = 0;
       BP.toast('\u2b06 ' + BP.tt('מעלה ' + files.length + ' קבצים…', 'กำลังอัปโหลด…', 'جارٍ الرفع…'));
       files.reduce(function (chain, f) {
-        return chain.then(function () { return shrink(f); }).then(function (s) {
+        var emb = null;
+        return chain.then(function () {
+          return /pdf/i.test(f.type || f.name) ? f.arrayBuffer().then(embeddedFrom).then(function (j) { emb = j; }) : null;
+        }).then(function () { return shrink(f); }).then(function (s) {
           var did = String(BP.uid());
           var safe = s.name.replace(/[^\w.\u0590-\u05FF-]+/g, '_').slice(0, 80);
           var path = 'build-plans/' + id + '/' + did + '__' + safe;
           return firebase.storage().ref(path).put(s.blob, { contentType: s.type }).then(function () {
-            reg.docs.push({ id: did, name: s.name, path: path, size: s.blob.size, type: s.type, at: Date.now(), by: who(),
-                            hint: '', report: null, model: '', readAt: 0, usage: null, error: '' });
+            var nd = { id: did, name: s.name, path: path, size: s.blob.size, type: s.type, at: Date.now(), by: who(),
+                            hint: '', report: null, model: '', readAt: 0, usage: null, error: '', embedded: null };
+            if (emb) { embStamp(nd, emb); _openDoc[id] = did; }
+            reg.docs.push(nd);
             done++;
           });
         });
@@ -1239,6 +1437,7 @@
       list = reg.docs.map(function (d) {
         var open = _openDoc[id] === d.id, busy = !!_busy[d.id];
         var status = busy ? '<span style="color:' + acc + ';">\u23f3 ' + BP.tt('קורא…', 'กำลังอ่าน…', 'جارٍ القراءة…') + '</span>'
+                   : d.embedded ? '<span style="color:var(--ok,#41c47f);">\ud83d\udce6 ' + BP.tt('תוכנית שלנו · נתונים מהקובץ, ללא עלות', 'แบบของเรา · ไม่มีค่าใช้จ่าย', 'مخططنا · بلا تكلفة') + '</span>'
                    : (d.report && staleRead(d)) ? '<span style="color:var(--warn,#e0a030);font-weight:700;">\u26a0\ufe0f ' + BP.tt('נקרא בקורא הישן — הערכים אינם אמינים, קרא שוב', 'อ่านด้วยตัวอ่านเก่า — อ่านใหม่', 'قُرئ بالقارئ القديم — أعد القراءة') + '</span>'
                    : d.report ? '<span style="color:var(--ok,#41c47f);">\u2705 ' + BP.tt('נקרא', 'อ่านแล้ว', 'مقروء') + ' \u00b7 ' + ((d.report.elements || []).length) + ' ' + BP.tt('אלמנטים', 'ชิ้นส่วน', 'عناصر') + '</span>'
                    : d.error ? '<span style="color:var(--warn,#e2624b);">\u26a0\ufe0f ' + BP.esc(d.error.slice(0, 80)) + '</span>'
@@ -1249,14 +1448,16 @@
             '<div style="font-size:.72rem;' + muted + '">' + fmtSize(d.size) + (d.at ? ' \u00b7 ' + new Date(d.at).toLocaleDateString('he-IL') : '') + (d.by ? ' \u00b7 ' + BP.esc(d.by) : '') + ' \u00b7 ' + status + '</div></div>' +
           '<div style="display:flex;gap:4px;flex-wrap:wrap;">' +
             '<button class="bp-btn ghost" style="padding:4px 8px;font-size:.72rem;" onclick="BuildPlan.planDocOpen(' + id + ',\'' + d.id + '\')">\ud83d\udc41</button>' +
-            ((busy || !mine) ? '' : '<button class="bp-btn ' + (d.report && !staleRead(d) ? 'ghost' : '') + '" style="padding:4px 8px;font-size:.72rem;" onclick="BuildPlan.planRead(' + id + ',\'' + d.id + '\')">\ud83d\udd0e ' + BP.tt(d.report ? 'קרא שוב' : 'קרא', d.report ? 'อ่านอีก' : 'อ่าน', d.report ? 'اقرأ مجدداً' : 'اقرأ') + '</button>') +
-            ((busy || !mine) ? '' : '<button class="bp-btn ghost" style="padding:4px 8px;font-size:.72rem;" title="' + BP.tt('קרא מהקובץ שבמכשיר — תמיד ברזולוציה מלאה', 'อ่านจากไฟล์ในเครื่อง', 'اقرأ من الملف على الجهاز') + '" onclick="BuildPlan.planReadLocal(' + id + ',\'' + d.id + '\')">\ud83d\udcc1</button>') +
+            ((busy || !mine || d.embedded || d.report || !/pdf/i.test(d.type)) ? '' : '<button class="bp-btn ghost" style="padding:4px 8px;font-size:.72rem;" title="' + BP.tt('בדוק אם זו תוכנית שלנו עם נתונים מוטמעים', 'ตรวจข้อมูลฝัง', 'افحص البيانات المضمنة') + '" onclick="BuildPlan.planEmbCheck(' + id + ',\'' + d.id + '\')">\ud83d\udce6</button>') +
+            ((busy || !mine || d.embedded) ? '' : '<button class="bp-btn ' + (d.report && !staleRead(d) ? 'ghost' : '') + '" style="padding:4px 8px;font-size:.72rem;" onclick="BuildPlan.planRead(' + id + ',\'' + d.id + '\')">\ud83d\udd0e ' + BP.tt(d.report ? 'קרא שוב' : 'קרא', d.report ? 'อ่านอีก' : 'อ่าน', d.report ? 'اقرأ مجدداً' : 'اقرأ') + '</button>') +
+            ((busy || !mine || d.embedded) ? '' : '<button class="bp-btn ghost" style="padding:4px 8px;font-size:.72rem;" title="' + BP.tt('קרא מהקובץ שבמכשיר — תמיד ברזולוציה מלאה', 'อ่านจากไฟล์ในเครื่อง', 'اقرأ من الملف على الجهاز') + '" onclick="BuildPlan.planReadLocal(' + id + ',\'' + d.id + '\')">\ud83d\udcc1</button>') +
             (d.report && mine ? '<button class="bp-btn" style="padding:4px 8px;font-size:.72rem;" onclick="BuildPlan.planModel(' + id + ',\'' + d.id + '\')">\ud83e\uddca ' + BP.tt('מודל', 'โมเดล', 'نموذج') + '</button>' : '') +
             '<button class="bp-btn ghost" style="padding:4px 8px;font-size:.72rem;" onclick="BuildPlan.planDocToggle(' + id + ',\'' + d.id + '\')">' + (open ? '\u25b4' : '\u25be') + '</button>' +
             (mine ? '<button class="bp-btn warn" style="padding:4px 8px;font-size:.72rem;" onclick="BuildPlan.planDocDel(' + id + ',\'' + d.id + '\')">\ud83d\uddd1</button>' : '') +
           '</div></div>';
         if (!open) return row;
 
+        if (d.embedded) return row + '<div style="padding:4px 0 10px;">' + embPanel(p, d) + '</div>';
         var body = '<div style="padding:4px 0 10px;">' +
           '<div style="margin-bottom:6px;"><div class="bp-lbl">' + BP.tt('הקשר למודל (לא חובה)', 'บริบทให้โมเดล', 'سياق للنموذج') + '</div>' +
             '<input class="bp-in" value="' + BP.esc(d.hint) + '" placeholder="' + BP.esc(BP.tt('למשל: סככה 12×30, יסודות לעמודי פלדה, אדמת חמרה', 'เช่น โรงเรือน 12×30', 'مثلاً: سقيفة 12×30')) + '" onchange="BuildPlan.planDocHint(' + id + ',\'' + d.id + '\',this.value)"></div>';
@@ -1454,5 +1655,8 @@
   BuildPlan.planNotesFrom = BP.planNotesFrom;
   BuildPlan.planToTakeoff = BP.planToTakeoff;
   BuildPlan.planPrint     = BP.planPrint;
+  BuildPlan.planEmbApply  = BP.planEmbApply;
+  BuildPlan.planEmbToMaint = BP.planEmbToMaint;
+  BuildPlan.planEmbCheck  = BP.planEmbCheck;
 
 })(BuildPlanInternals);

@@ -913,7 +913,11 @@ var Maintenance = (function() {
                 ? '<button onclick="Maintenance.openBuild(' + pid + ')" ' +
                     'style="padding:5px 12px;border:1px solid #8d6e63;border-radius:8px;background:transparent;' +
                     'color:#8d6e63;font-family:inherit;font-weight:700;font-size:0.78rem;cursor:pointer;">' +
-                    '\ud83e\uddca ' + tt('פתח מודל','เปิดโมเดล','فتح النموذج') + '</button>'
+                    '\ud83e\uddca ' + tt('פתח מודל','เปิดโมเดล','فتح النموذج') + '</button>' +
+                  '<button onclick="Maintenance.openBuild(' + pid + ',\'plan\')" ' +
+                    'style="padding:5px 12px;border:1px solid #1f3a5f;border-radius:8px;background:transparent;' +
+                    'color:#1f3a5f;font-family:inherit;font-weight:700;font-size:0.78rem;cursor:pointer;">' +
+                    '\ud83d\udcd0 ' + tt('תוכניות','แบบ','مخططات') + '</button>'
                 : '') +
             (canEdit
               ? '' +
@@ -1388,7 +1392,7 @@ var Maintenance = (function() {
 
   // Open the build project behind this job (design, 3D, BOQ). Closing it
   // returns to this job (exitguard remembers the open job).
-  function openBuild(pid) {
+  function openBuild(pid, tab) {
     if (typeof BuildPlan === 'undefined' || !BuildPlan.openProject) {
       showToast(tt('\u26a0\ufe0f מודול פרויקטי הבנייה לא נטען', 'โมดูลไม่พร้อม', 'الوحدة غير محمّلة'));
       return;
@@ -1398,6 +1402,7 @@ var Maintenance = (function() {
       var bid = job && job.buildProjectId;
       if (!bid) { showToast(tt('\u26a0\ufe0f אין פרויקט בנייה מקושר', 'ไม่มีโครงการที่เชื่อม', 'لا مشروع بناء مرتبط')); return; }
       (BuildPlan.listForImport ? BuildPlan.listForImport() : Promise.resolve([])).then(function () {
+        if (tab && window.BuildPlanInternals) BuildPlanInternals._tab = tab;
         BuildPlan.openProject(bid);
       });
     });
