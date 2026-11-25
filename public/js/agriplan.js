@@ -2650,6 +2650,7 @@ var AgriPlan = (function () {
     { k: 'shoots',  c: '#7cb342', he: 'חוטרים', th: 'หน่อ', ar: 'الفسائل' },
     { k: 'base',    c: '#1e88e5', he: 'בסיס הגזע / קרקע', th: 'โคนต้น/ดิน', ar: 'قاعدة الجذع/التربة' }
   ];
+  var SCENES = ['lift', 'liftTractor', 'walk', 'boom', 'guns'];
   function zName(z) { return tt(z.he, z.th, z.ar); }
   function normZones(z) {
     if (!z || typeof z !== 'object') return null;
@@ -2658,7 +2659,7 @@ var AgriPlan = (function () {
     var sh = Math.round(Number(z.shoots) || 0);
     return { on: !!z.on, img: /^https:\/\//.test(String(z.img || '')) ? String(z.img) : '', parts: parts,
       tree: z.tree === 'young' ? 'young' : 'mature', shoots: sh > 0 ? Math.min(4, sh) : 0,
-      scene: ['lift', 'liftTractor', 'walk'].indexOf(z.scene) !== -1 ? z.scene : 'none' };
+      scene: SCENES.indexOf(z.scene) !== -1 ? z.scene : 'none', aim: z.aim === 'angled' ? 'angled' : 'down' };
   }
   function zSum(z) { var s = 0; Object.keys((z && z.parts) || {}).forEach(function (k) { s += Number(z.parts[k]) || 0; }); return Math.round(s * 10) / 10; }
   // Built-in illustration: the palm with its parts highlighted, optional
@@ -2667,7 +2668,7 @@ var AgriPlan = (function () {
   // or towed behind it by a tractor) or on foot behind a tractor in a young
   // orchard. direction:ltr - RTL inheritance flips text-anchor.
   function zoneSvg(z, w) {
-    var o = { parts: (z && z.parts) || {}, scene: (z && z.scene) || 'none', young: !!(z && z.tree === 'young'), shoots: (z && z.shoots) || 0, w: w };
+    var o = { parts: (z && z.parts) || {}, scene: (z && z.scene) || 'none', young: !!(z && z.tree === 'young'), shoots: (z && z.shoots) || 0, w: w, aim: (z && z.aim) === 'angled' ? 'angled' : 'down' };
     var P = o.parts, young = o.young || o.scene === 'walk', shoots = Math.max(0, Math.min(4, o.shoots | 0));
     var C = {}; ZONES.forEach(function (d) { C[d.k] = d.c; });
     function on(k) { return Number(P[k]) > 0; }
@@ -2784,6 +2785,112 @@ var AgriPlan = (function () {
         ' M' + k0 + ' ' + (fl - 20) + ' V' + fl + ' M' + k1 + ' ' + (fl - 20) + ' V' + fl + ' M' + ((k0 + k1) / 2) + ' ' + (fl - 20) + ' V' + fl + '" stroke="' + YD + '" stroke-width="2" fill="none"/>';
       return { g: g, hoseTop: [k0 + 2, fl + 2], pv: pv, tip: tip };
     }
+    // Tractor with a horizontal boom (מוט משכיב) for herbicide / soil work.
+    // Left panel: looking along the lane from behind - the tractor between
+    // two tree rows, the boom low over the ground, nozzles aimed down (or
+    // the outer ones angled at the trunk bases), the sprayed strip shaded.
+    // Right panel: from above - each lane's band reaches the tree line, so
+    // going up one lane and back the next (הלוך / חזור) covers every row
+    // from both sides.
+    function boomScene(aim, guns) {
+      var g = '', gy = 318, cx = 205, col = '#c62828', k = young ? 0.42 : 0.6;
+      var RTL = (typeof currentLang !== 'undefined' && currentLang === 'th') ? '' : ' direction="rtl" unicode-bidi="bidi-override"';
+      function txt(x, y, s, size, fill, anchor, wt) {
+        return '<text x="' + x + '" y="' + y + '" font-size="' + size + '" font-weight="' + (wt || 700) + '" fill="' + fill + '" text-anchor="' + (anchor || 'middle') + '"' + RTL + '>' + esc(s) + '</text>';
+      }
+      // ---- rear view ----
+      g += '<clipPath id="bmRear"><rect x="-40" y="0" width="476" height="340" rx="14"/></clipPath><g clip-path="url(#bmRear)">';
+      [8, 402].forEach(function (px) { g += '<g transform="translate(' + (px - 150 * k) + ',' + (gy + 2 - 320 * k) + ') scale(' + k + ')">' + palm() + '</g>'; });
+      var b0 = 44, b1 = 366, by = 292, n = 13, step = (b1 - b0) / (n - 1), ang = aim === 'angled';
+      var s0 = (ang || guns) ? 6 : b0 - 10, s1 = (ang || guns) ? 404 : b1 + 10;       // sprayed strip: angled end nozzles reach the trunk line
+      g += '<rect x="' + s0 + '" y="' + gy + '" width="' + (s1 - s0) + '" height="7" fill="#1e88e5" fill-opacity=".35"/>';
+      // tractor from behind: big rear tyres, axle housing, cab frame, roof
+      g += '<path d="M' + (cx - 44) + ' 268 L' + (cx - 44) + ' 196 M' + (cx + 44) + ' 268 L' + (cx + 44) + ' 196" stroke="#37474f" stroke-width="4"/>' +
+        '<rect x="' + (cx - 42) + '" y="200" width="84" height="40" fill="#b3e5fc" fill-opacity=".35"/>' +
+        '<rect x="' + (cx - 50) + '" y="190" width="100" height="9" rx="3" fill="' + col + '"/>' +
+        '<rect x="' + (cx - 12) + '" y="214" width="24" height="18" rx="4" fill="#455a64"/>' +
+        '<rect x="' + (cx - 40) + '" y="262" width="80" height="26" rx="5" fill="' + col + '"/>';
+      [cx - 64, cx + 40].forEach(function (x) {
+        g += '<rect x="' + x + '" y="254" width="24" height="64" rx="9" fill="#263238"/>';
+        for (var t = 262; t < 314; t += 9) g += '<line x1="' + (x + 3) + '" y1="' + t + '" x2="' + (x + 21) + '" y2="' + t + '" stroke="#455a64" stroke-width="2"/>';
+      });
+      // mounted sprayer tank on the three-point hitch
+      g += '<g transform="translate(' + (cx - 36) + ',234)">' + tank(0, 0, 72, 34) + '</g>';
+      if (!guns) {
+        // boom: bar, truss to the frame, hangers
+        g += '<path d="M' + (cx - 30) + ' 270 L' + (cx - 30) + ' ' + by + ' M' + (cx + 30) + ' 270 L' + (cx + 30) + ' ' + by +
+          ' M' + (cx - 30) + ' 272 L' + (b0 + 20) + ' ' + (by - 2) + ' M' + (cx + 30) + ' 272 L' + (b1 - 20) + ' ' + (by - 2) + '" stroke="#78909c" stroke-width="2" fill="none"/>' +
+          '<rect x="' + b0 + '" y="' + (by - 3) + '" width="' + (b1 - b0) + '" height="6" rx="2" fill="#455a64"/>';
+        // nozzles and their fans
+        for (var i = 0; i < n; i++) {
+          var x = b0 + i * step, outer = aim === 'angled' && (i < 2 || i > n - 3);
+          var tilt = outer ? (i < 2 ? -1 : 1) * (i === 0 || i === n - 1 ? 58 : 40) : 0, tr = tilt * Math.PI / 180;      // 0 = straight down; outer ones lean out to the trunk line
+          var len = (gy - by - 4) / Math.cos(tr), tx = x + Math.sin(tr) * len, ty = gy;
+          var nx = len * 0.42 * Math.cos(tr);                                          // half-width of the fan where it meets the ground
+          g += '<path d="M' + x.toFixed(1) + ' ' + (by + 4) + ' L' + (tx - nx).toFixed(1) + ' ' + (ty).toFixed(1) + ' L' + (tx + nx).toFixed(1) + ' ' + ty + ' Z" fill="#81d4fa" fill-opacity=".5"/>' +
+            '<rect x="' + (x - 2.5).toFixed(1) + '" y="' + (by + 2) + '" width="5" height="5" rx="1" fill="#ff7043"/>';
+        }
+      } else {
+        // two workers walk beside the tractor, one toward each tree row, guns aimed down at the soil strip;
+        // hoses from the tank, a sweep arrow at each fan (steady pace, side-to-side)
+        [[96, 22, -1], [314, 388, 1]].forEach(function (w) {
+          var wx = w[0], ax = w[1], side = w[2];
+          g += '<path d="M' + (cx + side * 30) + ' 262 C ' + (cx + side * 60) + ' 300, ' + (wx - side * 20) + ' 312, ' + wx + ' 286" stroke="#ff7043" stroke-width="2.6" fill="none"/>';
+          ax = wx + side * 80;                               // aimed down at the soil a short step ahead, toward the row
+          g += worker(wx, gy, ax, gy + 4, 1);
+          var my = gy - 14, mx = ax + side * 4;
+          g += '<path d="M' + (mx - 18) + ' ' + my + ' Q ' + mx + ' ' + (my - 10) + ' ' + (mx + 18) + ' ' + my + '" fill="none" stroke="#1565c0" stroke-width="1.8"/>' +
+            '<path d="M' + (mx - 18) + ' ' + my + ' l6 -5 M' + (mx - 18) + ' ' + my + ' l7 2 M' + (mx + 18) + ' ' + my + ' l-6 -5 M' + (mx + 18) + ' ' + my + ' l-7 2" stroke="#1565c0" stroke-width="1.8" fill="none" stroke-linecap="round"/>';
+        });
+      }
+      // working width
+      g += '<path d="M' + s0 + ' 331 H' + s1 + ' M' + s0 + ' 326 V336 M' + s1 + ' 326 V336" stroke="#5d4037" stroke-width="1.5"/>' +
+        '<rect x="' + (cx - 44) + '" y="324" width="88" height="14" rx="4" fill="#d7c4a3"/>' + txt(cx, 335, tt('רוחב עבודה', 'ความกว้างพ่น', 'عرض العمل'), 11, '#5d4037');
+      g += '</g>' + txt(cx, 26, tt('מבט מאחור', 'มองจากด้านหลัง', 'منظر من الخلف'), 15, '#37474f', 'middle', 800);
+      // ---- top view ----
+      var X1 = 450, X2 = 818, rows = [52, 130, 208, 286], lanes = [91, 169, 247], t0 = 505, t1 = 755, l0 = 492, l1 = 770;
+      g += '<rect x="' + X1 + '" y="6" width="' + (X2 - X1) + '" height="328" rx="12" fill="#eef4e6" stroke="#c5d6b5"/>';
+      lanes.forEach(function (ly) { g += '<rect x="' + l0 + '" y="' + (ly - 39) + '" width="' + (l1 - l0) + '" height="78" fill="#4fc3f7" fill-opacity=".2"/>'; });
+      rows.forEach(function (ry) {
+        g += '<line x1="' + l0 + '" y1="' + ry + '" x2="' + l1 + '" y2="' + ry + '" stroke="#1e88e5" stroke-width="1" stroke-dasharray="4 4" stroke-opacity=".6"/>';
+        for (var tx2 = t0; tx2 <= t1; tx2 += 50) {
+          g += '<circle cx="' + tx2 + '" cy="' + ry + '" r="13" fill="#7cb342" stroke="#33691e" stroke-width="1.5"/>';
+          for (var f = 0; f < 6; f++) { var r = f * Math.PI / 3; g += '<line x1="' + tx2 + '" y1="' + ry + '" x2="' + (tx2 + Math.cos(r) * 12).toFixed(1) + '" y2="' + (ry + Math.sin(r) * 12).toFixed(1) + '" stroke="#33691e" stroke-width="1.4"/>'; }
+          g += '<circle cx="' + tx2 + '" cy="' + ry + '" r="3" fill="#6d4c41"/>';
+        }
+      });
+      // serpentine path
+      var R = (lanes[1] - lanes[0]) / 2;
+      g += '<path d="M' + l0 + ' ' + lanes[0] + ' H' + l1 + ' A' + R + ' ' + R + ' 0 0 1 ' + l1 + ' ' + lanes[1] + ' H' + l0 + ' A' + R + ' ' + R + ' 0 0 0 ' + l0 + ' ' + lanes[2] + ' H' + l1 + '" fill="none" stroke="#ff7043" stroke-width="3" stroke-linecap="round"/>';
+      function arrow(x, y, dir) { return '<path d="M' + (x + dir * 9) + ' ' + y + ' L' + (x - dir * 6) + ' ' + (y - 7) + ' L' + (x - dir * 6) + ' ' + (y + 7) + ' Z" fill="#e64a19"/>'; }
+      function tag(x, y, s) { return '<rect x="' + (x - 26) + '" y="' + (y - 13) + '" width="52" height="19" rx="9" fill="#fff" stroke="#ff7043" stroke-width="1.2"/>' + txt(x, y + 1.5, s, 12, '#e64a19', 'middle', 800); }
+      var go = tt('הלוך', 'ไป', 'ذهاب'), back = tt('חזור', 'กลับ', 'إياب');
+      g += arrow(700, lanes[0], 1) + tag(700, lanes[0] - 14, go) + arrow(570, lanes[1], -1) + tag(570, lanes[1] - 14, back) + arrow(700, lanes[2], 1) + tag(700, lanes[2] - 14, go);
+      // the tractor (from above) on the first lane, boom across the band
+      var tx3 = 560, ty3 = lanes[0];
+      if (guns) [-1, 1].forEach(function (sd) {                // a worker on each side, hose back to the tank, fan toward the row
+        var wy = ty3 + sd * 24, wx = tx3 - 30;
+        g += '<path d="M' + (tx3 - 8) + ' ' + (ty3 + sd * 6) + ' Q ' + (tx3 - 20) + ' ' + (ty3 + sd * 20) + ' ' + wx + ' ' + wy + '" stroke="#ff7043" stroke-width="2" fill="none"/>' +
+          '<path d="M' + wx + ' ' + wy + ' L' + (wx - 14) + ' ' + (ty3 + sd * 38) + ' L' + (wx + 14) + ' ' + (ty3 + sd * 38) + ' Z" fill="#81d4fa" fill-opacity=".6"/>' +
+          '<circle cx="' + wx + '" cy="' + wy + '" r="6" fill="#1565c0" stroke="#fdd835" stroke-width="2.5"/>';
+      });
+      else g += '<line x1="' + (tx3 - 16) + '" y1="' + (ty3 - 37) + '" x2="' + (tx3 - 16) + '" y2="' + (ty3 + 37) + '" stroke="#455a64" stroke-width="4" stroke-linecap="round"/>';
+      g += 
+        '<rect x="' + (tx3 - 12) + '" y="' + (ty3 - 9) + '" width="16" height="18" rx="4" fill="#eceff1" stroke="#90a4ae"/>' +
+        '<rect x="' + (tx3 + 4) + '" y="' + (ty3 - 11) + '" width="34" height="22" rx="5" fill="' + col + '"/>' +
+        '<rect x="' + (tx3 + 8) + '" y="' + (ty3 - 8) + '" width="14" height="16" rx="2" fill="#37474f"/>' +
+        '<rect x="' + (tx3 + 6) + '" y="' + (ty3 - 16) + '" width="12" height="5" rx="1.5" fill="#263238"/><rect x="' + (tx3 + 6) + '" y="' + (ty3 + 11) + '" width="12" height="5" rx="1.5" fill="#263238"/>';
+      g += txt((X1 + X2) / 2, 26, tt('מבט מלמעלה - הלוך / חזור', 'มองจากด้านบน - ไป / กลับ', 'منظر من الأعلى - ذهاب / إياب'), 15, '#37474f', 'middle', 800);
+      g += txt((X1 + X2) / 2, 326, tt('כל שורת עצים מרוססת משני הצדדים', 'แต่ละแถวพ่นทั้งสองข้าง', 'كل صف يُرش من الجانبين'), 12, '#1565c0', 'middle', 700);
+      // the parts' shares, as a legend over the lane between the crowns
+      var on2 = ZONES.filter(function (d) { return on(d.k); });
+      on2.forEach(function (d, j) {                    // name (RTL) and its % (plain) on separate runs so the digits don't flip
+        var y0 = 60 + j * 44;
+        g += txt(cx, y0, zName(d), 15, d.c, 'middle', 800) +
+          '<text x="' + cx + '" y="' + (y0 + 20) + '" font-size="18" font-weight="800" fill="' + d.c + '" text-anchor="middle">' + P[d.k] + '%</text>';
+      });
+      return g;
+    }
     // ---- composition ----
     var W = o.scene && o.scene !== 'none' ? 860 : 460, X0 = o.scene && o.scene !== 'none' ? -40 : -80;
     var PX = o.scene && o.scene !== 'none' ? 480 : 150;   // palm centre x on the canvas
@@ -2791,8 +2898,12 @@ var AgriPlan = (function () {
     var tf = 'translate(' + (PX - 150 * sc) + ',' + (320 - 320 * sc) + ') scale(' + sc + ')';
     var heart = [PX, 320 - (320 - 156) * sc];
     var body = '<rect x="' + X0 + '" y="0" width="' + W + '" height="340" fill="#f6faf3" rx="14"/>' +
-      '<rect x="' + X0 + '" y="318" width="' + W + '" height="22" fill="#d7c4a3"/>' +
-      '<g transform="' + tf + '">' + palm() + '</g>';
+      '<rect x="' + X0 + '" y="318" width="' + W + '" height="22" fill="#d7c4a3"/>';
+    if (o.scene === 'boom' || o.scene === 'guns') {
+      body += boomScene(o.aim, o.scene === 'guns');
+      return '<svg xmlns="http://www.w3.org/2000/svg" style="direction:ltr;max-width:100%;height:auto;" viewBox="' + X0 + ' 0 ' + W + ' 340" width="' + (o.w || 300) + '" role="img" aria-label="spray diagram" font-family="Rubik, Heebo, Arial, sans-serif">' + body + '</svg>';
+    }
+    body += '<g transform="' + tf + '">' + palm() + '</g>';
     if (o.scene === 'lift' || o.scene === 'liftTractor') {
       var L = lift(o.scene === 'lift', [heart[0] - 10, heart[1]]);
       var hose = 'M' + L.pv[0] + ' ' + (L.pv[1] - 4) + ' L' + (L.tip[0] - 2) + ' ' + (L.tip[1] - 3);
@@ -2812,13 +2923,24 @@ var AgriPlan = (function () {
     }
     // part labels, placed on the canvas (not scaled with a young palm)
     function M(x, y) { return [PX - 150 * sc + x * sc, 320 - 320 * sc + y * sc]; }
-  var wide = o.scene && o.scene !== 'none';
-    body += [
+    var wide = o.scene && o.scene !== 'none', f1 = wide ? 19 : 14, f2 = wide ? 23 : 17;
+    var labs = [
       ['bunches', 1, 196, 196, 200], ['heart', 1, 150, 168, 156], ['fronds', -1, 46, 92, 70],
       ['trunk', -1, 250, 140, 250], ['shoots', 1, 278, 184, 286], ['base', 1, 318, 190, 322]
     ].filter(function (l) { return on(l[0]) && (l[0] !== 'shoots' || shoots > 0); }).map(function (l) {
-      var d = ZONES.find(function (x) { return x.k === l[0]; }), right = l[1] > 0;
-      var pt = M(l[3], l[4]), ty = Math.min(M(0, l[2])[1], 330), tx = PX + (right ? 1 : -1) * (wide ? 156 : 112 * Math.max(sc, 0.8)), f1 = wide ? 19 : 14, f2 = wide ? 23 : 17;
+      return { l: l, right: l[1] > 0, pt: M(l[3], l[4]), ty: M(0, l[2])[1] };
+    });
+    // Keep each side's labels apart (name + % block) and inside the canvas:
+    // push down from the top, then back up from the bottom edge.
+    var gap = f1 + f2 + 6, lo = f1 + 8, hi = 340 - f2;
+    [true, false].forEach(function (side) {
+      var col = labs.filter(function (a) { return a.right === side; }).sort(function (a, b) { return a.ty - b.ty; });
+      col.forEach(function (a, i) { a.ty = Math.max(a.ty, lo, i ? col[i - 1].ty + gap : lo); });
+      for (var i = col.length - 1; i >= 0; i--) col[i].ty = Math.min(col[i].ty, i === col.length - 1 ? hi : col[i + 1].ty - gap);
+    });
+    body += labs.map(function (a) {
+      var l = a.l, d = ZONES.find(function (x) { return x.k === l[0]; }), right = a.right;
+      var pt = a.pt, ty = a.ty, tx = PX + (right ? 1 : -1) * (wide ? 140 : 112 * Math.max(sc, 0.8));
       return '<line x1="' + pt[0] + '" y1="' + pt[1] + '" x2="' + (right ? tx - 4 : tx + 4) + '" y2="' + ty + '" stroke="' + d.c + '" stroke-width="2"/>' +
         '<circle cx="' + pt[0] + '" cy="' + pt[1] + '" r="3.5" fill="' + d.c + '"/>' +
         '<text x="' + tx + '" y="' + (ty - 5) + '" font-size="' + f1 + '" font-weight="700" fill="' + d.c + '" text-anchor="' + (right ? 'start' : 'end') + '">' + esc(zName(d)) + '</text>' +
@@ -2868,7 +2990,10 @@ var AgriPlan = (function () {
         zSel(id, 'tree', z.tree, [['mature', tt('עץ בוגר', 'ต้นโต', 'شجرة بالغة')], ['young', tt('עץ צעיר / נמוך', 'ต้นอ่อน', 'شجرة صغيرة')]], tt('עץ', 'ต้น', 'الشجرة'), ro) +
         zSel(id, 'shoots', String(z.shoots || 0), [['0', '0'], ['1', '1'], ['2', '2'], ['3', '3'], ['4', '4']], tt('חוטרים בבסיס', 'หน่อที่โคน', 'فسائل عند القاعدة'), ro) +
         zSel(id, 'scene', z.scene, [['none', tt('בלי ציוד', 'ไม่มีอุปกรณ์', 'بلا معدات')], ['lift', tt('אפרון עם מרסס עליו', 'รถกระเช้าพร้อมเครื่องพ่น', 'رافعة مع رشاش')],
-          ['liftTractor', tt('אפרון + טרקטור עם מרסס מאחור', 'รถกระเช้า + รถแทรกเตอร์', 'رافعة + جرار مع رشاش')], ['walk', tt('הליכה מאחורי טרקטור (מטע צעיר)', 'เดินตามรถแทรกเตอร์', 'سير خلف الجرار')]], tt('אופן עבודה', 'วิธีทำงาน', 'طريقة العمل'), ro) +
+          ['liftTractor', tt('אפרון + טרקטור עם מרסס מאחור', 'รถกระเช้า + รถแทรกเตอร์', 'رافعة + جرار مع رشاش')], ['walk', tt('הליכה מאחורי טרקטור (מטע צעיר)', 'เดินตามรถแทรกเตอร์', 'سير خلف الجرار')],
+          ['boom', tt('טרקטור עם מוט משכיב (עשבייה)', 'รถแทรกเตอร์พร้อมบูมพ่น (วัชพืช)', 'جرار مع ذراع رش أفقي (أعشاب)')],
+          ['guns', tt('רובים לקרקע מאחורי טרקטור (עשבייה)', 'ปืนพ่นลงดินตามรถแทรกเตอร์ (วัชพืช)', 'مسدسات رش للتربة خلف الجرار (أعشاب)')]], tt('אופן עבודה', 'วิธีทำงาน', 'طريقة العمل'), ro) +
+        (z.scene === 'boom' ? zSel(id, 'aim', z.aim || 'down', [['down', tt('כלפי מטה - לקרקע', 'ลงดิน', 'للأسفل - للتربة')], ['angled', tt('בזווית לבסיס הגזע', 'เอียงไปโคนต้น', 'بزاوية لقاعدة الجذع')]], tt('כיוון הדיזות', 'ทิศหัวฉีด', 'اتجاه الفوهات'), ro) : '') +
       '</div>') +
       '<div class="ap-zbody"><div class="ap-zfig' + (zWide(z) ? ' wide' : '') + '">' + zonesFigure(z, zW(z, 300)) + '</div>' +
         '<div class="ap-zin">' + ZONES.map(function (d) {
@@ -2888,8 +3013,9 @@ var AgriPlan = (function () {
     if (!p || !p.zones) return;
     if (k === 'shoots') p.zones.shoots = Math.max(0, Math.min(4, Math.round(Number(v) || 0)));
     else if (k === 'tree') p.zones.tree = v === 'young' ? 'young' : 'mature';
+    else if (k === 'aim') p.zones.aim = v === 'angled' ? 'angled' : 'down';
     else if (k === 'scene') {
-      p.zones.scene = ['lift', 'liftTractor', 'walk'].indexOf(v) !== -1 ? v : 'none';
+      p.zones.scene = SCENES.indexOf(v) !== -1 ? v : 'none';
       if (v === 'walk') p.zones.tree = 'young';         // on foot = a low, young orchard
     }
     save(); showPlan(pid);
