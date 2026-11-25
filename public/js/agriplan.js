@@ -92,9 +92,22 @@ var AgriPlan = (function () {
     { v: 'soil',   carrier: 'L',  def: 'lu', unit: 'dunam' },
     // Drench through the irrigation system: injected per valve / plot, so it
     // is counted per DUNAM like soil disinfection - no per-tree volume.
-    { v: 'drench_irr', carrier: 'L', def: 'lu', unit: 'dunam' }
+    { v: 'drench_irr', carrier: 'L', def: 'lu', unit: 'dunam' },
+    // Herbicide around each tree (אואזיס / גליידר…): only a small circle per tree
+    // is sprayed, so the row still counts TREES, but the dose and the solution are
+    // per SPRAYED dunam - trees × m² per tree / 1000. 100 trees × 10 m² = 1 dunam.
+    { v: 'spot', carrier: 'L', def: 'pct', unit: 'spot' }
   ];
   function isDunam(method) { return method === 'soil' || method === 'drench_irr' || method === 'spray_d'; }
+  // Dose and solution are written per dunam (not per tree) - the per-dunam
+  // methods and the spot herbicide spray, whose dunam is the sprayed area.
+  function perDunamDose(method) { return isDunam(method) || method === 'spot'; }
+  var SPOT_M2 = 10;                                       // default sprayed m² per tree
+  function spotM2(r) { return Number(r && r.spot) > 0 ? Number(r.spot) : SPOT_M2; }
+  function sprayedDunam(r) { return (Number(r && r.trees) || 0) * spotM2(r) / 1000; }
+  // Units the dose and the carrier multiply: trees, dunams - or sprayed dunams.
+  function carrierKind(m) { return isDunam(m) ? 'd' : m === 'spot' ? 's' : 't'; }
+  function rowUnits(r) { return r && r.method === 'spot' ? sprayedDunam(r) : (Number(r && r.trees) || 0); }
   // Plots outside the orchard branch are treated per dunam.
   function perDunamPlot(pl) { return !!(pl && window.PlotBranch && PlotBranch.forPlot && PlotBranch.forPlot(pl) !== 'orchard'); }
   function qtyWord(method) { return isDunam(method) ? tt('דונם', 'ไร่', 'دونم') : tt('עצים', 'ต้น', 'شجرة'); }
@@ -109,6 +122,7 @@ var AgriPlan = (function () {
     if (v === 'general') return tt('טיפול כללי', 'งานทั่วไป', 'معالجة عامة');
     if (v === 'soil') return tt('חיטוי קרקע', 'ฆ่าเชื้อดิน', 'تعقيم التربة');
     if (v === 'drench_irr') return tt('הגמעה דרך מערכת ההשקיה', 'รดผ่านระบบน้ำ', 'سقي عبر نظام الري');
+    if (v === 'spot') return tt('ריסוס עשבייה סביב העץ', 'พ่นวัชพืชรอบต้น', 'رش الأعشاب حول الشجرة');
     return v;
   }
   // Written out in full on every row and every printed line. A number with
@@ -130,6 +144,7 @@ var AgriPlan = (function () {
     if (v === 'drench') return tt('נפח הגמעה לעץ (ליטר)', 'ปริมาตรรด/ต้น (ลิตร)', 'حجم السقي/شجرة (لتر)');
     if (v === 'soil') return tt('מים לדונם (ליטר)', 'น้ำ/ไร่ (ลิตร)', 'ماء/دونم (لتر)');
     if (v === 'drench_irr') return tt('מים לדונם בהזרקה (ליטר, לא חובה)', 'น้ำ/ไร่ (ลิตร)', 'ماء/دونم (لتر)');
+    if (v === 'spot') return tt('תמיסה לדונם מרוסס (ליטר)', 'สารละลาย/ไร่ที่พ่น (ลิตร)', 'محلول/دونم مرشوش (لتر)');
     if (v === 'general') return tt('נפח לעץ (ליטר, אם יש)', 'ปริมาตร/ต้น (ถ้ามี)', 'حجم/شجرة (إن وجد)');
     return tt('תמיסה לעץ (סמ"ק)', 'สารละลาย/ต้น (ซีซี)', 'محلول/شجرة (سم³)');
   }
@@ -307,11 +322,11 @@ var AgriPlan = (function () {
   function perTreeWord(u) { return (u === 'kg' || u === 'g') ? tt('גרם/עץ', 'กรัม/ต้น', 'غرام/شجرة') : tt('סמ"ק/עץ', 'ซีซี/ต้น', 'سم³/شجرة'); }
   function doseText(m, p, method) {
     if (m.mode === 'pct') return m.value + '%';
-    if (m.mode === 'lu') return m.value + ' ' + unitWord(U(m.name, p)) + '/' + (isDunam(method) ? tt('דונם', 'ไร่', 'دونم') : tt('עץ', 'ต้น', 'شجرة'));
+    if (m.mode === 'lu') return m.value + ' ' + unitWord(U(m.name, p)) + '/' + (perDunamDose(method) ? tt('דונם', 'ไร่', 'دونم') : tt('עץ', 'ต้น', 'شجرة'));
     return m.value + ' ' + perUnitWord(U(m.name, p), method);
   }
   function perUnitWord(u, method) {
-    if (!isDunam(method)) return perTreeWord(u);
+    if (!perDunamDose(method)) return perTreeWord(u);
     return (u === 'kg' || u === 'g') ? tt('גרם/דונם', 'กรัม/ไร่', 'غرام/دونم') : tt('סמ"ק/דונם', 'ซีซี/ไร่', 'سم³/دونم');
   }
   function priceWord(u) { return (u === 'kg' || u === 'g') ? tt('לק״ג', 'ต่อกก.', 'لكل كغ') : tt('לליטר', 'ต่อลิตร', 'لكل لتر'); }
@@ -351,7 +366,7 @@ var AgriPlan = (function () {
     });
     return best;
   }
-  var METHOD_COLOR = { spray: ['#1565c0', '#e3f2fd'], drench: ['#8d5524', '#f6ece3'], inject: ['#7b1fa2', '#f3e5f5'], general: ['#546e7a', '#eceff1'], soil: ['#ef6c00', '#fff3e0'] };
+  var METHOD_COLOR = { spray: ['#1565c0', '#e3f2fd'], drench: ['#8d5524', '#f6ece3'], inject: ['#7b1fa2', '#f3e5f5'], general: ['#546e7a', '#eceff1'], soil: ['#ef6c00', '#fff3e0'], spot: ['#558b2f', '#f1f8e9'] };
   function mColor(m) { return METHOD_COLOR[m] || METHOD_COLOR.spray; }
 
   function normRow(r) {
@@ -371,12 +386,14 @@ var AgriPlan = (function () {
       deadline: isoDate(r.deadline),         // תאריך סיום הכרחי; '' = the plan's
       start: isoDate(r.start),               // מועד התחלה מומלץ (date)
       container: Number(r.container) || 0,   // manual drench: bucket / container size, litres
+      spot: Number(r.spot) > 0 ? Number(r.spot) : 0,   // spot herbicide: sprayed m² per tree (0 = default)
       note: String(r.note || ''),
       // true once someone typed a quantity of their own for this row; until
       // then the row follows the plot (trees, or dunams for a per-dunam op)
       treesManual: !!r.treesManual,
       materials: Array.isArray(r.materials) ? r.materials.map(normMaterial) : []
     };
+    if (method === 'spot' && !out.carrier) out.carrier = 40;   // field standard: 40 L solution per sprayed dunam
     return followPlot(out);
   }
   // A row that targets a whole plot and was not set by hand takes the plot's
@@ -604,7 +621,7 @@ var AgriPlan = (function () {
 
   // Litres of neat material a single row consumes. Unrounded on purpose.
   function rowMaterialL(row, mat) {
-    var trees = Number(row.trees) || 0;
+    var trees = rowUnits(row);              // trees, dunams - or sprayed dunams for the spot spray
     if (mat.mode === 'pct') {
       return trees * (Number(row.carrier) || 0) * (Number(mat.value) || 0) / 100;
     }
@@ -615,7 +632,7 @@ var AgriPlan = (function () {
   // Carrier (water) the row consumes, in litres. For inject the carrier is
   // already cc of made-up solution, so it converts rather than multiplies.
   function rowCarrierL(row) {
-    var trees = Number(row.trees) || 0;
+    var trees = rowUnits(row);
     var c = Number(row.carrier) || 0;
     return (row.method === 'inject') ? (trees * c / 1000) : (trees * c);
   }
@@ -680,6 +697,7 @@ var AgriPlan = (function () {
   function opsLine(t, sep) {
     return (t.ops || []).map(function (o) {
       return '<span style="white-space:nowrap;">' + esc(opLabel(o.method, o.round)) + ': ' + Math.round(o.qty).toLocaleString() + ' ' + qtyWord(o.method) +
+        (o.area > 0 ? ' · ' + n1(o.area).toLocaleString() + ' ' + tt('ד\' מרוסס', 'ไร่ที่พ่น', 'دونم مرشوش') : '') +
         (o.water > 0 ? ' · ' + n1(o.water).toLocaleString() + ' ' + tt('ל\' תמיסה', 'ล. สารละลาย', 'ل محلول') : '') + '</span>';
     }).join(sep || ' | ');
   }
@@ -696,8 +714,9 @@ var AgriPlan = (function () {
       var tk = treeKey(r), q = Number(r.trees) || 0;
       if (isDunam(r.method)) uD[tk] = Math.max(uD[tk] || 0, q); else uT[tk] = Math.max(uT[tk] || 0, q);
       var opk = opKey(r.method, r.round);
-      if (!byOp[opk]) { byOp[opk] = { method: r.method, round: String(r.round || '').trim(), qty: 0, water: 0 }; opOrder.push(opk); }
+      if (!byOp[opk]) { byOp[opk] = { method: r.method, round: String(r.round || '').trim(), qty: 0, water: 0, area: 0 }; opOrder.push(opk); }
       byOp[opk].qty += q; byOp[opk].water += rowCarrierL(r);
+      if (r.method === 'spot') byOp[opk].area += sprayedDunam(r);
       waterL += rowCarrierL(r);
       var fid = (r.farmId === null || r.farmId === undefined) ? 0 : r.farmId;
       if (!byFarm[fid]) byFarm[fid] = 0;
@@ -1775,7 +1794,7 @@ var AgriPlan = (function () {
           '<option value="cc"' + (m.mode === 'cc' ? ' selected' : '') + '>' +
             perUnitWord(U(m.name, p), r.method) + '</option>' +
           '<option value="lu"' + (m.mode === 'lu' ? ' selected' : '') + '>' +
-            unitWord(U(m.name, p)) + '/' + (isDunam(r.method) ? tt('דונם', 'ไร่', 'دونم') : tt('עץ', 'ต้น', 'شجرة')) + '</option></select>' +
+            unitWord(U(m.name, p)) + '/' + (perDunamDose(r.method) ? tt('דונם', 'ไร่', 'دونم') : tt('עץ', 'ต้น', 'شجرة')) + '</option></select>' +
         '<input class="ap-in" type="number" step="any" value="' + (m.value || '') + '" ' +
           'oninput="AgriPlan._setMat(' + pid + ',' + i + ',' + mi + ',\'value\',this.value)">' +
         '<input class="ap-in" type="number" step="any" value="' + (m.price || '') + '" placeholder="\u20aa/L" ' +
@@ -1838,6 +1857,9 @@ var AgriPlan = (function () {
         '<div><div class="ap-lbl">▶ ' + tt('התחלה מומלצת', 'เริ่มแนะนำ', 'البدء الموصى به') + '</div>' +
           '<input class="ap-in" type="date" value="' + esc(r.start || '') + '" ' +
             'onchange="AgriPlan._setRow(' + pid + ',' + i + ',\'start\',this.value)"></div>' +
+        (r.method === 'spot' ? '<div><div class="ap-lbl">⭕ ' + tt('שטח מרוסס לעץ (מ"ר)', 'พื้นที่พ่น/ต้น (ตร.ม.)', 'المساحة المرشوشة/شجرة (م²)') + '</div>' +
+          '<input class="ap-in" type="number" step="any" min="0" value="' + (r.spot || '') + '" placeholder="' + SPOT_M2 + '" ' +
+            'onchange="AgriPlan._setRow(' + pid + ',' + i + ',\'spot\',this.value)"></div>' : '') +
         (r.method === 'drench' ? '<div><div class="ap-lbl">🪣 ' + tt('גודל דלי / מכל (ליטר)', 'ขนาดถัง (ลิตร)', 'حجم الدلو (لتر)') + '</div>' +
           '<input class="ap-in" type="number" step="any" value="' + (r.container || '') + '" placeholder="5" ' +
             'oninput="AgriPlan._setRow(' + pid + ',' + i + ',\'container\',this.value)"></div>' : '') +
@@ -1857,7 +1879,9 @@ var AgriPlan = (function () {
         'onclick="AgriPlan._addMat(' + pid + ',' + i + ')">\u2795 ' +
         tt('חומר', 'สาร', 'مادة') + '</button>' +
       '<div class="ap-out">\ud83d\udca7 ' + tt('נפח כולל', 'ปริมาตรรวม', 'الحجم الكلي') + ': ' +
-        n1(rowCarrierL(r)).toLocaleString() + ' ' + tt('ליטר', 'ลิตร', 'لتر') + '</div>' +
+        n1(rowCarrierL(r)).toLocaleString() + ' ' + tt('ליטר', 'ลิตร', 'لتر') +
+        (r.method === 'spot' ? ' · ⭕ ' + (Number(r.trees) || 0).toLocaleString() + ' ' + tt('עצים', 'ต้น', 'شجرة') + ' × ' + spotM2(r) + ' ' + tt('מ"ר', 'ตร.ม.', 'م²') + ' = <b>' +
+          n1(sprayedDunam(r)).toLocaleString() + ' ' + tt('דונם מרוסס', 'ไร่ที่พ่น', 'دونم مرشوش') + '</b>' : '') + '</div>' +
       (ro ? '</fieldset>' : '') +
     '</div>';
   }
@@ -1888,6 +1912,7 @@ var AgriPlan = (function () {
     }
     else if (k === 'carrier') r.carrier = Number(v) || 0;
     else if (k === 'container') r.container = Number(v) || 0;
+    else if (k === 'spot') { r.spot = Number(v) > 0 ? Number(v) : 0; save(); showPlan(pid); return; }
     else if (k === 'start') r.start = isoDate(v);
     else if (k === 'farmId') {
       r.farmId = v === '' ? null : Number(v);
@@ -1911,11 +1936,15 @@ var AgriPlan = (function () {
       showPlan(pid);
       return;
     } else if (k === 'method') {
-      var wasDunam = isDunam(r.method);
+      var wasDunam = isDunam(r.method), prevM = r.method;
       r.method = v;
       // Per-dunam ↔ per-tree: the quantity follows the plot's area or trees.
       var plm = r.plotId ? plotById(r.plotId) : null;
       if (plm && wasDunam !== isDunam(v)) r.trees = plotQty(plm, v);
+      // spot herbicide: the field standard - 40 L of solution per sprayed dunam, 10 m² per tree
+      // into / out of the spot spray the carrier changes meaning (L/tree ↔ L/sprayed dunam) - reset it
+      if ((v === 'spot') !== (prevM === 'spot')) r.carrier = v === 'spot' ? 40 : 0;
+      if (v === 'spot' && !r.spot) r.spot = SPOT_M2;
       showPlan(pid);
       return;
     } else if (k === 'deadline') {
@@ -2000,7 +2029,7 @@ var AgriPlan = (function () {
     // planned per dunam: its own operation, quantity = the plot's area.
     var method = op.method, pl = plotId ? plotById(plotId) : null;
     if (method === 'spray' && perDunamPlot(pl)) { method = 'spray_d'; trees = plotQty(pl, method); }
-    var sameUnit = op.src && isDunam(op.src.method) === isDunam(method);
+    var sameUnit = op.src && carrierKind(op.src.method) === carrierKind(method);   // L/tree is not L/sprayed dunam
     return normRow({
       method: method, round: op.round,
       timing: op.src ? op.src.timing : '',
@@ -2326,7 +2355,7 @@ var AgriPlan = (function () {
   }
   function beModeOpts(gr, p) {
     var u = U(gr.name, p);
-    return [['pct', '%'], ['cc', perUnitWord(u, gr.method)], ['lu', unitWord(u) + '/' + (isDunam(gr.method) ? tt('דונם', 'ไร่', 'دونم') : tt('עץ', 'ต้น', 'شجرة'))]]
+    return [['pct', '%'], ['cc', perUnitWord(u, gr.method)], ['lu', unitWord(u) + '/' + (perDunamDose(gr.method) ? tt('דונם', 'ไร่', 'دونم') : tt('עץ', 'ต้น', 'شجرة'))]]
       .map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === gr.mode ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('');
   }
   function bulkEdit(pid) {
@@ -2599,7 +2628,7 @@ var AgriPlan = (function () {
         groups[fid].map(function (x) {
           return '<label class="ap-bv-r"><input type="checkbox" class="apBvRow" data-f="' + fid + '" data-id="' + x.r.id + '"' + (_bv.sel[x.r.id] ? ' checked' : '') + '> ' +
             esc(x.name || tt('ללא חלקה', 'ไม่มีแปลง', 'بلا قطعة')) + ' <small>' + esc(opLabel(x.r.method, x.r.round)) + ' · ' + (x.r.trees || 0).toLocaleString() + ' ' + qtyWord(x.r.method) +
-            ' · <b>' + n1(x.r.carrier) + '</b> ' + (x.r.method === 'inject' ? tt('סמ"ק', 'ซีซี', 'سم³') : tt('ל׳', 'ล.', 'ل')) + '/' + (isDunam(x.r.method) ? tt('דונם', 'ไร่', 'دونم') : tt('עץ', 'ต้น', 'شجرة')) + '</small></label>';
+            ' · <b>' + n1(x.r.carrier) + '</b> ' + (x.r.method === 'inject' ? tt('סמ"ק', 'ซีซี', 'سم³') : tt('ל׳', 'ล.', 'ل')) + '/' + (perDunamDose(x.r.method) ? tt('דונם', 'ไร่', 'دونم') : tt('עץ', 'ต้น', 'شجرة')) + '</small></label>';
         }).join('');
     }).join('') || '<div class="ap-empty">' + tt('אין שורות תואמות', 'ไม่มีแถว', 'لا صفوف') + '</div>';
     var count = function () { var n = Object.keys(_bv.sel).filter(function (k) { return _bv.sel[k]; }).length; document.getElementById('apBvN').textContent = n + ' ' + tt('שורות מסומנות', 'แถวที่เลือก', 'صفوف محددة'); };
@@ -3749,11 +3778,11 @@ var AgriPlan = (function () {
       rows += '<tr><td><b>' + esc(methodLabel(r.method)) + '</b></td>' +
         '<td>' + esc(farmName(r.farmId)) + '</td>' +
         '<td>' + esc((pl ? pl.name : '') + (r.cohort ? ' - ' + r.cohort : '')) + '</td>' +
-        '<td>' + (r.trees || 0).toLocaleString() + '</td>' + cells +
+        '<td>' + (r.trees || 0).toLocaleString() + (r.method === 'spot' ? '<br><small>⭕ ' + spotM2(r) + ' ' + tt('מ"ר/עץ', 'ตร.ม./ต้น', 'م²/شجرة') + ' = ' + n1(sprayedDunam(r)) + ' ' + tt('ד\' מרוסס', 'ไร่ที่พ่น', 'دونم مرشوش') + '</small>' : '') + '</td>' + cells +
         '<td>' + esc(r.round) + '</td><td>' + esc([r.start ? '▶ ' + fmtDate(r.start) : '', r.timing].filter(Boolean).join(' · ')) + '</td>' +
         '<td class="dl">' + esc(fmtDate(effDeadline(p, r))) + '</td>' +
         '<td>' + n1(r.carrier) + ' ' + (r.method === 'inject'
-          ? tt('סמ"ק', 'ซีซี', 'سم³') : tt('ליטר', 'ลิตร', 'لتر')) + '</td>' +
+          ? tt('סמ"ק', 'ซีซี', 'سم³') : tt('ליטר', 'ลิตร', 'لتر')) + (r.method === 'spot' ? '/' + tt('ד\' מרוסס', 'ไร่ที่พ่น', 'دونم مرشوش') : '') + '</td>' +
         '<td><b>' + n1(rowCarrierL(r)).toLocaleString() + '</b></td></tr>';
     });
 
@@ -3939,7 +3968,7 @@ var AgriPlan = (function () {
       var mats = (r.materials || []).filter(function (m) { return m && m.name; });
       var solL = rowCarrierL(r);
       var line = '<div><span class="px-op">' + esc(opLabel(r.method, r.round)) + '</span> · <span class="px-t">' +
-        (Number(r.trees) || 0).toLocaleString() + ' ' + qtyWord(r.method) + '</span>';
+        (Number(r.trees) || 0).toLocaleString() + ' ' + qtyWord(r.method) + (r.method === 'spot' ? ' · ⭕ ' + n1(sprayedDunam(r)) + ' ' + tt('ד\' מרוסס', 'ไร่ที่พ่น', 'دونم مرشوش') : '') + '</span>';
       if (mats.length) line += '<br>' + mats.map(function (m) { return esc(m.name) + ' <b>' + fmtQty(rowMaterialL(r, m), U(m.name)) + '</b>'; }).join(' · ');
       if (r.start) line += ' · <span class="px-t">▶ ' + esc(fmtDate(r.start)) + '</span>';
       if (r.method === 'drench' && r.container > 0 && solL > 0) {
