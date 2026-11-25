@@ -434,4 +434,231 @@
   }
 
 
+  // ══════════════════════════════════════════════════════════════════
+  //  TRUSS + GIRDER SHEET (full print)
+  // ══════════════════════════════════════════════════════════════════
+  // The takeoff bills a lattice truss as top chord, bottom chord and a
+  // Pratt web on ~1.17 m panels, and a longitudinal girder as two chords
+  // and a Pratt web on ~1 m panels. This draws exactly those members, with
+  // the same panel counts and lengths, plus a cut list — so the welder
+  // builds what was priced.
+  function trussGeo(d) {
+    var g = BP.geom(d);
+    var tPan = Math.max(4, Math.round(g.rafterLen / 1.17));
+    return { g: g, tPan: tPan, tPL: g.rafterLen / tPan, tD: d.trussDepth };
+  }
+  function lineS(x1, y1, x2, y2, c, w) {
+    return '<line x1="' + x1.toFixed(1) + '" y1="' + y1.toFixed(1) + '" x2="' + x2.toFixed(1) + '" y2="' + y2.toFixed(1) +
+      '" stroke="' + c + '" stroke-width="' + w + '" stroke-linecap="round"/>';
+  }
+  function textS(x, y, t, sz, anchor, bold, c) {
+    return '<text x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" font-size="' + (sz || 11) + '" text-anchor="' + (anchor || 'middle') +
+      '" font-family="ui-monospace,Menlo,Consolas,monospace"' + (bold ? ' font-weight="700"' : '') + ' fill="' + (c || '#222') + '">' + BP.esc(t) + '</text>';
+  }
+  function dimS(x1, x2, y, t, sz) {
+    return lineS(x1, y, x2, y, '#555', 0.8) + lineS(x1 - 3, y + 3, x1 + 3, y - 3, '#555', 1) + lineS(x2 - 3, y + 3, x2 + 3, y - 3, '#555', 1) +
+      textS((x1 + x2) / 2, y - 3, t, sz || 9);
+  }
+  // One truss, drawn along its own axis: chords, node numbers, a Pratt web
+  // that turns at mid-span, panel dimensions, overall length and depth.
+  BP.trussSvg = function trussSvg(p) {
+    var d = p.dims, t = trussGeo(d), L = t.g.rafterLen;
+    var W = 900, pad = 40, sc = (W - pad - 90) / L, H = Math.max(150, t.tD * sc + 110);
+    var X = function (u) { return pad + u * sc; }, Y = function (v) { return 30 + (t.tD - v) * sc; };
+    var o = [], half = Math.floor(t.tPan / 2);
+    o.push(lineS(X(0), Y(t.tD), X(L), Y(t.tD), '#1f3a5f', 3));
+    o.push(lineS(X(0), Y(0), X(L), Y(0), '#1f3a5f', 3.4));
+    for (var k = 0; k <= t.tPan; k++) {
+      o.push(lineS(X(k * t.tPL), Y(0), X(k * t.tPL), Y(t.tD), '#3d6fa8', 1.4));
+      o.push(textS(X(k * t.tPL), Y(t.tD) - 7, String(k), 9));
+    }
+    for (k = 0; k < t.tPan; k++) {
+      var a = k * t.tPL, b = (k + 1) * t.tPL;
+      o.push(k < half ? lineS(X(a), Y(t.tD), X(b), Y(0), '#3d6fa8', 1.4) : lineS(X(a), Y(0), X(b), Y(t.tD), '#3d6fa8', 1.4));
+    }
+    for (k = 0; k < t.tPan; k++) o.push(dimS(X(k * t.tPL), X((k + 1) * t.tPL), Y(0) + 18, t.tPL.toFixed(3), 8));
+    o.push(dimS(X(0), X(L), Y(0) + 40, L.toFixed(3) + ' m', 10));
+    o.push(lineS(X(L) + 18, Y(t.tD), X(L) + 18, Y(0), '#555', 0.8));
+    o.push(textS(X(L) + 30, (Y(t.tD) + Y(0)) / 2 + 4, t.tD.toFixed(2), 9, 'start'));
+    return '<svg viewBox="0 0 ' + W + ' ' + Math.round(H) + '" style="width:100%;height:auto;direction:ltr;" direction="ltr">' + o.join('') + '</svg>';
+  };
+  // The longitudinal girders, one elevation per column line: columns
+  // where they stand, chords, a Pratt web turning at the middle of each
+  // span between columns, the frames bearing on top.
+  BP.girderSvg = function girderSvg(p) {
+    var d = p.dims, g = BP.geom(d), gD = BP.girderDepth(d);
+    if (!(gD > 0)) return '';
+    var gPan = Math.max(2, Math.round(d.length / 1.0)), gPL = d.length / gPan;
+    var W = 900, pad = 40, sc = (W - 2 * pad) / d.length, H = gD * sc + 120;
+    var X = function (u) { return pad + u * sc; }, Y = function (v) { return 34 + (gD - v) * sc; };
+    var o = [];
+    o.push(lineS(X(0), Y(gD), X(d.length), Y(gD), '#1f3a5f', 2.6));
+    o.push(lineS(X(0), Y(0), X(d.length), Y(0), '#1f3a5f', 2.6));
+    for (var k = 0; k <= gPan; k++) o.push(lineS(X(k * gPL), Y(0), X(k * gPL), Y(gD), '#3d6fa8', 1));
+    var cf = g.colFrameIdx.map(function (i) { return i * g.actualBay; });
+    for (var j = 0; j + 1 < cf.length; j++) {
+      var n = Math.round((cf[j + 1] - cf[j]) / gPL), h = Math.floor(n / 2);
+      for (k = 0; k < n; k++) {
+        var a = cf[j] + k * gPL, b = a + gPL;
+        o.push(k < h ? lineS(X(a), Y(gD), X(b), Y(0), '#3d6fa8', 1) : lineS(X(a), Y(0), X(b), Y(gD), '#3d6fa8', 1));
+      }
+      o.push(dimS(X(cf[j]), X(cf[j + 1]), Y(0) + 48, (cf[j + 1] - cf[j]).toFixed(2), 9));
+    }
+    cf.forEach(function (x) { o.push('<rect x="' + (X(x) - 5).toFixed(1) + '" y="' + Y(0).toFixed(1) + '" width="10" height="30" fill="#bbb" stroke="#555"/>'); });
+    for (var f = 0; f < g.frames; f++) {
+      var x = f * g.actualBay;
+      o.push('<rect x="' + (X(x) - 3).toFixed(1) + '" y="' + (Y(gD) - 22).toFixed(1) + '" width="6" height="22" fill="#dfe7f1" stroke="#1f3a5f"/>');
+      o.push(textS(X(x), Y(gD) - 27, String(f + 1), 9, 'middle', true));
+    }
+    o.push(dimS(X(0), X(d.length), Y(0) + 70, d.length.toFixed(2) + ' m · ' + gPan + ' × ' + gPL.toFixed(2), 10));
+    return '<svg viewBox="0 0 ' + W + ' ' + Math.round(H) + '" style="width:100%;height:auto;direction:ltr;" direction="ltr">' + o.join('') + '</svg>';
+  };
+  // Cut list for one truss and one girder, lengths as drawn.
+  BP.trussCutList = function trussCutList(p, part) {
+    var d = p.dims, t = trussGeo(d), g = t.g, rows = [];
+    var wantT = part !== 'girder', wantG = part !== 'truss';
+    var diag = Math.sqrt(t.tPL * t.tPL + t.tD * t.tD);
+    var nT = g.frames * g.slopes;
+    if (wantT) rows.push([BP.tt('אגד · חגורה עליונה', 'โครงถัก · คอร์ดบน', 'جملون · وتر علوي'), d.rafterProfile, 1, g.rafterLen, nT]);
+    if (wantT) rows.push([BP.tt('אגד · חגורה תחתונה', 'โครงถัก · คอร์ดล่าง', 'جملون · وتر سفلي'), d.trussBotProfile, 1, g.rafterLen, nT]);
+    if (wantT) rows.push([BP.tt('אגד · ניצבים', 'โครงถัก · ตั้ง', 'جملون · قوائم'), d.trussWebProfile || d.trussBotProfile, t.tPan + 1, t.tD, nT]);
+    if (wantT) rows.push([BP.tt('אגד · אלכסונים', 'โครงถัก · ทแยง', 'جملون · أقطار'), d.trussWebProfile || d.trussBotProfile, t.tPan, diag, nT]);
+    var gD = BP.girderDepth(d);
+    if (gD > 0 && wantG) {
+      var gPan = Math.max(2, Math.round(d.length / 1.0)), gPL = d.length / gPan, nG = (d.colLines === 3 ? 3 : 2);
+      rows.push([BP.tt('קורת אורך · חגורות', 'คานตามยาว · คอร์ด', 'عارضة طولية · أوتار'), d.girderProfile || d.rafterProfile, 2, d.length, nG]);
+      rows.push([BP.tt('קורת אורך · ניצבים', 'คานตามยาว · ตั้ง', 'عارضة طولية · قوائم'), d.trussWebProfile || d.girderProfile, gPan + 1, gD, nG]);
+      rows.push([BP.tt('קורת אורך · אלכסונים', 'คานตามยาว · ทแยง', 'عارضة طولية · أقطار'), d.trussWebProfile || d.girderProfile, gPan, Math.sqrt(gPL * gPL + gD * gD), nG]);
+    }
+    return '<table><thead><tr><th>' + BP.tt('חלק', 'ชิ้น', 'جزء') + '</th><th>' + BP.tt('פרופיל', 'หน้าตัด', 'مقطع') + '</th><th>' +
+      BP.tt('יח\' ליחידה', 'ต่อชุด', 'لكل وحدة') + '</th><th>' + BP.tt('אורך (מ\')', 'ยาว (ม.)', 'طول (م)') + '</th><th>' +
+      BP.tt('יחידות', 'ชุด', 'وحدات') + '</th><th>' + BP.tt('סה"כ מ\' (ללא פחת)', 'รวม ม.', 'المجموع م') + '</th></tr></thead><tbody>' +
+      rows.map(function (r) {
+        return '<tr><td>' + BP.esc(r[0]) + '</td><td dir="ltr">' + BP.esc(r[1]) + '</td><td>' + r[2] + '</td><td>' + r[3].toFixed(3) +
+          '</td><td>' + r[4] + '</td><td>' + BP.n1(r[2] * r[3] * r[4]) + '</td></tr>';
+      }).join('') + '</tbody></table>';
+  };
+
+  // The pieces the steel is actually cut into, per profile — what a
+  // fabricator buys stock bars for. Same geometry as the takeoff (panel
+  // counts, lengths), without the waste factor: waste is what the bar
+  // optimiser finds, not a percentage. A long member is split at a frame
+  // or column so it can be spliced over a support (purlins, girder chords);
+  // a truss chord longer than the bar is reported with its splice.
+  BP.cutPieces = function cutPieces(p) {
+    var d = p.dims, out = [];
+    if (!d || p.type === 'slab' || p.hasStruct === false || p.source === 'plan') return out;
+    var g = BP.geom(d);
+    function add(profile, len, count, part) {
+      if (!profile || !(len > 0) || !(count > 0)) return;
+      out.push({ profile: profile, len: Math.round(len * 1000) / 1000, count: count, part: part });
+    }
+    // Split a run of `total` at the given support positions into pieces no
+    // longer than `max`, cutting at the last support that still fits.
+    function splitRun(total, supports, max) {
+      var cuts = [], start = 0;
+      while (total - start > max + 1e-6) {
+        var best = null;
+        supports.forEach(function (s) { if (s > start + 1e-6 && s - start <= max + 1e-6) best = s; });
+        if (best == null) best = start + max;
+        cuts.push(best - start); start = best;
+      }
+      cuts.push(total - start);
+      return cuts;
+    }
+    var frames = [], colAt = [];
+    for (var i = 0; i < g.frames; i++) frames.push(i * g.actualBay);
+    g.colFrameIdx.forEach(function (fi) { colAt.push(fi * g.actualBay); });
+    var nT = g.frames * g.slopes;
+    if (d.rafterType === 'truss' && d.trussBotProfile) {
+      var tPan = Math.max(4, Math.round(g.rafterLen / 1.17)), tPL = g.rafterLen / tPan, tD = d.trussDepth;
+      add(d.rafterProfile, g.rafterLen, nT, 'truss-top');
+      add(d.trussBotProfile, g.rafterLen, nT, 'truss-bottom');
+      var web = d.trussWebProfile || d.trussBotProfile;
+      add(web, tD, nT * (tPan + 1), 'truss-vertical');
+      add(web, Math.sqrt(tPL * tPL + tD * tD), nT * tPan, 'truss-diagonal');
+    } else {
+      add(d.rafterProfile, g.rafterLen, nT, 'rafter');
+    }
+    var gD = BP.girderDepth(d);
+    if (gD > 0) {
+      var nG = d.colLines === 3 ? 3 : 2, gPan = Math.max(2, Math.round(d.length / 1.0)), gPL = d.length / gPan;
+      splitRun(d.length, colAt.length > 1 ? colAt : frames, 12).forEach(function (L) {
+        add(d.girderProfile || d.rafterProfile, L, nG * 2, 'girder-chord');
+      });
+      var gw = d.trussWebProfile || d.girderProfile || d.rafterProfile;
+      add(gw, gD, nG * (gPan + 1), 'girder-vertical');
+      add(gw, Math.sqrt(gPL * gPL + gD * gD), nG * gPan, 'girder-diagonal');
+    }
+    var rows = g.purlinRuns * g.slopes;
+    splitRun(d.length, frames, 12).forEach(function (L) { add(d.purlinProfile, L, rows, 'purlin'); });
+    if (d.haunch) {
+      var hRun = Math.min(d.span * 0.10, 1.2), hRise = Math.min(d.eaves * 0.26, 1.0);
+      add(d.haunchProfile || d.rafterProfile, Math.sqrt(hRun * hRun + hRise * hRise), g.colFrames * 2, 'knee');
+    }
+    if (!d.colExisting) {
+      g.colH.forEach(function (h) { add(d.colProfile, h, g.colFrames, 'column'); });
+    }
+    return out;
+  };
+
+  // Plan of the structure seen from above: column lines and the columns
+  // that stand, frames/trusses on every axis, the girders, purlin rows, and
+  // the roof bracing the takeoff bills (an X per panel in each end bay).
+  BP.roofPlanSvg = function roofPlanSvg(p) {
+    var d = p.dims, g = BP.geom(d);
+    var W = 900, padL = 60, padR = 70, padT = 50, sc = (W - padL - padR) / d.length;
+    var H = padT + d.span * sc + 90;
+    var X = function (y) { return padL + y * sc; }, Y = function (x) { return padT + x * sc; };
+    var o = [];
+    o.push('<rect x="' + X(0) + '" y="' + Y(0) + '" width="' + (d.length * sc).toFixed(1) + '" height="' + (d.span * sc).toFixed(1) + '" fill="#f4f1ea" stroke="#bbb"/>');
+    var lines = d.colLines === 3 ? [0, d.span / 2, d.span] : [0, d.span];
+    var mono = d.roofType === 'mono';
+    // purlin rows, projected on plan
+    for (var s = 0; s < g.slopes; s++) {
+      for (var k = 0; k < g.purlinRuns; k++) {
+        var f = k / Math.max(1, g.purlinRuns - 1);
+        var xs = mono ? f * d.span : (s === 0 ? f * d.span / 2 : d.span / 2 + f * d.span / 2);
+        o.push(lineS(X(0), Y(xs), X(d.length), Y(xs), '#b5651d', 1.1));
+      }
+    }
+    // roof bracing in the end bays
+    if (d.bracing) {
+      var cB = Math.min(2, Math.max(1, g.bays)), ends = cB >= 2 ? [0, g.bays - 1] : [0];
+      var panels = d.colLines === 3 ? 2 : 1, pw = d.span / panels;
+      ends.forEach(function (b) {
+        for (var q = 0; q < panels; q++) {
+          var y0 = b * g.actualBay, y1 = y0 + g.actualBay, x0 = q * pw, x1 = x0 + pw;
+          o.push(lineS(X(y0), Y(x0), X(y1), Y(x1), '#2e7d32', 1.2));
+          o.push(lineS(X(y0), Y(x1), X(y1), Y(x0), '#2e7d32', 1.2));
+        }
+      });
+    }
+    // girders along the column lines
+    if (BP.girderDepth(d) > 0) lines.forEach(function (x) { o.push(lineS(X(0), Y(x), X(d.length), Y(x), '#1f3a5f', 4)); });
+    // frames / trusses on every axis
+    for (var i = 0; i < g.frames; i++) {
+      var y = i * g.actualBay;
+      o.push(lineS(X(y), Y(0), X(y), Y(d.span), '#1f3a5f', 3));
+      o.push('<circle cx="' + X(y).toFixed(1) + '" cy="' + (Y(0) - 26).toFixed(1) + '" r="9" fill="#fff" stroke="#333"/>');
+      o.push(textS(X(y), Y(0) - 22, String(i + 1), 10, 'middle', true));
+    }
+    // columns where they stand
+    g.colFrameIdx.forEach(function (fi) {
+      lines.forEach(function (x) {
+        o.push('<circle cx="' + X(fi * g.actualBay).toFixed(1) + '" cy="' + Y(x).toFixed(1) + '" r="5.5" fill="' + (d.colExisting ? '#bbb' : '#555') + '" stroke="#000"/>');
+      });
+    });
+    var LET = 'ABC';
+    lines.forEach(function (x, j) {
+      o.push('<circle cx="' + (X(0) - 30) + '" cy="' + Y(x).toFixed(1) + '" r="9" fill="#fff" stroke="#333"/>');
+      o.push(textS(X(0) - 30, Y(x) + 4, LET[j], 10, 'middle', true));
+    });
+    for (i = 0; i < g.bays; i++) o.push(dimS(X(i * g.actualBay), X((i + 1) * g.actualBay), Y(d.span) + 26, g.actualBay.toFixed(2), 9));
+    o.push(dimS(X(0), X(d.length), Y(d.span) + 50, d.length.toFixed(2) + ' m', 10));
+    o.push(lineS(X(d.length) + 34, Y(0), X(d.length) + 34, Y(d.span), '#555', 0.8));
+    o.push(textS(X(d.length) + 44, (Y(0) + Y(d.span)) / 2, d.span.toFixed(2) + ' m', 10, 'start'));
+    return '<svg viewBox="0 0 ' + W + ' ' + Math.round(H) + '" style="width:100%;height:auto;direction:ltr;" direction="ltr">' + o.join('') + '</svg>';
+  };
+
 })(BuildPlanInternals);

@@ -123,7 +123,7 @@ def roof_plan():
     for q in (0.25, 0.5, 0.75):
         s.line(X(0), Y(span * q), X(length), Y(span * q), C_BR, 0.9, '7,4')
     # roof X-bracing in end bays (two bays deep), two panels across
-    nb = min(2, bays) if bays >= 4 else 1
+    nb = max(1, round(5.0 / bay))          # X panels about 5 m long, one per end
     for (a0, a1) in ((0, nb * bay), (length - nb * bay, length)):
         for (s0, s1) in ((0, span / 2), (span / 2, span)):
             s.line(X(a0), Y(s0), X(a1), Y(s1), C_BR, 1.1)
@@ -334,7 +334,7 @@ payload = {
 }
 canon = json.dumps({k: payload[k] for k in ('project', 'dims', 'boq', 'takeoff')}, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
 payload['hash'] = hashlib.sha256(canon.encode('utf-8')).hexdigest()[:16]
-DRAW_NO = 'SP-%d-01' % pr['id']
+DRAW_NO = 'SP-%d-%s' % (pr['id'], sys.argv[3] if len(sys.argv) > 3 else '01')
 REV = payload['hash'][:6].upper()
 TODAY = datetime.date.today().strftime('%d.%m.%Y')
 
@@ -363,7 +363,7 @@ summary = kv([
     ('קורת אורך B', 'על ראשי העמודים <span class="m">%s – %s</span>' % (lvl(B_gBot), lvl(B_gTop))),
     ('עמודים', '%d קיימים <span class="m">%s</span> · צירים %s · ראש <span class="m">%s</span> · לא נכללים בכתב הכמויות' % (len(colF) * 2, d['colProfile'], ', '.join(axes[i] for i in colF), lvl(colTop))),
     ('מרישים', '%d שורות <span class="m">%s</span> על כל צומת עליון · מפתח %s מ\'' % (purlins, d['purlinProfile'], f2(bay))),
-    ('קירוי', 'פח טרפזי בריצה אחת 14.3 מ\' (ללא גלית)'),
+    ('קירוי', ' · '.join('%s × %s' % (f1(r['qty']), E(r['name'])) for r in rows if 'פח' in r['name'] and 'בורג' not in r['name']) or '—'),
     ('גובה גג', 'צד A <span class="m">%s</span> · צד B <span class="m">%s</span>' % (lvl(T_A_top), lvl(T_B_top))),
     ('משקל פלדה', '<b class="m">%.1f t</b> (פרופילים %.1f t + פלטות %.2f t + קשרים ומוטות %.2f t)' % (kg_total / 1000, kg_sections / 1000, kg_plates / 1000, kg_extra / 1000)),
 ])

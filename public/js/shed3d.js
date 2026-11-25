@@ -618,7 +618,8 @@ var Shed3D = (function () {
     // ── roof cladding + skylights ──
     // Corrugation is drawn when the chosen product IS corrugated sheet,
     // which is now a name rather than a type flag.
-    var ribs = /איסכורית/.test(String(m.roofClad || '')) ? Math.max(8, Math.round(len/0.9)) : 0;
+    var showOnly = m.roofClad === 'none' && m.roofShow === true;
+    var ribs = (showOnly || /איסכורית/.test(String(m.roofClad || ''))) ? Math.max(8, Math.round(len/0.9)) : 0;
     function roofPanel(ya, yb) {
       var za = zAt(ya), zb = zAt(yb);
       if (m.skylights > 0) {
@@ -636,7 +637,7 @@ var Shed3D = (function () {
           PALETTE.roof, 'roof', ribs, 0.95));
       }
     }
-    if (m.roofClad !== 'none') {
+    if (m.roofClad !== 'none' || showOnly) {
       if (mono) roofPanel(y0, y1);
       else { roofPanel(y0, 0); roofPanel(0, y1); }
       if (!mono) F = F.concat(barSeg(x0, -0.22, ridgeZ, x1, 0.22, ridgeZ+0.1, PALETTE.ridge, 'ridge'));

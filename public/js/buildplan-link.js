@@ -184,7 +184,7 @@
   }
   var BOOL = { walls: 1, gutter: 1, footings: 1, fence: 1,
                haunch: 1, taper: 1, bracing: 1, door: 1,
-               mapGround: 1, callouts: 1, shadows: 1, dims: 1, colExisting: 1 };
+               mapGround: 1, callouts: 1, shadows: 1, dims: 1, colExisting: 1, roofShow: 1 };
   var TEXT = { roofType: 1, wallMode: 1, roofClad: 1, wallClad: 1, rafterType: 1, scaleRef: 1,
                colProfile: 1, rafterProfile: 1, purlinProfile: 1, girtProfile: 1,
                braceType: 1, haunchProfile: 1,
@@ -607,7 +607,7 @@
         '<td style="width:70px;"></td></tr>';
     }).join('');
 
-    return '<div style="page-break-before:always;"></div>' +
+    return '' +
       '<h2>\ud83d\udccb ' + BP.tt('שלבי עבודה והכנות', 'ขั้นตอนงาน', 'مراحل العمل') + '</h2>' +
       '<p style="font-size:.8rem;color:#555;">' +
         BP.tt('הסדר הוא סדר תלות, לא סדר מקצועות. רוב התקלות היקרות בעבודות האלה הן תקלות רצף.',
@@ -675,77 +675,132 @@
     var p = BP.projById(id);
     if (!p) return;
     var rows = BP.takeoff(p), tot = BP.takeoffTotals(rows);
-    var g = (p.type === 'slab' || p.hasStruct === false) ? null : BP.geom(p.dims);
+    var struct = !(p.type === 'slab' || p.hasStruct === false);
+    var d = p.dims || {};
+    var g = struct ? BP.geom(d) : null;
+    var full = opts.stages !== false;          // "כתב כמויות בלבד" prints the quantities alone
     var body = '';
     rows.forEach(function (r, i) {
       var lp = BP.linePrice(r);
       body += '<tr><td>' + (i + 1) + '</td><td>' + BP.esc(BP.dsp(r.name)) + '</td><td>' + BP.n1(r.qty) +
-        '</td><td>' + BP.esc(BP.dsp(r.unit)) + '</td><td>' + (r.kg ? BP.n1(r.kg) : '\u2014') + '</td>' +
-        '<td>' + (lp ? BP.money(lp) : '\u2014') + '</td>' +
-        '<td>' + (lp ? BP.money(r.qty * lp) : '\u2014') + '</td>' +
+        '</td><td>' + BP.esc(BP.dsp(r.unit)) + '</td><td>' + (r.kg ? BP.n1(r.kg) : '—') + '</td>' +
+        '<td>' + (lp ? BP.money(lp) : '—') + '</td>' +
+        '<td>' + (lp ? BP.money(r.qty * lp) : '—') + '</td>' +
         '<td>' + BP.esc(r.note) + '</td></tr>';
     });
-    // Component drawings, printed at the size they are read at. A bill of
-    // quantities without a drawing is a list of numbers nobody can check.
-    var extra = '';
-    if (typeof Gates !== 'undefined') {
-      (p.gates || []).forEach(function (g, i) {
-        extra += '<h2>\ud83d\udea7 ' + BP.esc(g.name || (BP.tt('שער','ประตู','بوابة') + ' ' + (i+1))) +
-          ' \u2014 ' + BP.esc(Gates.typeLabel(g.type)) + '</h2>' +
-          '<div class="bp-draw">' + Gates.svg(g, { print: true }) + '</div>' +
-          ((g.horns || (g.rebar && g.rebar.show))
-            ? '<div class="bp-draw">' + Gates.detailSvg(g, { print: true }) + '</div>' : '') +
-          gateCheckPrint(g);
+    var title = BP.esc(p.name || BP.typeLabel(p.type));
+    var nPage = 0;
+    // Every major part gets a page of its own: the drawing at a size it can
+    // be read and built from, and the numbers that belong to that part.
+    function page(head, inner, cls) {
+      nPage++;
+      return '<section class="pg' + (cls ? ' ' + cls : '') + '"><div class="pg-h"><span>' + title + (p.client ? ' · ' + BP.esc(p.client) : '') + '</span>' +
+        '<b>' + head + '</b></div>' + inner + '</section>';
+    }
+    function ink(svg) {
+      return String(svg || '')
+        .replace(/var\(--primary,#2d6a4f\)/g, '#2d6a4f')
+        .replace(/var\(--accent,#ff9f43\)/g, '#e07b00')
+        .replace(/var\(--water,#4fc3f7\)/g, '#1565c0')
+        .replace(/var\(--text-muted,#[0-9a-f]+\)/g, '#777')
+        .replace(/var\(--text,#[0-9a-f]+\)/g, '#222');
+    }
+    function kv(list) {
+      return '<table class="kv">' + list.filter(Boolean).map(function (x) {
+        return '<tr><td>' + x[0] + '</td><td>' + x[1] + '</td></tr>';
+      }).join('') + '</table>';
+    }
+    function util(role, name) {
+      if (!name || !BP.checkMember) return '';
+      var c = BP.checkMember(role, name, d);
+      if (!c || !c.known) return '';
+      return ' · <b style="color:' + (c.ok ? '#1b7a4b' : '#b3261e') + ';">' + Math.round(c.util * 100) + '%</b> ' + BP.esc(c.why || '');
+    }
+    var M = function (x) { return '<span dir="ltr">' + BP.esc(x) + '</span>'; };
+
+    // ── 1. general: what it is, the main section and plan, key data ──
+    var meta = '<div class="meta">' + contentsLabel(p) +
+      (g ? '<br>' + BP.n1(d.span) + ' × ' + BP.n1(d.length) + ' m, ' +
+           BP.tt('גובה', 'สูง', 'ارتفاع') + ' ' + BP.n1(d.eaves) + ' m, ' +
+           BP.tt('שיפוע', 'ชัน', 'ميل') + ' ' + BP.n1(d.pitch) + '°, ' +
+           g.frames + ' ' + BP.tt('מסגרות', 'เฟรม', 'إطارات') + ' @ ' + BP.n1(g.actualBay) + ' m'
+         : '<br>' + BP.n1(BP.slabArea(p)) + ' \u05de"\u05e8 \u00d7 ' + d.slabTh + ' \u05de\'') +
+      (p.footprintArea > 0 ? '<br>' + BP.tt('שטח מסומן במפה', 'พื้นที่จากแผนที่', 'المساحة المرسومة') +
+        ': ' + BP.n1(p.footprintArea) + ' \u05de"\u05e8' : '') +
+      '</div>';
+    var drawing = (p.hasStruct === false && p.type !== 'slab') ? '' : ink(BP.svg(p));
+    var keyData = g ? kv([
+      [BP.tt('עמודים', 'เสา', 'أعمدة'), g.cols + ' × ' + M(d.colProfile) + (d.colExisting ? ' · ' + BP.tt('קיימים (לא בכתב הכמויות)', 'มีอยู่แล้ว', 'قائمة') : '') + util('col', d.colProfile)],
+      [d.rafterType === 'truss' ? BP.tt('אגדים', 'โครงถัก', 'جملونات') : BP.tt('קורות גג', 'คานหลังคา', 'روافد'),
+        (g.frames * g.slopes) + ' × ' + M(d.rafterProfile) + util('rafter', d.rafterProfile)],
+      d.rafterType === 'truss' ? [BP.tt('חגורה תחתונה / רשת', 'คอร์ดล่าง / ตั้ง', 'وتر سفلي / شبكة'), M(d.trussBotProfile || '') + util('trussBot', d.trussBotProfile) + ' · ' + M(d.trussWebProfile || '') + util('trussWeb', d.trussWebProfile)] : null,
+      BP.girderDepth(d) > 0 ? [BP.tt('קורות אורך', 'คานตามยาว', 'عوارض طولية'), M(d.girderProfile || '') + ' · ' + BP.tt('עומק', 'ลึก', 'عمق') + ' ' + BP.n1(BP.girderDepth(d)) + ' m'] : null,
+      [BP.tt('מרישים', 'แป', 'مدادات'), (g.purlinRuns * g.slopes) + ' × ' + M(d.purlinProfile) + util('purlin', d.purlinProfile)],
+      [BP.tt('משקל פלדה', 'น้ำหนักเหล็ก', 'وزن الحديد'), BP.n1(tot.kg) + ' kg'],
+      [BP.tt('עלות חומרים (קטלוג)', 'ต้นทุนวัสดุ', 'تكلفة المواد'), BP.money(tot.cost)]
+    ]) : '';
+    var pages = page(BP.tt('כללי', 'ทั่วไป', 'عام'),
+      '<h1>' + title + '</h1>' + meta + drawing +
+      (keyData ? '<h2>' + BP.tt('נתוני המבנה', 'ข้อมูลโครงสร้าง', 'بيانات المبنى') + '</h2>' + keyData : '') +
+      '<div class="note">' + BP.tt('אחוזי ניצול: בדיקה ראשונית במאמצים מותרים — אינה מחליפה תכנון קונסטרוקטור.', 'ตรวจสอบเบื้องต้น', 'فحص أولي لا يغني عن التصميم الإنشائي.') + '</div>', 'pg-cover');
+
+    if (full && struct && BP.roofPlanSvg) {
+      // ── 2. plan of the structure ──
+      pages += page(BP.tt('תוכנית קונסטרוקציה', 'ผังโครงสร้าง', 'مخطط الهيكل'),
+        '<div class="bp-draw">' + BP.roofPlanSvg(p) + '</div>' +
+        '<div class="note">' + BP.tt('עמודים: עיגול (אפור = קיים). כחול: אגדים/מסגרות וקורות אורך. כתום: מרישים. ירוק: ייצוב גג.',
+          'เสา, โครง, แป, ค้ำยัน', 'أعمدة، إطارات، مدادات، تثبيت') + '</div>', 'pg-big');
+    }
+    if (full && struct && d.rafterType === 'truss' && BP.trussSvg) {
+      // ── 3. truss detail ──
+      pages += page(BP.tt('פרט אגד', 'รายละเอียดโครงถัก', 'تفصيل الجملون') + ' · ' + (g.frames * g.slopes) + ' ' + BP.tt('יח\'', 'ชุด', 'وحدة'),
+        '<div class="bp-draw">' + BP.trussSvg(p) + '</div>' +
+        kv([
+          [BP.tt('חגורה עליונה', 'คอร์ดบน', 'وتر علوي'), M(d.rafterProfile) + util('rafter', d.rafterProfile)],
+          [BP.tt('חגורה תחתונה', 'คอร์ดล่าง', 'وتر سفلي'), M(d.trussBotProfile || d.rafterProfile) + util('trussBot', d.trussBotProfile)],
+          [BP.tt('ניצבים ואלכסונים', 'ตั้งและทแยง', 'قوائم وأقطار'), M(d.trussWebProfile || d.trussBotProfile || '') + util('trussWeb', d.trussWebProfile)],
+          [BP.tt('עומק / אורך', 'ลึก / ยาว', 'عمق / طول'), BP.n2 ? BP.n2(d.trussDepth) + ' / ' + BP.n2(g.rafterLen) + ' m' : d.trussDepth + ' / ' + g.rafterLen.toFixed(2) + ' m']
+        ]) +
+        '<h2>✂ ' + BP.tt('רשימת חיתוך · אגד', 'รายการตัด · โครงถัก', 'قائمة القص · جملون') + '</h2>' + BP.trussCutList(p, 'truss'));
+    }
+    if (full && struct && BP.girderDepth(d) > 0 && BP.girderSvg) {
+      // ── 4. longitudinal girders ──
+      pages += page(BP.tt('קורות אורך מסבכיות', 'คานตามยาว', 'العوارض الطولية'),
+        '<div class="bp-draw">' + BP.girderSvg(p) + '</div>' +
+        kv([
+          [BP.tt('חגורות', 'คอร์ด', 'أوتار'), M(d.girderProfile || d.rafterProfile)],
+          [BP.tt('ניצבים ואלכסונים', 'ตั้งและทแยง', 'قوائم وأقطار'), M(d.trussWebProfile || d.girderProfile || '')],
+          [BP.tt('עמודים בצירים', 'เสาที่แกน', 'أعمدة على المحاور'), g.colFrameIdx.map(function (i) { return i + 1; }).join(', ')]
+        ]) +
+        '<h2>✂ ' + BP.tt('רשימת חיתוך · קורות אורך', 'รายการตัด · คานตามยาว', 'قائمة القص · عوارض') + '</h2>' + BP.trussCutList(p, 'girder'));
+    }
+    if (full && BP.rebarSvg && d.footings && struct && !d.colExisting) {
+      // ── 5. foundations ──
+      var rbs = BP.rebarSvg(p, { print: true }), ft = BP.footing(d);
+      if (rbs) pages += page(BP.tt('יסודות', 'ฐานราก', 'الأساسات'),
+        '<div class="bp-draw">' + rbs + '</div>' +
+        kv([
+          [BP.tt('יסודות', 'ฐานราก', 'أساسات'), ft.n + ' × ' + BP.n1(d.footW) + ' × ' + BP.n1(d.footW) + ' × ' + BP.n1(d.footD) + ' m'],
+          [BP.tt('עומס לעמוד', 'แรงต่อเสา', 'حمل لكل عمود'), BP.n1(ft.axial) + ' kN · ' + BP.tt('נדרש', 'ต้องการ', 'مطلوب') + ' ' + BP.n2(ft.reqSide) + ' m ' + (ft.ok ? '✓' : '✕')],
+          [BP.tt('בטון', 'คอนกรีต', 'خرسانة'), BP.n1(ft.volAll) + ' מ"ק']
+        ]));
+    }
+    if (full && typeof Gates !== 'undefined') {
+      // ── gates, one page each ──
+      (p.gates || []).forEach(function (gt, i) {
+        pages += page('🚧 ' + BP.esc(gt.name || (BP.tt('שער', 'ประตู', 'بوابة') + ' ' + (i + 1))) + ' · ' + BP.esc(Gates.typeLabel(gt.type)),
+          '<div class="bp-draw">' + Gates.svg(gt, { print: true }) + '</div>' +
+          ((gt.horns || (gt.rebar && gt.rebar.show)) ? '<div class="bp-draw">' + Gates.detailSvg(gt, { print: true }) + '</div>' : '') +
+          gateCheckPrint(gt));
       });
     }
-    // The foundation detail for the structure's own pad footings. Printed
-    // once, after the components, because it applies to all of them.
-    if (BP.rebarSvg && p.dims && p.dims.footings && p.hasStruct !== false && p.type !== 'slab') {
-      var rbs = BP.rebarSvg(p, { print: true });
-      if (rbs) {
-        extra += '<h2>\ud83e\uddf1 ' +
-          BP.tt('פרט זיון יסודות', 'รายละเอียดเหล็กเสริมฐานราก', 'تفصيل تسليح الأساسات') + '</h2>' +
-          '<div class="bp-draw">' + rbs + '</div>';
-      }
+    if (full && typeof LivingUnit !== 'undefined' && p.living && p.living.people) {
+      pages += page('🏠 ' + BP.tt('מתחם מגורים', 'ที่พัก', 'مجمع سكني') + ' · ' + p.living.people + ' ' + BP.tt('אנשים', 'คน', 'أشخاص'),
+        '<div class="bp-draw">' + LivingUnit.svg(p.living, { print: true }) + '</div>');
     }
-    if (typeof LivingUnit !== 'undefined' && p.living && p.living.people) {
-      extra += '<h2>\ud83c\udfe0 ' + BP.tt('מתחם מגורים', 'ที่พัก', 'مجمع سكني') + ' \u2014 ' +
-        p.living.people + ' ' + BP.tt('אנשים', 'คน', 'أشخاص') + '</h2>' +
-        '<div class="bp-draw">' + LivingUnit.svg(p.living, { print: true }) + '</div>';
-    }
-
-    // Only draw the structure if there is one. A gate-only project was
-    // leading its document with a 20x10 shed elevation and plan.
-    var drawing = (p.hasStruct === false && p.type !== 'slab') ? '' : BP.svg(p)
-      .replace(/var\(--primary,#2d6a4f\)/g, '#2d6a4f')
-      .replace(/var\(--accent,#ff9f43\)/g, '#e07b00')
-      .replace(/var\(--water,#4fc3f7\)/g, '#1565c0')
-      .replace(/var\(--text-muted,#[0-9a-f]+\)/g, '#777')
-      .replace(/var\(--text,#[0-9a-f]+\)/g, '#222');
-
-    var html = '<!DOCTYPE html><html dir="rtl" lang="he"><head><meta charset="utf-8">' +
-      '<title>' + BP.esc(p.name) + '</title><style>' +
-      'body{font-family:Heebo,Arial,sans-serif;direction:rtl;color:#222;background:#fff;padding:22px;}' +
-      'h1{font-size:1.25rem;margin:0 0 4px;}h2{font-size:1rem;margin:16px 0 6px;}' +
-      '.meta{font-size:.84rem;color:#555;line-height:1.7;}' +
-      '.bp-draw{background:#f4f6f4;border:1px solid #ddd;border-radius:8px;padding:10px;margin:10px 0;}' +
-      'table{width:100%;border-collapse:collapse;margin-top:8px;}' +
-      'th,td{border:1px solid #bbb;padding:5px 7px;font-size:.78rem;text-align:right;}' +
-      'th{background:#eef3ee;font-weight:800;}tfoot td{font-weight:800;background:#f7f9f7;}' +
-      '</style></head><body>' +
-      '<h1>' + BP.esc(p.name || BP.typeLabel(p.type)) + '</h1>' +
-      '<div class="meta">' + contentsLabel(p) +
-        (p.client ? ' \u00b7 ' + BP.esc(p.client) : '') +
-        (g ? '<br>' + BP.n1(p.dims.span) + ' \u00d7 ' + BP.n1(p.dims.length) + ' m, ' +
-             BP.tt('גובה', 'สูง', 'ارتفاع') + ' ' + BP.n1(p.dims.eaves) + ' m, ' +
-             BP.tt('שיפוע', 'ชัน', 'ميل') + ' ' + BP.n1(p.dims.pitch) + '\u00b0, ' +
-             g.frames + ' ' + BP.tt('מסגרות', 'เฟรม', 'إطارات') + ' @ ' + BP.n1(g.actualBay) + ' m'
-           : '<br>' + BP.n1(BP.slabArea(p)) + ' \u05de"\u05e8 \u00d7 ' + p.dims.slabTh + ' \u05de\'') +
-        (p.footprintArea > 0 ? '<br>' + BP.tt('שטח מסומן במפה', 'พื้นที่จากแผนที่', 'المساحة المرسومة') +
-          ': ' + BP.n1(p.footprintArea) + ' \u05de"\u05e8' : '') +
-      '</div>' + drawing +
-      extra +
-      '<h2>' + BP.tt('כתב כמויות', 'รายการวัสดุ', 'جدول الكميات') + '</h2>' +
+    // ── bill of quantities ──
+    pages += page(BP.tt('כתב כמויות', 'รายการวัสดุ', 'جدول الكميات'),
+      (full ? '' : '<h1>' + title + '</h1>' + meta) +
       '<table><thead><tr><th>#</th><th>' + BP.tt('פריט', 'รายการ', 'صنف') + '</th><th>' +
         BP.tt('כמות', 'จำนวน', 'كمية') + '</th><th>' + BP.tt('יחידה', 'หน่วย', 'وحدة') + '</th><th>' +
         BP.tt('משקל', 'น้ำหนัก', 'وزن') + '</th><th>' + BP.tt('מחיר', 'ราคา', 'سعر') + '</th><th>' +
@@ -753,9 +808,29 @@
       '<tbody>' + body + '</tbody><tfoot><tr><td colspan="4">' +
         BP.tt('משקל פלדה', 'น้ำหนักเหล็ก', 'وزن الحديد') + '</td><td>' + BP.n1(tot.kg) + ' kg</td>' +
         '<td>' + BP.tt('סה"כ', 'รวม', 'مجموع') + '</td><td colspan="2">' + BP.money(tot.cost) +
-        '</td></tr></tfoot></table>' +
-      (opts.stages === false ? '' : workStages(p)) +
-      '<p style="margin-top:20px;font-size:.8rem;">\u05e9\u05d5\u05e8\u05e9\u05d9\u05dd \u05e4\u05dc\u05d5\u05e1 \u05d1\u05e2"\u05de / ROOTS PLUS LTD</p>' +
+        '</td></tr></tfoot></table>');
+    if (full) {
+      var st = workStages(p);
+      if (st) pages += page(BP.tt('שלבי עבודה', 'ขั้นตอนงาน', 'مراحل العمل'), st);
+    }
+
+    var html = '<!DOCTYPE html><html dir="rtl" lang="he"><head><meta charset="utf-8">' +
+      '<title>' + title + '</title><style>' +
+      '@page{size:A4 landscape;margin:10mm;}' +
+      'body{font-family:Heebo,Arial,sans-serif;direction:rtl;color:#222;background:#fff;padding:0 14px;margin:0;}' +
+      '.pg{page-break-after:always;break-after:page;padding-top:4px;}.pg:last-of-type{page-break-after:auto;break-after:auto;}' +
+      '.pg-h{display:flex;justify-content:space-between;border-bottom:2px solid #1f3a5f;padding:4px 0;margin-bottom:8px;font-size:.82rem;color:#1f3a5f;}' +
+      'h1{font-size:1.25rem;margin:0 0 4px;}h2{font-size:1rem;margin:12px 0 6px;}' +
+      '.meta{font-size:.84rem;color:#555;line-height:1.7;}.note{font-size:.72rem;color:#666;margin-top:6px;}' +
+      '.bp-draw{background:#f4f6f4;border:1px solid #ddd;border-radius:8px;padding:10px;margin:8px 0;}' +
+      'table{width:100%;border-collapse:collapse;margin-top:8px;}' +
+      'th,td{border:1px solid #bbb;padding:5px 7px;font-size:.78rem;text-align:right;}' +
+      'th{background:#eef3ee;font-weight:800;}tfoot td{font-weight:800;background:#f7f9f7;}' +
+      '.kv td:first-child{width:28%;color:#555;background:#fafafa;}' +
+      // A drawing never spills onto a page of its own: capped to the sheet.
+      '.bp-draw svg{max-height:105mm;}.pg-cover .bp-draw{padding:4px;margin:4px 0;}.pg-cover .bp-draw svg{max-height:46mm;}.pg-cover td{padding:3px 6px;}.pg-big .bp-draw svg{max-height:160mm;}' +
+      '</style></head><body>' + pages +
+      '<p style="margin-top:12px;font-size:.8rem;">\u05e9\u05d5\u05e8\u05e9\u05d9\u05dd \u05e4\u05dc\u05d5\u05e1 \u05d1\u05e2"\u05de / ROOTS PLUS LTD</p>' +
       '</body></html>';
     if (window.Util && typeof window.Util.exportReport === 'function') {
       window.Util.exportReport(html, (p.name || 'project').replace(/\s+/g, '_') +
@@ -868,6 +943,7 @@
     toOrder: toOrder,
     listForImport: listForImport,
     exportForQuote: exportForQuote,
+    cutPieces: function (id) { return BP.loadAll().then(function () { var p = BP.projById(id); return p ? BP.cutPieces(p) : []; }); },
     saveNow: saveNow,
     takeoff: BP.takeoff,
     geom: BP.geom,

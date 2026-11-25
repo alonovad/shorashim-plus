@@ -759,6 +759,9 @@ window.BuildPlanInternals = BuildPlanInternals;
       // The columns already stand: drawn, but not billed — no column steel,
       // base plates, anchors or pad footings in the takeoff.
       colExisting: d.colExisting === true,
+      // View only: draw roof sheets in 3D even when the roof is billed as a
+      // hand-added line (roofClad 'none'). Changes no quantity.
+      roofShow: d.roofShow === true,
       // Depth of that longitudinal girder; 0 = 1.0 m when colEvery > 1.
       girderD: Number(d.girderD) || 0,
       // A truss billed as what it is made of: bottom chord and web sections.

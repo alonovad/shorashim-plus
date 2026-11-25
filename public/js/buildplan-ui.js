@@ -1020,7 +1020,7 @@
     return {
       span: d.span, length: d.length, eaves: d.eaves, bay: d.bay, pitch: d.pitch,
       roofType: d.roofType, wallMode: d.wallMode,
-      roofClad: d.roofClad, wallClad: d.wallClad,
+      roofClad: d.roofClad, wallClad: d.wallClad, roofShow: d.roofShow === true,
       purlinSp: d.purlinSp, girtSp: d.girtSp, slabTh: d.slabTh,
       footings: d.footings, footW: d.footW, footD: d.footD,
       fence: d.fence, fenceH: d.fenceH, fenceOff: d.fenceOff,
@@ -1761,7 +1761,10 @@
         // the "פאנל 5 I never chose" — it was the default, displayed as
         // something else.
         '<div><div class="bp-lbl">' + BP.tt('חיפוי גג', 'วัสดุหลังคา', 'مادة السقف') + '</div>' +
-          cladSelect(id, 'roofClad', d.roofClad) + '</div>' +
+          cladSelect(id, 'roofClad', d.roofClad) +
+          '<label style="display:flex;gap:6px;align-items:center;font-size:.78rem;margin-top:4px;cursor:pointer;">' +
+            '<input type="checkbox"' + (d.roofShow ? ' checked' : '') + ' onchange="BuildPlan._dim(' + id + ',\'roofShow\',this.checked)">' +
+            BP.tt('הצג פחי גג בתלת־ממד (תצוגה בלבד)', 'แสดงแผ่นหลังคาใน 3D', 'اعرض ألواح السقف ثلاثياً') + '</label></div>' +
         '<div><div class="bp-lbl">' + BP.tt('קירות', 'ผนัง', 'الجدران') + '</div>' +
           '<select class="bp-in" onchange="BuildPlan._dim(' + id + ',\'wallMode\',this.value)">' +
             '<option value="full"' + (d.wallMode === 'full' ? ' selected' : '') + '>' +

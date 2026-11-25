@@ -906,7 +906,7 @@
   // maintenance job's quote still say what the project says.
   var EMBED_NAME = 'shorashim-plan.json', EMBED_SCHEMA = 'shorashim-plan/1';
   // View settings, not the building: never reported as a difference.
-  var VIEW_KEYS = { callouts: 1, shadows: 1, mapGround: 1, dims: 1, sunAz: 1, sunEl: 1, scaleRef: 1, scaleH: 1 };
+  var VIEW_KEYS = { callouts: 1, shadows: 1, mapGround: 1, dims: 1, sunAz: 1, sunEl: 1, scaleRef: 1, scaleH: 1, roofShow: 1 };
 
   function embeddedFrom(buf) {
     if (typeof Frame === 'undefined' || !Frame.pdfjs) return Promise.resolve(null);

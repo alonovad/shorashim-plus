@@ -909,6 +909,12 @@ var Maintenance = (function() {
             '<span style="display:flex;gap:6px;">' +
               // The job's build project (model, 3D, BOQ) one tap away — for
               // anyone who can see the job, not only editors.
+              ((p.materials || []).length && typeof MatTrack !== 'undefined'
+                ? '<button onclick="MatTrack.open(' + pid + ')" ' +
+                    'style="padding:5px 12px;border:1px solid #2e7d32;border-radius:8px;background:transparent;' +
+                    'color:#2e7d32;font-family:inherit;font-weight:700;font-size:0.78rem;cursor:pointer;">' +
+                    '\ud83d\udce6 ' + tt('מעקב חומרים','ติดตามวัสดุ','تتبع المواد') + '</button>'
+                : '') +
               (p.buildProjectId
                 ? '<button onclick="Maintenance.openBuild(' + pid + ')" ' +
                     'style="padding:5px 12px;border:1px solid #8d6e63;border-radius:8px;background:transparent;' +
@@ -1534,6 +1540,30 @@ var Maintenance = (function() {
       if (!p.shipments) p.shipments = [];
       p.shipments.push(_stamp({ date: document.getElementById('msD').value, materialName: document.getElementById('msM').value || tt('כללי','ทั่วไป','عام'), quantity: parseFloat(document.getElementById('msQ').value) || 0, supplier: document.getElementById('msSup').value.trim(), notes: document.getElementById('msN').value.trim() }));
       p.updated = Date.now(); saveProjects(ps); _audit('create', pid, { after: p.shipments[p.shipments.length - 1], reason: 'shipment · ' + (p.name || '') }); showDetail(pid);
+    });
+  }
+  // Material tracker (mattrack.js): a delivery entered against a material
+  // row is an ordinary shipment, plus the row key and bars it came in.
+  function addShipment(pid, s) {
+    return loadProjects().then(function (ps) {
+      var p = ps.find(function (x) { return x.id === pid; }); if (!p) return false;
+      if (!p.shipments) p.shipments = [];
+      var rec = _stamp({ date: String(s.date || ''), materialName: String(s.materialName || ''), quantity: Number(s.quantity) || 0,
+                         supplier: String(s.supplier || ''), notes: String(s.notes || ''), key: String(s.key || '') });
+      if (s.bars) rec.bars = Number(s.bars) || 0;
+      p.shipments.push(rec);
+      p.updated = Date.now(); saveProjects(ps); _audit('create', pid, { after: rec, reason: 'shipment · ' + (p.name || '') });
+      return true;
+    });
+  }
+  function setStock(pid, key, len) {
+    if (_blockEdit(pid)) return Promise.resolve(false);
+    return loadProjects().then(function (ps) {
+      var p = ps.find(function (x) { return x.id === pid; }); if (!p) return false;
+      if (!p.stock || typeof p.stock !== 'object') p.stock = {};
+      p.stock[String(key)] = Number(len) || 12;
+      p.updated = Date.now(); saveProjects(ps);
+      return true;
     });
   }
   function _delShip(pid, i) { if (_blockDelete()) return; var _sp = ((_projectsCache || []).find(function (x) { return x.id === pid; }) || {}); if (_sp.shipments && _sp.shipments[i] && window.Own && !Own.canEdit(_sp.shipments[i])) { Own.denied(); return; } if (!confirm(tt('למחוק?','ลบ?','حذف؟'))) return; loadProjects().then(function(ps) { var p = ps.find(function(x) { return x.id === pid; }); if (!p) return; var before = p.shipments[i]; p.shipments.splice(i, 1); p.updated = Date.now(); saveProjects(ps); _audit('delete', pid, { before: before, reason: 'shipment · ' + (p.name || '') }); showDetail(pid); }); }
@@ -2591,6 +2621,7 @@ var Maintenance = (function() {
     projectsLoaded: projectsLoaded, retryLoad: retryLoad,
     projectsForBuild: projectsForBuild,
     importFromBuild: importFromBuild, _doImport: _doImport,
+    addShipment: addShipment, setStock: setStock,
     showHistory: showHistory,
     _quotePDF: _quotePDF, _shipPDF: _shipPDF, _internalPDF: _internalPDF, _invoicesPDF: _invoicesPDF, _contractPDF: _contractPDF,
     // grouping, non-hourly labour and illustration callouts
