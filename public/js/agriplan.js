@@ -2801,8 +2801,12 @@ var AgriPlan = (function () {
       // ---- rear view ----
       g += '<clipPath id="bmRear"><rect x="-40" y="0" width="476" height="340" rx="14"/></clipPath><g clip-path="url(#bmRear)">';
       [8, 402].forEach(function (px) { g += '<g transform="translate(' + (px - 150 * k) + ',' + (gy + 2 - 320 * k) + ') scale(' + k + ')">' + palm() + '</g>'; });
-      var b0 = 44, b1 = 366, by = 292, n = 13, step = (b1 - b0) / (n - 1), ang = aim === 'angled';
-      var s0 = (ang || guns) ? 6 : b0 - 10, s1 = (ang || guns) ? 404 : b1 + 10;       // sprayed strip: angled end nozzles reach the trunk line
+      // Boom: half width - from the lane centre out to one row; the return pass in the
+      // same lane sprays the other half. Guns: a worker on each side, full width in one pass.
+      var b0 = guns ? 44 : cx - 6, b1 = 366, by = 292, n = guns ? 13 : 7, step = (b1 - b0) / (n - 1), ang = aim === 'angled';
+      var s1 = (ang || guns) ? 404 : b1 + 10, s0 = guns ? 6 : cx, m0 = (ang ? 6 : 2 * cx - s1);   // m0: mirror edge of the half sprayed on the way back
+      var halfStrip = !guns;
+      if (halfStrip) g += '<rect x="' + m0 + '" y="' + gy + '" width="' + (cx - m0) + '" height="7" fill="#1e88e5" fill-opacity=".12" stroke="#1e88e5" stroke-width="1" stroke-dasharray="4 3"/>';
       g += '<rect x="' + s0 + '" y="' + gy + '" width="' + (s1 - s0) + '" height="7" fill="#1e88e5" fill-opacity=".35"/>';
       // tractor from behind: big rear tyres, axle housing, cab frame, roof
       g += '<path d="M' + (cx - 44) + ' 268 L' + (cx - 44) + ' 196 M' + (cx + 44) + ' 268 L' + (cx + 44) + ' 196" stroke="#37474f" stroke-width="4"/>' +
@@ -2818,13 +2822,13 @@ var AgriPlan = (function () {
       g += '<g transform="translate(' + (cx - 36) + ',234)">' + tank(0, 0, 72, 34) + '</g>';
       if (!guns) {
         // boom: bar, truss to the frame, hangers
-        g += '<path d="M' + (cx - 30) + ' 270 L' + (cx - 30) + ' ' + by + ' M' + (cx + 30) + ' 270 L' + (cx + 30) + ' ' + by +
-          ' M' + (cx - 30) + ' 272 L' + (b0 + 20) + ' ' + (by - 2) + ' M' + (cx + 30) + ' 272 L' + (b1 - 20) + ' ' + (by - 2) + '" stroke="#78909c" stroke-width="2" fill="none"/>' +
+        g += '<path d="M' + cx + ' 270 L' + cx + ' ' + by + ' M' + (cx + 30) + ' 270 L' + (cx + 30) + ' ' + by +
+          ' M' + (cx + 30) + ' 272 L' + (b1 - 20) + ' ' + (by - 2) + '" stroke="#78909c" stroke-width="2" fill="none"/>' +
           '<rect x="' + b0 + '" y="' + (by - 3) + '" width="' + (b1 - b0) + '" height="6" rx="2" fill="#455a64"/>';
         // nozzles and their fans
         for (var i = 0; i < n; i++) {
-          var x = b0 + i * step, outer = aim === 'angled' && (i < 2 || i > n - 3);
-          var tilt = outer ? (i < 2 ? -1 : 1) * (i === 0 || i === n - 1 ? 58 : 40) : 0, tr = tilt * Math.PI / 180;      // 0 = straight down; outer ones lean out to the trunk line
+          var x = b0 + i * step, outer = ang && i > n - 3;                 // the far-end nozzles lean out to the trunk line
+          var tilt = outer ? (i === n - 1 ? 58 : 40) : 0, tr = tilt * Math.PI / 180;      // 0 = straight down; outer ones lean out to the trunk line
           var len = (gy - by - 4) / Math.cos(tr), tx = x + Math.sin(tr) * len, ty = gy;
           var nx = len * 0.42 * Math.cos(tr);                                          // half-width of the fan where it meets the ground
           g += '<path d="M' + x.toFixed(1) + ' ' + (by + 4) + ' L' + (tx - nx).toFixed(1) + ' ' + (ty).toFixed(1) + ' L' + (tx + nx).toFixed(1) + ' ' + ty + ' Z" fill="#81d4fa" fill-opacity=".5"/>' +
@@ -2844,13 +2848,22 @@ var AgriPlan = (function () {
         });
       }
       // working width
-      g += '<path d="M' + s0 + ' 331 H' + s1 + ' M' + s0 + ' 326 V336 M' + s1 + ' 326 V336" stroke="#5d4037" stroke-width="1.5"/>' +
-        '<rect x="' + (cx - 44) + '" y="324" width="88" height="14" rx="4" fill="#d7c4a3"/>' + txt(cx, 335, tt('רוחב עבודה', 'ความกว้างพ่น', 'عرض العمل'), 11, '#5d4037');
+      function dim(x0, x1, label, dash) {
+        var m = (x0 + x1) / 2, w = Math.min(x1 - x0 - 8, label.length * 7 + 16);
+        return '<path d="M' + x0 + ' 331 H' + x1 + ' M' + x0 + ' 326 V336 M' + x1 + ' 326 V336" stroke="#5d4037" stroke-width="1.5"' + (dash ? ' stroke-dasharray="4 3"' : '') + '/>' +
+          '<rect x="' + (m - w / 2) + '" y="324" width="' + w + '" height="14" rx="4" fill="#d7c4a3"/>' + txt(m, 335, label, 11, '#5d4037');
+      }
+      var go = tt('הלוך', 'ไป', 'ذهاب'), back = tt('חזור', 'กลับ', 'إياب');
+      g += halfStrip ? dim(cx, s1, tt('חצי רוחב - הלוך', 'ครึ่งแรก - ไป', 'نصف العرض - ذهاب')) + dim(m0, cx, tt('חצי שני - בחזור', 'ครึ่งหลัง - กลับ', 'النصف الثاني - إياب'), true)
+        : dim(s0, s1, tt('רוחב עבודה', 'ความกว้างพ่น', 'عرض العمل'));
       g += '</g>' + txt(cx, 26, tt('מבט מאחור', 'มองจากด้านหลัง', 'منظر من الخلف'), 15, '#37474f', 'middle', 800);
       // ---- top view ----
       var X1 = 450, X2 = 818, rows = [52, 130, 208, 286], lanes = [91, 169, 247], t0 = 505, t1 = 755, l0 = 492, l1 = 770;
       g += '<rect x="' + X1 + '" y="6" width="' + (X2 - X1) + '" height="328" rx="12" fill="#eef4e6" stroke="#c5d6b5"/>';
-      lanes.forEach(function (ly) { g += '<rect x="' + l0 + '" y="' + (ly - 39) + '" width="' + (l1 - l0) + '" height="78" fill="#4fc3f7" fill-opacity=".2"/>'; });
+      lanes.forEach(function (ly) {
+        g += '<rect x="' + l0 + '" y="' + (ly - 39) + '" width="' + (l1 - l0) + '" height="78" fill="#4fc3f7" fill-opacity=".2"/>';
+        if (halfStrip) g += '<line x1="' + l0 + '" y1="' + ly + '" x2="' + l1 + '" y2="' + ly + '" stroke="#0288d1" stroke-width="1" stroke-dasharray="2 4" stroke-opacity=".7"/>';
+      });
       rows.forEach(function (ry) {
         g += '<line x1="' + l0 + '" y1="' + ry + '" x2="' + l1 + '" y2="' + ry + '" stroke="#1e88e5" stroke-width="1" stroke-dasharray="4 4" stroke-opacity=".6"/>';
         for (var tx2 = t0; tx2 <= t1; tx2 += 50) {
@@ -2859,29 +2872,43 @@ var AgriPlan = (function () {
           g += '<circle cx="' + tx2 + '" cy="' + ry + '" r="3" fill="#6d4c41"/>';
         }
       });
-      // serpentine path
-      var R = (lanes[1] - lanes[0]) / 2;
-      g += '<path d="M' + l0 + ' ' + lanes[0] + ' H' + l1 + ' A' + R + ' ' + R + ' 0 0 1 ' + l1 + ' ' + lanes[1] + ' H' + l0 + ' A' + R + ' ' + R + ' 0 0 0 ' + l0 + ' ' + lanes[2] + ' H' + l1 + '" fill="none" stroke="#ff7043" stroke-width="3" stroke-linecap="round"/>';
       function arrow(x, y, dir) { return '<path d="M' + (x + dir * 9) + ' ' + y + ' L' + (x - dir * 6) + ' ' + (y - 7) + ' L' + (x - dir * 6) + ' ' + (y + 7) + ' Z" fill="#e64a19"/>'; }
       function tag(x, y, s) { return '<rect x="' + (x - 26) + '" y="' + (y - 13) + '" width="52" height="19" rx="9" fill="#fff" stroke="#ff7043" stroke-width="1.2"/>' + txt(x, y + 1.5, s, 12, '#e64a19', 'middle', 800); }
-      var go = tt('הלוך', 'ไป', 'ذهاب'), back = tt('חזור', 'กลับ', 'إياب');
-      g += arrow(700, lanes[0], 1) + tag(700, lanes[0] - 14, go) + arrow(570, lanes[1], -1) + tag(570, lanes[1] - 14, back) + arrow(700, lanes[2], 1) + tag(700, lanes[2] - 14, go);
+      var d = 12, path, R;
+      if (halfStrip) {
+        // each lane: up along one half, a tight U-turn, back along the other half; then over to the next lane
+        R = (lanes[1] - lanes[0] - 2 * d) / 2;
+        path = 'M' + l0 + ' ' + (lanes[0] - d);
+        lanes.forEach(function (ly, j) {
+          path += ' H' + l1 + ' A' + d + ' ' + d + ' 0 0 1 ' + l1 + ' ' + (ly + d) + ' H' + l0;
+          if (j < lanes.length - 1) path += ' A' + R + ' ' + R + ' 0 0 0 ' + l0 + ' ' + (lanes[j + 1] - d);
+        });
+        g += '<path d="' + path + '" fill="none" stroke="#ff7043" stroke-width="3" stroke-linecap="round"/>';
+        lanes.forEach(function (ly, j) { g += arrow(720, ly - d, 1) + arrow(600, ly + d, -1); });
+        g += tag(660, lanes[0] - d + 3, go) + tag(660, lanes[0] + d + 3, back);
+      } else {
+        // serpentine: one pass per lane covers it whole, next lane on the way back
+        R = (lanes[1] - lanes[0]) / 2;
+        g += '<path d="M' + l0 + ' ' + lanes[0] + ' H' + l1 + ' A' + R + ' ' + R + ' 0 0 1 ' + l1 + ' ' + lanes[1] + ' H' + l0 + ' A' + R + ' ' + R + ' 0 0 0 ' + l0 + ' ' + lanes[2] + ' H' + l1 + '" fill="none" stroke="#ff7043" stroke-width="3" stroke-linecap="round"/>';
+        g += arrow(700, lanes[0], 1) + tag(700, lanes[0] - 14, go) + arrow(570, lanes[1], -1) + tag(570, lanes[1] - 14, back) + arrow(700, lanes[2], 1) + tag(700, lanes[2] - 14, go);
+      }
       // the tractor (from above) on the first lane, boom across the band
-      var tx3 = 560, ty3 = lanes[0];
+      var tx3 = 560, ty3 = halfStrip ? lanes[0] - d : lanes[0];
       if (guns) [-1, 1].forEach(function (sd) {                // a worker on each side, hose back to the tank, fan toward the row
         var wy = ty3 + sd * 24, wx = tx3 - 30;
         g += '<path d="M' + (tx3 - 8) + ' ' + (ty3 + sd * 6) + ' Q ' + (tx3 - 20) + ' ' + (ty3 + sd * 20) + ' ' + wx + ' ' + wy + '" stroke="#ff7043" stroke-width="2" fill="none"/>' +
           '<path d="M' + wx + ' ' + wy + ' L' + (wx - 14) + ' ' + (ty3 + sd * 38) + ' L' + (wx + 14) + ' ' + (ty3 + sd * 38) + ' Z" fill="#81d4fa" fill-opacity=".6"/>' +
           '<circle cx="' + wx + '" cy="' + wy + '" r="6" fill="#1565c0" stroke="#fdd835" stroke-width="2.5"/>';
       });
-      else g += '<line x1="' + (tx3 - 16) + '" y1="' + (ty3 - 37) + '" x2="' + (tx3 - 16) + '" y2="' + (ty3 + 37) + '" stroke="#455a64" stroke-width="4" stroke-linecap="round"/>';
+      else g += '<line x1="' + (tx3 - 16) + '" y1="' + lanes[0] + '" x2="' + (tx3 - 16) + '" y2="' + (lanes[0] - 37) + '" stroke="#455a64" stroke-width="4" stroke-linecap="round"/>';   // half boom: lane centre to the row
       g += 
         '<rect x="' + (tx3 - 12) + '" y="' + (ty3 - 9) + '" width="16" height="18" rx="4" fill="#eceff1" stroke="#90a4ae"/>' +
         '<rect x="' + (tx3 + 4) + '" y="' + (ty3 - 11) + '" width="34" height="22" rx="5" fill="' + col + '"/>' +
         '<rect x="' + (tx3 + 8) + '" y="' + (ty3 - 8) + '" width="14" height="16" rx="2" fill="#37474f"/>' +
         '<rect x="' + (tx3 + 6) + '" y="' + (ty3 - 16) + '" width="12" height="5" rx="1.5" fill="#263238"/><rect x="' + (tx3 + 6) + '" y="' + (ty3 + 11) + '" width="12" height="5" rx="1.5" fill="#263238"/>';
       g += txt((X1 + X2) / 2, 26, tt('מבט מלמעלה - הלוך / חזור', 'มองจากด้านบน - ไป / กลับ', 'منظر من الأعلى - ذهاب / إياب'), 15, '#37474f', 'middle', 800);
-      g += txt((X1 + X2) / 2, 326, tt('כל שורת עצים מרוססת משני הצדדים', 'แต่ละแถวพ่นทั้งสองข้าง', 'كل صف يُرش من الجانبين'), 12, '#1565c0', 'middle', 700);
+      g += txt((X1 + X2) / 2, 326, halfStrip ? tt('הלוך וחזור באותה שורה - בכל מעבר חצי רוחב', 'ไปและกลับในแถวเดียวกัน - ครั้งละครึ่ง', 'ذهاب وإياب في نفس الممر - نصف العرض كل مرة')
+        : tt('כל שורת עצים מרוססת משני הצדדים', 'แต่ละแถวพ่นทั้งสองข้าง', 'كل صف يُرش من الجانبين'), 12, '#1565c0', 'middle', 700);
       // the parts' shares, as a legend over the lane between the crowns
       var on2 = ZONES.filter(function (d) { return on(d.k); });
       on2.forEach(function (d, j) {                    // name (RTL) and its % (plain) on separate runs so the digits don't flip
