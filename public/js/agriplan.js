@@ -403,6 +403,7 @@ var AgriPlan = (function () {
       notes: String(p.notes || ''),
       prep: String(p.prep || ''),           // דגשים לביצוע והכנות - printed, shown to the crew
       zones: normZones(p.zones),            // spray diagram: parts of the tree and share of the volume
+      zones2: normZones(p.zones2),          // optional second diagram (e.g. trees + herbicide on the ground)
       createdAt: Number(p.createdAt) || Date.now(),
       createdBy: String(p.createdBy || ''),
       // Printed heading, separate from the internal plan name: the sheet a
@@ -488,6 +489,7 @@ var AgriPlan = (function () {
     // only once written, so plans approved before the field existed stay approved.
     if (String(p.prep || '').trim()) o.prep = String(p.prep).trim();
     if (p.zones && p.zones.on) o.zones = { img: p.zones.img || '', parts: p.zones.parts };
+    if (p.zones2 && p.zones2.on) o.zones2 = { img: p.zones2.img || '', parts: p.zones2.parts };   // only when used, so older approvals stay valid
     return hash(stable(o));
   }
   // Farms the plan currently covers, in first-appearance order.
@@ -1057,7 +1059,7 @@ var AgriPlan = (function () {
     if (v === 'new') {
       var u = window.currentUser || {};
       dst = normPlan({ id: uid(), name: (p.name || '') + ' - ' + farmName(fid), target: p.target || '', createdAt: Date.now(), createdBy: u.username || '' });
-      ['prep', 'docTitle', 'docSub', 'deadline', 'zones', 'diagram'].forEach(function (k) { if (p[k] != null) dst[k] = JSON.parse(JSON.stringify(p[k])); });
+      ['prep', 'docTitle', 'docSub', 'deadline', 'zones', 'zones2', 'diagram'].forEach(function (k) { if (p[k] != null) dst[k] = JSON.parse(JSON.stringify(p[k])); });
       S.plans.push(dst);
     } else {
       dst = planById(Number(v));
@@ -1260,7 +1262,7 @@ var AgriPlan = (function () {
           '<textarea class="ap-in" id="apPrep" rows="4" placeholder="' + esc(tt('כיול מרסס, סדר ערבוב, pH מים, ציוד מגן, תנאי רוח וטמפ׳, זמן כניסה חוזרת…', 'การเตรียม…', 'المعايرة، ترتيب الخلط…')) + '" ' +
             (ro ? 'readonly ' : '') + 'oninput="AgriPlan._setPlan(' + id + ',\'prep\',this.value)">' + esc(p.prep || '') + '</textarea>' +
           '<div style="font-size:.7rem;color:var(--text-muted,#888);margin-top:3px;">' + tt('מודפס בראש התוכנית ומוצג לצוות בכרטיס המשק', 'พิมพ์และแสดงให้ทีม', 'يُطبع ويُعرض للطاقم') + '</div></div>' +
-          zonesEditor(p, ro) +
+          zonesEditor(p, ro, 1) + (p.zones && p.zones.on ? zonesEditor(p, ro, 2) : '') +
       '</div>' +
 
       '<datalist id="apMats">' + matList + '</datalist>' +
@@ -1695,11 +1697,13 @@ var AgriPlan = (function () {
       (p.notes ? '<div class="ap-fc-sub" style="margin-top:3px;">' + esc(p.notes) + '</div>' : '') +
       (String(p.prep || '').trim() ? '<div class="ap-fc-sub" style="margin-top:4px;white-space:pre-line;background:#f4f9ea;border-radius:8px;padding:5px 8px;color:#1b2a1f;"><b>🧰 ' +
         tt('דגשים לביצוע', 'ข้อควรปฏิบัติ', 'إرشادات') + ':</b>\n' + esc(String(p.prep).replace(/\u2014/g, '-')) + '</div>' : '') +
-      (p.zones && p.zones.on ? '<div class="ap-fc-sub" style="margin-top:4px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:#fff7ef;border-radius:8px;padding:5px 8px;">' +
-        '<div style="flex:0 1 ' + zW(p.zones, 120) + 'px;max-width:100%;">' + zonesFigure(p.zones, zW(p.zones, 120)) + '</div><div style="font-size:.74rem;">' +
-        ZONES.filter(function (d) { return Number(p.zones.parts[d.k]) > 0; }).map(function (d) {
-          return '<div><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:' + d.c + ';margin-inline-end:4px;"></span>' + esc(zName(d)) + ' <b>' + p.zones.parts[d.k] + '%</b></div>';
-        }).join('') + '</div></div>' : '');
+      zDiagrams(p).map(function (z) {
+        return '<div class="ap-fc-sub" style="margin-top:4px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:#fff7ef;border-radius:8px;padding:5px 8px;">' +
+          '<div style="flex:0 1 ' + zW(z, 120) + 'px;max-width:100%;">' + zonesFigure(z, zW(z, 120)) + '</div><div style="font-size:.74rem;">' +
+          ZONES.filter(function (d) { return Number(z.parts[d.k]) > 0; }).map(function (d) {
+            return '<div><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:' + d.c + ';margin-inline-end:4px;"></span>' + esc(zName(d)) + ' <b>' + z.parts[d.k] + '%</b></div>';
+          }).join('') + '</div></div>';
+      }).join('');
     order.forEach(function (k) {
       var o = ops[k], c = mColor(o.method);
       html += '<div class="ap-fc-op">' +
@@ -2648,8 +2652,13 @@ var AgriPlan = (function () {
     { k: 'fronds',  c: '#43a047', he: 'נוף / כפות', th: 'ทางใบ', ar: 'السعف' },
     { k: 'trunk',   c: '#8d6e63', he: 'גזע', th: 'ลำต้น', ar: 'الجذع' },
     { k: 'shoots',  c: '#7cb342', he: 'חוטרים', th: 'หน่อ', ar: 'الفسائل' },
-    { k: 'base',    c: '#1e88e5', he: 'בסיס הגזע / קרקע', th: 'โคนต้น/ดิน', ar: 'قاعدة الجذع/التربة' }
+    { k: 'base',    c: '#1e88e5', he: 'בסיס הגזע', th: 'โคนต้น', ar: 'قاعدة الجذع' },
+    { k: 'soil',    c: '#6d4c41', he: 'קרקע (עשבייה)', th: 'ดิน (วัชพืช)', ar: 'التربة (أعشاب)' }
   ];
+  function zDiagrams(p) { return [p && p.zones, p && p.zones2].filter(function (z) { return z && z.on; }); }
+  function zOf(p, slot) { return p ? (slot === 2 ? p.zones2 : p.zones) : null; }
+  function zGround(z) { return !!z && (z.scene === 'boom' || z.scene === 'guns' || (Object.keys(z.parts || {}).length === 1 && Number(z.parts.soil) > 0)); }
+  function zTitle(z) { return zGround(z) ? tt('יישום לקרקע - חלוקת הנפח', 'พ่นลงดิน - สัดส่วนปริมาตร', 'رش التربة - توزيع الحجم') : tt('אופן הריסוס בעץ - חלוקת הנפח', 'วิธีพ่นบนต้น - สัดส่วนปริมาตร', 'طريقة الرش - توزيع الحجم'); }
   var SCENES = ['lift', 'liftTractor', 'walk', 'boom', 'guns'];
   function zName(z) { return tt(z.he, z.th, z.ar); }
   function normZones(z) {
@@ -2672,6 +2681,7 @@ var AgriPlan = (function () {
     var P = o.parts, young = o.young || o.scene === 'walk', shoots = Math.max(0, Math.min(4, o.shoots | 0));
     var C = {}; ZONES.forEach(function (d) { C[d.k] = d.c; });
     function on(k) { return Number(P[k]) > 0; }
+    var noSoil = false;                            // the ground scenes draw the sprayed strip instead
     // ---- palm, drawn in its own 300x340 frame (centre x=150, ground y=320) ----
     function palm() {
       var g = '';
@@ -2706,6 +2716,7 @@ var AgriPlan = (function () {
         g += '<g transform="translate(' + sp[0] + ',' + sp[1] + ') rotate(' + sp[2] + ')">' + sh + '</g>';
       }
       if (shoots && on('shoots')) g += '<ellipse cx="150" cy="282" rx="82" ry="34" fill="' + C.shoots + '" fill-opacity=".25" stroke="' + C.shoots + '" stroke-width="2"/>';
+      if (on('soil') && !noSoil) g += '<ellipse cx="150" cy="322" rx="150" ry="13" fill="' + C.soil + '" fill-opacity=".28" stroke="' + C.soil + '" stroke-width="2" stroke-dasharray="6 4"/>';
       if (on('base')) g += '<ellipse cx="150" cy="322" rx="48" ry="11" fill="' + C.base + '" fill-opacity=".3" stroke="' + C.base + '" stroke-width="2"/>';
       return g;
     }
@@ -2800,6 +2811,7 @@ var AgriPlan = (function () {
       }
       // ---- rear view ----
       g += '<clipPath id="bmRear"><rect x="-40" y="0" width="476" height="340" rx="14"/></clipPath><g clip-path="url(#bmRear)">';
+      noSoil = true;
       [8, 402].forEach(function (px) { g += '<g transform="translate(' + (px - 150 * k) + ',' + (gy + 2 - 320 * k) + ') scale(' + k + ')">' + palm() + '</g>'; });
       // Boom: half width - from the lane centre out to one row; the return pass in the
       // same lane sprays the other half. Guns: a worker on each side, full width in one pass.
@@ -2919,7 +2931,7 @@ var AgriPlan = (function () {
       return g;
     }
     // ---- composition ----
-    var W = o.scene && o.scene !== 'none' ? 860 : 460, X0 = o.scene && o.scene !== 'none' ? -40 : -80;
+    var W = o.scene && o.scene !== 'none' ? 860 : 540, X0 = o.scene && o.scene !== 'none' ? -40 : -100;
     var PX = o.scene && o.scene !== 'none' ? 480 : 150;   // palm centre x on the canvas
     var sc = young ? 0.6 : 1;
     var tf = 'translate(' + (PX - 150 * sc) + ',' + (320 - 320 * sc) + ') scale(' + sc + ')';
@@ -2953,7 +2965,7 @@ var AgriPlan = (function () {
     var wide = o.scene && o.scene !== 'none', f1 = wide ? 19 : 14, f2 = wide ? 23 : 17;
     var labs = [
       ['bunches', 1, 196, 196, 200], ['heart', 1, 150, 168, 156], ['fronds', -1, 46, 92, 70],
-      ['trunk', -1, 250, 140, 250], ['shoots', 1, 278, 184, 286], ['base', 1, 318, 190, 322]
+      ['trunk', -1, 250, 140, 250], ['shoots', 1, 278, 184, 286], ['base', 1, 318, 190, 322], ['soil', 1, 300, 262, 326]
     ].filter(function (l) { return on(l[0]) && (l[0] !== 'shoots' || shoots > 0); }).map(function (l) {
       return { l: l, right: l[1] > 0, pt: M(l[3], l[4]), ty: M(0, l[2])[1] };
     });
@@ -2997,80 +3009,97 @@ var AgriPlan = (function () {
           vols.map(function (v) { return '<td>' + n1(v * pc / 100) + ' ' + tt('ל׳', 'ล.', 'ل') + '</td>'; }).join('') + '</tr>';
       }).join('') + '</tbody></table>';
   }
-  function zonesEditor(p, ro) {
-    var z = p.zones;
-    var id = p.id;
+  function zonesEditor(p, ro, slot) {
+    slot = slot === 2 ? 2 : 1;
+    var z = zOf(p, slot);
+    var id = p.id, sa = slot === 2 ? ',2' : '';   // handler slot argument
     if (!z || !z.on) {
-      return ro ? '' : '<div class="ap-zone"><button type="button" class="ap-btn ghost" data-no-sticky data-no-back onclick="AgriPlan._zToggle(' + id + ')">🌴 ' +
-        tt('הוסף איור ריסוס לעץ - אילו חלקים ואיזה אחוז מהנפח', 'เพิ่มภาพการพ่น', 'أضف رسم الرش') + '</button></div>';
+      return ro ? '' : '<div class="ap-zone"><button type="button" class="ap-btn ghost" data-no-sticky data-no-back onclick="AgriPlan._zToggle(' + id + sa + ')">' + (slot === 2 ? '➕ ' +
+        tt('הוסף איור שני (למשל יישום לקרקע / עשבייה)', 'เพิ่มภาพที่สอง', 'أضف رسماً ثانياً') : '🌴 ' +
+        tt('הוסף איור ריסוס לעץ - אילו חלקים ואיזה אחוז מהנפח', 'เพิ่มภาพการพ่น', 'أضف رسم الرش')) + '</button></div>';
     }
     var sum = zSum(z);
     return '<div class="ap-zone"><div class="ap-lbl" style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;">' +
-        '<b>🌴 ' + tt('איור ריסוס - חלקי העץ וחלוקת הנפח', 'ภาพการพ่น - ส่วนของต้นและสัดส่วน', 'رسم الرش - أجزاء الشجرة وتوزيع الحجم') + '</b>' +
+        '<b>' + (zGround(z) ? '🌱 ' : '🌴 ') + (slot === 2 ? tt('איור 2', 'ภาพ 2', 'رسم 2') + ' - ' : '') + tt('איור ריסוס - חלקי העץ וחלוקת הנפח', 'ภาพการพ่น - ส่วนของต้นและสัดส่วน', 'رسم الرش - أجزاء الشجرة وتوزيع الحجم') + '</b>' +
         (ro ? '' : '<span style="display:inline-flex;gap:4px;flex-wrap:wrap;">' +
           '<label class="ap-btn ghost" style="padding:4px 9px;font-size:.74rem;cursor:pointer;">🖼 ' + (z.img ? tt('החלף איור', 'เปลี่ยนภาพ', 'تغيير الرسم') : tt('העלה איור משלך', 'อัปโหลดภาพ', 'ارفع رسمك')) +
-            '<input type="file" accept="image/*" hidden onchange="AgriPlan._zImg(' + id + ',this)"></label>' +
-          (z.img ? '<button type="button" class="ap-btn ghost" data-no-sticky data-no-back style="padding:4px 9px;font-size:.74rem;" onclick="AgriPlan._zImgDel(' + id + ')">🌴 ' + tt('חזור לאיור הדקל', 'กลับไปภาพต้นปาล์ม', 'العودة لرسم النخلة') + '</button>' : '') +
-          '<button type="button" class="ap-btn ghost" data-no-sticky data-no-back style="padding:4px 9px;font-size:.74rem;color:#b3261e;" onclick="AgriPlan._zToggle(' + id + ')">✕ ' + tt('הסר', 'ลบ', 'إزالة') + '</button></span>') +
+            '<input type="file" accept="image/*" hidden onchange="AgriPlan._zImg(' + id + ',this' + sa + ')"></label>' +
+          (z.img ? '<button type="button" class="ap-btn ghost" data-no-sticky data-no-back style="padding:4px 9px;font-size:.74rem;" onclick="AgriPlan._zImgDel(' + id + sa + ')">🌴 ' + tt('חזור לאיור הדקל', 'กลับไปภาพต้นปาล์ม', 'العودة لرسم النخلة') + '</button>' : '') +
+          '<button type="button" class="ap-btn ghost" data-no-sticky data-no-back style="padding:4px 9px;font-size:.74rem;" onclick="AgriPlan._zSoil(' + id + sa + ')">🌱 ' + tt('100% לקרקע', '100% ลงดิน', '100% للتربة') + '</button>' +
+          '<button type="button" class="ap-btn ghost" data-no-sticky data-no-back style="padding:4px 9px;font-size:.74rem;color:#b3261e;" onclick="AgriPlan._zToggle(' + id + sa + ')">✕ ' + tt('הסר', 'ลบ', 'إزالة') + '</button></span>') +
       '</div>' +
       (z.img ? '' : '<div class="ap-zopt">' +
-        zSel(id, 'tree', z.tree, [['mature', tt('עץ בוגר', 'ต้นโต', 'شجرة بالغة')], ['young', tt('עץ צעיר / נמוך', 'ต้นอ่อน', 'شجرة صغيرة')]], tt('עץ', 'ต้น', 'الشجرة'), ro) +
-        zSel(id, 'shoots', String(z.shoots || 0), [['0', '0'], ['1', '1'], ['2', '2'], ['3', '3'], ['4', '4']], tt('חוטרים בבסיס', 'หน่อที่โคน', 'فسائل عند القاعدة'), ro) +
-        zSel(id, 'scene', z.scene, [['none', tt('בלי ציוד', 'ไม่มีอุปกรณ์', 'بلا معدات')], ['lift', tt('אפרון עם מרסס עליו', 'รถกระเช้าพร้อมเครื่องพ่น', 'رافعة مع رشاش')],
+        zSel(id + sa, 'tree', z.tree, [['mature', tt('עץ בוגר', 'ต้นโต', 'شجرة بالغة')], ['young', tt('עץ צעיר / נמוך', 'ต้นอ่อน', 'شجرة صغيرة')]], tt('עץ', 'ต้น', 'الشجرة'), ro) +
+        zSel(id + sa, 'shoots', String(z.shoots || 0), [['0', '0'], ['1', '1'], ['2', '2'], ['3', '3'], ['4', '4']], tt('חוטרים בבסיס', 'หน่อที่โคน', 'فسائل عند القاعدة'), ro) +
+        zSel(id + sa, 'scene', z.scene, [['none', tt('בלי ציוד', 'ไม่มีอุปกรณ์', 'بلا معدات')], ['lift', tt('אפרון עם מרסס עליו', 'รถกระเช้าพร้อมเครื่องพ่น', 'رافعة مع رشاش')],
           ['liftTractor', tt('אפרון + טרקטור עם מרסס מאחור', 'รถกระเช้า + รถแทรกเตอร์', 'رافعة + جرار مع رشاش')], ['walk', tt('הליכה מאחורי טרקטור (מטע צעיר)', 'เดินตามรถแทรกเตอร์', 'سير خلف الجرار')],
           ['boom', tt('טרקטור עם מוט משכיב (עשבייה)', 'รถแทรกเตอร์พร้อมบูมพ่น (วัชพืช)', 'جرار مع ذراع رش أفقي (أعشاب)')],
           ['guns', tt('רובים לקרקע מאחורי טרקטור (עשבייה)', 'ปืนพ่นลงดินตามรถแทรกเตอร์ (วัชพืช)', 'مسدسات رش للتربة خلف الجرار (أعشاب)')]], tt('אופן עבודה', 'วิธีทำงาน', 'طريقة العمل'), ro) +
-        (z.scene === 'boom' ? zSel(id, 'aim', z.aim || 'down', [['down', tt('כלפי מטה - לקרקע', 'ลงดิน', 'للأسفل - للتربة')], ['angled', tt('בזווית לבסיס הגזע', 'เอียงไปโคนต้น', 'بزاوية لقاعدة الجذع')]], tt('כיוון הדיזות', 'ทิศหัวฉีด', 'اتجاه الفوهات'), ro) : '') +
+        (z.scene === 'boom' ? zSel(id + sa, 'aim', z.aim || 'down', [['down', tt('כלפי מטה - לקרקע', 'ลงดิน', 'للأسفل - للتربة')], ['angled', tt('בזווית לבסיס הגזע', 'เอียงไปโคนต้น', 'بزاوية لقاعدة الجذع')]], tt('כיוון הדיזות', 'ทิศหัวฉีด', 'اتجاه الفوهات'), ro) : '') +
       '</div>') +
       '<div class="ap-zbody"><div class="ap-zfig' + (zWide(z) ? ' wide' : '') + '">' + zonesFigure(z, zW(z, 300)) + '</div>' +
         '<div class="ap-zin">' + ZONES.map(function (d) {
           return '<label class="ap-zrow"><span><i style="background:' + d.c + '"></i>' + esc(zName(d)) + '</span>' +
             '<input class="ap-in" type="number" min="0" max="100" step="5" value="' + (z.parts[d.k] || '') + '" placeholder="0" ' + (ro ? 'readonly ' : '') +
-            'onchange="AgriPlan._zSet(' + id + ',\'' + d.k + '\',this.value)"><b>%</b></label>';
+            'onchange="AgriPlan._zSet(' + id + ',\'' + d.k + '\',this.value' + sa + ')"><b>%</b></label>';
         }).join('') +
         '<div class="ap-zsum' + (sum && sum !== 100 ? ' bad' : '') + '">' + tt('סה״כ', 'รวม', 'المجموع') + ' ' + sum + '%' + (sum && sum !== 100 ? ' - ' + tt('צריך להגיע ל-100%', 'ควรรวมเป็น 100%', 'يجب أن يكون 100%') : '') + '</div>' +
         zonesTable(z, p.rows) + '</div></div></div>';
   }
   function zSel(id, k, cur, opts, label, ro) {
-    return '<label>' + esc(label) + '<select class="ap-in"' + (ro ? ' disabled' : '') + ' onchange="AgriPlan._zOpt(' + id + ',\'' + k + '\',this.value)">' +
+    return '<label>' + esc(label) + '<select class="ap-in"' + (ro ? ' disabled' : '') + ' onchange="AgriPlan._zOpt(' + String(id).split(',')[0] + ',\'' + k + '\',this.value' + (String(id).indexOf(',') !== -1 ? ',2' : '') + ')">' +
       opts.map(function (o) { return '<option value="' + o[0] + '"' + (String(cur) === o[0] ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select></label>';
   }
-  function _zOpt(pid, k, v) {
-    var p = editable(pid);
-    if (!p || !p.zones) return;
-    if (k === 'shoots') p.zones.shoots = Math.max(0, Math.min(4, Math.round(Number(v) || 0)));
-    else if (k === 'tree') p.zones.tree = v === 'young' ? 'young' : 'mature';
-    else if (k === 'aim') p.zones.aim = v === 'angled' ? 'angled' : 'down';
+  var Z_DEFAULT = { bunches: 50, heart: 30, fronds: 20 };
+  function _zOpt(pid, k, v, slot) {
+    var p = editable(pid), z = zOf(p, slot);
+    if (!p || !z) return;
+    if (k === 'shoots') z.shoots = Math.max(0, Math.min(4, Math.round(Number(v) || 0)));
+    else if (k === 'tree') z.tree = v === 'young' ? 'young' : 'mature';
+    else if (k === 'aim') z.aim = v === 'angled' ? 'angled' : 'down';
     else if (k === 'scene') {
-      p.zones.scene = SCENES.indexOf(v) !== -1 ? v : 'none';
-      if (v === 'walk') p.zones.tree = 'young';         // on foot = a low, young orchard
+      z.scene = SCENES.indexOf(v) !== -1 ? v : 'none';
+      if (v === 'walk') z.tree = 'young';               // on foot = a low, young orchard
+      // ground work: the whole volume goes to the soil, unless the shares were already set by hand
+      if ((v === 'boom' || v === 'guns') && (!zSum(z) || stable(z.parts) === stable(Z_DEFAULT))) z.parts = { soil: 100 };
     }
     save(); showPlan(pid);
   }
-  function _zToggle(pid) {
+  function _zToggle(pid, slot) {
     var p = editable(pid);
     if (!p) return;
-    if (p.zones && p.zones.on) {
+    var z = zOf(p, slot);
+    if (z && z.on) {
       if (!confirm(tt('להסיר את איור הריסוס מהתוכנית?', 'ลบภาพการพ่น?', 'إزالة رسم الرش؟'))) return;
-      p.zones = null;
-    } else p.zones = { on: true, img: '', parts: { bunches: 50, heart: 30, fronds: 20 } };
+      if (slot === 2) p.zones2 = null;
+      else { p.zones = p.zones2 && p.zones2.on ? p.zones2 : null; p.zones2 = null; }   // the second moves up
+    } else {
+      var nz = { on: true, img: '', parts: JSON.parse(JSON.stringify(Z_DEFAULT)) };
+      if (slot === 2) p.zones2 = nz; else p.zones = nz;
+    }
     save(); showPlan(pid);
   }
-  function _zSet(pid, k, v) {
-    var p = editable(pid);
-    if (!p || !p.zones) return;
+  function _zSoil(pid, slot) {
+    var p = editable(pid), z = zOf(p, slot);
+    if (!p || !z) return;
+    z.parts = { soil: 100 };
+    save(); showPlan(pid);
+  }
+  function _zSet(pid, k, v, slot) {
+    var p = editable(pid), z = zOf(p, slot);
+    if (!p || !z) return;
     var n = Number(v);
-    if (n > 0) p.zones.parts[k] = Math.min(100, n); else delete p.zones.parts[k];
+    if (n > 0) z.parts[k] = Math.min(100, n); else delete z.parts[k];
     save(); showPlan(pid);
   }
-  function _zImgDel(pid) {
-    var p = editable(pid);
-    if (!p || !p.zones) return;
-    p.zones.img = ''; save(); showPlan(pid);
+  function _zImgDel(pid, slot) {
+    var p = editable(pid), z = zOf(p, slot);
+    if (!p || !z) return;
+    z.img = ''; save(); showPlan(pid);
   }
-  function _zImg(pid, input) {
+  function _zImg(pid, input, slot) {
     var p = editable(pid), f = input && input.files && input.files[0];
-    if (!p || !f || !p.zones) return;
+    if (!p || !f || !zOf(p, slot)) return;
     if (!window.firebase || !firebase.storage) { toast('❌ ' + tt('אין חיבור לאחסון', 'ไม่มีที่เก็บ', 'لا تخزين')); return; }
     toast('⏳ ' + tt('מעלה…', 'กำลังอัปโหลด…', 'جارٍ الرفع…'));
     var img = new Image(), url = URL.createObjectURL(f);
@@ -3081,7 +3110,7 @@ var AgriPlan = (function () {
       cv.toBlob(function (b) {
         var ref = firebase.storage().ref('knowledge/spray-' + Date.now() + '.jpg');
         ref.put(b, { contentType: 'image/jpeg' }).then(function () { return ref.getDownloadURL(); }).then(function (u) {
-          p.zones.img = u; save(); showPlan(pid);
+          var z = zOf(p, slot); if (z) { z.img = u; save(); showPlan(pid); }
         }, function (e) { toast('❌ ' + tt('ההעלאה נכשלה', 'อัปโหลดไม่สำเร็จ', 'فشل الرفع') + ': ' + ((e && e.code) || '')); });
       }, 'image/jpeg', 0.85);
     };
@@ -3782,9 +3811,11 @@ var AgriPlan = (function () {
       (p.notes ? '<p style="font-size:.82rem;">' + esc(p.notes) + '</p>' : '') +
       (String(p.prep || '').trim() ? '<div style="border:1.5px solid #1d5a2c;border-radius:8px;padding:6px 10px;margin:6px 0 10px;font-size:.8rem;background:#f4f9ea;-webkit-print-color-adjust:exact;print-color-adjust:exact;"><b>🧰 ' +
         tt('דגשים לביצוע והכנות', 'ข้อควรปฏิบัติ', 'إرشادات التنفيذ') + '</b><div style="white-space:pre-line;margin-top:3px;">' + esc(String(p.prep).replace(/\u2014/g, '-')) + '</div></div>' : '') +
-      (p.zones && p.zones.on ? '<div style="display:flex;gap:12px;align-items:flex-start;border:1.5px solid #ef6c00;border-radius:8px;padding:6px 10px;margin:0 0 10px;font-size:.78rem;background:#fff7ef;break-inside:avoid;page-break-inside:avoid;-webkit-print-color-adjust:exact;print-color-adjust:exact;">' +
-        '<div style="flex:0 0 ' + zW(p.zones, 200) + 'px;">' + zonesFigure(p.zones, zW(p.zones, 200)) + '</div><div style="flex:1;"><b>🌴 ' + tt('אופן הריסוס בעץ - חלוקת הנפח', 'วิธีพ่นบนต้น - สัดส่วนปริมาตร', 'طريقة الرش - توزيع الحجم') + '</b>' +
-        zonesTable(p.zones, rowsIn).replace('class="ap-ztbl"', 'style="width:100%;border-collapse:collapse;margin-top:4px;font-size:.76rem;"') + '</div></div>' : '') +
+      zDiagrams(p).map(function (z) {
+        return '<div style="display:flex;gap:12px;align-items:flex-start;border:1.5px solid #ef6c00;border-radius:8px;padding:6px 10px;margin:0 0 10px;font-size:.78rem;background:#fff7ef;break-inside:avoid;page-break-inside:avoid;-webkit-print-color-adjust:exact;print-color-adjust:exact;">' +
+          '<div style="flex:0 0 ' + zW(z, 200) + 'px;">' + zonesFigure(z, zW(z, 200)) + '</div><div style="flex:1;"><b>' + (zGround(z) ? '🌱 ' : '🌴 ') + zTitle(z) + '</b>' +
+          zonesTable(z, rowsIn).replace('class="ap-ztbl"', 'style="width:100%;border-collapse:collapse;margin-top:4px;font-size:.76rem;"') + '</div></div>';
+      }).join('') +
 
       '<table><thead><tr>' +
         '<th>' + tt('אופן יישום', 'วิธี', 'طريقة') + '</th><th>' + tt('משק', 'ฟาร์ม', 'مزرعة') + '</th>' +
@@ -4900,6 +4931,7 @@ var AgriPlan = (function () {
     _zSet: _zSet,
     _zImg: _zImg,
     _zImgDel: _zImgDel,
+    _zSoil: _zSoil,
     _tplUse: _tplUse,
     _splitOpen: _splitOpen,
     _splitZip: _splitZip,
