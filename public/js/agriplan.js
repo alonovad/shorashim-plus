@@ -339,6 +339,11 @@ var AgriPlan = (function () {
     var m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
     return m ? m[3] + '/' + m[2] + '/' + m[1] : '';
   }
+  // "▶ ~26/12/2026 (משוער)" - an estimated start is never printed as a firm date
+  function startText(r) {
+    if (!r || !r.start) return '';
+    return '▶ ' + (r.startApprox ? '~' : '') + fmtDate(r.start) + (r.startApprox ? ' (' + tt('משוער', 'โดยประมาณ', 'تقريبي') + ')' : '');
+  }
   function effDeadline(p, r) { return (r && r.deadline) || (p && p.deadline) || ''; }
   function daysLeft(iso) {
     if (!iso) return null;
@@ -385,6 +390,7 @@ var AgriPlan = (function () {
       timing: String(r.timing || ''),        // מועד מומלץ (free text - 'סיום גדיד')
       deadline: isoDate(r.deadline),         // תאריך סיום הכרחי; '' = the plan's
       start: isoDate(r.start),               // מועד התחלה מומלץ (date)
+      startApprox: !!r.startApprox && !!isoDate(r.start),   // the start date is an estimate (~)
       container: Number(r.container) || 0,   // manual drench: bucket / container size, litres
       spot: Number(r.spot) > 0 ? Number(r.spot) : 0,   // spot herbicide: sprayed m² per tree (0 = default)
       note: String(r.note || ''),
@@ -496,11 +502,21 @@ var AgriPlan = (function () {
     fid = Number(fid);
     return (p.rows || []).filter(function (r) { return r.farmId === fid; });
   }
-  function farmSig(p, fid) {
+  // INVARIANT: a row field added later must be left OUT of the signature while
+  // it holds its default - otherwise every farm approved before the field
+  // existed turns 'stale' the moment the new code ships. (v230 shipped `spot`
+  // unconditionally; legacy=true rebuilds that variant so its approvals hold.)
+  function sigRow(r, legacy) {
+    var o = normRow(r);
+    if (!o.startApprox) delete o.startApprox;
+    if (!o.spot && !legacy) delete o.spot;
+    return o;
+  }
+  function farmSig(p, fid, legacy) {
     var o = {
       name: p.name, target: p.target, deadline: p.deadline, notes: p.notes,
       farmNote: String(((p.farmNotes || {})[String(fid)]) || '').trim(),
-      rows: farmRows(p, fid).map(normRow)
+      rows: farmRows(p, fid).map(function (r) { return sigRow(r, legacy); })
     };
     // The crew executes the preparation notes too, so they are signed - but
     // only once written, so plans approved before the field existed stay approved.
@@ -521,7 +537,7 @@ var AgriPlan = (function () {
   function farmState(p, fid) {
     var a = p && p.approvals && p.approvals[String(fid)];
     if (!a || !a.sig) return 'draft';
-    return (farmRows(p, fid).length && a.sig === farmSig(p, fid)) ? 'approved' : 'stale';
+    return (farmRows(p, fid).length && (a.sig === farmSig(p, fid) || a.sig === farmSig(p, fid, true))) ? 'approved' : 'stale';
   }
   function planSummary(p) {
     var s = { total: 0, approved: 0, stale: 0, draft: 0 };
@@ -1518,7 +1534,7 @@ var AgriPlan = (function () {
             }).join('<br>');
             return '<tr><td>' + esc(methodLabel(r.method)) + '</td><td>' + esc(pl ? pl.name : tt('כלל המשק', 'ทั้งฟาร์ม', 'كل المزرعة')) + '</td>' +
               '<td>' + (Number(r.trees) || 0).toLocaleString() + ' ' + qtyWord(r.method) + '</td><td>' + (mats || '-') + '</td>' +
-              '<td>' + esc([r.round, r.start ? '▶ ' + fmtDate(r.start) : '', r.timing].filter(Boolean).join(' · ') || '-') + '</td><td>' + esc(fmtDate(effDeadline(p, r)) || '-') + '</td></tr>';
+              '<td>' + esc([r.round, startText(r), r.timing].filter(Boolean).join(' · ') || '-') + '</td><td>' + esc(fmtDate(effDeadline(p, r)) || '-') + '</td></tr>';
           }).join('') + '</tbody></table>' +
           (String(p.prep || '').trim() ? '<div style="font-size:.74rem;white-space:pre-line;margin-top:4px;color:#4a4540;">' + esc(String(p.prep).trim().replace(/\u2014/g, '-')) + '</div>' : '') +
         '</div>';
@@ -1856,7 +1872,9 @@ var AgriPlan = (function () {
             'oninput="AgriPlan._setRow(' + pid + ',' + i + ',\'round\',this.value)"></div>' +
         '<div><div class="ap-lbl">▶ ' + tt('התחלה מומלצת', 'เริ่มแนะนำ', 'البدء الموصى به') + '</div>' +
           '<input class="ap-in" type="date" value="' + esc(r.start || '') + '" ' +
-            'onchange="AgriPlan._setRow(' + pid + ',' + i + ',\'start\',this.value)"></div>' +
+            'onchange="AgriPlan._setRow(' + pid + ',' + i + ',\'start\',this.value)">' +
+          (r.start ? '<label style="display:flex;gap:4px;align-items:center;font-size:.72rem;margin-top:2px;"><input type="checkbox"' + (r.startApprox ? ' checked' : '') +
+            ' onchange="AgriPlan._setRow(' + pid + ',' + i + ',\'startApprox\',this.checked)">' + tt('תאריך משוער', 'วันที่โดยประมาณ', 'تاريخ تقريبي') + '</label>' : '') + '</div>' +
         (r.method === 'spot' ? '<div><div class="ap-lbl">⭕ ' + tt('שטח מרוסס לעץ (מ"ר)', 'พื้นที่พ่น/ต้น (ตร.ม.)', 'المساحة المرشوشة/شجرة (م²)') + '</div>' +
           '<input class="ap-in" type="number" step="any" min="0" value="' + (r.spot || '') + '" placeholder="' + SPOT_M2 + '" ' +
             'onchange="AgriPlan._setRow(' + pid + ',' + i + ',\'spot\',this.value)"></div>' : '') +
@@ -1913,7 +1931,8 @@ var AgriPlan = (function () {
     else if (k === 'carrier') r.carrier = Number(v) || 0;
     else if (k === 'container') r.container = Number(v) || 0;
     else if (k === 'spot') { r.spot = Number(v) > 0 ? Number(v) : 0; save(); showPlan(pid); return; }
-    else if (k === 'start') r.start = isoDate(v);
+    else if (k === 'start') { r.start = isoDate(v); if (!r.start) r.startApprox = false; save(); showPlan(pid); return; }
+    else if (k === 'startApprox') r.startApprox = !!v && !!r.start;
     else if (k === 'farmId') {
       r.farmId = v === '' ? null : Number(v);
       r.plotId = null;                       // the plot list is farm-scoped
@@ -2430,22 +2449,28 @@ var AgriPlan = (function () {
     if (!host) return;
     var fids = planFarms(p);
     if (!fids.length) { toast('⚠️ ' + tt('הוסף קודם שורות לתוכנית', 'เพิ่มแถวก่อน', 'أضف صفوفاً أولاً')); return; }
-    function common(fid) {
+    function common(fid, k) {
       var d = null, same = true;
-      p.rows.forEach(function (r) { if (Number(r.farmId) !== Number(fid)) return; if (d === null) d = r.start || ''; else if ((r.start || '') !== d) same = false; });
+      p.rows.forEach(function (r) { if (Number(r.farmId) !== Number(fid)) return; if (d === null) d = r[k] || ''; else if ((r[k] || '') !== d) same = false; });
       return same ? (d || '') : '';
     }
+    var approx = p.rows.some(function (r) { return r.start && r.startApprox; });
+    var tPh = esc(tt('למשל: סביב סוף דצמבר - תחילת ינואר, כשבוע לפני מערכת גשם משמעותית', 'เช่น ปลายธันวาคม', 'مثلاً: نهاية ديسمبر'));
     host.innerHTML = '<div class="ap-card" style="border:1.5px solid var(--primary,#2d6a4f);">' +
       '<div style="font-weight:800;margin-bottom:6px;">📅 ' + tt('מועד התחלה מומלץ לכל מטע', 'วันเริ่มต่อสวน', 'موعد البدء لكل بستان') + '</div>' +
       '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;"><span class="ap-lbl" style="margin:0;">' + tt('אותו תאריך לכולם', 'วันเดียวกันทั้งหมด', 'نفس التاريخ للجميع') + '</span>' +
-        '<input class="ap-in" type="date" id="apBsAll" style="max-width:170px;" onchange="document.querySelectorAll(\'.apBsF\').forEach(function(e){e.value=this.value}.bind(this))"></div>' +
-      '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:6px 12px;">' +
+        '<input class="ap-in" type="date" id="apBsAll" style="max-width:170px;" onchange="document.querySelectorAll(\'.apBsF\').forEach(function(e){e.value=this.value}.bind(this))">' +
+        '<label style="display:flex;gap:5px;align-items:center;font-size:.82rem;font-weight:600;"><input type="checkbox" id="apBsApprox"' + (approx ? ' checked' : '') + '>~ ' + tt('תאריך משוער', 'วันที่โดยประมาณ', 'تاريخ تقريبي') + '</label></div>' +
+      '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;"><span class="ap-lbl" style="margin:0;">📝 ' + tt('הערת מועד לכולם', 'หมายเหตุเวลาทั้งหมด', 'ملاحظة الموعد للجميع') + '</span>' +
+        '<input class="ap-in" id="apBsNoteAll" style="flex:1 1 300px;" placeholder="' + tPh + '" oninput="var v=this.value;document.querySelectorAll(\'.apBsN\').forEach(function(e){e.value=v;e.dataset.touched=\'1\';})"></div>' +
+      '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:8px 12px;">' +
         fids.map(function (f) {
           var n = p.rows.filter(function (r) { return Number(r.farmId) === Number(f); }).length;
-          return '<label style="display:flex;gap:8px;align-items:center;justify-content:space-between;font-size:.84rem;"><span>' + farmIco(f) + ' ' + esc(farmName(f)) + ' <small style="color:var(--text-muted,#888);">(' + n + ')</small></span>' +
-            '<input class="ap-in apBsF" type="date" data-f="' + f + '" value="' + esc(common(f)) + '" style="max-width:160px;"></label>';
+          return '<div style="display:flex;flex-direction:column;gap:3px;font-size:.84rem;"><label style="display:flex;gap:8px;align-items:center;justify-content:space-between;"><span>' + farmIco(f) + ' ' + esc(farmName(f)) + ' <small style="color:var(--text-muted,#888);">(' + n + ')</small></span>' +
+            '<input class="ap-in apBsF" type="date" data-f="' + f + '" value="' + esc(common(f, 'start')) + '" style="max-width:160px;"></label>' +
+            '<input class="ap-in apBsN" data-f="' + f + '" value="' + esc(common(f, 'timing')) + '" placeholder="📝 ' + esc(tt('הערת מועד', 'หมายเหตุเวลา', 'ملاحظة الموعد')) + '" oninput="this.dataset.touched=\'1\'"></div>';
         }).join('') + '</div>' +
-      '<div style="font-size:.74rem;color:var(--text-muted,#888);margin-top:6px;">' + tt('חל על כל השורות של המטע. שדה ריק = מוחק את מועד ההתחלה של המטע.', 'ใช้กับทุกแถวของสวน', 'يُطبق على كل صفوف البستان.') + '</div>' +
+      '<div style="font-size:.74rem;color:var(--text-muted,#888);margin-top:6px;">' + tt('חל על כל השורות של המטע. תאריך ריק = מוחק את מועד ההתחלה של המטע. ההערה מחליפה את "מועד מומלץ" רק במטעים שבהם הקלדת.', 'ใช้กับทุกแถวของสวน', 'يُطبق على كل صفوف البستان.') + '</div>' +
       '<div style="display:flex;gap:6px;margin-top:8px;"><button class="ap-btn" data-no-back onclick="AgriPlan._bsApply(' + pid + ')">✓ ' + tt('עדכן', 'อัปเดต', 'تحديث') + '</button>' +
         '<button class="ap-btn ghost" data-no-sticky onclick="AgriPlan._cancelSeed()">' + tt('ביטול', 'ยกเลิก', 'إلغاء') + '</button></div></div>';
     host.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
@@ -2454,12 +2479,19 @@ var AgriPlan = (function () {
     var p = editable(pid);
     if (!p) return;
     var set = {};
+    var note = {}, ap = !!(document.getElementById('apBsApprox') || {}).checked;
     document.querySelectorAll('.apBsF').forEach(function (e) { set[e.getAttribute('data-f')] = isoDate(e.value); });
+    // only the note boxes that were typed in - a farm whose rows carry different notes shows empty and is left alone
+    document.querySelectorAll('.apBsN').forEach(function (e) { if (e.dataset.touched === '1') note[e.getAttribute('data-f')] = String(e.value || '').trim(); });
     var n = 0;
     p.rows.forEach(function (r) {
-      var k = String(r.farmId);
+      var k = String(r.farmId), ch = false;
       if (!(k in set)) return;
-      if ((r.start || '') !== set[k]) { r.start = set[k]; n++; }
+      if ((r.start || '') !== set[k]) { r.start = set[k]; ch = true; }
+      var a = ap && !!r.start;
+      if (!!r.startApprox !== a) { r.startApprox = a; ch = true; }
+      if ((k in note) && (r.timing || '') !== note[k]) { r.timing = note[k]; ch = true; }
+      if (ch) n++;
     });
     save();
     toast('📅 ' + n + ' ' + tt('שורות עודכנו', 'แถวอัปเดต', 'صفوف حُدّثت'));
@@ -3779,7 +3811,7 @@ var AgriPlan = (function () {
         '<td>' + esc(farmName(r.farmId)) + '</td>' +
         '<td>' + esc((pl ? pl.name : '') + (r.cohort ? ' - ' + r.cohort : '')) + '</td>' +
         '<td>' + (r.trees || 0).toLocaleString() + (r.method === 'spot' ? '<br><small>⭕ ' + spotM2(r) + ' ' + tt('מ"ר/עץ', 'ตร.ม./ต้น', 'م²/شجرة') + ' = ' + n1(sprayedDunam(r)) + ' ' + tt('ד\' מרוסס', 'ไร่ที่พ่น', 'دونم مرشوش') + '</small>' : '') + '</td>' + cells +
-        '<td>' + esc(r.round) + '</td><td>' + esc([r.start ? '▶ ' + fmtDate(r.start) : '', r.timing].filter(Boolean).join(' · ')) + '</td>' +
+        '<td>' + esc(r.round) + '</td><td>' + esc([startText(r), r.timing].filter(Boolean).join(' · ')) + '</td>' +
         '<td class="dl">' + esc(fmtDate(effDeadline(p, r))) + '</td>' +
         '<td>' + n1(r.carrier) + ' ' + (r.method === 'inject'
           ? tt('סמ"ק', 'ซีซี', 'سم³') : tt('ליטר', 'ลิตร', 'لتر')) + (r.method === 'spot' ? '/' + tt('ד\' מרוסס', 'ไร่ที่พ่น', 'دونم مرشوش') : '') + '</td>' +
@@ -3970,7 +4002,7 @@ var AgriPlan = (function () {
       var line = '<div><span class="px-op">' + esc(opLabel(r.method, r.round)) + '</span> · <span class="px-t">' +
         (Number(r.trees) || 0).toLocaleString() + ' ' + qtyWord(r.method) + (r.method === 'spot' ? ' · ⭕ ' + n1(sprayedDunam(r)) + ' ' + tt('ד\' מרוסס', 'ไร่ที่พ่น', 'دونم مرشوش') : '') + '</span>';
       if (mats.length) line += '<br>' + mats.map(function (m) { return esc(m.name) + ' <b>' + fmtQty(rowMaterialL(r, m), U(m.name)) + '</b>'; }).join(' · ');
-      if (r.start) line += ' · <span class="px-t">▶ ' + esc(fmtDate(r.start)) + '</span>';
+      if (r.start || r.timing) line += ' · <span class="px-t">' + esc([startText(r), r.timing].filter(Boolean).join(' · ')) + '</span>';
       if (r.method === 'drench' && r.container > 0 && solL > 0) {
         var nb = Math.ceil(solL / r.container);
         line += '<br>' + tt('תמיסה', 'สารละลาย', 'محلول') + ' ' + n1(solL).toLocaleString() + ' ' + lt + ' · 🪣 ' + r.container + ' ' + lt + ' → <b>' + nb + ' ' + tt('דליים', 'ถัง', 'دلاء') + '</b>' +
