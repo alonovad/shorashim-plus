@@ -1163,6 +1163,7 @@ var AgriPlan = (function () {
     _openPlan = id;
     if (_rowFilter.pid !== id) _rowFilter = { pid: id, q: '' };
     var ro = !canEdit(p);
+    if (!ro && radiusSync(p)) save();
     var t = totals(p);
 
     var matList = knownMaterials().map(function (m) {
@@ -3204,6 +3205,25 @@ var AgriPlan = (function () {
       (!ro && spot.length ? '<button type="button" class="ap-btn ghost" data-no-sticky data-no-back style="margin-top:6px;padding:5px 10px;font-size:.76rem;" onclick="AgriPlan._rApply(' + id + ')">↧ ' +
         tt('החל על שורות התוכנית: ריסוס עשבייה סביב העץ', 'ใช้กับแถว: พ่นวัชพืชรอบต้น', 'طبّق على الصفوف: رش الأعشاب حول الشجرة') + ' (' + spot.length + ' · ' + area + ' ' + tt('מ"ר', 'ตร.ม.', 'م²') + ' · ' + o.lpd + ' ' + tt('ל׳/ד׳', 'ล./ไร่', 'ل/دونم') + ')</button>' : '') +
       '</div>';
+  }
+  // A plan with the radius diagram is a spray AROUND the tree: every tree
+  // row that has no volume of its own yet (a plain spray with 0 L/tree)
+  // becomes the spot spray, sized by the diagram - otherwise the plan prints
+  // 0 litres everywhere. Rows with their own L/tree are a real canopy spray
+  // and are left alone. Returns true when something changed.
+  function radiusSync(p) {
+    if (!p || !p.radius || !p.radius.on) return false;
+    var o = radiusOf(p), a = Math.round(radiusArea(o)), ch = false;
+    if (!(a > 0)) return false;
+    (p.rows || []).forEach(function (r) {
+      if (r.method === 'spray' && !(Number(r.carrier) > 0)) { r.method = 'spot'; r.spot = a; r.carrier = o.lpd; ch = true; }
+      else if (r.method === 'spot' && (!(Number(r.carrier) > 0) || !(Number(r.spot) > 0))) {
+        if (!(Number(r.carrier) > 0)) r.carrier = o.lpd;
+        if (!(Number(r.spot) > 0)) r.spot = a;
+        ch = true;
+      }
+    });
+    return ch;
   }
   function _rToggle(pid) {
     var p = editable(pid);
