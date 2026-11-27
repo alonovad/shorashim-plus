@@ -1060,10 +1060,12 @@
     var url = '';
     try {
       var m = BP.model3d(p);
-      m.shadows = false; m.dims = o.dims !== false; m.scaleRef = 'none'; m.lod = false;
+      m.shadows = false; m.scaleRef = 'none'; m.lod = false;
+      m.dims = false; m.callouts = false;
       var v = Shed3D.mount(host, m, {
         state: { cam: o.cam || { yaw: -0.68, pitch: 0.42, zoom: 1, px: 0, py: 0 }, sel: o.sel || null },
-        labels: calloutLabels(p)
+        style: 'drawing',          // same visual language as the 2D sheets
+        labels: {}
       });
       if (o.sel) v.select(o.sel);
       v.update(m);

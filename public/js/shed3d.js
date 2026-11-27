@@ -834,6 +834,23 @@ var Shed3D = (function () {
     // a flat ambient floor. A single lambert made every surface read as the
     // same plastic; separating them lets steel look like steel and gives
     // upward-facing panels the cool cast they actually have outdoors.
+    // ── drawing style (print) ──
+    // The 3D in a printed plan speaks the 2D drawings' language: navy
+    // frames, orange purlins, green bracing, grey poles, flat tones on
+    // paper. Shading is only enough to read the faces apart.
+    var DRAWING = opts.style === 'drawing';
+    var DRAWCOL = { column: '#555555', haunch: '#1f3a5f', rafter: '#1f3a5f', girder: '#1f3a5f',
+      strut: '#1f3a5f', purlin: '#b5651d', girt: '#b5651d', brace: '#2e7d32', ridge: '#1f3a5f',
+      footing: '#cfc9bc', found: '#cfc9bc', slab: '#ddd8cc', ground: '#ebe9e1', roof: '#c9d3dc', wall: '#dfe3e6' };
+    function drawShade(fc, l, on) {
+      var col = on ? '#e07b00'
+        : (fc.group === 'column' && m.colExisting) ? '#9e9e9e'
+        : (DRAWCOL[fc.group] || (String(fc.group).indexOf('free:') === 0 ? '#8a8a8a' : fc.color));
+      var r = parseInt(col.slice(1,3), 16), g = parseInt(col.slice(3,5), 16), b = parseInt(col.slice(5,7), 16);
+      var k = (fc.group === 'ground' || fc.group === 'slab') ? 1 : 0.78 + 0.22 * Math.max(0, l);
+      return 'rgb(' + Math.round(r*k) + ',' + Math.round(g*k) + ',' + Math.round(b*k) + ')';
+    }
+
     function shade(color, l, up, on) {
       if (on) color = PALETTE.sel;
       var r = parseInt(color.slice(1,3), 16),
@@ -951,6 +968,12 @@ var Shed3D = (function () {
       var d = size(), w = d.w, h = d.h;
       var P = projector(w, h), S = sunVec();
 
+      if (DRAWING) {
+        // Print style: the same flat paper as every 2D drawing in the
+        // document — no sky, no sun glow.
+        ctx.fillStyle = '#f4f6f4';
+        ctx.fillRect(0, 0, w, h);
+      } else {
       var sky = ctx.createLinearGradient(0, 0, 0, h);
       sky.addColorStop(0, '#5b93bd');
       sky.addColorStop(0.42, '#9dc4dc');
@@ -968,6 +991,7 @@ var Shed3D = (function () {
         gl.addColorStop(1, 'rgba(255,247,214,0)');
         ctx.fillStyle = gl;
         ctx.fillRect(0, 0, w, h);
+      }
       }
 
       var vis = geo.faces.filter(function (fc) { return !hidden[fc.group]; });
@@ -1071,7 +1095,7 @@ var Shed3D = (function () {
         ctx.moveTo(pr[0][0], pr[0][1]);
         for (var i = 1; i < pr.length; i++) ctx.lineTo(pr[i][0], pr[i][1]);
         ctx.closePath();
-        ctx.fillStyle = shade(fc.color, it.l, it.up, sel === fc.group);
+        ctx.fillStyle = DRAWING ? drawShade(fc, it.l, sel === fc.group) : shade(fc.color, it.l, it.up, sel === fc.group);
         ctx.globalAlpha = fc.alpha != null ? fc.alpha : 1;
         ctx.fill();
         ctx.globalAlpha = 1;
