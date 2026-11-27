@@ -104,6 +104,7 @@ var AgriPlan = (function () {
   function perDunamDose(method) { return isDunam(method) || method === 'spot'; }
   var SPOT_M2 = 10;                                       // default sprayed m² per tree
   function spotM2(r) { return Number(r && r.spot) > 0 ? Number(r.spot) : SPOT_M2; }
+  function spotLTree(r) { return spotM2(r) / 1000 * (Number(r && r.carrier) || 0); }   // ≈ litres of solution around one tree
   function sprayedDunam(r) { return (Number(r && r.trees) || 0) * spotM2(r) / 1000; }
   // Units the dose and the carrier multiply: trees, dunams - or sprayed dunams.
   function carrierKind(m) { return isDunam(m) ? 'd' : m === 'spot' ? 's' : 't'; }
@@ -220,6 +221,7 @@ var AgriPlan = (function () {
     return who ? who : tt('לא ידוע', 'ไม่ทราบ', 'غير معروف');
   }
   function n1(x) { return Math.round((Number(x) || 0) * 10) / 10; }
+  function n2(x) { return Math.round((Number(x) || 0) * 100) / 100; }
   function money(x) {
     return '\u20aa' + (Math.round((Number(x) || 0) * 100) / 100)
       .toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -1928,7 +1930,8 @@ var AgriPlan = (function () {
       '<div class="ap-out">\ud83d\udca7 ' + tt('נפח כולל', 'ปริมาตรรวม', 'الحجم الكلي') + ': ' +
         n1(rowCarrierL(r)).toLocaleString() + ' ' + tt('ליטר', 'ลิตร', 'لتر') +
         (r.method === 'spot' ? ' · ⭕ ' + (Number(r.trees) || 0).toLocaleString() + ' ' + tt('עצים', 'ต้น', 'شجرة') + ' × ' + spotM2(r) + ' ' + tt('מ"ר', 'ตร.ม.', 'م²') + ' = <b>' +
-          n1(sprayedDunam(r)).toLocaleString() + ' ' + tt('דונם מרוסס', 'ไร่ที่พ่น', 'دونم مرشوش') + '</b>' : '') + '</div>' +
+          n1(sprayedDunam(r)).toLocaleString() + ' ' + tt('דונם מרוסס', 'ไร่ที่พ่น', 'دونم مرشوش') + '</b> · 💧 ≈ <b>' +
+          n2(spotLTree(r)) + ' ' + tt('ליטר לעץ', 'ลิตร/ต้น', 'لتر/شجرة') + '</b>' : '') + '</div>' +
       (ro ? '</fieldset>' : '') +
     '</div>';
   }
@@ -3089,7 +3092,8 @@ var AgriPlan = (function () {
     if (!x || typeof x !== 'object') return null;
     function num(v, lo, hi) { v = Number(v); return v > 0 ? Math.min(hi, Math.max(lo, Math.round(v * 10) / 10)) : 0; }
     return { on: !!x.on, r: num(x.r, 0.3, 30) || 5, sp: num(x.sp, 0.5, 40), rs: num(x.rs, 0.5, 40),
-             n: Math.min(8, Math.max(3, Math.round(Number(x.n) || 5))) };
+             n: Math.min(8, Math.max(3, Math.round(Number(x.n) || 5))),
+             lpd: num(x.lpd, 1, 2000) };      // litres of solution per SPRAYED dunam (0 = 40, the field standard)
   }
   function planSpacing(p, k) {
     var v = [];
@@ -3101,7 +3105,7 @@ var AgriPlan = (function () {
   function radiusOf(p) {
     var R = p.radius || normRadius({ on: true });
     return { r: R.r, sp: R.sp || planSpacing(p, 'tree_spacing'), rs: R.rs || planSpacing(p, 'row_spacing'),
-             n: R.n, autoSp: !R.sp, autoRs: !R.rs };
+             n: R.n, lpd: R.lpd || 40, autoSp: !R.sp, autoRs: !R.rs };
   }
   // Ground each tree owns inside its circle: the circle clipped to half the
   // spacing on every side (where circles overlap, the ground is sprayed once).
@@ -3123,7 +3127,8 @@ var AgriPlan = (function () {
       (Math.round(a) < Math.round(full) ? ' <span style="opacity:.75;">(' + tt('עיגול מלא', 'วงกลมเต็ม', 'دائرة كاملة') + ' ' + Math.round(full) + ' - ' + tt('בניכוי חפיפה', 'หักส่วนซ้อน', 'بعد خصم التداخل') + ')</span>' : '') +
       (a > 0 ? '<div style="margin-top:5px;padding:6px 10px;border-radius:8px;background:#ef6c00;color:#fff;font-size:.95rem;font-weight:800;display:inline-block;-webkit-print-color-adjust:exact;print-color-adjust:exact;">' +
         '🌴 ' + tt('דונם מרוסס', 'ไร่ที่พ่น', 'دونم مرشوش') + ' = ' + n1(1000 / a) + ' ' + tt('עצים', 'ต้น', 'شجرة') +
-        ' <span style="font-weight:600;font-size:.78rem;opacity:.9;">(1,000 ÷ ' + Math.round(a) + ' ' + tt('מ"ר', 'ตร.ม.', 'م²') + ')</span></div>' : '') +
+        ' <span style="font-weight:600;font-size:.78rem;opacity:.9;">(1,000 ÷ ' + Math.round(a) + ' ' + tt('מ"ר', 'ตร.ม.', 'م²') + ')</span>' +
+        '<br>💧 ' + o.lpd + ' ' + tt('ל׳ תמיסה לדונם מרוסס', 'ล. ต่อไร่ที่พ่น', 'ل محلول لكل دونم مرشوش') + ' → ≈ ' + n2(Math.round(a) / 1000 * o.lpd) + ' ' + tt('ליטר לעץ', 'ลิตร/ต้น', 'لتر/شجرة') + '</div>' : '') +
       (lap ? '<br>⚠️ ' + tt('העיגולים חופפים בין העצים - רצועה רציפה לאורך השורה', 'วงกลมซ้อนกัน - เป็นแถบต่อเนื่อง', 'الدوائر متداخلة - شريط متصل على طول الصف') : '') +
       '</div>';
   }
@@ -3178,7 +3183,7 @@ var AgriPlan = (function () {
         tt('הוסף איור רדיוס ריסוס סביב העצים בשורה', 'เพิ่มภาพรัศมีพ่นรอบต้น', 'أضف رسم نصف قطر الرش حول الأشجار') + '</button></div>';
     }
     var o = radiusOf(p), m = tt('מ׳', 'ม.', 'م'), area = Math.round(radiusArea(o));
-    var spot = (p.rows || []).filter(function (r) { return r.method === 'spot'; });
+    var spot = (p.rows || []).filter(function (r) { return !isDunam(r.method) && r.method !== 'general'; });
     function inp(k, val, ph, label) {
       return '<label>' + esc(label) + '<input class="ap-in" type="number" step="0.5" min="0" value="' + (val || '') + '" placeholder="' + ph + '" ' + (ro ? 'readonly ' : '') +
         'onchange="AgriPlan._rSet(' + id + ',\'' + k + '\',this.value)"></label>';
@@ -3191,12 +3196,13 @@ var AgriPlan = (function () {
         inp('r', R.r, 5, tt('רדיוס', 'รัศมี', 'نصف القطر') + ' (' + m + ')') +
         inp('sp', R.sp, o.sp, tt('בין עצים', 'ระหว่างต้น', 'بين الأشجار') + ' (' + m + ')' + (o.autoSp ? ' ' + tt('- לפי החלקות', '- ตามแปลง', '- حسب القطع') : '')) +
         inp('rs', R.rs, o.rs, tt('בין שורות', 'ระหว่างแถว', 'بين الصفوف') + ' (' + m + ')' + (o.autoRs ? ' ' + tt('- לפי החלקות', '- ตามแปลง', '- حسب القطع') : '')) +
+        inp('lpd', R.lpd, 40, tt('ליטר לדונם מרוסס', 'ลิตร/ไร่ที่พ่น', 'لتر/دونم مرشوش')) +
         '<label>' + esc(tt('עצים באיור', 'ต้นในภาพ', 'أشجار في الرسم')) + '<select class="ap-in"' + (ro ? ' disabled' : '') + ' onchange="AgriPlan._rSet(' + id + ',\'n\',this.value)">' +
           [3, 4, 5, 6, 7, 8].map(function (v) { return '<option' + (v === o.n ? ' selected' : '') + '>' + v + '</option>'; }).join('') + '</select></label>' +
       '</div>' +
       radiusSvg(p, 520) + radiusFacts(p) +
       (!ro && spot.length ? '<button type="button" class="ap-btn ghost" data-no-sticky data-no-back style="margin-top:6px;padding:5px 10px;font-size:.76rem;" onclick="AgriPlan._rApply(' + id + ')">↧ ' +
-        tt('עדכן שטח לעץ בשורות ריסוס עשבייה', 'ใช้กับแถวพ่นวัชพืช', 'طبّق على صفوف رش الأعشاب') + ' (' + spot.length + ' · ' + area + ' ' + tt('מ"ר', 'ตร.ม.', 'م²') + ')</button>' : '') +
+        tt('החל על שורות התוכנית: ריסוס עשבייה סביב העץ', 'ใช้กับแถว: พ่นวัชพืชรอบต้น', 'طبّق على الصفوف: رش الأعشاب حول الشجرة') + ' (' + spot.length + ' · ' + area + ' ' + tt('מ"ר', 'ตร.ม.', 'م²') + ' · ' + o.lpd + ' ' + tt('ל׳/ד׳', 'ล./ไร่', 'ل/دونم') + ')</button>' : '') +
       '</div>';
   }
   function _rToggle(pid) {
@@ -3213,16 +3219,22 @@ var AgriPlan = (function () {
     if (!p || !p.radius) return;
     var x = JSON.parse(JSON.stringify(p.radius)); x[k] = Number(v) || 0;
     p.radius = normRadius(x);
+    // rows already sprayed around the tree follow the diagram
+    var o = radiusOf(p), a = Math.round(radiusArea(o));
+    (p.rows || []).forEach(function (r) { if (r.method === 'spot') { if (a > 0) r.spot = a; r.carrier = o.lpd; } });
     save(); showPlan(pid);
   }
   function _rApply(pid) {
     var p = editable(pid);
     if (!p || !p.radius) return;
-    var a = Math.round(radiusArea(radiusOf(p)));
+    var o = radiusOf(p), a = Math.round(radiusArea(o));
     if (!(a > 0)) return;
-    (p.rows || []).forEach(function (r) { if (r.method === 'spot') r.spot = a; });
+    var rows = (p.rows || []).filter(function (r) { return !isDunam(r.method) && r.method !== 'general'; });
+    var other = rows.filter(function (r) { return r.method !== 'spot'; }).length;
+    if (other && !confirm(tt('להעביר', 'เปลี่ยน', 'تحويل') + ' ' + other + ' ' + tt('שורות ל"ריסוס עשבייה סביב העץ"? הנפח יחושב לפי דונם מרוסס.', 'แถวเป็นพ่นวัชพืชรอบต้น?', 'صفوف إلى رش الأعشاب حول الشجرة؟'))) return;
+    rows.forEach(function (r) { r.method = 'spot'; r.spot = a; r.carrier = o.lpd; });
     save(); showPlan(pid);
-    toast(tt('עודכן', 'อัปเดตแล้ว', 'تم التحديث') + ': ' + a + ' ' + tt('מ"ר לעץ', 'ตร.ม./ต้น', 'م²/شجرة'));
+    toast(tt('עודכן', 'อัปเดตแล้ว', 'تم التحديث') + ': ' + a + ' ' + tt('מ"ר לעץ', 'ตร.ม./ต้น', 'م²/شجرة') + ' · ' + o.lpd + ' ' + tt('ל׳/ד׳ מרוסס', 'ล./ไร่', 'ل/دونم'));
   }
 
   function zonesFigure(z, w) {
@@ -3988,7 +4000,8 @@ var AgriPlan = (function () {
         '<td>' + esc(r.round) + '</td><td>' + esc([startText(r), r.timing].filter(Boolean).join(' · ')) + '</td>' +
         '<td class="dl">' + esc(fmtDate(effDeadline(p, r))) + '</td>' +
         '<td>' + n1(r.carrier) + ' ' + (r.method === 'inject'
-          ? tt('סמ"ק', 'ซีซี', 'سم³') : tt('ליטר', 'ลิตร', 'لتر')) + (r.method === 'spot' ? '/' + tt('ד\' מרוסס', 'ไร่ที่พ่น', 'دونم مرشوش') : '') + '</td>' +
+          ? tt('סמ"ק', 'ซีซี', 'سم³') : tt('ליטר', 'ลิตร', 'لتر')) + (r.method === 'spot' ? '/' + tt('ד\' מרוסס', 'ไร่ที่พ่น', 'دونم مرشوش') +
+            '<br><b>≈ ' + n2(spotLTree(r)) + ' ' + tt('ל\'/עץ', 'ล./ต้น', 'ل/شجرة') + '</b>' : '') + '</td>' +
         '<td><b>' + n1(rowCarrierL(r)).toLocaleString() + '</b></td></tr>';
     });
 
