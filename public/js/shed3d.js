@@ -843,12 +843,19 @@ var Shed3D = (function () {
       strut: '#1f3a5f', purlin: '#b5651d', girt: '#b5651d', brace: '#2e7d32', ridge: '#1f3a5f',
       footing: '#cfc9bc', found: '#cfc9bc', slab: '#ddd8cc', ground: '#ebe9e1', roof: '#c9d3dc', wall: '#dfe3e6' };
     function drawShade(fc, l, on) {
-      var col = on ? '#e07b00'
-        : (fc.group === 'column' && m.colExisting) ? '#9e9e9e'
+      var col = (fc.group === 'column' && m.colExisting) ? '#9e9e9e'
         : (DRAWCOL[fc.group] || (String(fc.group).indexOf('free:') === 0 ? '#8a8a8a' : fc.color));
+      if (on) col = '#0f2440';                      // the member in focus: deep navy
       var r = parseInt(col.slice(1,3), 16), g = parseInt(col.slice(3,5), 16), b = parseInt(col.slice(5,7), 16);
       var k = (fc.group === 'ground' || fc.group === 'slab') ? 1 : 0.78 + 0.22 * Math.max(0, l);
-      return 'rgb(' + Math.round(r*k) + ',' + Math.round(g*k) + ',' + Math.round(b*k) + ')';
+      r *= k; g *= k; b *= k;
+      // With one group in focus everything else fades toward the paper, the
+      // way a drawing greys out what it is not about. Colours stay the same
+      // family, so the legend still holds.
+      if (sel && !on && fc.group !== 'ground' && fc.group !== 'slab') {
+        r = r + (244 - r) * 0.62; g = g + (246 - g) * 0.62; b = b + (244 - b) * 0.62;
+      }
+      return 'rgb(' + Math.round(r) + ',' + Math.round(g) + ',' + Math.round(b) + ')';
     }
 
     function shade(color, l, up, on) {

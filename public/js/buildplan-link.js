@@ -757,9 +757,9 @@
       pages += page(BP.tt('מבט תלת־ממדי · מיקום האגדים', 'มุมมองสามมิติ · ตำแหน่งโครงถัก', 'منظور ثلاثي الأبعاد · مواقع الجملونات'),
         '<div class="bp-draw" style="text-align:center;"><img src="' + BP.snap3d(p, { sel: 'rafter', dims: false, cam: { yaw: -0.68, pitch: 0.42, zoom: 1.05, px: 0, py: 0 } }) + '" style="width:100%;max-height:120mm;object-fit:contain;"></div>' +
         '<div class="bp-draw" style="text-align:center;"><img src="' + endV + '" style="width:100%;max-height:120mm;object-fit:contain;"></div>' +
-        '<div class="note">' + BP.tt((d.rafterType === 'truss' ? 'האגדים' : 'קורות הגג') + ' מודגשים בכתום (למעלה: מבט איזומטרי, למטה: מבט לאורך המבנה). כחול: אגדים וקורות אורך, כתום-חום: מרישים, ירוק: ייצוב, אפור: עמודים קיימים' +
+        '<div class="note">' + BP.tt((d.rafterType === 'truss' ? 'האגדים' : 'קורות הגג') + ' מודגשים, שאר המבנה בגוון בהיר (למעלה: מבט איזומטרי, למטה: מבט לאורך המבנה). כחול: אגדים וקורות אורך, חום: מרישים, ירוק: ייצוב, אפור: עמודים קיימים' +
           (BP.girderDepth(d) > 0 ? ' — יושבים על קורות האורך המסבכיות שבין העמודים' : ' — על ראשי העמודים') + '.',
-          'โครงหลังคาเน้นสีส้ม', 'إطارات السقف مظللة بالبرتقالي') + '</div>', 'pg-big');
+          'โครงหลังคาเน้น ส่วนอื่นจาง', 'إطارات السقف مبرزة والباقي باهت') + '</div>', 'pg-big');
     }
     if (full && struct && BP.roofPlanSvg) {
       // ── 2. plan of the structure ──
