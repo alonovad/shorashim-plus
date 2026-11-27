@@ -660,6 +660,11 @@ var Maintenance = (function() {
       STATUSES.forEach(function(s) { filterOpts += '<option value="' + s.value + '">' + s.label + '</option>'; });
 
       modal.innerHTML = '<div style="' + modalBg + '"><div data-maint-view="list" style="' + modalCard + '600px;max-height:85vh;overflow-y:auto;">' +
+        // Close in the corner, sticky so it stays reachable however far the
+        // list is scrolled (the one at the bottom is still there too).
+        '<button onclick="document.getElementById(\'modalContainer\').innerHTML=\'\'" aria-label="' + tt('סגור','ปิด','إغلاق') + '" title="' + tt('סגור','ปิด','إغلاق') + '" ' +
+          'style="position:sticky;top:0;float:left;z-index:5;margin:-4px -4px 4px 8px;width:34px;height:34px;border-radius:50%;border:1px solid var(--border, #ddd);' +
+          'background:var(--surface, #fff);color:var(--text, #333);font-size:1rem;line-height:1;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.12);">\u2715</button>' +
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px;">' +
           '<div style="display:flex;align-items:center;gap:10px;min-width:0;"><img src="' + window.OGEN_LOGO + '" alt="OGEN" style="height:30px;width:auto;display:block;background:#fff;border-radius:8px;padding:3px 6px;box-shadow:0 1px 4px rgba(0,0,0,0.15);"><h3 style="font-weight:700;margin:0;">🔧 ' + tt('תחזוקה — פרויקטים','ซ่อมบำรุง — โครงการ','صيانة — مشاريع') + '</h3></div>' +
           '<div style="display:flex;gap:6px;flex-wrap:wrap;">' + topBtns + '</div>' +
