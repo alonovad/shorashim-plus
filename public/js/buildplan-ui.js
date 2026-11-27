@@ -1047,6 +1047,33 @@
     };
   };
 
+  // A still of the 3D model for print: rendered off-screen at a fixed size
+  // and camera, so the printed plan shows where every member sits — which
+  // a section and a plan alone do not make obvious (trusses on girders,
+  // girders on poles). sel highlights one member group with its callout.
+  BP.snap3d = function snap3d(p, o) {
+    o = o || {};
+    if (typeof Shed3D === 'undefined' || !p || p.hasStruct === false || p.type === 'slab') return '';
+    var host = document.createElement('div');
+    host.style.cssText = 'position:fixed;left:-20000px;top:0;width:' + (o.w || 1400) + 'px;height:' + (o.h || 820) + 'px;';
+    document.body.appendChild(host);
+    var url = '';
+    try {
+      var m = BP.model3d(p);
+      m.shadows = false; m.dims = o.dims !== false; m.scaleRef = 'none'; m.lod = false;
+      var v = Shed3D.mount(host, m, {
+        state: { cam: o.cam || { yaw: -0.68, pitch: 0.42, zoom: 1, px: 0, py: 0 }, sel: o.sel || null },
+        labels: calloutLabels(p)
+      });
+      if (o.sel) v.select(o.sel);
+      v.update(m);
+      url = v.snapshot();
+      v.destroy();
+    } catch (e) { console.warn('snap3d', e); }
+    host.remove();
+    return url;
+  };
+
   // Mounted after paint(), because the canvas has no size until it is in the
   // document. Rebuilt rather than reused across repaints — the host node is
   // replaced by every innerHTML swap, so a retained instance would be

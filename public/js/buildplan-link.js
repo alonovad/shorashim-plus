@@ -739,11 +739,28 @@
       [BP.tt('משקל פלדה', 'น้ำหนักเหล็ก', 'وزن الحديد'), BP.n1(tot.kg) + ' kg'],
       [BP.tt('עלות חומרים (קטלוג)', 'ต้นทุนวัสดุ', 'تكلفة المواد'), BP.money(tot.cost)]
     ]) : '';
+    // The 3D still: an isometric of the whole structure, and a view along
+    // the building with the roof frames (trusses / rafters) highlighted, so
+    // it is plain what sits on what.
+    var iso = (struct && BP.snap3d) ? BP.snap3d(p, { cam: { yaw: -0.68, pitch: 0.42, zoom: 1.05, px: 0, py: 0 } }) : '';
+    var endV = (struct && BP.snap3d && full) ? BP.snap3d(p, { sel: 'rafter', dims: false,
+                  cam: { yaw: -1.25, pitch: 0.16, zoom: 1.15, px: 0, py: 0 } }) : '';
+    var img3d = iso ? '<div class="bp-draw" style="text-align:center;"><img src="' + iso + '" style="width:100%;max-height:118mm;object-fit:contain;"></div>' +
+      '<div class="note">' + BP.tt('מבט איזומטרי של המבנה כולו.', 'มุมมองสามมิติ', 'منظور ثلاثي الأبعاد') + '</div>' : '';
     var pages = page(BP.tt('כללי', 'ทั่วไป', 'عام'),
-      '<h1>' + title + '</h1>' + meta + drawing +
+      '<h1>' + title + '</h1>' + meta + img3d + drawing +
       (keyData ? '<h2>' + BP.tt('נתוני המבנה', 'ข้อมูลโครงสร้าง', 'بيانات المبنى') + '</h2>' + keyData : '') +
       '<div class="note">' + BP.tt('אחוזי ניצול: בדיקה ראשונית במאמצים מותרים — אינה מחליפה תכנון קונסטרוקטור.', 'ตรวจสอบเบื้องต้น', 'فحص أولي لا يغني عن التصميم الإنشائي.') + '</div>', 'pg-cover');
 
+    if (full && endV) {
+      // ── 1b. 3D: where the roof frames sit ──
+      pages += page(BP.tt('מבט תלת־ממדי · מיקום האגדים', 'มุมมองสามมิติ · ตำแหน่งโครงถัก', 'منظور ثلاثي الأبعاد · مواقع الجملونات'),
+        '<div class="bp-draw" style="text-align:center;"><img src="' + BP.snap3d(p, { sel: 'rafter', dims: false, cam: { yaw: -0.68, pitch: 0.42, zoom: 1.05, px: 0, py: 0 } }) + '" style="width:100%;max-height:120mm;object-fit:contain;"></div>' +
+        '<div class="bp-draw" style="text-align:center;"><img src="' + endV + '" style="width:100%;max-height:120mm;object-fit:contain;"></div>' +
+        '<div class="note">' + BP.tt((d.rafterType === 'truss' ? 'האגדים' : 'קורות הגג') + ' מודגשים בצהוב (למעלה: מבט איזומטרי, למטה: מבט לאורך המבנה)' +
+          (BP.girderDepth(d) > 0 ? ' — יושבים על קורות האורך המסבכיות שבין העמודים' : ' — על ראשי העמודים') + '.',
+          'ด้านล่าง: โครงหลังคาเน้นสีเหลือง', 'في الأسفل: إطارات السقف مظللة بالأصفر') + '</div>', 'pg-big');
+    }
     if (full && struct && BP.roofPlanSvg) {
       // ── 2. plan of the structure ──
       pages += page(BP.tt('תוכנית קונסטרוקציה', 'ผังโครงสร้าง', 'مخطط الهيكل'),
