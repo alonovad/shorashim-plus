@@ -1375,7 +1375,7 @@
     var h = '<div style="opacity:.75;font-size:11px;">' + BP.esc(title) + '</div>' +
       '<div style="font-weight:800;font-size:13px;direction:ltr;text-align:right;">' + BP.esc(name ? BP.dsp(name) : '\u2014') + '</div>';
     var pr = name ? BP.profByName(name) : null;
-    if (pr && pr.kgPerM) h += '<div style="opacity:.8;">' + pr.kgPerM + ' kg/m</div>';
+    if (pr && pr.kgPerM) h += '<div style="opacity:.8;"><span dir="ltr">' + pr.kgPerM + ' kg/m</span></div>';
     if (role && name) {
       var r = BP.checkMember(role, name, d);
       if (r.known) {
