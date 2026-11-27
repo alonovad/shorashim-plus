@@ -427,6 +427,7 @@ var AgriPlan = (function () {
       prep: String(p.prep || ''),           // דגשים לביצוע והכנות - printed, shown to the crew
       zones: normZones(p.zones),            // spray diagram: parts of the tree and share of the volume
       zones2: normZones(p.zones2),          // optional second diagram (e.g. trees + herbicide on the ground)
+      radius: normRadius(p.radius),         // top view: spray radius around each palm in a row
       createdAt: Number(p.createdAt) || Date.now(),
       createdBy: String(p.createdBy || ''),
       // Printed heading, separate from the internal plan name: the sheet a
@@ -523,6 +524,7 @@ var AgriPlan = (function () {
     if (String(p.prep || '').trim()) o.prep = String(p.prep).trim();
     if (p.zones && p.zones.on) o.zones = { img: p.zones.img || '', parts: p.zones.parts };
     if (p.zones2 && p.zones2.on) o.zones2 = { img: p.zones2.img || '', parts: p.zones2.parts };   // only when used, so older approvals stay valid
+    if (p.radius && p.radius.on) o.radius = { r: p.radius.r, sp: p.radius.sp, rs: p.radius.rs };   // the crew sprays to this radius
     return hash(stable(o));
   }
   // Farms the plan currently covers, in first-appearance order.
@@ -1094,7 +1096,7 @@ var AgriPlan = (function () {
     if (v === 'new') {
       var u = window.currentUser || {};
       dst = normPlan({ id: uid(), name: (p.name || '') + ' - ' + farmName(fid), target: p.target || '', createdAt: Date.now(), createdBy: u.username || '' });
-      ['prep', 'docTitle', 'docSub', 'deadline', 'zones', 'zones2', 'diagram'].forEach(function (k) { if (p[k] != null) dst[k] = JSON.parse(JSON.stringify(p[k])); });
+      ['prep', 'docTitle', 'docSub', 'deadline', 'zones', 'zones2', 'radius', 'diagram'].forEach(function (k) { if (p[k] != null) dst[k] = JSON.parse(JSON.stringify(p[k])); });
       S.plans.push(dst);
     } else {
       dst = planById(Number(v));
@@ -1320,6 +1322,7 @@ var AgriPlan = (function () {
             (ro ? 'readonly ' : '') + 'oninput="AgriPlan._setPlan(' + id + ',\'prep\',this.value)">' + esc(p.prep || '') + '</textarea>' +
           '<div style="font-size:.7rem;color:var(--text-muted,#888);margin-top:3px;">' + tt('מודפס בראש התוכנית ומוצג לצוות בכרטיס המשק', 'พิมพ์และแสดงให้ทีม', 'يُطبع ويُعرض للطاقم') + '</div></div>' +
           zonesEditor(p, ro, 1) + (p.zones && p.zones.on ? zonesEditor(p, ro, 2) : '') +
+          radiusEditor(p, ro) +
       '</div>' +
 
       '<datalist id="apMats">' + matList + '</datalist>' +
@@ -1761,7 +1764,10 @@ var AgriPlan = (function () {
           ZONES.filter(function (d) { return Number(z.parts[d.k]) > 0; }).map(function (d) {
             return '<div><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:' + d.c + ';margin-inline-end:4px;"></span>' + esc(zName(d)) + ' <b>' + z.parts[d.k] + '%</b></div>';
           }).join('') + '</div></div>';
-      }).join('');
+      }).join('') +
+      (p.radius && p.radius.on ? '<div class="ap-fc-sub" style="margin-top:4px;background:#fff7ef;border-radius:8px;padding:5px 8px;">' +
+        '<b>⭕ ' + tt('רדיוס ריסוס', 'รัศมีพ่น', 'نصف قطر الرش') + ' ' + radiusOf(p).r + ' ' + tt('מ׳', 'ม.', 'م') + '</b>' +
+        radiusSvg(p, 320) + '</div>' : '');
     order.forEach(function (k) {
       var o = ops[k], c = mColor(o.method);
       html += '<div class="ap-fc-op">' +
@@ -3074,6 +3080,148 @@ var AgriPlan = (function () {
   // A scene with machinery is wider than the palm alone.
   function zWide(z) { return !!(z && !z.img && z.scene && z.scene !== 'none'); }
   function zW(z, base) { return zWide(z) ? Math.round(base * 2.3) : base; }
+  // ── Spray radius diagram ──
+  // Top view of one palm row: a circle of the set radius around every tree,
+  // so the crew sees how far out from the trunk to spray, and where the
+  // circles of neighbouring trees meet. Spacings default to the plots in
+  // the plan (tree_spacing / row_spacing), else 8 m.
+  function normRadius(x) {
+    if (!x || typeof x !== 'object') return null;
+    function num(v, lo, hi) { v = Number(v); return v > 0 ? Math.min(hi, Math.max(lo, Math.round(v * 10) / 10)) : 0; }
+    return { on: !!x.on, r: num(x.r, 0.3, 30) || 5, sp: num(x.sp, 0.5, 40), rs: num(x.rs, 0.5, 40),
+             n: Math.min(8, Math.max(3, Math.round(Number(x.n) || 5))) };
+  }
+  function planSpacing(p, k) {
+    var v = [];
+    (p.rows || []).forEach(function (r) { var pl = r.plotId ? plotById(r.plotId) : null; var x = Number(pl && pl[k]); if (x > 0) v.push(x); });
+    if (!v.length) return 8;
+    v.sort(function (a, b) { return a - b; });
+    return v[Math.floor(v.length / 2)];
+  }
+  function radiusOf(p) {
+    var R = p.radius || normRadius({ on: true });
+    return { r: R.r, sp: R.sp || planSpacing(p, 'tree_spacing'), rs: R.rs || planSpacing(p, 'row_spacing'),
+             n: R.n, autoSp: !R.sp, autoRs: !R.rs };
+  }
+  // Ground each tree owns inside its circle: the circle clipped to half the
+  // spacing on every side (where circles overlap, the ground is sprayed once).
+  function radiusArea(o) {
+    var r = o.r, hx = Math.min(r, o.sp / 2), hy = o.rs / 2, N = 200, a = 0;
+    for (var i = 0; i < N; i++) {
+      var x = -hx + (i + 0.5) * (2 * hx / N);
+      a += 2 * Math.min(Math.sqrt(Math.max(0, r * r - x * x)), hy) * (2 * hx / N);
+    }
+    return a;
+  }
+  function radiusFacts(p) {
+    var o = radiusOf(p), full = Math.PI * o.r * o.r, a = radiusArea(o), m = tt('מ׳', 'ม.', 'م');
+    var lap = 2 * o.r > o.sp;
+    return '<div style="font-size:.76rem;line-height:1.5;margin-top:3px;">' +
+      tt('רדיוס', 'รัศมี', 'نصف القطر') + ' <b>' + o.r + ' ' + m + '</b> · ' + tt('קוטר', 'เส้นผ่านศูนย์กลาง', 'القطر') + ' ' + n1(2 * o.r) + ' ' + m +
+      ' · ' + tt('בין עצים', 'ระหว่างต้น', 'بين الأشجار') + ' ' + o.sp + ' ' + m + ' · ' + tt('בין שורות', 'ระหว่างแถว', 'بين الصفوف') + ' ' + o.rs + ' ' + m +
+      '<br>' + tt('שטח מרוסס לעץ', 'พื้นที่พ่น/ต้น', 'المساحة المرشوشة/شجرة') + ' ≈ <b>' + Math.round(a) + ' ' + tt('מ"ר', 'ตร.ม.', 'م²') + '</b>' +
+      (Math.round(a) < Math.round(full) ? ' <span style="opacity:.75;">(' + tt('עיגול מלא', 'วงกลมเต็ม', 'دائرة كاملة') + ' ' + Math.round(full) + ' - ' + tt('בניכוי חפיפה', 'หักส่วนซ้อน', 'بعد خصم التداخل') + ')</span>' : '') +
+      (lap ? '<br>⚠️ ' + tt('העיגולים חופפים בין העצים - רצועה רציפה לאורך השורה', 'วงกลมซ้อนกัน - เป็นแถบต่อเนื่อง', 'الدوائر متداخلة - شريط متصل على طول الصف') : '') +
+      '</div>';
+  }
+  function radiusSvg(p, w) {
+    var o = radiusOf(p), r = o.r, sp = o.sp, n = o.n;
+    var mg = Math.max(1.2, r * 0.25);                       // metres of margin
+    var Wm = (n - 1) * sp + 2 * r + 2 * mg, Hm = 2 * r + 2 * mg + 2.2;
+    var k = w / Wm, h = Math.round(Hm * k);
+    function X(m) { return (mg + r + m) * k; }
+    var cy = (mg + r) * k, m = tt('מ׳', 'ม.', 'م');
+    var g = '<rect x="0" y="0" width="' + w + '" height="' + h + '" rx="10" fill="#f7f1e3"/>';
+    // half-way to the next row, where it clips the circles
+    if (o.rs / 2 < r + mg) {
+      [-1, 1].forEach(function (s) {
+        var yy = cy + s * (o.rs / 2) * k;
+        if (yy < 2 || yy > h - 2) return;
+        g += '<line x1="4" y1="' + yy + '" x2="' + (w - 4) + '" y2="' + yy + '" stroke="#8d8d8d" stroke-width="1" stroke-dasharray="6 4"/>';
+      });
+      g += '<text x="' + (w - 8) + '" y="' + (cy - (o.rs / 2) * k - 4) + '" font-size="10" fill="#6d6d6d" text-anchor="end">' + esc(tt('אמצע המרווח לשורה הבאה', 'กึ่งกลางถึงแถวถัดไป', 'منتصف المسافة للصف التالي')) + '</text>';
+    }
+    g += '<line x1="4" y1="' + cy + '" x2="' + (w - 4) + '" y2="' + cy + '" stroke="#a1887f" stroke-width="1" stroke-dasharray="2 4"/>';
+    for (var i = 0; i < n; i++) g += '<circle cx="' + X(i * sp) + '" cy="' + cy + '" r="' + r * k + '" fill="#ef6c00" fill-opacity=".16" stroke="#ef6c00" stroke-width="1.6"/>';
+    var fr = Math.min(r * 0.45, sp * 0.3, 2.2) * k;          // frond reach (drawing only)
+    for (var j = 0; j < n; j++) {
+      var tx = X(j * sp);
+      for (var a = 0; a < 10; a++) {
+        var an = a * Math.PI / 5 + 0.2, ex = tx + Math.cos(an) * fr, ey = cy + Math.sin(an) * fr;
+        g += '<path d="M' + tx + ' ' + cy + ' Q ' + (tx + Math.cos(an + 0.25) * fr * 0.6) + ' ' + (cy + Math.sin(an + 0.25) * fr * 0.6) + ' ' + ex + ' ' + ey + '" stroke="#2e7d32" stroke-width="' + Math.max(1.5, fr * 0.12) + '" fill="none" stroke-linecap="round"/>';
+      }
+      g += '<circle cx="' + tx + '" cy="' + cy + '" r="' + Math.max(2.5, 0.35 * k) + '" fill="#6d4c41"/>';
+    }
+    // radius dimension on the middle tree
+    var mid = X(Math.floor((n - 1) / 2) * sp), ang = -0.6;
+    var rx2 = mid + Math.cos(ang) * r * k, ry2 = cy + Math.sin(ang) * r * k;
+    g += '<line x1="' + mid + '" y1="' + cy + '" x2="' + rx2 + '" y2="' + ry2 + '" stroke="#b33c00" stroke-width="2"/>' +
+      '<circle cx="' + rx2 + '" cy="' + ry2 + '" r="3" fill="#b33c00"/>' +
+      '<text x="' + ((mid + rx2) / 2 + 6) + '" y="' + ((cy + ry2) / 2 - 6) + '" font-size="13" font-weight="800" fill="#b33c00">r = ' + r + ' ' + esc(m) + '</text>';
+    // spacing dimension between the first two trees
+    var dy = cy + r * k + mg * k * 0.55;
+    if (n > 1 && dy < h - 4) {
+      g += '<line x1="' + X(0) + '" y1="' + dy + '" x2="' + X(sp) + '" y2="' + dy + '" stroke="#37474f" stroke-width="1.2"/>' +
+        '<line x1="' + X(0) + '" y1="' + (dy - 5) + '" x2="' + X(0) + '" y2="' + (dy + 5) + '" stroke="#37474f"/>' +
+        '<line x1="' + X(sp) + '" y1="' + (dy - 5) + '" x2="' + X(sp) + '" y2="' + (dy + 5) + '" stroke="#37474f"/>' +
+        '<text x="' + X(sp / 2) + '" y="' + (dy + 14) + '" font-size="11" text-anchor="middle" fill="#37474f">' + sp + ' ' + esc(m) + ' ' + esc(tt('בין עצים', 'ระหว่างต้น', 'بين الأشجار')) + '</text>';
+    }
+    return '<svg viewBox="0 0 ' + w + ' ' + h + '" width="100%" style="max-width:' + w + 'px;display:block;direction:ltr;" xmlns="http://www.w3.org/2000/svg">' + g + '</svg>';
+  }
+  function radiusEditor(p, ro) {
+    var R = p.radius, id = p.id;
+    if (!R || !R.on) {
+      return ro ? '' : '<div class="ap-zone"><button type="button" class="ap-btn ghost" data-no-sticky data-no-back onclick="AgriPlan._rToggle(' + id + ')">⭕ ' +
+        tt('הוסף איור רדיוס ריסוס סביב העצים בשורה', 'เพิ่มภาพรัศมีพ่นรอบต้น', 'أضف رسم نصف قطر الرش حول الأشجار') + '</button></div>';
+    }
+    var o = radiusOf(p), m = tt('מ׳', 'ม.', 'م'), area = Math.round(radiusArea(o));
+    var spot = (p.rows || []).filter(function (r) { return r.method === 'spot'; });
+    function inp(k, val, ph, label) {
+      return '<label>' + esc(label) + '<input class="ap-in" type="number" step="0.5" min="0" value="' + (val || '') + '" placeholder="' + ph + '" ' + (ro ? 'readonly ' : '') +
+        'onchange="AgriPlan._rSet(' + id + ',\'' + k + '\',this.value)"></label>';
+    }
+    return '<div class="ap-zone"><div class="ap-lbl" style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;">' +
+        '<b>⭕ ' + tt('רדיוס ריסוס סביב כל עץ', 'รัศมีพ่นรอบต้น', 'نصف قطر الرش حول كل شجرة') + '</b>' +
+        (ro ? '' : '<button type="button" class="ap-btn ghost" data-no-sticky data-no-back style="padding:4px 9px;font-size:.74rem;color:#b3261e;" onclick="AgriPlan._rToggle(' + id + ')">✕ ' + tt('הסר', 'ลบ', 'إزالة') + '</button>') +
+      '</div>' +
+      '<div class="ap-zopt">' +
+        inp('r', R.r, 5, tt('רדיוס', 'รัศมี', 'نصف القطر') + ' (' + m + ')') +
+        inp('sp', R.sp, o.sp, tt('בין עצים', 'ระหว่างต้น', 'بين الأشجار') + ' (' + m + ')' + (o.autoSp ? ' ' + tt('- לפי החלקות', '- ตามแปลง', '- حسب القطع') : '')) +
+        inp('rs', R.rs, o.rs, tt('בין שורות', 'ระหว่างแถว', 'بين الصفوف') + ' (' + m + ')' + (o.autoRs ? ' ' + tt('- לפי החלקות', '- ตามแปลง', '- حسب القطع') : '')) +
+        '<label>' + esc(tt('עצים באיור', 'ต้นในภาพ', 'أشجار في الرسم')) + '<select class="ap-in"' + (ro ? ' disabled' : '') + ' onchange="AgriPlan._rSet(' + id + ',\'n\',this.value)">' +
+          [3, 4, 5, 6, 7, 8].map(function (v) { return '<option' + (v === o.n ? ' selected' : '') + '>' + v + '</option>'; }).join('') + '</select></label>' +
+      '</div>' +
+      radiusSvg(p, 520) + radiusFacts(p) +
+      (!ro && spot.length ? '<button type="button" class="ap-btn ghost" data-no-sticky data-no-back style="margin-top:6px;padding:5px 10px;font-size:.76rem;" onclick="AgriPlan._rApply(' + id + ')">↧ ' +
+        tt('עדכן שטח לעץ בשורות ריסוס עשבייה', 'ใช้กับแถวพ่นวัชพืช', 'طبّق على صفوف رش الأعشاب') + ' (' + spot.length + ' · ' + area + ' ' + tt('מ"ר', 'ตร.ม.', 'م²') + ')</button>' : '') +
+      '</div>';
+  }
+  function _rToggle(pid) {
+    var p = editable(pid);
+    if (!p) return;
+    if (p.radius && p.radius.on) {
+      if (!confirm(tt('להסיר את איור הרדיוס מהתוכנית?', 'ลบภาพรัศมี?', 'إزالة رسم نصف القطر؟'))) return;
+      p.radius = null;
+    } else p.radius = normRadius({ on: true, r: 5 });
+    save(); showPlan(pid);
+  }
+  function _rSet(pid, k, v) {
+    var p = editable(pid);
+    if (!p || !p.radius) return;
+    var x = JSON.parse(JSON.stringify(p.radius)); x[k] = Number(v) || 0;
+    p.radius = normRadius(x);
+    save(); showPlan(pid);
+  }
+  function _rApply(pid) {
+    var p = editable(pid);
+    if (!p || !p.radius) return;
+    var a = Math.round(radiusArea(radiusOf(p)));
+    if (!(a > 0)) return;
+    (p.rows || []).forEach(function (r) { if (r.method === 'spot') r.spot = a; });
+    save(); showPlan(pid);
+    toast(tt('עודכן', 'อัปเดตแล้ว', 'تم التحديث') + ': ' + a + ' ' + tt('מ"ר לעץ', 'ตร.ม./ต้น', 'م²/شجرة'));
+  }
+
   function zonesFigure(z, w) {
     if (z.img) return '<img src="' + esc(z.img) + '" alt="" style="max-width:100%;max-height:' + (w ? Math.round(w * 1.1) : 330) + 'px;border-radius:12px;display:block;">';
     return zoneSvg(z, w);
@@ -3915,6 +4063,9 @@ var AgriPlan = (function () {
           '<div style="flex:0 0 ' + zW(z, 200) + 'px;">' + zonesFigure(z, zW(z, 200)) + '</div><div style="flex:1;"><b>' + (zGround(z) ? '🌱 ' : '🌴 ') + zTitle(z) + '</b>' +
           zonesTable(z, rowsIn).replace('class="ap-ztbl"', 'style="width:100%;border-collapse:collapse;margin-top:4px;font-size:.76rem;"') + '</div></div>';
       }).join('') +
+      (p.radius && p.radius.on ? '<div style="border:1.5px solid #ef6c00;border-radius:8px;padding:6px 10px;margin:0 0 10px;font-size:.78rem;background:#fff7ef;break-inside:avoid;page-break-inside:avoid;-webkit-print-color-adjust:exact;print-color-adjust:exact;">' +
+        '<b>⭕ ' + tt('רדיוס ריסוס סביב כל עץ', 'รัศมีพ่นรอบต้น', 'نصف قطر الرش حول كل شجرة') + '</b>' +
+        '<div style="margin-top:4px;">' + radiusSvg(p, 560) + '</div>' + radiusFacts(p) + '</div>' : '') +
 
       '<table><thead><tr>' +
         '<th>' + tt('אופן יישום', 'วิธี', 'طريقة') + '</th><th>' + tt('משק', 'ฟาร์ม', 'مزرعة') + '</th>' +
@@ -5030,6 +5181,7 @@ var AgriPlan = (function () {
     _prepTemplate: _prepTemplate,
     _tplToggle: _tplToggle,
     _zToggle: _zToggle,
+    _rToggle: _rToggle, _rSet: _rSet, _rApply: _rApply,
     _zOpt: _zOpt,
     _zSet: _zSet,
     _zImg: _zImg,
