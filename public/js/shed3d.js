@@ -323,6 +323,11 @@ var Shed3D = (function () {
     return null;
   }
   // One member, drawn as its section, split along its length like the rest.
+  // Sub-part tag on top of the layer group: a truss is one layer, but its
+  // top chord, bottom chord and webs are three different profiles, and
+  // hovering one has to say which.
+  function tagP(arr, part) { for (var i = 0; i < arr.length; i++) arr[i].part = part; return arr; }
+
   function memSeg(a, b, sec, dfltR, c, g, lod) {
     var len = Math.hypot(b[0]-a[0], b[1]-a[1], b[2]-a[2]);
     if (!sec || !(sec.h > 0)) return strutSeg(a, b, dfltR, c, g);
@@ -451,7 +456,7 @@ var Shed3D = (function () {
           F.push({ pts: [A[0],B[0],B[3],A[3]], color: PALETTE.column, group: 'column' });
           F.push({ pts: [A[1],B[1],B[2],A[2]], color: PALETTE.column, group: 'column' });
         } else if (colRound) {
-          F = F.concat(memSeg([x, cy, 0], [x, cy, top], SEC.col, colHx, colCol, 'column', m.lod));
+          F = F.concat(tagP(memSeg([x, cy, 0], [x, cy, top], SEC.col, colHx, colCol, 'column', m.lod), 'column'));
         } else {
           F = F.concat(colSeg2(x, cy, colHx, colHy, top, colCol));
         }
@@ -463,7 +468,7 @@ var Shed3D = (function () {
           var under2 = (m.rafterType === 'truss') ? m.trussDepth : 0.25;
           var zk = zAt(yk) - under2;
           var zc = Math.max(0.5, Math.min(top, zk) - 1.4);
-          F = F.concat(memSeg([x, cy, zc], [x, yk, zk], SEC.knee, 0.05, PALETTE.haunch, 'haunch', true));
+          F = F.concat(tagP(memSeg([x, cy, zc], [x, yk, zk], SEC.knee, 0.05, PALETTE.haunch, 'haunch', true), 'knee'));
         } else if (haunch > 0 && !inner) {
           var dir = cy < 0 ? 1 : -1;
           F.push({ pts: [[x-cw,cy,top],[x+cw,cy,top],
@@ -485,8 +490,8 @@ var Shed3D = (function () {
           // and price very differently, so the choice has to be visible.
           var dep = m.trussDepth;
           var aL = [a[0], a[1], a[2]-dep], bL = [b[0], b[1], b[2]-dep];
-          F = F.concat(memSeg(a, b, SEC.raf, topR, PALETTE.truss, 'rafter', m.lod));
-          F = F.concat(memSeg(aL, bL, SEC.bot, botR, PALETTE.truss, 'rafter', m.lod));
+          F = F.concat(tagP(memSeg(a, b, SEC.raf, topR, PALETTE.truss, 'rafter', m.lod), 'trussTop'));
+          F = F.concat(tagP(memSeg(aL, bL, SEC.bot, botR, PALETTE.truss, 'rafter', m.lod), 'trussBot'));
           // Panel count is capped: past ~10 panels per slope the extra webs
           // are visually indistinguishable and cost hundreds of faces.
           // Panels follow the purlin spacing (a purlin over every node, as
@@ -495,17 +500,17 @@ var Shed3D = (function () {
           // Mono: Pratt, diagonals mirrored about mid-span.
           var segs = Math.max(4, Math.min(m.lod ? 8 : 16,
             Math.round(Math.hypot(b[1]-a[1], b[2]-a[2]) / Math.max(0.6, m.purlinSp || 1.1))));
-          F = F.concat(memSeg(aL, a, SEC.web, webR, PALETTE.truss, 'rafter', true));
+          F = F.concat(tagP(memSeg(aL, a, SEC.web, webR, PALETTE.truss, 'rafter', true), 'trussWeb'));
           for (var w = 0; w < segs; w++) {
             var t1 = w/segs, t2 = (w+1)/segs;
             var down = !mono || (w < segs / 2);
-            F = F.concat(down
+            F = F.concat(tagP(down
               ? memSeg(lerp(a,b,t1), lerp(aL,bL,t2), SEC.web, webR, PALETTE.truss, 'rafter', true)
-              : memSeg(lerp(aL,bL,t1), lerp(a,b,t2), SEC.web, webR, PALETTE.truss, 'rafter', true));
-            F = F.concat(memSeg(lerp(aL,bL,t2), lerp(a,b,t2), SEC.web, webR, PALETTE.truss, 'rafter', true));
+              : memSeg(lerp(aL,bL,t1), lerp(a,b,t2), SEC.web, webR, PALETTE.truss, 'rafter', true), 'trussWeb'));
+            F = F.concat(tagP(memSeg(lerp(aL,bL,t2), lerp(a,b,t2), SEC.web, webR, PALETTE.truss, 'rafter', true), 'trussWeb'));
           }
         } else {
-          F = F.concat(memSeg(a, b, SEC.raf, rafR, PALETTE.rafter, 'rafter', m.lod));
+          F = F.concat(tagP(memSeg(a, b, SEC.raf, rafR, PALETTE.rafter, 'rafter', m.lod), 'rafter'));
         }
       });
     }
@@ -520,16 +525,16 @@ var Shed3D = (function () {
       var gPan = Math.max(2, Math.min(m.lod ? 10 : 24, Math.round(len / 1.0)));
       lines.forEach(function (gy) {
         var gt = zAt(gy) - under, gb = gt - gDep;
-        F = F.concat(memSeg([x0, gy, gt], [x1, gy, gt], SEC.gir, girR, PALETTE.girder, 'girder', m.lod));
-        F = F.concat(memSeg([x0, gy, gb], [x1, gy, gb], SEC.gir, girR, PALETTE.girder, 'girder', m.lod));
+        F = F.concat(tagP(memSeg([x0, gy, gt], [x1, gy, gt], SEC.gir, girR, PALETTE.girder, 'girder', m.lod), 'girderChord'));
+        F = F.concat(tagP(memSeg([x0, gy, gb], [x1, gy, gb], SEC.gir, girR, PALETTE.girder, 'girder', m.lod), 'girderChord'));
         for (var gp = 0; gp <= gPan; gp++) {
           var gx = x0 + len * gp / gPan;
-          F = F.concat(memSeg([gx, gy, gb], [gx, gy, gt], SEC.web, webR, PALETTE.girder, 'girder', true));
+          F = F.concat(tagP(memSeg([gx, gy, gb], [gx, gy, gt], SEC.web, webR, PALETTE.girder, 'girder', true), 'girderWeb'));
           if (gp < gPan) {
             var gx2 = x0 + len * (gp + 1) / gPan;
-            F = F.concat(gp < gPan / 2
+            F = F.concat(tagP(gp < gPan / 2
               ? memSeg([gx, gy, gt], [gx2, gy, gb], SEC.web, webR, PALETTE.girder, 'girder', true)
-              : memSeg([gx, gy, gb], [gx2, gy, gt], SEC.web, webR, PALETTE.girder, 'girder', true));
+              : memSeg([gx, gy, gb], [gx2, gy, gt], SEC.web, webR, PALETTE.girder, 'girder', true), 'girderWeb'));
           }
         }
       });
@@ -1044,7 +1049,8 @@ var Shed3D = (function () {
         // The nearest-vertex key produces zero, at every viewpoint tested.
         list.push({ fc: fc, pr: pr, depth: near, layer: layer,
                     l: Math.abs(dot(n, S)), up: Math.abs(n[2]),
-                    big: (maxX - minX) * (maxY - minY) > 90 });
+                    big: (maxX - minX) * (maxY - minY) > 90,
+                    bb: [minX, minY, maxX, maxY] });
       }
       list.sort(function (a, b) {
         if (a.layer !== b.layer) return a.layer - b.layer;
@@ -1105,6 +1111,10 @@ var Shed3D = (function () {
         ctx.fillStyle = DRAWING ? drawShade(fc, it.l, sel === fc.group) : shade(fc.color, it.l, it.up, sel === fc.group);
         ctx.globalAlpha = fc.alpha != null ? fc.alpha : 1;
         ctx.fill();
+        if (hoverKey && !DRAWING && fc.group !== 'ground' && (fc.part || fc.group) === hoverKey) {
+          ctx.fillStyle = 'rgba(255,152,0,.55)';
+          ctx.fill();
+        }
         ctx.globalAlpha = 1;
         // Outlining a 6 px truss web costs a full path stroke and reads as
         // noise. Only outline faces big enough for the edge to mean
@@ -1655,6 +1665,57 @@ var Shed3D = (function () {
       return null;
     }
 
+    // Hover: the face under the cursor, with a few pixels of slack so a
+    // 3 px truss web can still be hit at a zoomed-out view.
+    function pickFace(x, y) {
+      var offs = [[0,0],[4,0],[-4,0],[0,4],[0,-4],[3,3],[-3,3],[3,-3],[-3,-3]];
+      for (var o = 0; o < offs.length; o++) {
+        var px = x + offs[o][0], py = y + offs[o][1];
+        for (var i = lastPolys.length-1; i >= 0; i--) {
+          var it = lastPolys[i];
+          if (it.fc.group === 'ground' || it.fc.group === 'slab') continue;
+          var b = it.bb;
+          if (b && (px < b[0] || px > b[2] || py < b[1] || py > b[3])) continue;
+          if (inPoly([px, py], it.pr)) return it.fc;
+        }
+      }
+      return null;
+    }
+    var tip = document.createElement('div');
+    tip.style.cssText = 'position:absolute;z-index:20;pointer-events:none;display:none;max-width:260px;' +
+      'background:rgba(20,28,40,.94);color:#fff;border-radius:8px;padding:6px 9px;font-size:12px;line-height:1.35;' +
+      'box-shadow:0 2px 10px rgba(0,0,0,.3);direction:rtl;text-align:right;white-space:normal;';
+    if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
+    host.appendChild(tip);
+    var hoverKey = null, hoverRaf = 0, hoverEv = null;
+    function hideTip() {
+      tip.style.display = 'none';
+      if (hoverKey) { hoverKey = null; draw(); }
+    }
+    function hoverAt() {
+      hoverRaf = 0;
+      if (!hoverEv || drag || tool !== 'orbit') return;
+      var r = cv.getBoundingClientRect();
+      var x = hoverEv.x - r.left, y = hoverEv.y - r.top;
+      var fc = pickFace(x, y);
+      var key = fc ? (fc.part || fc.group) : null;
+      var html = fc && opts.describe ? opts.describe(fc.part || fc.group, fc.group) : '';
+      if (!html) { tip.style.display = 'none'; key = null; }
+      else {
+        tip.innerHTML = html;
+        tip.style.display = 'block';
+        var tw = tip.offsetWidth, th = tip.offsetHeight;
+        var lx = x + 14, ly = y + 16;
+        if (lx + tw > r.width - 4) lx = x - tw - 12;
+        if (ly + th > r.height - 4) ly = y - th - 12;
+        tip.style.left = Math.max(4, lx) + 'px';
+        tip.style.top = Math.max(4, ly) + 'px';
+      }
+      cv.style.cursor = key ? 'pointer' : 'grab';
+      if (key !== hoverKey) { hoverKey = key; draw(); }
+    }
+    cv.addEventListener('pointerleave', function () { hoverEv = null; hideTip(); });
+
     // Moving a free element: with it selected, dragging on it slides it
     // across the ground plane at its own height. Screen pixels become
     // metres through the projector's scale at that depth, rotated back by
@@ -1683,7 +1744,14 @@ var Shed3D = (function () {
     });
     cv.addEventListener('contextmenu', function (e) { e.preventDefault(); });
     cv.addEventListener('pointermove', function (e) {
-      if (!drag) return;
+      if (!drag) {
+        if (e.pointerType === 'mouse' && tool === 'orbit') {
+          hoverEv = { x: e.clientX, y: e.clientY };
+          if (!hoverRaf) hoverRaf = requestAnimationFrame(hoverAt);
+        }
+        return;
+      }
+      if (tip.style.display !== 'none') hideTip();
       var dx = e.clientX - drag.x, dy = e.clientY - drag.y;
       moved += Math.abs(dx) + Math.abs(dy);
       busy = true;

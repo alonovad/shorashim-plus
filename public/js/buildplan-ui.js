@@ -1296,6 +1296,7 @@
       },
       state: _v3dState || { marks: marksFor(p) },
       labels: calloutLabels(p),
+      describe: function (part, group) { try { return partTip(p, part, group); } catch (e) { return ''; } },
       onSelect: function (g) {
         var el = document.getElementById('bpSel');
         if (el) el.textContent = g ? memberLabel(g) : '';
@@ -1343,6 +1344,52 @@
         if (g && BP._v3d) BP._v3d.setGround(g.img, g.extent);
       });
     }
+  }
+
+  // Hover tooltip: which member this is, which profile, its weight and
+  // the first-pass check — the same numbers as the profiles panel.
+  function partTip(p, part, group) {
+    var d = p.dims, name = '', role = '', title = '';
+    var T = {
+      column:      [BP.tt('עמוד', 'เสา', 'عمود'), d.colProfile, 'column'],
+      knee:        [BP.tt('תמיכת פינה', 'ค้ำมุม', 'دعامة ركن'), d.haunchProfile || d.rafterProfile, ''],
+      trussTop:    [BP.tt('סבכה – חגורה עליונה', 'โครงถัก – คอร์ดบน', 'الجملون – الوتر العلوي'), d.rafterProfile, 'rafter'],
+      trussBot:    [BP.tt('סבכה – חגורה תחתונה', 'โครงถัก – คอร์ดล่าง', 'الجملون – الوتر السفلي'), d.trussBotProfile || d.rafterProfile, 'trussBot'],
+      trussWeb:    [BP.tt('סבכה – ניצב/אלכסון', 'โครงถัก – ตั้ง/ทแยง', 'الجملون – قائم/قطر'), d.trussWebProfile || d.trussBotProfile || d.rafterProfile, 'trussWeb'],
+      rafter:      [BP.tt('קורת גג', 'คาน', 'رافدة'), d.rafterProfile, 'rafter'],
+      girderChord: [BP.tt('קורת אורך – חגורה', 'คานตามยาว – คอร์ด', 'العارضة الطولية – وتر'), d.girderProfile || d.rafterProfile, ''],
+      girderWeb:   [BP.tt('קורת אורך – ניצב/אלכסון', 'คานตามยาว – ตั้ง/ทแยง', 'العارضة الطولية – قائم/قطر'), d.trussWebProfile || d.girderProfile || d.rafterProfile, ''],
+      purlin:      [BP.tt('מריש', 'แป', 'مرياش'), d.purlinProfile, 'purlin']
+    };
+    if (T[part]) { title = T[part][0]; name = T[part][1]; role = T[part][2]; }
+    else if (/^free:/.test(String(group))) {
+      var fid = String(group).slice(5);
+      (p.free || []).forEach(function (f) { if (String(f.id) === fid) { name = f.profile || ''; } });
+      title = memberLabel(group).replace('\ud83d\udc46 ', '');
+    } else {
+      var cl = calloutLabels(p)[group];
+      if (!cl) return '';
+      return '<b>' + BP.esc(String(cl.title).replace('\ud83d\udc46 ', '')) + '</b>' +
+        (cl.sub ? '<div style="opacity:.85;">' + BP.esc(cl.sub) + '</div>' : '');
+    }
+    var h = '<div style="opacity:.75;font-size:11px;">' + BP.esc(title) + '</div>' +
+      '<div style="font-weight:800;font-size:13px;direction:ltr;text-align:right;">' + BP.esc(name ? BP.dsp(name) : '\u2014') + '</div>';
+    var pr = name ? BP.profByName(name) : null;
+    if (pr && pr.kgPerM) h += '<div style="opacity:.8;">' + pr.kgPerM + ' kg/m</div>';
+    if (role && name) {
+      var r = BP.checkMember(role, name, d);
+      if (r.known) {
+        var b = function (lbl, v) {
+          var ok = v <= 1;
+          return '<span style="display:inline-block;margin-top:3px;margin-inline-end:6px;padding:0 6px;border-radius:7px;font-weight:800;' +
+            'background:' + (ok ? '#2e7d32' : '#c62828') + ';">' + (ok ? '' : '\u26a0\ufe0f ') + lbl + ' ' + Math.round(v * 100) + '%</span>';
+        };
+        h += '<div>' + (r.uW > 0
+          ? b('\u2b07 ' + BP.tt('כובד', 'น้ำหนัก', 'الوزن'), r.uG) + b('\u2b06 ' + BP.tt('רוח', 'ลม', 'رياح'), r.uW)
+          : b(BP.tt('ניצול', 'ใช้', 'استغلال'), r.util)) + '</div>';
+      }
+    }
+    return h;
   }
 
   // Callout text comes from the takeoff, so a chip says the section AND how
