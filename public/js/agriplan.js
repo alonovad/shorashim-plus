@@ -3157,7 +3157,7 @@ var AgriPlan = (function () {
     var rx2 = mid + Math.cos(ang) * r * k, ry2 = cy + Math.sin(ang) * r * k;
     g += '<line x1="' + mid + '" y1="' + cy + '" x2="' + rx2 + '" y2="' + ry2 + '" stroke="#b33c00" stroke-width="2"/>' +
       '<circle cx="' + rx2 + '" cy="' + ry2 + '" r="3" fill="#b33c00"/>' +
-      '<text x="' + ((mid + rx2) / 2 + 6) + '" y="' + ((cy + ry2) / 2 - 6) + '" font-size="13" font-weight="800" fill="#b33c00">r = ' + r + ' ' + esc(m) + '</text>';
+      '<text x="' + (rx2 + 6) + '" y="' + (ry2 - 5) + '" font-size="13" font-weight="800" fill="#b33c00" stroke="#fff7ef" stroke-width="4" paint-order="stroke" stroke-linejoin="round">r = ' + r + ' ' + esc(m) + '</text>';
     // spacing dimension between the first two trees
     var dy = cy + r * k + mg * k * 0.55;
     if (n > 1 && dy < h - 4) {
