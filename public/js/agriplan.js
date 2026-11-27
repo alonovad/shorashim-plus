@@ -3160,14 +3160,14 @@ var AgriPlan = (function () {
     var rx2 = mid + Math.cos(ang) * r * k, ry2 = cy + Math.sin(ang) * r * k;
     g += '<line x1="' + mid + '" y1="' + cy + '" x2="' + rx2 + '" y2="' + ry2 + '" stroke="#b33c00" stroke-width="2"/>' +
       '<circle cx="' + rx2 + '" cy="' + ry2 + '" r="3" fill="#b33c00"/>' +
-      '<text x="' + (rx2 + 6) + '" y="' + (ry2 - 5) + '" font-size="13" font-weight="800" direction="ltr" unicode-bidi="embed" fill="#b33c00" stroke="#fff7ef" stroke-width="4" paint-order="stroke" stroke-linejoin="round">r = ' + r + ' ' + esc(m) + '</text>';
+      '<text x="' + (rx2 + 6) + '" y="' + (ry2 - 5) + '" font-size="13" font-weight="800" direction="ltr" unicode-bidi="embed" fill="#b33c00" stroke="#fff7ef" stroke-width="4" paint-order="stroke" stroke-linejoin="round">\u202ar = ' + r + ' ' + esc(m) + '\u202c</text>';
     // spacing dimension between the first two trees
     var dy = cy + r * k + mg * k * 0.55;
     if (n > 1 && dy < h - 4) {
       g += '<line x1="' + X(0) + '" y1="' + dy + '" x2="' + X(sp) + '" y2="' + dy + '" stroke="#37474f" stroke-width="1.2"/>' +
         '<line x1="' + X(0) + '" y1="' + (dy - 5) + '" x2="' + X(0) + '" y2="' + (dy + 5) + '" stroke="#37474f"/>' +
         '<line x1="' + X(sp) + '" y1="' + (dy - 5) + '" x2="' + X(sp) + '" y2="' + (dy + 5) + '" stroke="#37474f"/>' +
-        '<text x="' + X(sp / 2) + '" y="' + (dy + 14) + '" font-size="11" text-anchor="middle" direction="rtl" unicode-bidi="embed" fill="#37474f">' + sp + ' ' + esc(m) + ' ' + esc(tt('בין עצים', 'ระหว่างต้น', 'بين الأشجار')) + '</text>';
+        '<text x="' + X(sp / 2) + '" y="' + (dy + 14) + '" font-size="11" text-anchor="middle" direction="rtl" unicode-bidi="embed" fill="#37474f">\u202b' + sp + ' ' + esc(m) + ' ' + esc(tt('בין עצים', 'ระหว่างต้น', 'بين الأشجار')) + '\u202c</text>';
     }
     return '<svg viewBox="0 0 ' + w + ' ' + h + '" width="100%" style="max-width:' + w + 'px;display:block;direction:ltr;" xmlns="http://www.w3.org/2000/svg">' + g + '</svg>';
   }
