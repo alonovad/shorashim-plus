@@ -3121,6 +3121,9 @@ var AgriPlan = (function () {
       ' · ' + tt('בין עצים', 'ระหว่างต้น', 'بين الأشجار') + ' ' + o.sp + ' ' + m + ' · ' + tt('בין שורות', 'ระหว่างแถว', 'بين الصفوف') + ' ' + o.rs + ' ' + m +
       '<br>' + tt('שטח מרוסס לעץ', 'พื้นที่พ่น/ต้น', 'المساحة المرشوشة/شجرة') + ' ≈ <b>' + Math.round(a) + ' ' + tt('מ"ר', 'ตร.ม.', 'م²') + '</b>' +
       (Math.round(a) < Math.round(full) ? ' <span style="opacity:.75;">(' + tt('עיגול מלא', 'วงกลมเต็ม', 'دائرة كاملة') + ' ' + Math.round(full) + ' - ' + tt('בניכוי חפיפה', 'หักส่วนซ้อน', 'بعد خصم التداخل') + ')</span>' : '') +
+      (a > 0 ? '<div style="margin-top:5px;padding:6px 10px;border-radius:8px;background:#ef6c00;color:#fff;font-size:.95rem;font-weight:800;display:inline-block;-webkit-print-color-adjust:exact;print-color-adjust:exact;">' +
+        '🌴 ' + tt('דונם מרוסס', 'ไร่ที่พ่น', 'دونم مرشوش') + ' = ' + n1(1000 / a) + ' ' + tt('עצים', 'ต้น', 'شجرة') +
+        ' <span style="font-weight:600;font-size:.78rem;opacity:.9;">(1,000 ÷ ' + Math.round(a) + ' ' + tt('מ"ר', 'ตร.ม.', 'م²') + ')</span></div>' : '') +
       (lap ? '<br>⚠️ ' + tt('העיגולים חופפים בין העצים - רצועה רציפה לאורך השורה', 'วงกลมซ้อนกัน - เป็นแถบต่อเนื่อง', 'الدوائر متداخلة - شريط متصل على طول الصف') : '') +
       '</div>';
   }
@@ -3157,14 +3160,14 @@ var AgriPlan = (function () {
     var rx2 = mid + Math.cos(ang) * r * k, ry2 = cy + Math.sin(ang) * r * k;
     g += '<line x1="' + mid + '" y1="' + cy + '" x2="' + rx2 + '" y2="' + ry2 + '" stroke="#b33c00" stroke-width="2"/>' +
       '<circle cx="' + rx2 + '" cy="' + ry2 + '" r="3" fill="#b33c00"/>' +
-      '<text x="' + (rx2 + 6) + '" y="' + (ry2 - 5) + '" font-size="13" font-weight="800" fill="#b33c00" stroke="#fff7ef" stroke-width="4" paint-order="stroke" stroke-linejoin="round">r = ' + r + ' ' + esc(m) + '</text>';
+      '<text x="' + (rx2 + 6) + '" y="' + (ry2 - 5) + '" font-size="13" font-weight="800" direction="ltr" unicode-bidi="embed" fill="#b33c00" stroke="#fff7ef" stroke-width="4" paint-order="stroke" stroke-linejoin="round">r = ' + r + ' ' + esc(m) + '</text>';
     // spacing dimension between the first two trees
     var dy = cy + r * k + mg * k * 0.55;
     if (n > 1 && dy < h - 4) {
       g += '<line x1="' + X(0) + '" y1="' + dy + '" x2="' + X(sp) + '" y2="' + dy + '" stroke="#37474f" stroke-width="1.2"/>' +
         '<line x1="' + X(0) + '" y1="' + (dy - 5) + '" x2="' + X(0) + '" y2="' + (dy + 5) + '" stroke="#37474f"/>' +
         '<line x1="' + X(sp) + '" y1="' + (dy - 5) + '" x2="' + X(sp) + '" y2="' + (dy + 5) + '" stroke="#37474f"/>' +
-        '<text x="' + X(sp / 2) + '" y="' + (dy + 14) + '" font-size="11" text-anchor="middle" fill="#37474f">' + sp + ' ' + esc(m) + ' ' + esc(tt('בין עצים', 'ระหว่างต้น', 'بين الأشجار')) + '</text>';
+        '<text x="' + X(sp / 2) + '" y="' + (dy + 14) + '" font-size="11" text-anchor="middle" direction="rtl" unicode-bidi="embed" fill="#37474f">' + sp + ' ' + esc(m) + ' ' + esc(tt('בין עצים', 'ระหว่างต้น', 'بين الأشجار')) + '</text>';
     }
     return '<svg viewBox="0 0 ' + w + ' ' + h + '" width="100%" style="max-width:' + w + 'px;display:block;direction:ltr;" xmlns="http://www.w3.org/2000/svg">' + g + '</svg>';
   }
